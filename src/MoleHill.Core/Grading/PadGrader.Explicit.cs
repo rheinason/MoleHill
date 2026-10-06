@@ -29,7 +29,7 @@ public static partial class PadGrader
         int faceCount,
         PadBoundary[] pads,
         LockCurve[] lockCurves,
-        IReadOnlyList<SurfaceRemesher.ConstraintPolyline>? hardConstraints,
+        IReadOnlyList<ConstraintPolyline>? hardConstraints,
         double modelTolerance,
         double terrainDetailSize,
         out string? errorMessage)
@@ -200,7 +200,7 @@ public static partial class PadGrader
         int faceCount,
         PadBoundary[] pads,
         LockCurve[] lockCurves,
-        IReadOnlyList<SurfaceRemesher.ConstraintPolyline>? hardConstraints,
+        IReadOnlyList<ConstraintPolyline>? hardConstraints,
         double modelTolerance,
         double terrainDetailSize,
         out string? errorMessage)

@@ -86,7 +86,7 @@ public class WallRailSliverInsertionTests
         3, 10, 4, 7, 11, 14, 10, 12, 11,
     };
 
-    private static readonly SurfaceRemesher.ConstraintPolyline SliverFanRail = new(
+    private static readonly ConstraintPolyline SliverFanRail = new(
         new[]
         {
             -80.78064700881451, 33.75973418643397, 36.604811032327305,
@@ -447,7 +447,7 @@ public class WallRailSliverInsertionTests
         243, 244, 123, 225, 217, 189, 164, 133, 189,
     };
 
-    private static readonly SurfaceRemesher.ConstraintPolyline HullSliverFanRail = new(
+    private static readonly ConstraintPolyline HullSliverFanRail = new(
         new[]
         {
             -120.03232436690477, 36.693925234352776, 39.00293817819106,

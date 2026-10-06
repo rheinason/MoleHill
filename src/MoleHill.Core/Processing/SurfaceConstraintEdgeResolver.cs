@@ -17,7 +17,7 @@ public static class SurfaceConstraintEdgeResolver
     public static int[] ResolveEach(
         double[] vertices,
         int[] faces,
-        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> constraints,
+        IReadOnlyList<ConstraintPolyline> constraints,
         double tolerance,
         out bool[] resolved)
     {
@@ -39,7 +39,7 @@ public static class SurfaceConstraintEdgeResolver
     public static bool TryResolve(
         double[] vertices,
         int[] faces,
-        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> constraints,
+        IReadOnlyList<ConstraintPolyline> constraints,
         double tolerance,
         out int[] requiredSegments,
         out string? failure)
@@ -65,7 +65,7 @@ public static class SurfaceConstraintEdgeResolver
         double effectiveTolerance = Math.Max(Math.Abs(tolerance), 1e-10);
         var segments = new List<IndexedSegment>();
         var bounds = new List<Bounds2D>();
-        foreach (SurfaceRemesher.ConstraintPolyline constraint in constraints)
+        foreach (ConstraintPolyline constraint in constraints)
         {
             int pointCount = Math.Min(constraint.PointCount, constraint.Points.Length / 3);
             for (int point = 1; point < pointCount; point++)
@@ -108,7 +108,7 @@ public static class SurfaceConstraintEdgeResolver
         requiredSegments = required.ToArray();
         return true;
 
-        void AddSegment(SurfaceRemesher.ConstraintPolyline constraint, int a, int b)
+        void AddSegment(ConstraintPolyline constraint, int a, int b)
         {
             double ax = constraint.Points[a * 3], ay = constraint.Points[a * 3 + 1], az = constraint.Points[a * 3 + 2];
             double bx = constraint.Points[b * 3], by = constraint.Points[b * 3 + 1], bz = constraint.Points[b * 3 + 2];

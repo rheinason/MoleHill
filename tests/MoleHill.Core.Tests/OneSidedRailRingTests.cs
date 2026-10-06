@@ -32,7 +32,7 @@ public class OneSidedRailRingTests
 
         GradingResult? result = PathGrader.Grade(
             capture.Vertices, capture.Vertices.Length / 3, capture.Faces, capture.Faces.Length / 3, grades,
-            Array.Empty<SurfaceRemesher.ConstraintPolyline>(), out string? warning, capture.Tolerance, false);
+            Array.Empty<ConstraintPolyline>(), out string? warning, capture.Tolerance, false);
 
         Assert.True(result != null, warning);
         Assert.Contains(result!.Diagnostics, d => d.Contains("terrain conform", StringComparison.Ordinal));
@@ -50,7 +50,7 @@ public class OneSidedRailRingTests
                 points[(i * 3) + 2] = g.ZValues[i];
             }
 
-            return new SurfaceRemesher.ConstraintPolyline(points, g.VertexCount, g.IsClosed, PreserveInputElevation: true);
+            return new ConstraintPolyline(points, g.VertexCount, g.IsClosed, PreserveInputElevation: true);
         }).ToList();
         InsertedConstraintTracer.TraceAll(rails, result.Vertices, result.VertexCount, result.Faces, result.FaceCount, 0.01, out int traced);
         Assert.Equal(rails.Count, traced);
@@ -83,7 +83,7 @@ public class OneSidedRailRingTests
         var path = new PathGrader.PathDefinition(xy, z, stations, width: 0.0, slopeAngleDeg: 30.0, isClosed: true, outwardNormals: normals);
         GradingResult? result = PathGrader.Grade(
             vertices, vertices.Length / 3, faces, faces.Length / 3, new[] { path },
-            Array.Empty<SurfaceRemesher.ConstraintPolyline>(), out string? warning, 0.001, false);
+            Array.Empty<ConstraintPolyline>(), out string? warning, 0.001, false);
 
         Assert.True(result != null, warning);
         Assert.Contains(result!.Diagnostics, d => d.Contains("terrain conform", StringComparison.Ordinal));
@@ -92,7 +92,7 @@ public class OneSidedRailRingTests
         Assert.Equal(0, topology.NonManifoldEdgeCount);
 
         InsertedConstraintTracer.TraceAll(
-            new[] { new SurfaceRemesher.ConstraintPolyline(rail, stations, true, PreserveInputElevation: true) },
+            new[] { new ConstraintPolyline(rail, stations, true, PreserveInputElevation: true) },
             result.Vertices, result.VertexCount, result.Faces, result.FaceCount, 0.01, out int traced);
         Assert.Equal(1, traced);
 

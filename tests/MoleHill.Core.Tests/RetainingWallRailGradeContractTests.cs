@@ -3477,7 +3477,7 @@ public class RetainingWallRailGradeContractTests
         };
 
 
-        var hardConstraints = System.Array.Empty<SurfaceRemesher.ConstraintPolyline>();
+        var hardConstraints = System.Array.Empty<ConstraintPolyline>();
 
         GradingResult? result = PathGrader.Grade(
             vertices, vertexCount, faces, faceCount, paths, hardConstraints,

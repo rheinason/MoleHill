@@ -12,8 +12,8 @@ namespace MoleHill.Core.Tests;
 /// </summary>
 public class CrossFieldSolverTests
 {
-    private static IReadOnlyList<SurfaceRemesher.ConstraintPolyline> NoConstraints =>
-        Array.Empty<SurfaceRemesher.ConstraintPolyline>();
+    private static IReadOnlyList<ConstraintPolyline> NoConstraints =>
+        Array.Empty<ConstraintPolyline>();
 
     // n x n vertex grid, right-triangulated, optionally rotated by phi in XY (z = 0; irrelevant to field).
     private static (double[] verts, int[] faces) Grid(int n, double phi)

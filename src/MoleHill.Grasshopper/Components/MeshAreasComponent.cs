@@ -122,7 +122,7 @@ public sealed class MeshAreasComponent : RegistryTerrainComponent
             vertices, vertexCount,
             faces, faceCount,
             areas.ToArray(),
-            Array.Empty<SurfaceRemesher.ConstraintPolyline>(),
+            Array.Empty<ConstraintPolyline>(),
             tolerance,
             maxArea, minAngle,
             out string? errorMessage);

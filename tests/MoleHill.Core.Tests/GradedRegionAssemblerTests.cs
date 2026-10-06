@@ -111,7 +111,7 @@ public class GradedRegionAssemblerTests
             }
         }
 
-        var padBoundary = new SurfaceRemesher.ConstraintPolyline(
+        var padBoundary = new ConstraintPolyline(
             new double[] { 10, 10, 10, 30, 10, 10, 30, 30, 10, 10, 30, 10 }, 4, true, true);
         double[] outline = { 0, 0, 40, 0, 40, 40, 0, 40 };
         double[] daylight = { 2, 2, 8, 2, 8, 8, 2, 8 };

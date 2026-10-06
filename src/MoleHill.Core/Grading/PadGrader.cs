@@ -72,7 +72,7 @@ public static partial class PadGrader
         out IReadOnlyList<GradingDiagnostic> failureStructuredDiagnostics,
         double modelTolerance = GradingTolerances.DefaultModelTolerance,
         double terrainDetailSize = 0.0,
-        IReadOnlyList<SurfaceRemesher.ConstraintPolyline>? hardConstraints = null)
+        IReadOnlyList<ConstraintPolyline>? hardConstraints = null)
     {
         errorMessage = null;
         failureOutputPolylines = Array.Empty<OutputPolyline>();
@@ -102,7 +102,7 @@ public static partial class PadGrader
         // wall-face edges unless they are re-inserted as exact constraints - a pad on the far side of
         // the terrain then orphans a wall's foot vertices. Path grading has always threaded these; pad
         // grading did not, which is what the wall-foot regression was.
-        hardConstraints ??= Array.Empty<SurfaceRemesher.ConstraintPolyline>();
+        hardConstraints ??= Array.Empty<ConstraintPolyline>();
         if (!GradingInputValidator.ValidateConstraintPolylines(hardConstraints, "Hard", out errorMessage))
         {
             failureStructuredDiagnostics = BuildFailureDiagnostic(

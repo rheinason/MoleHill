@@ -41,7 +41,7 @@ internal sealed class TerrainCoreCaseRecorder
         int[] faces,
         int faceCount,
         PathGrader.PathDefinition[] paths,
-        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> hardConstraints,
+        IReadOnlyList<ConstraintPolyline> hardConstraints,
         double modelTolerance,
         bool preferSplitKeep,
         bool succeeded,
@@ -154,9 +154,9 @@ internal sealed class TerrainCoreCaseRecorder
             .ToArray();
     }
 
-    private static SurfaceRemesher.ConstraintPolyline CloneConstraint(SurfaceRemesher.ConstraintPolyline constraint)
+    private static ConstraintPolyline CloneConstraint(ConstraintPolyline constraint)
     {
-        return new SurfaceRemesher.ConstraintPolyline(
+        return new ConstraintPolyline(
             (double[])constraint.Points.Clone(),
             constraint.PointCount,
             constraint.IsClosed,
@@ -206,7 +206,7 @@ internal sealed record TerrainCorePathCaseRecord(
     int[] Faces,
     int FaceCount,
     PathGrader.PathDefinition[] Paths,
-    SurfaceRemesher.ConstraintPolyline[] HardConstraints,
+    ConstraintPolyline[] HardConstraints,
     double ModelTolerance,
     bool PreferSplitKeep)
     : TerrainCoreCaseRecord(StageName, Succeeded, ResultVertexCount, ResultFaceCount, Message);

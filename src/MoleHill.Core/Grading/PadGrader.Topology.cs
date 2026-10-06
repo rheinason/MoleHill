@@ -92,7 +92,7 @@ public static partial class PadGrader
                 operation: "grade_pad");
             return new ConstraintSet
             {
-                Constraints = Array.Empty<SurfaceRemesher.ConstraintPolyline>(),
+                Constraints = Array.Empty<ConstraintPolyline>(),
                 SuggestedEdgeLength = 0.0,
                 Diagnostics = [diagnostic.Message],
                 StructuredDiagnostics = [diagnostic]
@@ -107,7 +107,7 @@ public static partial class PadGrader
                 operation: "grade_pad");
             return new ConstraintSet
             {
-                Constraints = Array.Empty<SurfaceRemesher.ConstraintPolyline>(),
+                Constraints = Array.Empty<ConstraintPolyline>(),
                 SuggestedEdgeLength = 0.0,
                 Diagnostics = [diagnostic.Message],
                 StructuredDiagnostics = [diagnostic]
@@ -122,7 +122,7 @@ public static partial class PadGrader
                 operation: "grade_pad");
             return new ConstraintSet
             {
-                Constraints = Array.Empty<SurfaceRemesher.ConstraintPolyline>(),
+                Constraints = Array.Empty<ConstraintPolyline>(),
                 SuggestedEdgeLength = 0.0,
                 Diagnostics = [diagnostic.Message],
                 StructuredDiagnostics = [diagnostic]
@@ -132,8 +132,8 @@ public static partial class PadGrader
         pads = OrderPadsForOwnership(pads);
 
         bool hasBoundaryLoop = TryBuildBoundaryLoop(vertices, faces, faceCount, out var boundaryLoop, out int boundaryVertexCount);
-        var constraints = new List<SurfaceRemesher.ConstraintPolyline>(pads.Length * 3 + lockCurves.Length);
-        var guidePolylines = new List<SurfaceRemesher.ConstraintPolyline>();
+        var constraints = new List<ConstraintPolyline>(pads.Length * 3 + lockCurves.Length);
+        var guidePolylines = new List<ConstraintPolyline>();
         var diagnostics = new GradingDiagnosticCollector();
         double suggestedEdgeLength = double.MaxValue;
         bool useCoupledProtectedUnionLoops =
@@ -153,7 +153,7 @@ public static partial class PadGrader
             double shoulderDistance = ComputePadTransitionDistance(vertices, vertexCount, pad);
             double segmentLength = ComputePadConstraintSegmentLength(shoulderDistance, dedupTol);
             var padLoop = BuildClosedConstraintLoop(pad.XyVertices, pad.VertexCount, segmentLength, dedupTol);
-            constraints.Add(new SurfaceRemesher.ConstraintPolyline(
+            constraints.Add(new ConstraintPolyline(
                 CreateConstraintPoints(padLoop.XyVertices, padLoop.VertexCount),
                 padLoop.VertexCount,
                 IsClosed: true,
@@ -206,7 +206,7 @@ public static partial class PadGrader
                     !ReferenceEquals(transitionBoundaryXy, padLoop.XyVertices))
                     )
                 {
-                    constraints.Add(new SurfaceRemesher.ConstraintPolyline(
+                    constraints.Add(new ConstraintPolyline(
                         CreateConstraintPoints(transitionBoundaryXy, transitionBoundaryVertexCount),
                         transitionBoundaryVertexCount,
                         IsClosed: true,
@@ -219,7 +219,7 @@ public static partial class PadGrader
                 }
                 else
                 {
-                    constraints.Add(new SurfaceRemesher.ConstraintPolyline(
+                    constraints.Add(new ConstraintPolyline(
                         CreateConstraintPoints(shoulderXy, shoulderVertexCount),
                         shoulderVertexCount,
                         IsClosed: true,
@@ -256,7 +256,7 @@ public static partial class PadGrader
                     }
                     else
                     {
-                        constraints.Add(new SurfaceRemesher.ConstraintPolyline(
+                        constraints.Add(new ConstraintPolyline(
                             CreateConstraintPoints(stitchXy, stitchVertexCount),
                             stitchVertexCount,
                             IsClosed: true,
@@ -324,7 +324,7 @@ public static partial class PadGrader
                     points[i * 3 + 1] = lockCurve.XyVertices[i * 2 + 1];
                 }
 
-                constraints.Add(new SurfaceRemesher.ConstraintPolyline(
+                constraints.Add(new ConstraintPolyline(
                     points,
                     lockCurve.VertexCount,
                     IsClosed: false,
@@ -368,7 +368,7 @@ public static partial class PadGrader
     }
 
     private static void AddPadTransitionStationConstraints(
-        List<SurfaceRemesher.ConstraintPolyline> constraints,
+        List<ConstraintPolyline> constraints,
         int padIndex,
         PadBoundary[] pads,
         double[] padLoopXy,
@@ -403,7 +403,7 @@ public static partial class PadGrader
                 continue;
             }
 
-            constraints.Add(new SurfaceRemesher.ConstraintPolyline(
+            constraints.Add(new ConstraintPolyline(
                 new[] { ax, ay, 0.0, bx, by, 0.0 },
                 PointCount: 2,
                 IsClosed: false,
@@ -412,7 +412,7 @@ public static partial class PadGrader
     }
 
     private static void AddUnionedCoupledPadLoops(
-        List<SurfaceRemesher.ConstraintPolyline> constraints,
+        List<ConstraintPolyline> constraints,
         GradingDiagnosticCollector diagnostics,
         string diagnosticCode,
         string diagnosticMessage,
@@ -444,7 +444,7 @@ public static partial class PadGrader
     }
 
     private static void AddClosedConstraintLoop(
-        List<SurfaceRemesher.ConstraintPolyline> constraints,
+        List<ConstraintPolyline> constraints,
         double[] loopXy,
         double tolerance,
         ref double suggestedEdgeLength)
@@ -453,7 +453,7 @@ public static partial class PadGrader
         if (vertexCount < 3)
             return;
 
-        constraints.Add(new SurfaceRemesher.ConstraintPolyline(
+        constraints.Add(new ConstraintPolyline(
             CreateConstraintPoints(loopXy, vertexCount),
             vertexCount,
             IsClosed: true,

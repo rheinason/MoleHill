@@ -11,7 +11,7 @@ public class TerrainBuildServicePreservedElevationTests
     {
         // A closed square rail at 10 m, open in the point list (last point is not the first repeated), as
         // the wall planner emits ring walls. The closing segment runs from (0, 4) back to (0, 0).
-        var rail = new SurfaceRemesher.ConstraintPolyline(
+        var rail = new ConstraintPolyline(
             new double[] { 0, 0, 10, 4, 0, 10, 4, 4, 10, 0, 4, 10 },
             4,
             IsClosed: true,
@@ -33,7 +33,7 @@ public class TerrainBuildServicePreservedElevationTests
     [Fact]
     public void ApplyPreservedConstraintElevations_OpenRail_LeavesThePointsBetweenItsEndsAlone()
     {
-        var rail = new SurfaceRemesher.ConstraintPolyline(
+        var rail = new ConstraintPolyline(
             new double[] { 0, 0, 10, 4, 0, 10, 4, 4, 10, 0, 4, 10 },
             4,
             IsClosed: false,

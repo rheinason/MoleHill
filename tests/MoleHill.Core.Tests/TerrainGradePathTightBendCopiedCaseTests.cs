@@ -1863,7 +1863,7 @@ public class TerrainGradePathTightBendCopiedCaseTests
         };
         var hardConstraints = new[]
         {
-            new SurfaceRemesher.ConstraintPolyline(
+            new ConstraintPolyline(
                 new[]
                 {
                     487.44545231251317, -454.9666359356769, 20.137379418671188, 471.5624812714795, -405.27530461252263, 20.137379418671188, 445.0727317951823, -413.74229297071577, 20.137379418671188, 460.95570283621606, -463.4336242938701, 20.137379418671188,
@@ -1871,7 +1871,7 @@ public class TerrainGradePathTightBendCopiedCaseTests
                 4,
                 true,
                 true),
-            new SurfaceRemesher.ConstraintPolyline(
+            new ConstraintPolyline(
                 new[]
                 {
                     506.05306520789475, -436.99280787868156, 30.19144952740229, 558.2210360114233, -436.99280787868156, 30.19144952740229, 558.2210360114233, -409.18279674645146, 30.19144952740229, 506.05306520789475, -409.18279674645146, 30.19144952740229,
@@ -1948,7 +1948,7 @@ public class TerrainGradePathTightBendCopiedCaseTests
         double[] vertices,
         int[] faces,
         int faceCount,
-        SurfaceRemesher.ConstraintPolyline[] hardConstraints,
+        ConstraintPolyline[] hardConstraints,
         double wallExclusionDistance)
     {
         double maxTanSq = 0.0;
@@ -1998,7 +1998,7 @@ public class TerrainGradePathTightBendCopiedCaseTests
     /// <summary>Debug detail for spike failures: every face steeper than the allowance, with geometry.</summary>
     private static string DescribeSteepFaces(
         double[] vertices, int[] faces, int faceCount,
-        SurfaceRemesher.ConstraintPolyline[] hardConstraints, double allowedDeg)
+        ConstraintPolyline[] hardConstraints, double allowedDeg)
     {
         var lines = new List<string>();
         double allowedTanSq = Math.Tan(allowedDeg * Math.PI / 180.0);
@@ -2038,10 +2038,10 @@ public class TerrainGradePathTightBendCopiedCaseTests
         return $"Steep faces ({lines.Count} shown):" + Environment.NewLine + string.Join(Environment.NewLine, lines);
     }
 
-    private static double DistanceToConstraints(double x, double y, SurfaceRemesher.ConstraintPolyline[] hardConstraints)
+    private static double DistanceToConstraints(double x, double y, ConstraintPolyline[] hardConstraints)
     {
         double best = double.MaxValue;
-        foreach (SurfaceRemesher.ConstraintPolyline constraint in hardConstraints)
+        foreach (ConstraintPolyline constraint in hardConstraints)
         {
             int n = constraint.PointCount;
             int segmentCount = constraint.IsClosed ? n : n - 1;

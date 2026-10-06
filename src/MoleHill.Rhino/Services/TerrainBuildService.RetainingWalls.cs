@@ -110,7 +110,7 @@ internal sealed partial class TerrainBuildService
             return mesh;
         }
 
-        List<SurfaceRemesher.ConstraintPolyline> wallConstraints = new(plan.Walls.Count * 2);
+        List<ConstraintPolyline> wallConstraints = new(plan.Walls.Count * 2);
         var wallOutputTimer = new Stopwatch();
         var constraintCurveTimer = new Stopwatch();
         int usableWallCount = 0;
@@ -164,7 +164,7 @@ internal sealed partial class TerrainBuildService
             wallOutputTimer.Stop();
 
             constraintCurveTimer.Start();
-            SurfaceRemesher.ConstraintPolyline[] wallSetConstraints = BuildWallConstraintCurves(wall.Rails, wallTolerance);
+            ConstraintPolyline[] wallSetConstraints = BuildWallConstraintCurves(wall.Rails, wallTolerance);
             constraintCurveTimer.Stop();
             if (wallSetConstraints.Length == 0)
                 continue;
@@ -221,7 +221,7 @@ internal sealed partial class TerrainBuildService
                 StageTimingDiagnosticThresholdMs);
             if (adopted)
             {
-                List<SurfaceRemesher.ConstraintPolyline> mergedConstraints = CombineConstraints(build.PersistentHardConstraints, tracedRails);
+                List<ConstraintPolyline> mergedConstraints = CombineConstraints(build.PersistentHardConstraints, tracedRails);
                 build.PersistentHardConstraints.Clear();
                 build.PersistentHardConstraints.AddRange(mergedConstraints);
                 return adoptedMesh;
@@ -257,7 +257,7 @@ internal sealed partial class TerrainBuildService
         if (inserted)
         {
             var persistTimer = Stopwatch.StartNew();
-            List<SurfaceRemesher.ConstraintPolyline> mergedConstraints = CombineConstraints(build.PersistentHardConstraints, wallConstraints);
+            List<ConstraintPolyline> mergedConstraints = CombineConstraints(build.PersistentHardConstraints, wallConstraints);
             build.PersistentHardConstraints.Clear();
             build.PersistentHardConstraints.AddRange(mergedConstraints);
             persistTimer.Stop();
@@ -309,9 +309,9 @@ internal sealed partial class TerrainBuildService
             "Topology fallback");
 
         var combineTimer = Stopwatch.StartNew();
-        List<SurfaceRemesher.ConstraintPolyline> terrainElevationConstraints =
+        List<ConstraintPolyline> terrainElevationConstraints =
             CombineConstraints(build.PersistentHardConstraints, build.PersistentElevationConstraints);
-        List<SurfaceRemesher.ConstraintPolyline> remeshConstraints =
+        List<ConstraintPolyline> remeshConstraints =
             CombineConstraints(terrainElevationConstraints, wallConstraints);
         combineTimer.Stop();
         build.RecordTiming(
@@ -400,7 +400,7 @@ internal sealed partial class TerrainBuildService
         if (!ReferenceEquals(remeshed, mesh))
         {
             var persistTimer = Stopwatch.StartNew();
-            List<SurfaceRemesher.ConstraintPolyline> mergedConstraints = CombineConstraints(build.PersistentHardConstraints, wallConstraints);
+            List<ConstraintPolyline> mergedConstraints = CombineConstraints(build.PersistentHardConstraints, wallConstraints);
             build.PersistentHardConstraints.Clear();
             build.PersistentHardConstraints.AddRange(mergedConstraints);
             persistTimer.Stop();
@@ -566,14 +566,14 @@ internal sealed partial class TerrainBuildService
     private static void AddRetainingWallConstraintOverlay(
         TerrainBuildResult build,
         RetainingWallModifierDefinition modifier,
-        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> constraints,
+        IReadOnlyList<ConstraintPolyline> constraints,
         RuntimeOverlaySeverity severity,
         string code,
         string message,
         string shortLabel)
     {
         var primitives = new List<RuntimeOverlayPrimitive>();
-        foreach (SurfaceRemesher.ConstraintPolyline constraint in constraints)
+        foreach (ConstraintPolyline constraint in constraints)
         {
             var points = new Point3d[constraint.PointCount];
             for (int i = 0; i < constraint.PointCount; i++)
@@ -661,26 +661,26 @@ internal sealed partial class TerrainBuildService
         });
     }
 
-    private static SurfaceRemesher.ConstraintPolyline[] BuildWallConstraintCurves(RetainingWallPlannerCore.WallRails rails, double tolerance)
+    private static ConstraintPolyline[] BuildWallConstraintCurves(RetainingWallPlannerCore.WallRails rails, double tolerance)
     {
-        var curves = new List<SurfaceRemesher.ConstraintPolyline>(2);
+        var curves = new List<ConstraintPolyline>(2);
         int minimum = rails.IsClosed ? 3 : 2;
-        SurfaceRemesher.ConstraintPolyline toeCurve = CreateWallRailConstraint(rails.ToePoints, rails.IsClosed, tolerance);
+        ConstraintPolyline toeCurve = CreateWallRailConstraint(rails.ToePoints, rails.IsClosed, tolerance);
         if (toeCurve.PointCount >= minimum)
             curves.Add(toeCurve);
 
-        SurfaceRemesher.ConstraintPolyline topCurve = CreateWallRailConstraint(rails.TopPoints, rails.IsClosed, tolerance);
+        ConstraintPolyline topCurve = CreateWallRailConstraint(rails.TopPoints, rails.IsClosed, tolerance);
         if (topCurve.PointCount >= minimum)
             curves.Add(topCurve);
 
         return curves.ToArray();
     }
 
-    private static SurfaceRemesher.ConstraintPolyline CreateWallRailConstraint(Point3d[] railPoints, bool isClosed, double tolerance)
+    private static ConstraintPolyline CreateWallRailConstraint(Point3d[] railPoints, bool isClosed, double tolerance)
     {
         int minimum = isClosed ? 3 : 2;
         if (railPoints.Length < minimum)
-            return new SurfaceRemesher.ConstraintPolyline(Array.Empty<double>(), 0, isClosed, PreserveInputElevation: true);
+            return new ConstraintPolyline(Array.Empty<double>(), 0, isClosed, PreserveInputElevation: true);
 
         double tolSq = Math.Max(Math.Abs(tolerance), double.Epsilon);
         tolSq *= tolSq;
@@ -701,7 +701,7 @@ internal sealed partial class TerrainBuildService
             points.RemoveAt(points.Count - 1);
 
         if (points.Count < minimum)
-            return new SurfaceRemesher.ConstraintPolyline(Array.Empty<double>(), 0, isClosed, PreserveInputElevation: true);
+            return new ConstraintPolyline(Array.Empty<double>(), 0, isClosed, PreserveInputElevation: true);
 
         var values = new double[points.Count * 3];
         for (int i = 0; i < points.Count; i++)
@@ -711,15 +711,15 @@ internal sealed partial class TerrainBuildService
             values[i * 3 + 2] = points[i].Z;
         }
 
-        return new SurfaceRemesher.ConstraintPolyline(values, points.Count, isClosed, PreserveInputElevation: true);
+        return new ConstraintPolyline(values, points.Count, isClosed, PreserveInputElevation: true);
     }
 
-    private static List<SurfaceRemesher.ConstraintPolyline> PrepareWallConstraintsForRemesh(
+    private static List<ConstraintPolyline> PrepareWallConstraintsForRemesh(
         RhinoMesh mesh,
-        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> constraints,
+        IReadOnlyList<ConstraintPolyline> constraints,
         double tolerance)
     {
-        var prepared = new List<SurfaceRemesher.ConstraintPolyline>(constraints.Count);
+        var prepared = new List<ConstraintPolyline>(constraints.Count);
         if (constraints.Count == 0)
             return prepared;
 
@@ -733,9 +733,9 @@ internal sealed partial class TerrainBuildService
                 out int meshFaceCount,
                 out _))
         {
-            foreach (SurfaceRemesher.ConstraintPolyline constraint in constraints)
+            foreach (ConstraintPolyline constraint in constraints)
             {
-                SurfaceRemesher.ConstraintPolyline cleaned = CleanWallConstraintPolyline(constraint, tolerance);
+                ConstraintPolyline cleaned = CleanWallConstraintPolyline(constraint, tolerance);
                 if (cleaned.PointCount >= 2)
                     prepared.Add(cleaned);
             }
@@ -751,19 +751,19 @@ internal sealed partial class TerrainBuildService
             Math.Max(Math.Abs(tolerance), double.Epsilon),
             constraints);
 
-        foreach (SurfaceRemesher.ConstraintPolyline constraint in constraints)
+        foreach (ConstraintPolyline constraint in constraints)
         {
-            SurfaceRemesher.ConstraintPolyline snapped = snapper.SnapConstraintPolyline(constraint);
-            SurfaceRemesher.ConstraintPolyline cleaned = CleanWallConstraintPolyline(snapped, tolerance);
+            ConstraintPolyline snapped = snapper.SnapConstraintPolyline(constraint);
+            ConstraintPolyline cleaned = CleanWallConstraintPolyline(snapped, tolerance);
             if (cleaned.PointCount >= 2)
                 prepared.Add(cleaned);
         }
 
-        return CombineConstraints(Array.Empty<SurfaceRemesher.ConstraintPolyline>(), prepared);
+        return CombineConstraints(Array.Empty<ConstraintPolyline>(), prepared);
     }
 
-    private static SurfaceRemesher.ConstraintPolyline CleanWallConstraintPolyline(
-        SurfaceRemesher.ConstraintPolyline constraint,
+    private static ConstraintPolyline CleanWallConstraintPolyline(
+        ConstraintPolyline constraint,
         double tolerance)
     {
         if (constraint.PointCount < 2)
@@ -798,8 +798,8 @@ internal sealed partial class TerrainBuildService
         int pointCount = points.Count / 3;
         int minimum = constraint.IsClosed ? 3 : 2;
         return pointCount >= minimum
-            ? new SurfaceRemesher.ConstraintPolyline(points.ToArray(), pointCount, constraint.IsClosed, constraint.PreserveInputElevation)
-            : new SurfaceRemesher.ConstraintPolyline(Array.Empty<double>(), 0, constraint.IsClosed, constraint.PreserveInputElevation);
+            ? new ConstraintPolyline(points.ToArray(), pointCount, constraint.IsClosed, constraint.PreserveInputElevation)
+            : new ConstraintPolyline(Array.Empty<double>(), 0, constraint.IsClosed, constraint.PreserveInputElevation);
     }
 
     /// <summary>
@@ -819,21 +819,21 @@ internal sealed partial class TerrainBuildService
     /// </summary>
     private static bool TryAdoptGradedRails(
         RhinoMesh mesh,
-        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> wallConstraints,
+        IReadOnlyList<ConstraintPolyline> wallConstraints,
         double tolerance,
         TerrainBuildResult build,
         out RhinoMesh adoptedMesh,
-        out List<SurfaceRemesher.ConstraintPolyline> tracedRails)
+        out List<ConstraintPolyline> tracedRails)
     {
         adoptedMesh = mesh;
-        tracedRails = new List<SurfaceRemesher.ConstraintPolyline>();
+        tracedRails = new List<ConstraintPolyline>();
         if (!RhinoGeometryConversions.TryExtractMeshData(mesh, out double[] vertices, out int vertexCount, out int[] faces, out int faceCount, out _))
             return false;
 
         // A little past the conform's own reach, so a point snapped right at the limit still traces.
         double traceRadius = GradingTolerances.ModelToleranceOrDefault(tolerance) *
             MeshAreaTopologySplitter.ConformSnapToleranceFactor * 1.25;
-        List<SurfaceRemesher.ConstraintPolyline> traced = InsertedConstraintTracer.TraceAll(
+        List<ConstraintPolyline> traced = InsertedConstraintTracer.TraceAll(
             wallConstraints, vertices, vertexCount, faces, faceCount, traceRadius, out int tracedCount);
         if (tracedCount != wallConstraints.Count)
             return false;
@@ -853,9 +853,9 @@ internal sealed partial class TerrainBuildService
     }
 
     /// <summary><paramref name="traced"/>'s plan points with elevations interpolated along <paramref name="drawn"/>.</summary>
-    private static SurfaceRemesher.ConstraintPolyline WithElevationsAlong(
-        SurfaceRemesher.ConstraintPolyline traced,
-        SurfaceRemesher.ConstraintPolyline drawn)
+    private static ConstraintPolyline WithElevationsAlong(
+        ConstraintPolyline traced,
+        ConstraintPolyline drawn)
     {
         double[] points = (double[])traced.Points.Clone();
         int segments = drawn.IsClosed ? drawn.PointCount : drawn.PointCount - 1;
@@ -880,12 +880,12 @@ internal sealed partial class TerrainBuildService
             }
         }
 
-        return new SurfaceRemesher.ConstraintPolyline(points, traced.PointCount, traced.IsClosed, traced.PreserveInputElevation);
+        return new ConstraintPolyline(points, traced.PointCount, traced.IsClosed, traced.PreserveInputElevation);
     }
 
     private static bool TryInsertWallConstraintsIntoExistingMesh(
         RhinoMesh mesh,
-        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> wallConstraints,
+        IReadOnlyList<ConstraintPolyline> wallConstraints,
         double tolerance,
         TerrainBuildResult build,
         bool useQualityPatch,
@@ -901,7 +901,7 @@ internal sealed partial class TerrainBuildService
             return false;
         }
 
-        IReadOnlyList<SurfaceRemesher.ConstraintPolyline>? qualityConstraints = useQualityPatch
+        IReadOnlyList<ConstraintPolyline>? qualityConstraints = useQualityPatch
             ? CombineConstraints(CombineConstraints(build.PersistentHardConstraints, build.PersistentElevationConstraints), wallConstraints)
             : null;
         var messages = new List<string>();
@@ -928,8 +928,8 @@ internal sealed partial class TerrainBuildService
         int vertexCount,
         int[] faces,
         int faceCount,
-        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> wallConstraints,
-        IReadOnlyList<SurfaceRemesher.ConstraintPolyline>? qualityConstraints,
+        IReadOnlyList<ConstraintPolyline> wallConstraints,
+        IReadOnlyList<ConstraintPolyline>? qualityConstraints,
         double tolerance,
         bool afterCombinedRemeshFailed,
         List<string> messages,

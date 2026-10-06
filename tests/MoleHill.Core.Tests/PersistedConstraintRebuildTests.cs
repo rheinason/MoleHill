@@ -55,7 +55,7 @@ public sealed class PersistedConstraintRebuildTests
         SurfaceRemesher.Result result = SurfaceRemesher.Remesh(
             vertices,
             faces,
-            new[] { new SurfaceRemesher.ConstraintPolyline(persisted, persisted.Length / 3, false, PreserveInputElevation: true) },
+            new[] { new ConstraintPolyline(persisted, persisted.Length / 3, false, PreserveInputElevation: true) },
             new SurfaceRemesher.Options
             {
                 Tolerance = Tolerance,

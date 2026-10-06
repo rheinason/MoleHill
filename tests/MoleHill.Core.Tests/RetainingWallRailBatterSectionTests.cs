@@ -21,7 +21,7 @@ public class RetainingWallRailBatterSectionTests
         var (vertices, vertexCount, faces, faceCount, paths) = RetainingWallRailCaseData.Build(angle);
         GradingResult? result = PathGrader.Grade(
             vertices, vertexCount, faces, faceCount, paths,
-            Array.Empty<SurfaceRemesher.ConstraintPolyline>(),
+            Array.Empty<ConstraintPolyline>(),
             out _, 0.01, false);
 
         if (result == null)

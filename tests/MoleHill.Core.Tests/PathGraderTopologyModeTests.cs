@@ -44,7 +44,7 @@ public class PathGraderTopologyModeTests
         double[] withoutBarrier = PathGrader.ApplyGradingZ(vertices, vertices.Length / 3, faces, faces.Length / 3, new[] { path }, out _);
         Assert.Equal(2.0, withoutBarrier[(blockedVertexIndex * 3) + 2], 6);
 
-        var hardConstraint = new SurfaceRemesher.ConstraintPolyline(
+        var hardConstraint = new ConstraintPolyline(
             new[]
             {
                 20.0, 58.0, 0.0,
@@ -93,7 +93,7 @@ public class PathGraderTopologyModeTests
             new[] { path },
             tolerance: 1e-3);
 
-        var hardConstraint = new SurfaceRemesher.ConstraintPolyline(
+        var hardConstraint = new ConstraintPolyline(
             new[]
             {
                 50.0, 10.0, 2.0,
@@ -103,7 +103,7 @@ public class PathGraderTopologyModeTests
             IsClosed: false,
             PreserveInputElevation: true);
 
-        var constraints = new SurfaceRemesher.ConstraintPolyline[pathConstraints.Constraints.Length + 1];
+        var constraints = new ConstraintPolyline[pathConstraints.Constraints.Length + 1];
         Array.Copy(pathConstraints.Constraints, constraints, pathConstraints.Constraints.Length);
         constraints[^1] = hardConstraint;
 
@@ -148,7 +148,7 @@ public class PathGraderTopologyModeTests
             new[] { path },
             tolerance: 1e-3);
 
-        var hardConstraint = new SurfaceRemesher.ConstraintPolyline(
+        var hardConstraint = new ConstraintPolyline(
             new[]
             {
                 20.0, 57.8, 0.0,
@@ -158,7 +158,7 @@ public class PathGraderTopologyModeTests
             IsClosed: false,
             PreserveInputElevation: true);
 
-        var constraints = new SurfaceRemesher.ConstraintPolyline[pathConstraints.Constraints.Length + 1];
+        var constraints = new ConstraintPolyline[pathConstraints.Constraints.Length + 1];
         constraints[0] = hardConstraint;
         Array.Copy(pathConstraints.Constraints, 0, constraints, 1, pathConstraints.Constraints.Length);
 
@@ -213,7 +213,7 @@ public class PathGraderTopologyModeTests
             new[] { path },
             tolerance: 1e-3);
 
-        var hardConstraint = new SurfaceRemesher.ConstraintPolyline(
+        var hardConstraint = new ConstraintPolyline(
             new[]
             {
                 20.0, 57.8, 0.0,
@@ -223,7 +223,7 @@ public class PathGraderTopologyModeTests
             IsClosed: false,
             PreserveInputElevation: true);
 
-        var constraints = new SurfaceRemesher.ConstraintPolyline[pathConstraints.Constraints.Length + 1];
+        var constraints = new ConstraintPolyline[pathConstraints.Constraints.Length + 1];
         constraints[0] = hardConstraint;
         Array.Copy(pathConstraints.Constraints, 0, constraints, 1, pathConstraints.Constraints.Length);
 
@@ -358,7 +358,7 @@ public class PathGraderTopologyModeTests
             slopeAngleDeg: 45.0,
             maxDistance: 10.0);
 
-        var hardConstraint = new SurfaceRemesher.ConstraintPolyline(
+        var hardConstraint = new ConstraintPolyline(
             new[]
             {
                 20.0, 57.8, 0.0,

@@ -16,7 +16,7 @@ public static partial class PathGrader
     /// </param>
     private static void ApplyPathGrading(
         PathDefinition[] paths,
-        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> barrierConstraints,
+        IReadOnlyList<ConstraintPolyline> barrierConstraints,
         double[] outXy, double[] origZ, double[] newZ, int vertCount,
         Func<double, double, double>? interpolateOriginalZ = null,
         bool hasBoundaryLoop = false,

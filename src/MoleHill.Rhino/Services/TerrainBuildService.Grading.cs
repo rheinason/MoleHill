@@ -248,7 +248,7 @@ internal sealed partial class TerrainBuildService
             int[] topologyFaces;
             int topologyFaceCount;
             bool gradePadTopologyFailed = gradeResult == null;
-            List<SurfaceRemesher.ConstraintPolyline> outputConstraints = CreateOutputPolylineConstraints(
+            List<ConstraintPolyline> outputConstraints = CreateOutputPolylineConstraints(
                 gradeResult?.OutputPolylines ?? failureOutputPolylines);
             build.PersistentHardConstraints.AddRange(TerrainRuntimeCacheCloner.CloneConstraints(outputConstraints));
             if (gradeResult == null)
@@ -428,7 +428,7 @@ internal sealed partial class TerrainBuildService
         PadGrader.ConstraintSet constraintSet = padArray.Length == 0
             ? new PadGrader.ConstraintSet
             {
-                Constraints = Array.Empty<SurfaceRemesher.ConstraintPolyline>(),
+                Constraints = Array.Empty<ConstraintPolyline>(),
                 SuggestedEdgeLength = 0.0,
                 Diagnostics = Array.Empty<string>(),
                 StructuredDiagnostics = Array.Empty<GradingDiagnostic>()
@@ -529,7 +529,7 @@ internal sealed partial class TerrainBuildService
 
     private static PadGrader.LockCurve[] CombinePadLockCurves(
         IReadOnlyList<PadGrader.LockCurve> localLocks,
-        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> persistentHardConstraints,
+        IReadOnlyList<ConstraintPolyline> persistentHardConstraints,
         IReadOnlyList<PadGrader.PadBoundary> pads,
         double[] terrainVertices,
         int terrainVertexCount,
@@ -711,7 +711,7 @@ internal sealed partial class TerrainBuildService
     }
 
     private static bool ConstraintIntersectsAnyBounds(
-        SurfaceRemesher.ConstraintPolyline constraint,
+        ConstraintPolyline constraint,
         IReadOnlyList<Bounds2D> bounds)
     {
         if (constraint.Points.Length < constraint.PointCount * 3)
@@ -727,7 +727,7 @@ internal sealed partial class TerrainBuildService
         return false;
     }
 
-    private static Bounds2D ComputeConstraintBounds(SurfaceRemesher.ConstraintPolyline constraint)
+    private static Bounds2D ComputeConstraintBounds(ConstraintPolyline constraint)
     {
         double minX = double.PositiveInfinity;
         double maxX = double.NegativeInfinity;
@@ -778,7 +778,7 @@ internal sealed partial class TerrainBuildService
         double curveTolerance = toleranceProfile.CurveChordTolerance;
         double gradePathTolerance = toleranceProfile.GradePathTolerance;
         var pathResolveTimer = Stopwatch.StartNew();
-        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> pathBarriers = UpstreamBreaklines(build, modifier.GradeThroughBreaklines);
+        IReadOnlyList<ConstraintPolyline> pathBarriers = UpstreamBreaklines(build, modifier.GradeThroughBreaklines);
         ResolvedGradePathInputs resolvedInputs = ResolveGradePathInputs(snapshot, vertices, vertexCount, faces, faceCount, modifier, pathBarriers, curveTolerance, gradePathTolerance);
         pathResolveTimer.Stop();
         build.RecordTiming(
@@ -926,8 +926,8 @@ internal sealed partial class TerrainBuildService
     }
 
     private static ConstraintConflictDiagnostics.ConflictSummary AnalyzeHardConstraintConflicts(
-        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> pathConstraints,
-        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> hardConstraints,
+        IReadOnlyList<ConstraintPolyline> pathConstraints,
+        IReadOnlyList<ConstraintPolyline> hardConstraints,
         double tolerance)
     {
         return ConstraintConflictDiagnostics.Analyze(
@@ -947,15 +947,15 @@ internal sealed partial class TerrainBuildService
         build.PersistentHardConstraints.AddRange(CreateOutputPolylineConstraints(polylines));
     }
 
-    private static List<SurfaceRemesher.ConstraintPolyline> CreateOutputPolylineConstraints(
+    private static List<ConstraintPolyline> CreateOutputPolylineConstraints(
         IReadOnlyList<MoleHill.Core.Grading.OutputPolyline> polylines)
     {
-        var constraints = new List<SurfaceRemesher.ConstraintPolyline>(polylines.Count);
+        var constraints = new List<ConstraintPolyline>(polylines.Count);
         foreach (var poly in polylines)
         {
             if (poly.VertexCount < 2)
                 continue;
-            constraints.Add(new SurfaceRemesher.ConstraintPolyline(
+            constraints.Add(new ConstraintPolyline(
                 poly.Vertices,
                 poly.VertexCount,
                 poly.IsClosed,
@@ -967,35 +967,35 @@ internal sealed partial class TerrainBuildService
 
     private static void AddPersistentHardConstraints(
         TerrainBuildResult build,
-        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> constraints)
+        IReadOnlyList<ConstraintPolyline> constraints)
     {
-        List<SurfaceRemesher.ConstraintPolyline> preservedConstraints = CreatePreservedElevationConstraints(constraints);
+        List<ConstraintPolyline> preservedConstraints = CreatePreservedElevationConstraints(constraints);
         if (preservedConstraints.Count == 0)
             return;
 
-        List<SurfaceRemesher.ConstraintPolyline> mergedConstraints = CombineConstraints(build.PersistentHardConstraints, preservedConstraints);
+        List<ConstraintPolyline> mergedConstraints = CombineConstraints(build.PersistentHardConstraints, preservedConstraints);
         build.PersistentHardConstraints.Clear();
         build.PersistentHardConstraints.AddRange(mergedConstraints);
     }
 
     private static void AddPersistentElevationConstraints(
         TerrainBuildResult build,
-        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> constraints)
+        IReadOnlyList<ConstraintPolyline> constraints)
     {
-        List<SurfaceRemesher.ConstraintPolyline> preservedConstraints = CreatePreservedElevationConstraints(constraints);
+        List<ConstraintPolyline> preservedConstraints = CreatePreservedElevationConstraints(constraints);
         if (preservedConstraints.Count == 0)
             return;
 
-        List<SurfaceRemesher.ConstraintPolyline> mergedConstraints = CombineConstraints(build.PersistentElevationConstraints, preservedConstraints);
+        List<ConstraintPolyline> mergedConstraints = CombineConstraints(build.PersistentElevationConstraints, preservedConstraints);
         build.PersistentElevationConstraints.Clear();
         build.PersistentElevationConstraints.AddRange(mergedConstraints);
     }
 
-    private static List<SurfaceRemesher.ConstraintPolyline> CreatePreservedElevationConstraints(
-        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> constraints)
+    private static List<ConstraintPolyline> CreatePreservedElevationConstraints(
+        IReadOnlyList<ConstraintPolyline> constraints)
     {
-        var preservedConstraints = new List<SurfaceRemesher.ConstraintPolyline>(constraints.Count);
-        foreach (SurfaceRemesher.ConstraintPolyline constraint in constraints)
+        var preservedConstraints = new List<ConstraintPolyline>(constraints.Count);
+        foreach (ConstraintPolyline constraint in constraints)
         {
             if (constraint.PointCount < 2)
                 continue;
@@ -1006,7 +1006,7 @@ internal sealed partial class TerrainBuildService
 
             var points = new double[pointValueCount];
             Array.Copy(constraint.Points, points, pointValueCount);
-            preservedConstraints.Add(new SurfaceRemesher.ConstraintPolyline(
+            preservedConstraints.Add(new ConstraintPolyline(
                 points,
                 constraint.PointCount,
                 constraint.IsClosed,
@@ -1016,10 +1016,10 @@ internal sealed partial class TerrainBuildService
         return preservedConstraints;
     }
 
-    private static List<SurfaceRemesher.ConstraintPolyline> CreateInSituStairConstraints(
+    private static List<ConstraintPolyline> CreateInSituStairConstraints(
         IReadOnlyList<InSituStairReference> references)
     {
-        var constraints = new List<SurfaceRemesher.ConstraintPolyline>(references.Count);
+        var constraints = new List<ConstraintPolyline>(references.Count);
         foreach (InSituStairReference reference in references)
         {
             SurfaceStripGrader.SurfaceDefinition surface = reference.SupportSurface;
@@ -1032,7 +1032,7 @@ internal sealed partial class TerrainBuildService
 
             var points = new double[pointValueCount];
             Array.Copy(surface.BoundaryVertices, points, pointValueCount);
-            constraints.Add(new SurfaceRemesher.ConstraintPolyline(
+            constraints.Add(new ConstraintPolyline(
                 points,
                 surface.BoundaryVertexCount,
                 IsClosed: true,
@@ -1092,7 +1092,7 @@ internal sealed partial class TerrainBuildService
         int[] faces,
         int faceCount,
         GradePathModifierDefinition modifier,
-        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> hardConstraints,
+        IReadOnlyList<ConstraintPolyline> hardConstraints,
         double curveTolerance,
         double gradePathTolerance)
     {
@@ -1110,7 +1110,7 @@ internal sealed partial class TerrainBuildService
         var constraintSet = pathArray.Length == 0
             ? new PathGrader.ConstraintSet
             {
-                Constraints = Array.Empty<SurfaceRemesher.ConstraintPolyline>(),
+                Constraints = Array.Empty<ConstraintPolyline>(),
                 SuggestedEdgeLength = 0.0
             }
             : PathGrader.CreateConstraints(vertices, vertexCount, faces, faceCount, pathArray, gradePathTolerance);

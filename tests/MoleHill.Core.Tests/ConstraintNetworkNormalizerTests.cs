@@ -15,7 +15,7 @@ public class ConstraintNetworkNormalizerTests
             CreateLine(0.0, 10.0, 5.0, 10.0, 0.0, 7.0, preserveInputElevation: false)
         };
 
-        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> normalized =
+        IReadOnlyList<ConstraintPolyline> normalized =
             ConstraintNetworkNormalizer.SplitAtIntersections(constraints, 0.001, out int splitCount);
 
         Assert.Equal(2, splitCount);
@@ -36,7 +36,7 @@ public class ConstraintNetworkNormalizerTests
     [Fact]
     public void SplitAtIntersections_ManyDistantSegments_OnlySplitsIntersectingCandidates()
     {
-        var constraints = new List<SurfaceRemesher.ConstraintPolyline>();
+        var constraints = new List<ConstraintPolyline>();
         for (int i = 0; i < 200; i++)
         {
             double x = 1000.0 + (i * 20.0);
@@ -46,7 +46,7 @@ public class ConstraintNetworkNormalizerTests
         constraints.Add(CreateLine(0.0, 0.0, 1.0, 10.0, 10.0, 3.0, preserveInputElevation: true));
         constraints.Add(CreateLine(0.0, 10.0, 5.0, 10.0, 0.0, 7.0, preserveInputElevation: false));
 
-        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> normalized =
+        IReadOnlyList<ConstraintPolyline> normalized =
             ConstraintNetworkNormalizer.SplitAtIntersections(constraints, 0.001, out int splitCount);
 
         Assert.Equal(2, splitCount);
@@ -55,7 +55,7 @@ public class ConstraintNetworkNormalizerTests
         Assert.All(normalized, constraint => Assert.Equal(2, constraint.PointCount));
     }
 
-    private static SurfaceRemesher.ConstraintPolyline CreateLine(
+    private static ConstraintPolyline CreateLine(
         double ax,
         double ay,
         double az,
@@ -64,7 +64,7 @@ public class ConstraintNetworkNormalizerTests
         double bz,
         bool preserveInputElevation)
     {
-        return new SurfaceRemesher.ConstraintPolyline(
+        return new ConstraintPolyline(
             new[]
             {
                 ax, ay, az,
@@ -76,7 +76,7 @@ public class ConstraintNetworkNormalizerTests
     }
 
     private static bool HasPoint(
-        SurfaceRemesher.ConstraintPolyline constraint,
+        ConstraintPolyline constraint,
         int pointIndex,
         double expectedX,
         double expectedY)

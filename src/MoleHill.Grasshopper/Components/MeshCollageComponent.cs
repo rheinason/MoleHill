@@ -275,7 +275,7 @@ public class MeshCollageComponent : GH_Component
         var result = MeshAreaSplitter.Split(
             vertices, vertexCount, faces, faceCount,
             areas.ToArray(),
-            Array.Empty<SurfaceRemesher.ConstraintPolyline>(),
+            Array.Empty<ConstraintPolyline>(),
             tolerance,
             0,
             0,

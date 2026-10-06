@@ -6,7 +6,7 @@ public static partial class PathGrader
 {
     /// <summary>
     /// Grades the paths window by window (<see cref="GradingWindows"/>), as
-    /// <see cref="Grade(double[], int, int[], int, PathDefinition[], IReadOnlyList{SurfaceRemesher.ConstraintPolyline}, out string?, double, bool)"/>
+    /// <see cref="Grade(double[], int, int[], int, PathDefinition[], IReadOnlyList{ConstraintPolyline}, out string?, double, bool)"/>
     /// grades them whole. A path's window is the band of faces within its reach of its centreline: its widest
     /// half-width plus its max distance, or, with none, how far its batter can run before it meets the terrain.
     /// Connected paths share one window, but the land between them is not in it, so an edit there reuses it.
@@ -18,7 +18,7 @@ public static partial class PathGrader
         int[] faces,
         int faceCount,
         PathDefinition[] paths,
-        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> hardConstraints,
+        IReadOnlyList<ConstraintPolyline> hardConstraints,
         double modelTolerance,
         bool preferSplitKeep,
         GradingWindows.Memo? previous,
@@ -104,7 +104,7 @@ public static partial class PathGrader
                     AddAll(path.OutwardNormals);
                 }
 
-                foreach (SurfaceRemesher.ConstraintPolyline c in hardConstraints.Where(c => GradingWindows.PointsOverlap(c.Points, c.PointCount, box)))
+                foreach (ConstraintPolyline c in hardConstraints.Where(c => GradingWindows.PointsOverlap(c.Points, c.PointCount, box)))
                 {
                     Add(c.PointCount);
                     Add(c.IsClosed ? 1 : 0);

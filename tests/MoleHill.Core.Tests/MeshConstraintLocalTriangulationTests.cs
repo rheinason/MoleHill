@@ -33,7 +33,7 @@ public class MeshConstraintLocalTriangulationTests
             points.AddRange(new[] { 12 + (7.3 * Math.Cos(a)), 12 + (7.3 * Math.Sin(a)), 5.0 });
         }
 
-        var ring = new SurfaceRemesher.ConstraintPolyline(points.ToArray(), 32, true, PreserveInputElevation: true);
+        var ring = new ConstraintPolyline(points.ToArray(), 32, true, PreserveInputElevation: true);
 
         AssertInsertedCleanly(vertices, faces, ring);
     }
@@ -52,7 +52,7 @@ public class MeshConstraintLocalTriangulationTests
         Assert.Equal(0, topology.NonManifoldEdgeCount);
     }
 
-    private static void AssertInsertedCleanly(double[] vertices, int[] faces, SurfaceRemesher.ConstraintPolyline constraint)
+    private static void AssertInsertedCleanly(double[] vertices, int[] faces, ConstraintPolyline constraint)
     {
         int vertexCount = vertices.Length / 3, faceCount = faces.Length / 3;
         Assert.True(MeshConstraintTopologyInserter.TryInsertByLocalTriangulation(
@@ -93,7 +93,7 @@ public class MeshConstraintLocalTriangulationTests
         return (s[0], s[1], s[2]);
     }
 
-    private static SurfaceRemesher.ConstraintPolyline Line(bool closed, params double[] xy)
+    private static ConstraintPolyline Line(bool closed, params double[] xy)
     {
         var points = new double[xy.Length / 2 * 3];
         for (int i = 0; i < xy.Length / 2; i++)
@@ -103,7 +103,7 @@ public class MeshConstraintLocalTriangulationTests
             points[i * 3 + 2] = 5.0;
         }
 
-        return new SurfaceRemesher.ConstraintPolyline(points, xy.Length / 2, closed, PreserveInputElevation: true);
+        return new ConstraintPolyline(points, xy.Length / 2, closed, PreserveInputElevation: true);
     }
 
     private static (double[] vertices, int[] faces) JitteredGrid(int nx, int ny, double step)

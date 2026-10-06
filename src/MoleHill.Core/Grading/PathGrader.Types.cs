@@ -22,7 +22,7 @@ public static partial class PathGrader
 
     public sealed class ConstraintSet
     {
-        public required SurfaceRemesher.ConstraintPolyline[] Constraints { get; init; }
+        public required ConstraintPolyline[] Constraints { get; init; }
 
         public required double SuggestedEdgeLength { get; init; }
 

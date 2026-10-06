@@ -51,7 +51,7 @@ public class TerrainCoreCaseTestExporterEmitTests
                 53.0,
                 new[] { 0.0, 1.0, 0.0, 1.0 })
         },
-        HardConstraints: Array.Empty<SurfaceRemesher.ConstraintPolyline>(),
+        HardConstraints: Array.Empty<ConstraintPolyline>(),
         ModelTolerance: 0.01,
         PreferSplitKeep: true);
 

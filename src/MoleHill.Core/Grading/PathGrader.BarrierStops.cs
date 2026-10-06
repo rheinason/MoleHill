@@ -19,7 +19,7 @@ public static partial class PathGrader
     /// </remarks>
     public static PathDefinition[] StopPathsAtHardConstraints(
         PathDefinition[] paths,
-        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> hardConstraints,
+        IReadOnlyList<ConstraintPolyline> hardConstraints,
         double modelTolerance,
         out int stops,
         out int piecesLeftToConstraints)
@@ -29,7 +29,7 @@ public static partial class PathGrader
         double tolerance = GradingTolerances.ModelToleranceOrDefault(modelTolerance);
         var barrierSegments = new List<(double Ax, double Ay, double Bx, double By)>();
         var closedBarriers = new List<double[]>();
-        foreach (SurfaceRemesher.ConstraintPolyline constraint in hardConstraints)
+        foreach (ConstraintPolyline constraint in hardConstraints)
         {
             if (!constraint.PreserveInputElevation || constraint.PointCount < 2)
                 continue;

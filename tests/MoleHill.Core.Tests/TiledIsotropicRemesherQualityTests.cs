@@ -29,10 +29,10 @@ public class TiledIsotropicRemesherQualityTests(ITestOutputHelper output)
         output.WriteLine($"input {faces.Length / 3:N0} faces, target {target:0.###}, tile {tile:0.#}");
 
         var timer = Stopwatch.StartNew();
-        IsotropicRemesher.Result global = IsotropicRemesher.Remesh(vertices, faces, Array.Empty<SurfaceRemesher.ConstraintPolyline>(), options);
+        IsotropicRemesher.Result global = IsotropicRemesher.Remesh(vertices, faces, Array.Empty<ConstraintPolyline>(), options);
         double globalMs = timer.Elapsed.TotalMilliseconds;
         timer.Restart();
-        IsotropicRemesher.Result tiled = TiledIsotropicRemesher.Remesh(vertices, faces, Array.Empty<SurfaceRemesher.ConstraintPolyline>(), options, tile);
+        IsotropicRemesher.Result tiled = TiledIsotropicRemesher.Remesh(vertices, faces, Array.Empty<ConstraintPolyline>(), options, tile);
         double tiledMs = timer.Elapsed.TotalMilliseconds;
 
         var surface = new TerrainFaceGrid(vertices, vertices.Length / 3, faces, faces.Length / 3, target);

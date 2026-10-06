@@ -85,7 +85,7 @@ public static class SurfaceStripGrader
             faces,
             faceCount,
             surface,
-            Array.Empty<SurfaceRemesher.ConstraintPolyline>(),
+            Array.Empty<ConstraintPolyline>(),
             out errorMessage);
     }
 
@@ -95,7 +95,7 @@ public static class SurfaceStripGrader
         int[] faces,
         int faceCount,
         SurfaceDefinition surface,
-        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> barrierConstraints,
+        IReadOnlyList<ConstraintPolyline> barrierConstraints,
         out string? errorMessage)
     {
         return Grade(
@@ -114,7 +114,7 @@ public static class SurfaceStripGrader
         int[] faces,
         int faceCount,
         IReadOnlyList<SurfaceDefinition> surfaces,
-        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> barrierConstraints,
+        IReadOnlyList<ConstraintPolyline> barrierConstraints,
         out string? errorMessage)
     {
         return GradeCore(
@@ -134,7 +134,7 @@ public static class SurfaceStripGrader
         int[] faces,
         int faceCount,
         IReadOnlyList<SurfaceDefinition> surfaces,
-        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> barrierConstraints,
+        IReadOnlyList<ConstraintPolyline> barrierConstraints,
         out string? errorMessage,
         out TimingProfile profile)
     {
@@ -156,13 +156,13 @@ public static class SurfaceStripGrader
         int[] faces,
         int faceCount,
         IReadOnlyList<SurfaceDefinition> surfaces,
-        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> barrierConstraints,
+        IReadOnlyList<ConstraintPolyline> barrierConstraints,
         out string? errorMessage,
         TimingProfile? profile)
     {
         errorMessage = null;
         const double dedupTol = 1e-3;
-        barrierConstraints ??= Array.Empty<SurfaceRemesher.ConstraintPolyline>();
+        barrierConstraints ??= Array.Empty<ConstraintPolyline>();
 
         if (!GradingInputValidator.ValidateTerrainMesh(vertices, vertexCount, faces, faceCount, out errorMessage))
             return null;
@@ -648,7 +648,7 @@ public static class SurfaceStripGrader
     }
 
     private static void AddBarrierConstraints(
-        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> barrierConstraints,
+        IReadOnlyList<ConstraintPolyline> barrierConstraints,
         List<double> xyList,
         List<double> zList,
         SpatialVertexHash vertHash,
@@ -703,7 +703,7 @@ public static class SurfaceStripGrader
         }
     }
 
-    private static int NormalizeConstraintPointCount(SurfaceRemesher.ConstraintPolyline constraint, double tolerance)
+    private static int NormalizeConstraintPointCount(ConstraintPolyline constraint, double tolerance)
     {
         int count = constraint.PointCount;
         if (!constraint.IsClosed || count < 2)

@@ -3462,7 +3462,7 @@ public class Terrain_1_Retaining_Wall_Rails_CopiedCaseTests
                     -0.7071067811865488, 0.7071067811865462, -0.999752547714826, 0.02224507445963424, -0.9995473204521037, 0.030085780312627295, -1.7763568394002568E-14, 1,
                 }),
         };
-        var hardConstraints = Array.Empty<SurfaceRemesher.ConstraintPolyline>();
+        var hardConstraints = Array.Empty<ConstraintPolyline>();
 
         GradingResult? result = PathGrader.Grade(
             vertices,

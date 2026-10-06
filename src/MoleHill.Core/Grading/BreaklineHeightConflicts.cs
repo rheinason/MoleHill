@@ -19,15 +19,15 @@ public static class BreaklineHeightConflicts
     /// Only proper crossings count; lines that merely touch at a vertex do not conflict.
     /// </summary>
     public static List<Conflict> Find(
-        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> a,
-        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> b,
+        IReadOnlyList<ConstraintPolyline> a,
+        IReadOnlyList<ConstraintPolyline> b,
         double heightTolerance)
     {
         var conflicts = new List<Conflict>();
-        foreach (SurfaceRemesher.ConstraintPolyline lineA in a)
+        foreach (ConstraintPolyline lineA in a)
         {
             (double aMinX, double aMinY, double aMaxX, double aMaxY) = Bounds(lineA);
-            foreach (SurfaceRemesher.ConstraintPolyline lineB in b)
+            foreach (ConstraintPolyline lineB in b)
             {
                 (double bMinX, double bMinY, double bMaxX, double bMaxY) = Bounds(lineB);
                 if (bMaxX < aMinX || bMinX > aMaxX || bMaxY < aMinY || bMinY > aMaxY)
@@ -66,10 +66,10 @@ public static class BreaklineHeightConflicts
         return conflicts;
     }
 
-    private static int SegmentCount(SurfaceRemesher.ConstraintPolyline line) =>
+    private static int SegmentCount(ConstraintPolyline line) =>
         line.PointCount < 2 ? 0 : line.IsClosed && line.PointCount > 2 ? line.PointCount : line.PointCount - 1;
 
-    private static (double MinX, double MinY, double MaxX, double MaxY) Bounds(SurfaceRemesher.ConstraintPolyline line)
+    private static (double MinX, double MinY, double MaxX, double MaxY) Bounds(ConstraintPolyline line)
     {
         double minX = double.MaxValue, minY = double.MaxValue, maxX = double.MinValue, maxY = double.MinValue;
         for (int k = 0; k < line.PointCount; k++)

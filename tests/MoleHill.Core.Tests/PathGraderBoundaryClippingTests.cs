@@ -150,7 +150,7 @@ public class PathGraderBoundaryClippingTests
         return false;
     }
 
-    private static void AssertConstraintPointsInsideSquare(SurfaceRemesher.ConstraintPolyline constraint)
+    private static void AssertConstraintPointsInsideSquare(ConstraintPolyline constraint)
     {
         for (int i = 0; i < constraint.PointCount; i++)
         {

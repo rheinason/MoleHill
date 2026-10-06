@@ -35,7 +35,7 @@ public class MeshConstraintInserterConformingEdgeTests
         return (vertices, 4, faces, 2);
     }
 
-    private static SurfaceRemesher.ConstraintPolyline Polyline(params double[] xyz) =>
+    private static ConstraintPolyline Polyline(params double[] xyz) =>
         new(xyz, xyz.Length / 3, IsClosed: false, PreserveInputElevation: false);
 
     /// <summary>

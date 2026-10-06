@@ -51,7 +51,7 @@ internal sealed class ConstraintCoincidenceSnapper
         int[] faces,
         int faceCount,
         double tolerance,
-        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> constraints)
+        IReadOnlyList<ConstraintPolyline> constraints)
     {
         return new ConstraintCoincidenceSnapper(
             vertices,
@@ -67,7 +67,7 @@ internal sealed class ConstraintCoincidenceSnapper
     /// snap — null means "index everything", which is the safe reading of an unknown region.
     /// </summary>
     internal static Bounds2D? RegionCovering(
-        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> constraints,
+        IReadOnlyList<ConstraintPolyline> constraints,
         double tolerance)
     {
         double minX = double.MaxValue, maxX = double.MinValue;
@@ -75,7 +75,7 @@ internal sealed class ConstraintCoincidenceSnapper
         bool any = false;
         for (int c = 0; c < constraints.Count; c++)
         {
-            SurfaceRemesher.ConstraintPolyline constraint = constraints[c];
+            ConstraintPolyline constraint = constraints[c];
             for (int i = 0; i < constraint.PointCount; i++)
             {
                 double x = constraint.Points[i * 3];
@@ -238,7 +238,7 @@ internal sealed class ConstraintCoincidenceSnapper
         }
     }
 
-    internal SurfaceRemesher.ConstraintPolyline SnapConstraintPolyline(SurfaceRemesher.ConstraintPolyline constraint)
+    internal ConstraintPolyline SnapConstraintPolyline(ConstraintPolyline constraint)
     {
         if (constraint.PointCount < 2)
             return constraint;
@@ -284,8 +284,8 @@ internal sealed class ConstraintCoincidenceSnapper
         }
 
         return pointCount >= 2
-            ? new SurfaceRemesher.ConstraintPolyline(points.ToArray(), pointCount, constraint.IsClosed, constraint.PreserveInputElevation)
-            : new SurfaceRemesher.ConstraintPolyline(Array.Empty<double>(), 0, constraint.IsClosed, constraint.PreserveInputElevation);
+            ? new ConstraintPolyline(points.ToArray(), pointCount, constraint.IsClosed, constraint.PreserveInputElevation)
+            : new ConstraintPolyline(Array.Empty<double>(), 0, constraint.IsClosed, constraint.PreserveInputElevation);
     }
 
     private static bool Contains(in Bounds2D outer, in Bounds2D inner)

@@ -12,8 +12,8 @@ namespace MoleHill.Core.Tests;
 /// </summary>
 public class LocalMeshRefinerTests
 {
-    private static IReadOnlyList<SurfaceRemesher.ConstraintPolyline> NoConstraints =>
-        Array.Empty<SurfaceRemesher.ConstraintPolyline>();
+    private static IReadOnlyList<ConstraintPolyline> NoConstraints =>
+        Array.Empty<ConstraintPolyline>();
 
     // Unit square (z from a linear plane z = x) triangulated into two triangles.
     private static (double[] verts, int[] faces) TiltedSquare()

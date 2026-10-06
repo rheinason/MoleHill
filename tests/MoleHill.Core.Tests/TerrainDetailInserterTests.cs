@@ -57,7 +57,7 @@ public sealed class TerrainDetailInserterTests
     public void TryInsert_BreaklineAcrossTerrain_LiftsItsVerticesToTheBreakline()
     {
         Grid(4, 10.0, out double[] vertices, out int[] faces);
-        var breakline = new SurfaceRemesher.ConstraintPolyline([3, 5, 7, 37, 25, 9], 2, IsClosed: false, PreserveInputElevation: true);
+        var breakline = new ConstraintPolyline([3, 5, 7, 37, 25, 9], 2, IsClosed: false, PreserveInputElevation: true);
 
         TerrainDetailInserter.Result result = Insert(vertices, faces, constraints: [breakline]);
 
@@ -81,7 +81,7 @@ public sealed class TerrainDetailInserterTests
     {
         Cliff(out double[] vertices, out int[] faces);
         // Crosses the cliff band (x = 20 .. 20.01) at an elevation matching neither top nor toe.
-        var breakline = new SurfaceRemesher.ConstraintPolyline([15, 5, 2.5, 25, 5, 2.5], 2, IsClosed: false, PreserveInputElevation: true);
+        var breakline = new ConstraintPolyline([15, 5, 2.5, 25, 5, 2.5], 2, IsClosed: false, PreserveInputElevation: true);
 
         TerrainDetailInserter.Result result = Insert(vertices, faces, constraints: [breakline]);
 
@@ -114,7 +114,7 @@ public sealed class TerrainDetailInserterTests
         double[] vertices,
         int[] faces,
         double[]? point = null,
-        SurfaceRemesher.ConstraintPolyline[]? constraints = null)
+        ConstraintPolyline[]? constraints = null)
     {
         bool ok = TerrainDetailInserter.TryInsert(
             vertices, vertices.Length / 3, faces, faces.Length / 3,

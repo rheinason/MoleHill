@@ -12,8 +12,8 @@ namespace MoleHill.Core.Tests;
 /// </summary>
 public class IsotropicRemesherTests
 {
-    private static readonly IReadOnlyList<SurfaceRemesher.ConstraintPolyline> NoConstraints =
-        Array.Empty<SurfaceRemesher.ConstraintPolyline>();
+    private static readonly IReadOnlyList<ConstraintPolyline> NoConstraints =
+        Array.Empty<ConstraintPolyline>();
 
     [Fact]
     public void EstimateFaceCountPreservingTarget_UnitSquare_ReturnsEquivalentTriangleEdgeLength()
@@ -131,7 +131,7 @@ public class IsotropicRemesherTests
     }
 
     private static IsotropicRemesher.Result RemeshOrThrow(
-        double[] vertices, int[] faces, IReadOnlyList<SurfaceRemesher.ConstraintPolyline> constraints, IsotropicRemesher.Options options)
+        double[] vertices, int[] faces, IReadOnlyList<ConstraintPolyline> constraints, IsotropicRemesher.Options options)
     {
         var result = IsotropicRemesher.Remesh(vertices, faces, constraints, options);
         Assert.True(result.Success, result.Warning ?? "remesh failed");
@@ -289,7 +289,7 @@ public class IsotropicRemesherTests
         var points = new List<double>();
         for (int y = 2; y <= 7; y++) { points.Add(2); points.Add(y); points.Add(0); }
         for (int x = 3; x <= 7; x++) { points.Add(x); points.Add(7); points.Add(0); }
-        var constraint = new SurfaceRemesher.ConstraintPolyline(points.ToArray(), points.Count / 3, IsClosed: false);
+        var constraint = new ConstraintPolyline(points.ToArray(), points.Count / 3, IsClosed: false);
 
         var result = RemeshOrThrow(vertices, faces, new[] { constraint }, new IsotropicRemesher.Options
         {
@@ -339,8 +339,8 @@ public class IsotropicRemesherTests
 
         var constraints = new[]
         {
-            new SurfaceRemesher.ConstraintPolyline(line1.ToArray(), line1.Count / 3, IsClosed: false),
-            new SurfaceRemesher.ConstraintPolyline(line2.ToArray(), line2.Count / 3, IsClosed: false)
+            new ConstraintPolyline(line1.ToArray(), line1.Count / 3, IsClosed: false),
+            new ConstraintPolyline(line2.ToArray(), line2.Count / 3, IsClosed: false)
         };
 
         var result = RemeshOrThrow(vertices, faces, constraints, new IsotropicRemesher.Options

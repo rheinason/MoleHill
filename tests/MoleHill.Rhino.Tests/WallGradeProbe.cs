@@ -343,7 +343,7 @@ public static class WallGradeProbe
         if (mode == RetainingWallModifierDefinition.GradeMode)
         {
             var graded = Core.Grading.PathGrader.Grade(v0, vc0, f0, fc0, grades.ToArray(),
-                Array.Empty<SurfaceRemesher.ConstraintPolyline>(), out string? gradeWarning, tolerance, preferSplitKeep: false)
+                Array.Empty<ConstraintPolyline>(), out string? gradeWarning, tolerance, preferSplitKeep: false)
                 ?? throw new InvalidOperationException("grading failed: " + gradeWarning);
             gradedMesh = (Mesh)service.GetMethod("FinalizeGradingMesh", flags)!.Invoke(null, new object[]
             {
@@ -352,10 +352,10 @@ public static class WallGradeProbe
                 new TerrainBuildResult()
             })!;
         }
-        var raw = new List<SurfaceRemesher.ConstraintPolyline>();
+        var raw = new List<ConstraintPolyline>();
         foreach (var planned in plan.Walls)
-            raw.AddRange((SurfaceRemesher.ConstraintPolyline[])service.GetMethod("BuildWallConstraintCurves", flags)!.Invoke(null, new object[] { planned.Rails, tolerance })!);
-        var prepared = (List<SurfaceRemesher.ConstraintPolyline>)service.GetMethod("PrepareWallConstraintsForRemesh", flags)!
+            raw.AddRange((ConstraintPolyline[])service.GetMethod("BuildWallConstraintCurves", flags)!.Invoke(null, new object[] { planned.Rails, tolerance })!);
+        var prepared = (List<ConstraintPolyline>)service.GetMethod("PrepareWallConstraintsForRemesh", flags)!
             .Invoke(null, new object[] { gradedMesh, raw, tolerance })!;
 
         if (!RhinoGeometryConversions.TryExtractMeshData(gradedMesh, out double[] v1, out int vc1, out int[] f1, out int fc1, out extractError))

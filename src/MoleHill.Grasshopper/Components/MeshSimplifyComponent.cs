@@ -93,7 +93,7 @@ public sealed class MeshSimplifyComponent : RegistryTerrainComponent
         if (sourceTerrain != null && sourceTerrain.Breaklines.Count > 0)
         {
             var candidates = new List<Curve>();
-            var constraints = new List<SurfaceRemesher.ConstraintPolyline>();
+            var constraints = new List<ConstraintPolyline>();
             foreach (Curve breakline in sourceTerrain.Breaklines)
             {
                 if (breakline == null || !breakline.TryGetPolyline(out Polyline polyline) || polyline.Count < 2)
@@ -146,7 +146,7 @@ public sealed class MeshSimplifyComponent : RegistryTerrainComponent
         }
     }
 
-    private static SurfaceRemesher.ConstraintPolyline ToConstraintPolyline(Polyline polyline, bool isClosed)
+    private static ConstraintPolyline ToConstraintPolyline(Polyline polyline, bool isClosed)
     {
         var points = new double[polyline.Count * 3];
         for (int i = 0; i < polyline.Count; i++)
@@ -156,7 +156,7 @@ public sealed class MeshSimplifyComponent : RegistryTerrainComponent
             points[i * 3 + 2] = polyline[i].Z;
         }
 
-        return new SurfaceRemesher.ConstraintPolyline(points, polyline.Count, isClosed);
+        return new ConstraintPolyline(points, polyline.Count, isClosed);
     }
 
     private static int NearestVertex(double[] vertices, Point3d point, double tolerance)

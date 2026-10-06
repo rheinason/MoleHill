@@ -87,7 +87,7 @@ public sealed class SimplifyModifierTests
     public void ConstraintResolver_MapsPolylineToEveryCoincidentMeshEdge()
     {
         Grid(out double[] vertices, out int[] faces);
-        var constraint = new SurfaceRemesher.ConstraintPolyline(
+        var constraint = new ConstraintPolyline(
             new[] { 0.0, 1.0, 1.0, 2.0, 1.0, 3.0 }, 2, IsClosed: false, PreserveInputElevation: true);
 
         bool success = TerrainBuildService.TryResolveSimplifyConstraintEdges(
@@ -107,7 +107,7 @@ public sealed class SimplifyModifierTests
     public void ConstraintResolver_RejectsConflictingPersistentElevation()
     {
         Grid(out double[] vertices, out int[] faces);
-        var constraint = new SurfaceRemesher.ConstraintPolyline(
+        var constraint = new ConstraintPolyline(
             new[] { 0.0, 1.0, 8.0, 2.0, 1.0, 8.0 }, 2, IsClosed: false, PreserveInputElevation: true);
 
         bool success = TerrainBuildService.TryResolveSimplifyConstraintEdges(

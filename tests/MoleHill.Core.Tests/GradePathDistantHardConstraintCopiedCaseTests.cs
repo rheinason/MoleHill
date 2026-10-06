@@ -79790,7 +79790,7 @@ public class GradePathDistantHardConstraintCopiedCaseTests
         };
         var hardConstraints = new[]
         {
-            new SurfaceRemesher.ConstraintPolyline(
+            new ConstraintPolyline(
                 new double[]
                 {
                     -39.61611687533241, 147.68244780533206, 26.531000000002678, -6.417982009515072, 147.68244780533206, 26.531000000002678, -6.417982009515072, 185.97053967715982, 26.531000000002678, -39.61611687533241, 185.97053967715982, 26.531000000002678,

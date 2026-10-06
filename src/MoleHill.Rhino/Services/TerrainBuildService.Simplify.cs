@@ -24,7 +24,7 @@ internal sealed partial class TerrainBuildService
 
         TerrainTolerancePolicy.Profile profile = GetToleranceProfile(snapshot, terrain);
         double numericalTolerance = profile.RemeshConstraintTolerance;
-        List<SurfaceRemesher.ConstraintPolyline> effectiveConstraints =
+        List<ConstraintPolyline> effectiveConstraints =
             CombineConstraints(build.PersistentHardConstraints, build.PersistentElevationConstraints);
         if (!TryResolveSimplifyConstraintEdges(
             vertices, faces, effectiveConstraints, numericalTolerance,
@@ -129,7 +129,7 @@ internal sealed partial class TerrainBuildService
     internal static bool TryResolveSimplifyConstraintEdges(
         double[] vertices,
         int[] faces,
-        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> constraints,
+        IReadOnlyList<ConstraintPolyline> constraints,
         double tolerance,
         out int[] requiredSegments,
         out string? failure) =>

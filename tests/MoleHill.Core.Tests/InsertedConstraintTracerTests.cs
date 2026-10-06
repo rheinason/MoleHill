@@ -13,22 +13,22 @@ public sealed class InsertedConstraintTracerTests
     {
         (double[] vertices, int[] faces) = Grid(20, 10, 2.0);
         double[] drawn = [0.7, 1.3, 1.0, 37.1, 17.9, 1.0];
-        var line = new SurfaceRemesher.ConstraintPolyline(drawn, 2, false, PreserveInputElevation: true);
+        var line = new ConstraintPolyline(drawn, 2, false, PreserveInputElevation: true);
 
         Assert.True(TerrainDetailInserter.TryInsert(
             vertices, vertices.Length / 3, faces, faces.Length / 3,
             Array.Empty<double>(),
             new[] { line },
-            Array.Empty<SurfaceRemesher.ConstraintPolyline>(),
-            Array.Empty<SurfaceRemesher.ConstraintPolyline>(),
+            Array.Empty<ConstraintPolyline>(),
+            Array.Empty<ConstraintPolyline>(),
             Tolerance, Tolerance, 70.0,
             out TerrainDetailInserter.Result? inserted, out string? error), error);
 
-        List<SurfaceRemesher.ConstraintPolyline> traced = InsertedConstraintTracer.TraceAll(
+        List<ConstraintPolyline> traced = InsertedConstraintTracer.TraceAll(
             new[] { line }, inserted!.Vertices, inserted.VertexCount, inserted.Faces, inserted.FaceCount, Tolerance, out int tracedCount);
 
         Assert.Equal(1, tracedCount);
-        SurfaceRemesher.ConstraintPolyline result = traced[0];
+        ConstraintPolyline result = traced[0];
         Assert.True(result.PointCount > 10, $"a line crossing ~30 grid edges must be split at them, got {result.PointCount} points");
 
         // Every traced point is a mesh vertex, and consecutive points are joined by a mesh edge.
@@ -80,20 +80,20 @@ public sealed class InsertedConstraintTracerTests
     {
         (double[] vertices, int[] faces) = Grid(20, 20, 2.0);
         double[] inserted = [20.0, 9.3, 1.0, 31.1, 9.3, 1.0, 31.1, 30.7, 1.0, 9.1, 30.7, 1.0, 9.1, 9.3, 1.0];
-        var ring = new SurfaceRemesher.ConstraintPolyline(inserted, 5, true, PreserveInputElevation: true);
+        var ring = new ConstraintPolyline(inserted, 5, true, PreserveInputElevation: true);
         Assert.True(TerrainDetailInserter.TryInsert(
             vertices, vertices.Length / 3, faces, faces.Length / 3,
             Array.Empty<double>(),
             new[] { ring },
-            Array.Empty<SurfaceRemesher.ConstraintPolyline>(),
-            Array.Empty<SurfaceRemesher.ConstraintPolyline>(),
+            Array.Empty<ConstraintPolyline>(),
+            Array.Empty<ConstraintPolyline>(),
             Tolerance, Tolerance, 70.0,
             out TerrainDetailInserter.Result? mesh, out string? error), error);
 
         // The same ring, drawn starting 4 mm further along its bottom side.
         double[] drawn = (double[])inserted.Clone();
         drawn[0] += 0.004;
-        var drawnRing = new SurfaceRemesher.ConstraintPolyline(drawn, 5, true, PreserveInputElevation: true);
+        var drawnRing = new ConstraintPolyline(drawn, 5, true, PreserveInputElevation: true);
 
         InsertedConstraintTracer.TraceAll(
             new[] { drawnRing }, mesh!.Vertices, mesh.VertexCount, mesh.Faces, mesh.FaceCount, Tolerance, out int tracedCount);
@@ -107,21 +107,21 @@ public sealed class InsertedConstraintTracerTests
         // Verandi Lendi: seven of seventeen curbs ran past the terrain edge, could not trace whole, and were
         // persisted as drawn - outside part included.
         (double[] vertices, int[] faces) = Grid(20, 10, 2.0);
-        var line = new SurfaceRemesher.ConstraintPolyline([-6.0, 7.3, 1.0, 46.0, 13.1, 1.0], 2, false, PreserveInputElevation: true);
+        var line = new ConstraintPolyline([-6.0, 7.3, 1.0, 46.0, 13.1, 1.0], 2, false, PreserveInputElevation: true);
         Assert.True(TerrainDetailInserter.TryInsert(
             vertices, vertices.Length / 3, faces, faces.Length / 3,
             Array.Empty<double>(),
             new[] { line },
-            Array.Empty<SurfaceRemesher.ConstraintPolyline>(),
-            Array.Empty<SurfaceRemesher.ConstraintPolyline>(),
+            Array.Empty<ConstraintPolyline>(),
+            Array.Empty<ConstraintPolyline>(),
             Tolerance, Tolerance, 70.0,
             out TerrainDetailInserter.Result? inserted, out string? error), error);
 
-        List<SurfaceRemesher.ConstraintPolyline> traced = InsertedConstraintTracer.TraceAll(
+        List<ConstraintPolyline> traced = InsertedConstraintTracer.TraceAll(
             new[] { line }, inserted!.Vertices, inserted.VertexCount, inserted.Faces, inserted.FaceCount, Tolerance, out int tracedCount);
 
         Assert.Equal(1, tracedCount);
-        SurfaceRemesher.ConstraintPolyline piece = Assert.Single(traced);
+        ConstraintPolyline piece = Assert.Single(traced);
         Assert.Equal(0.0, piece.Points[0], 6);
         Assert.Equal(40.0, piece.Points[(piece.PointCount - 1) * 3], 6);
     }
@@ -131,9 +131,9 @@ public sealed class InsertedConstraintTracerTests
     {
         (double[] vertices, int[] faces) = Grid(10, 10, 2.0);
         double[] drawn = [0.7, 1.3, 1.0, 17.1, 15.9, 1.0];
-        var line = new SurfaceRemesher.ConstraintPolyline(drawn, 2, false, PreserveInputElevation: true);
+        var line = new ConstraintPolyline(drawn, 2, false, PreserveInputElevation: true);
 
-        List<SurfaceRemesher.ConstraintPolyline> traced = InsertedConstraintTracer.TraceAll(
+        List<ConstraintPolyline> traced = InsertedConstraintTracer.TraceAll(
             new[] { line }, vertices, vertices.Length / 3, faces, faces.Length / 3, Tolerance, out int tracedCount);
 
         Assert.Equal(0, tracedCount);

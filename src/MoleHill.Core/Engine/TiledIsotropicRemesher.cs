@@ -47,7 +47,7 @@ public static class TiledIsotropicRemesher
     public static IsotropicRemesher.Result Remesh(
         double[] vertices,
         int[] faces,
-        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> constraints,
+        IReadOnlyList<ConstraintPolyline> constraints,
         IsotropicRemesher.Options options,
         double tileSize = 0.0)
         => Remesh(vertices, faces, constraints, options, tileSize, previous: null, out _);
@@ -61,7 +61,7 @@ public static class TiledIsotropicRemesher
     public static IsotropicRemesher.Result Remesh(
         double[] vertices,
         int[] faces,
-        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> constraints,
+        IReadOnlyList<ConstraintPolyline> constraints,
         IsotropicRemesher.Options options,
         double tileSize,
         TiledRemeshMemo? previous,
@@ -165,7 +165,7 @@ public static class TiledIsotropicRemesher
         double[] vertices,
         int[] faces,
         bool[] frozen,
-        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> constraints,
+        IReadOnlyList<ConstraintPolyline> constraints,
         IsotropicRemesher.Options options,
         double size,
         double offset,
@@ -180,7 +180,7 @@ public static class TiledIsotropicRemesher
         double[] vertices,
         int[] faces,
         bool[] frozen,
-        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> constraints,
+        IReadOnlyList<ConstraintPolyline> constraints,
         IsotropicRemesher.Options options,
         double size,
         double offset,
@@ -418,7 +418,7 @@ public static class TiledIsotropicRemesher
     /// </summary>
     private static UInt128 TileKey(
         TileInput tile,
-        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> constraints,
+        IReadOnlyList<ConstraintPolyline> constraints,
         IsotropicRemesher.Options options,
         double size,
         double offset,
@@ -451,7 +451,7 @@ public static class TiledIsotropicRemesher
         low.AddBytes(z); high.AddBytes(z);
 
         ulong constraintSum = 0;
-        foreach (SurfaceRemesher.ConstraintPolyline c in constraints)
+        foreach (ConstraintPolyline c in constraints)
         {
             if (!Overlaps(c, tile.MinX, tile.MinY, tile.MaxX, tile.MaxY))
                 continue;
@@ -557,7 +557,7 @@ public static class TiledIsotropicRemesher
     /// <summary>Remeshes one tile; a rejected remesh keeps its input and is marked failed.</summary>
     internal static TileOutput RemeshTile(
         TileInput tile,
-        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> constraints,
+        IReadOnlyList<ConstraintPolyline> constraints,
         IsotropicRemesher.Options options,
         TerrainFaceGrid surface)
     {
@@ -916,7 +916,7 @@ public static class TiledIsotropicRemesher
         return (vertices.ToArray(), faces, frozen, failed);
     }
 
-    private static bool Overlaps(SurfaceRemesher.ConstraintPolyline constraint, double minX, double minY, double maxX, double maxY)
+    private static bool Overlaps(ConstraintPolyline constraint, double minX, double minY, double maxX, double maxY)
     {
         for (int i = 0; i < constraint.PointCount; i++)
         {

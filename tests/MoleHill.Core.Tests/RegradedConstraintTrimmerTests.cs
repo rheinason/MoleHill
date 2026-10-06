@@ -36,9 +36,9 @@ public class RegradedConstraintTrimmerTests
         var points = new List<double>();
         for (int i = 0; i <= 20; i++)
             points.AddRange(new[] { (double)i, 10.0, 0.0 });   // surveyed at the old ground, z = 0
-        var line = new SurfaceRemesher.ConstraintPolyline(points.ToArray(), 21, IsClosed: false);
+        var line = new ConstraintPolyline(points.ToArray(), 21, IsClosed: false);
 
-        List<SurfaceRemesher.ConstraintPolyline> trimmed = RegradedConstraintTrimmer.Trim(
+        List<ConstraintPolyline> trimmed = RegradedConstraintTrimmer.Trim(
             new[] { line }, GradedTerrain(), 0.01, out double removed, out int trimmedLines);
 
         Assert.Equal(1, trimmedLines);
@@ -51,9 +51,9 @@ public class RegradedConstraintTrimmerTests
     [Fact]
     public void Trim_LineOnTheGradedSurface_IsKeptWhole()
     {
-        var line = new SurfaceRemesher.ConstraintPolyline(new double[] { 9, 9, 2, 11, 9, 2, 11, 11, 2 }, 3, IsClosed: false);
+        var line = new ConstraintPolyline(new double[] { 9, 9, 2, 11, 9, 2, 11, 11, 2 }, 3, IsClosed: false);
 
-        List<SurfaceRemesher.ConstraintPolyline> trimmed = RegradedConstraintTrimmer.Trim(
+        List<ConstraintPolyline> trimmed = RegradedConstraintTrimmer.Trim(
             new[] { line }, GradedTerrain(), 0.01, out double removed, out int trimmedLines);
 
         Assert.Same(line.Points, Assert.Single(trimmed).Points);
@@ -73,11 +73,11 @@ public class RegradedConstraintTrimmerTests
             points.AddRange(new[] { 10 + (7 * Math.Cos(t)), 4 + (7 * Math.Sin(t)), 0.0 });
         }
 
-        var ring = new SurfaceRemesher.ConstraintPolyline(points.ToArray(), segments, IsClosed: true);
-        List<SurfaceRemesher.ConstraintPolyline> trimmed = RegradedConstraintTrimmer.Trim(
+        var ring = new ConstraintPolyline(points.ToArray(), segments, IsClosed: true);
+        List<ConstraintPolyline> trimmed = RegradedConstraintTrimmer.Trim(
             new[] { ring }, GradedTerrain(), 0.01, out _, out _);
 
-        SurfaceRemesher.ConstraintPolyline run = Assert.Single(trimmed);
+        ConstraintPolyline run = Assert.Single(trimmed);
         Assert.False(run.IsClosed);
         Assert.True(run.PointCount < segments);
     }

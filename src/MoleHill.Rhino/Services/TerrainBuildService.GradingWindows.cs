@@ -20,7 +20,7 @@ internal sealed partial class TerrainBuildService
         int faceCount,
         PadGrader.PadBoundary[] pads,
         PadGrader.LockCurve[] locks,
-        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> hardConstraints,
+        IReadOnlyList<ConstraintPolyline> hardConstraints,
         double tolerance,
         double detailSize,
         TerrainRuntimeCache runtimeCache,
@@ -45,7 +45,7 @@ internal sealed partial class TerrainBuildService
         int[] faces,
         int faceCount,
         PathGrader.PathDefinition[] paths,
-        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> hardConstraints,
+        IReadOnlyList<ConstraintPolyline> hardConstraints,
         double tolerance,
         bool preferSplitKeep,
         TerrainRuntimeCache runtimeCache,
@@ -74,7 +74,7 @@ internal sealed partial class TerrainBuildService
     /// </summary>
     private static bool TryInsertWallConstraintsWindowed(
         RhinoMesh mesh,
-        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> wallConstraints,
+        IReadOnlyList<ConstraintPolyline> wallConstraints,
         double tolerance,
         TerrainBuildResult build,
         bool useQualityPatch,
@@ -87,7 +87,7 @@ internal sealed partial class TerrainBuildService
             return false;
 
         var rails = new List<GradingWindows.Reach>(wallConstraints.Count);
-        foreach (SurfaceRemesher.ConstraintPolyline rail in wallConstraints)
+        foreach (ConstraintPolyline rail in wallConstraints)
         {
             var xy = new double[rail.PointCount * 2];
             for (int k = 0; k < rail.PointCount; k++)
@@ -110,10 +110,10 @@ internal sealed partial class TerrainBuildService
         if (GradingWindows.AnyReachCoversAll(vertices, vertexCount, reach))
             return false;
 
-        IReadOnlyList<SurfaceRemesher.ConstraintPolyline>? qualityConstraints = useQualityPatch
+        IReadOnlyList<ConstraintPolyline>? qualityConstraints = useQualityPatch
             ? CombineConstraints(CombineConstraints(build.PersistentHardConstraints, build.PersistentElevationConstraints), wallConstraints)
             : null;
-        List<SurfaceRemesher.ConstraintPolyline> Within(IEnumerable<SurfaceRemesher.ConstraintPolyline> constraints, (double MinX, double MinY, double MaxX, double MaxY) box) =>
+        List<ConstraintPolyline> Within(IEnumerable<ConstraintPolyline> constraints, (double MinX, double MinY, double MaxX, double MaxY) box) =>
             constraints.Where(c => GradingWindows.PointsOverlap(c.Points, c.PointCount, box)).ToList();
 
         runtimeCache.GradingWindowMemos.TryGetValue(memoKey, out GradingWindows.Memo? previous);
@@ -153,10 +153,10 @@ internal sealed partial class TerrainBuildService
 
                 Add(tolerance);
                 Add(useQualityPatch ? 1 : 0);
-                foreach (var set in new[] { Within(wallConstraints, box), qualityConstraints == null ? new List<SurfaceRemesher.ConstraintPolyline>() : Within(qualityConstraints, box) })
+                foreach (var set in new[] { Within(wallConstraints, box), qualityConstraints == null ? new List<ConstraintPolyline>() : Within(qualityConstraints, box) })
                 {
                     Add(set.Count);
-                    foreach (SurfaceRemesher.ConstraintPolyline c in set)
+                    foreach (ConstraintPolyline c in set)
                     {
                         Add(c.PointCount);
                         Add(c.IsClosed ? 1 : 0);

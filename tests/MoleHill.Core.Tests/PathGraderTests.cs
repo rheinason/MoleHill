@@ -151,7 +151,7 @@ public class PathGraderTests
             zValues: new[] { 1.0, 1.0 },
             vertexCount: 2,
             width: 2.0);
-        var hardConstraint = new SurfaceRemesher.ConstraintPolyline(
+        var hardConstraint = new ConstraintPolyline(
             new[] { 0.0, 5.0, 0.0, 10.0, double.NaN, 0.0 },
             2,
             IsClosed: false,
@@ -196,7 +196,7 @@ public class PathGraderTests
             zValues: new[] { 1.0, 1.0 },
             vertexCount: 2,
             width: 2.0);
-        var barrier = new SurfaceRemesher.ConstraintPolyline(
+        var barrier = new ConstraintPolyline(
             new[] { 0.0, 5.0, 0.0, 10.0, double.NaN, 0.0 },
             2,
             IsClosed: false,
@@ -654,7 +654,7 @@ public class PathGraderTests
             slopeAngleDeg: 45.0,
             maxDistance: 5.0);
 
-        var barrier = new SurfaceRemesher.ConstraintPolyline(
+        var barrier = new ConstraintPolyline(
             new[]
             {
                 0.0, 14.0, 0.0,
@@ -981,7 +981,7 @@ public class PathGraderTests
         foreach (double railRadius in new[] { radius, radius - (width / 2), radius + (width / 2) })
         {
             double minAngle = double.MaxValue, maxAngle = double.MinValue;
-            foreach (SurfaceRemesher.ConstraintPolyline constraint in constraints.Constraints)
+            foreach (ConstraintPolyline constraint in constraints.Constraints)
             {
                 for (int i = 0; i < constraint.PointCount; i++)
                 {
@@ -1125,7 +1125,7 @@ public class PathGraderTests
     }
 
     private static bool ConstraintMatchesSegment(
-        SurfaceRemesher.ConstraintPolyline constraint,
+        ConstraintPolyline constraint,
         double ax,
         double ay,
         double bx,
@@ -1142,7 +1142,7 @@ public class PathGraderTests
     }
 
     private static bool SegmentMatchesWithZ(
-        SurfaceRemesher.ConstraintPolyline constraint,
+        ConstraintPolyline constraint,
         double ax,
         double ay,
         double az,

@@ -100,7 +100,7 @@ internal static class GradedRegionAssembler
         int terrainFaceCount,
         IReadOnlyList<double[]> daylightLoopsXy,
         double tolerance,
-        IReadOnlyList<SurfaceRemesher.ConstraintPolyline>? hardConstraints = null,
+        IReadOnlyList<ConstraintPolyline>? hardConstraints = null,
         MeshAreaTopologySplitter.PerformanceTimings? performanceTimings = null)
     {
         double[]? terrainOutline = TryBuildTerrainOutline(terrainFaces, terrainFaceCount, terrainVertices);
@@ -318,7 +318,7 @@ internal static class GradedRegionAssembler
         IReadOnlyList<double[]> clippedLoops,
         double[]? terrainOutline,
         double tolerance,
-        IReadOnlyList<SurfaceRemesher.ConstraintPolyline>? hardConstraints = null)
+        IReadOnlyList<ConstraintPolyline>? hardConstraints = null)
     {
         if (terrainOutline is null || clippedLoops.Count == 0)
             return null;
@@ -381,7 +381,7 @@ internal static class GradedRegionAssembler
         if (hardConstraints is not null)
         {
             var hardSegments = new List<(int a, int b)>();
-            foreach (SurfaceRemesher.ConstraintPolyline constraint in hardConstraints)
+            foreach (ConstraintPolyline constraint in hardConstraints)
             {
                 int cn = constraint.PointCount;
                 if (cn < 2)
@@ -518,7 +518,7 @@ internal static class GradedRegionAssembler
         int terrainFaceCount,
         IReadOnlyList<double[]> daylightLoopsXy,
         double tolerance,
-        IReadOnlyList<SurfaceRemesher.ConstraintPolyline>? hardConstraints = null)
+        IReadOnlyList<ConstraintPolyline>? hardConstraints = null)
     {
         // A daylight loop that runs off the terrain edge is clipped to the terrain outline so the
         // carve region stays closed (following the boundary) instead of leaving an open chain.

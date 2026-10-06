@@ -548,9 +548,9 @@ internal sealed class StageCacheEntry
 
     public List<TerrainObjectPlacementGroup> ObjectPlacements { get; init; } = new();
 
-    public List<SurfaceRemesher.ConstraintPolyline> PersistentHardConstraints { get; init; } = new();
+    public List<ConstraintPolyline> PersistentHardConstraints { get; init; } = new();
 
-    public List<SurfaceRemesher.ConstraintPolyline> PersistentElevationConstraints { get; init; } = new();
+    public List<ConstraintPolyline> PersistentElevationConstraints { get; init; } = new();
 
     public List<string> Diagnostics { get; init; } = new();
 
@@ -600,8 +600,8 @@ internal sealed class GradingTopologyCacheEntry
     // Grade Pad publishes these as persistent hard constraints. A topology cache hit must publish the
     // same set as a fresh grade, or downstream stages (Grade Path's mode choice) see a different
     // terrain depending on cache state.
-    public IReadOnlyList<SurfaceRemesher.ConstraintPolyline> OutputConstraints { get; init; } =
-        Array.Empty<SurfaceRemesher.ConstraintPolyline>();
+    public IReadOnlyList<ConstraintPolyline> OutputConstraints { get; init; } =
+        Array.Empty<ConstraintPolyline>();
 
     public List<string> Diagnostics { get; init; } = new();
 
@@ -830,10 +830,10 @@ internal static class TerrainRuntimeCacheCloner
         };
     }
 
-    public static List<SurfaceRemesher.ConstraintPolyline> CloneConstraints(IEnumerable<SurfaceRemesher.ConstraintPolyline> constraints)
+    public static List<ConstraintPolyline> CloneConstraints(IEnumerable<ConstraintPolyline> constraints)
     {
         return constraints
-            .Select(constraint => new SurfaceRemesher.ConstraintPolyline(
+            .Select(constraint => new ConstraintPolyline(
                 (double[])constraint.Points.Clone(),
                 constraint.PointCount,
                 constraint.IsClosed,

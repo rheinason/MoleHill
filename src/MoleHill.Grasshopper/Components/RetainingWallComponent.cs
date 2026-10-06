@@ -123,7 +123,7 @@ public sealed class RetainingWallComponent : RegistryTerrainComponent
             return;
         }
 
-        var constraints = new List<SurfaceRemesher.ConstraintPolyline>(plan.Walls.Count * 2);
+        var constraints = new List<ConstraintPolyline>(plan.Walls.Count * 2);
         var wallBreps = new List<Brep>(plan.Walls.Count);
         foreach (var wall in plan.Walls)
         {
@@ -299,7 +299,7 @@ public sealed class RetainingWallComponent : RegistryTerrainComponent
         return true;
     }
 
-    private static void AddWallConstraints(List<SurfaceRemesher.ConstraintPolyline> constraints, RetainingWallPlannerCore.WallRails rails)
+    private static void AddWallConstraints(List<ConstraintPolyline> constraints, RetainingWallPlannerCore.WallRails rails)
     {
         int minimum = rails.IsClosed ? 3 : 2;
         if (rails.ToePoints.Length >= minimum)
@@ -308,7 +308,7 @@ public sealed class RetainingWallComponent : RegistryTerrainComponent
             constraints.Add(BuildConstraint(rails.TopPoints, rails.IsClosed));
     }
 
-    private static SurfaceRemesher.ConstraintPolyline BuildConstraint(Point3d[] railPoints, bool isClosed)
+    private static ConstraintPolyline BuildConstraint(Point3d[] railPoints, bool isClosed)
     {
         int count = railPoints.Length;
         var points = new double[count * 3];
@@ -319,6 +319,6 @@ public sealed class RetainingWallComponent : RegistryTerrainComponent
             points[i * 3 + 2] = railPoints[i].Z;
         }
 
-        return new SurfaceRemesher.ConstraintPolyline(points, count, isClosed, PreserveInputElevation: true);
+        return new ConstraintPolyline(points, count, isClosed, PreserveInputElevation: true);
     }
 }

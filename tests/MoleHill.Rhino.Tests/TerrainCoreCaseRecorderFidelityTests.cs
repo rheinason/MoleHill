@@ -51,7 +51,7 @@ public class TerrainCoreCaseRecorderFidelityTests
             faces: new[] { 0, 1, 2 },
             faceCount: 1,
             paths: new[] { path },
-            hardConstraints: Array.Empty<SurfaceRemesher.ConstraintPolyline>(),
+            hardConstraints: Array.Empty<ConstraintPolyline>(),
             modelTolerance: modelTolerance,
             preferSplitKeep: preferSplitKeep,
             succeeded: true,

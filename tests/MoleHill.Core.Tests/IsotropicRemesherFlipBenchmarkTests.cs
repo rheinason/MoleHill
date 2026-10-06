@@ -27,7 +27,7 @@ public class IsotropicRemesherFlipBenchmarkTests(ITestOutputHelper output)
         BuildJitteredGrid(n, out double[] vertices, out int[] faces);
         var projection = new TerrainFaceGrid(vertices, vertices.Length / 3, faces, faces.Length / 3, target * 0.5);
         FeaturePolylineGraph graph = FeaturePolylineGraph.Build(
-            vertices, faces, faces.Length / 3, Array.Empty<SurfaceRemesher.ConstraintPolyline>(),
+            vertices, faces, faces.Length / 3, Array.Empty<ConstraintPolyline>(),
             creaseAngleDeg: 30.0, wallFaceMinSlopeDeg: 0.0, tolerance: 0.01);
         var reference = new IsotropicRemesher.MeshState(vertices, faces, graph);
         var indexed = new IsotropicRemesher.MeshState(vertices, faces, graph);

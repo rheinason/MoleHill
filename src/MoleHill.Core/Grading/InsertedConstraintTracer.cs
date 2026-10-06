@@ -19,8 +19,8 @@ internal static class InsertedConstraintTracer
     /// Traces <paramref name="constraint"/> through the mesh. Returns null when the vertices along it do
     /// not form one edge-connected chain from its start to its end, so the caller can keep the drawn line.
     /// </summary>
-    public static SurfaceRemesher.ConstraintPolyline? Trace(
-        SurfaceRemesher.ConstraintPolyline constraint,
+    public static ConstraintPolyline? Trace(
+        ConstraintPolyline constraint,
         double[] vertices,
         int vertexCount,
         SpatialHashGrid2D vertexGrid,
@@ -164,7 +164,7 @@ internal static class InsertedConstraintTracer
             return chain.Count >= 2 && total - lastS <= tolerance;
         }
 
-        SurfaceRemesher.ConstraintPolyline ChainPolyline(List<int> vertexChain)
+        ConstraintPolyline ChainPolyline(List<int> vertexChain)
         {
             var points = new double[vertexChain.Count * 3];
             for (int i = 0; i < vertexChain.Count; i++)
@@ -174,13 +174,13 @@ internal static class InsertedConstraintTracer
                 points[i * 3 + 2] = vertices[vertexChain[i] * 3 + 2];
             }
 
-            return new SurfaceRemesher.ConstraintPolyline(points, vertexChain.Count, constraint.IsClosed, constraint.PreserveInputElevation);
+            return new ConstraintPolyline(points, vertexChain.Count, constraint.IsClosed, constraint.PreserveInputElevation);
         }
     }
 
     /// <summary>Traces each constraint, keeping the drawn line where the trace does not complete.</summary>
-    public static List<SurfaceRemesher.ConstraintPolyline> TraceAll(
-        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> constraints,
+    public static List<ConstraintPolyline> TraceAll(
+        IReadOnlyList<ConstraintPolyline> constraints,
         double[] vertices,
         int vertexCount,
         int[] faces,
@@ -189,7 +189,7 @@ internal static class InsertedConstraintTracer
         out int traced)
     {
         traced = 0;
-        var result = new List<SurfaceRemesher.ConstraintPolyline>(constraints.Count);
+        var result = new List<ConstraintPolyline>(constraints.Count);
         if (constraints.Count == 0)
             return result;
 
@@ -201,9 +201,9 @@ internal static class InsertedConstraintTracer
 
         MeshAreaSplitter.AreaBoundary? outline = null;
         bool outlineBuilt = false;
-        foreach (SurfaceRemesher.ConstraintPolyline constraint in constraints)
+        foreach (ConstraintPolyline constraint in constraints)
         {
-            SurfaceRemesher.ConstraintPolyline? tracedLine = Trace(constraint, vertices, vertexCount, grid, adjacency, tolerance);
+            ConstraintPolyline? tracedLine = Trace(constraint, vertices, vertexCount, grid, adjacency, tolerance);
             if (tracedLine is { } line)
             {
                 result.Add(line);
@@ -220,7 +220,7 @@ internal static class InsertedConstraintTracer
                 outlineBuilt = true;
             }
 
-            List<SurfaceRemesher.ConstraintPolyline>? pieces = outline == null
+            List<ConstraintPolyline>? pieces = outline == null
                 ? null
                 : TraceInsidePieces(constraint, outline, vertices, vertexCount, grid, adjacency, tolerance);
             if (pieces != null)
@@ -237,8 +237,8 @@ internal static class InsertedConstraintTracer
         return result;
     }
 
-    private static List<SurfaceRemesher.ConstraintPolyline>? TraceInsidePieces(
-        SurfaceRemesher.ConstraintPolyline constraint,
+    private static List<ConstraintPolyline>? TraceInsidePieces(
+        ConstraintPolyline constraint,
         MeshAreaSplitter.AreaBoundary outline,
         double[] vertices,
         int vertexCount,
@@ -253,10 +253,10 @@ internal static class InsertedConstraintTracer
         if (clipped.Count == 0)
             return null;
 
-        var pieces = new List<SurfaceRemesher.ConstraintPolyline>(clipped.Count);
+        var pieces = new List<ConstraintPolyline>(clipped.Count);
         foreach (Processing.RegionInputClipper.InputPolyline piece in clipped)
         {
-            var candidate = new SurfaceRemesher.ConstraintPolyline(piece.Points, piece.PointCount, piece.IsClosed, constraint.PreserveInputElevation);
+            var candidate = new ConstraintPolyline(piece.Points, piece.PointCount, piece.IsClosed, constraint.PreserveInputElevation);
             if (Trace(candidate, vertices, vertexCount, grid, adjacency, tolerance) is not { } tracedPiece)
                 return null;
             pieces.Add(tracedPiece);

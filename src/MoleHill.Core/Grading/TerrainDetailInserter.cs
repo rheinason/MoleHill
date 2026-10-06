@@ -38,9 +38,9 @@ internal static class TerrainDetailInserter
         int[] faces,
         int faceCount,
         double[] pointXyz,
-        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> newConstraints,
-        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> existingHardConstraints,
-        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> existingElevationConstraints,
+        IReadOnlyList<ConstraintPolyline> newConstraints,
+        IReadOnlyList<ConstraintPolyline> existingHardConstraints,
+        IReadOnlyList<ConstraintPolyline> existingElevationConstraints,
         double tolerance,
         double pointMergeTolerance,
         double wallFaceMinSlopeDeg,
@@ -265,11 +265,11 @@ internal static class TerrainDetailInserter
         private readonly List<int> _candidates = new();
         private readonly double _tolerance;
 
-        public SegmentIndex(IReadOnlyList<SurfaceRemesher.ConstraintPolyline> constraints, double tolerance)
+        public SegmentIndex(IReadOnlyList<ConstraintPolyline> constraints, double tolerance)
         {
             _tolerance = tolerance;
             var bounds = new List<Bounds2D>();
-            foreach (SurfaceRemesher.ConstraintPolyline constraint in constraints)
+            foreach (ConstraintPolyline constraint in constraints)
             {
                 int count = Math.Min(constraint.PointCount, constraint.Points.Length / 3);
                 int segmentCount = constraint.IsClosed && count > 2 ? count : count - 1;

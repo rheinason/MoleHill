@@ -243,7 +243,7 @@ public sealed class SculptBrushEngine
         LocalMeshRefiner.Result result = LocalMeshRefiner.Refine(
             _vertices,
             _faces,
-            Array.Empty<SurfaceRemesher.ConstraintPolyline>(),
+            Array.Empty<ConstraintPolyline>(),
             new LocalMeshRefiner.Options
             {
                 TargetEdgeLength = targetEdgeLength,

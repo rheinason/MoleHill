@@ -17,8 +17,8 @@ internal static class ConstraintNetworkNormalizer
 
     private readonly record struct SegmentKey(long Ax, long Ay, long Bx, long By);
 
-    public static IReadOnlyList<SurfaceRemesher.ConstraintPolyline> SplitAtIntersections(
-        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> constraints,
+    public static IReadOnlyList<ConstraintPolyline> SplitAtIntersections(
+        IReadOnlyList<ConstraintPolyline> constraints,
         double tolerance,
         out int splitCount)
     {
@@ -82,7 +82,7 @@ internal static class ConstraintNetworkNormalizer
         if (splitCount == 0)
             return constraints;
 
-        var normalized = new List<SurfaceRemesher.ConstraintPolyline>(segments.Count + splitCount);
+        var normalized = new List<ConstraintPolyline>(segments.Count + splitCount);
         var seen = new HashSet<SegmentKey>();
         for (int i = 0; i < segments.Count; i++)
         {
@@ -114,7 +114,7 @@ internal static class ConstraintNetworkNormalizer
                 if (!seen.Add(key))
                     continue;
 
-                normalized.Add(new SurfaceRemesher.ConstraintPolyline(
+                normalized.Add(new ConstraintPolyline(
                     new[] { ax, ay, az, bx, by, bz },
                     2,
                     IsClosed: false,
@@ -126,11 +126,11 @@ internal static class ConstraintNetworkNormalizer
     }
 
     private static List<Segment> BuildSegments(
-        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> constraints,
+        IReadOnlyList<ConstraintPolyline> constraints,
         double tolerance)
     {
         var segments = new List<Segment>();
-        foreach (SurfaceRemesher.ConstraintPolyline constraint in constraints)
+        foreach (ConstraintPolyline constraint in constraints)
         {
             int pointCount = NormalizePointCount(constraint, tolerance);
             if (pointCount < 2 || constraint.Points.Length < pointCount * 3)
@@ -148,7 +148,7 @@ internal static class ConstraintNetworkNormalizer
 
     private static void AddSegment(
         List<Segment> segments,
-        SurfaceRemesher.ConstraintPolyline constraint,
+        ConstraintPolyline constraint,
         int startIndex,
         int endIndex,
         double tolerance)
@@ -167,7 +167,7 @@ internal static class ConstraintNetworkNormalizer
         segments.Add(new Segment(ax, ay, az, bx, by, bz, constraint.PreserveInputElevation));
     }
 
-    private static int NormalizePointCount(SurfaceRemesher.ConstraintPolyline constraint, double tolerance)
+    private static int NormalizePointCount(ConstraintPolyline constraint, double tolerance)
     {
         int pointCount = constraint.PointCount;
         if (pointCount <= 1 || constraint.Points.Length < pointCount * 3)

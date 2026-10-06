@@ -55,9 +55,9 @@ public class TerrainBuildServicePadLockTests
         Assert.Equal(1, Assert.IsType<int>(args[6]));
     }
 
-    private static SurfaceRemesher.ConstraintPolyline CreateConstraint(double ax, double ay, double bx, double by)
+    private static ConstraintPolyline CreateConstraint(double ax, double ay, double bx, double by)
     {
-        return new SurfaceRemesher.ConstraintPolyline(
+        return new ConstraintPolyline(
             new[] { ax, ay, 0.0, bx, by, 0.0 },
             PointCount: 2,
             IsClosed: false,

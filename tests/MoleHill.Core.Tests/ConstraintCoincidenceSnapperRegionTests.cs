@@ -47,7 +47,7 @@ public class ConstraintCoincidenceSnapperRegionTests
         }
     }
 
-    private static SurfaceRemesher.ConstraintPolyline Polyline(params double[] xyz) =>
+    private static ConstraintPolyline Polyline(params double[] xyz) =>
         new(xyz, xyz.Length / 3, IsClosed: false, PreserveInputElevation: false);
 
     [Fact]
@@ -57,7 +57,7 @@ public class ConstraintCoincidenceSnapperRegionTests
         const double tolerance = 0.25;
 
         // A short constraint in one corner of a terrain that extends 20 units away from it.
-        var constraints = new List<SurfaceRemesher.ConstraintPolyline>
+        var constraints = new List<ConstraintPolyline>
         {
             Polyline(
                 2.1, 2.05, 3.0,
@@ -69,8 +69,8 @@ public class ConstraintCoincidenceSnapperRegionTests
         var clipped = ConstraintCoincidenceSnapper.ForConstraints(
             vertices, vertexCount, faces, faceCount, tolerance, constraints);
 
-        SurfaceRemesher.ConstraintPolyline fullResult = full.SnapConstraintPolyline(constraints[0]);
-        SurfaceRemesher.ConstraintPolyline clippedResult = clipped.SnapConstraintPolyline(constraints[0]);
+        ConstraintPolyline fullResult = full.SnapConstraintPolyline(constraints[0]);
+        ConstraintPolyline clippedResult = clipped.SnapConstraintPolyline(constraints[0]);
 
         Assert.False(clipped.RegionWasAbandoned);
         Assert.Equal(fullResult.PointCount, clippedResult.PointCount);
@@ -83,7 +83,7 @@ public class ConstraintCoincidenceSnapperRegionTests
         BuildGrid(out double[] vertices, out int vertexCount, out int[] faces, out int faceCount);
         const double tolerance = 0.25;
 
-        var constraints = new List<SurfaceRemesher.ConstraintPolyline>
+        var constraints = new List<ConstraintPolyline>
         {
             Polyline(2.1, 2.05, 3.0, 3.9, 2.2, 3.0)
         };
@@ -104,7 +104,7 @@ public class ConstraintCoincidenceSnapperRegionTests
         BuildGrid(out double[] vertices, out int vertexCount, out int[] faces, out int faceCount);
         const double tolerance = 0.25;
 
-        var declared = new List<SurfaceRemesher.ConstraintPolyline>
+        var declared = new List<ConstraintPolyline>
         {
             Polyline(2.1, 2.05, 3.0, 3.9, 2.2, 3.0)
         };
@@ -127,15 +127,15 @@ public class ConstraintCoincidenceSnapperRegionTests
     public void RegionCovering_NoConstraintPoints_ReturnsNullSoTheWholeMeshIsIndexed()
     {
         Assert.Null(ConstraintCoincidenceSnapper.RegionCovering(
-            new List<SurfaceRemesher.ConstraintPolyline>(), 0.1));
+            new List<ConstraintPolyline>(), 0.1));
         Assert.Null(ConstraintCoincidenceSnapper.RegionCovering(
-            new List<SurfaceRemesher.ConstraintPolyline> { Polyline() }, 0.1));
+            new List<ConstraintPolyline> { Polyline() }, 0.1));
     }
 
     [Fact]
     public void RegionCovering_NaNPoint_ReturnsNullRatherThanAnUnusableRegion()
     {
-        var constraints = new List<SurfaceRemesher.ConstraintPolyline>
+        var constraints = new List<ConstraintPolyline>
         {
             Polyline(1.0, 1.0, 0.0, double.NaN, 2.0, 0.0)
         };
@@ -149,7 +149,7 @@ public class ConstraintCoincidenceSnapperRegionTests
         BuildGrid(out double[] vertices, out int vertexCount, out int[] faces, out int faceCount);
         const double tolerance = 0.3;
 
-        var constraints = new List<SurfaceRemesher.ConstraintPolyline>
+        var constraints = new List<ConstraintPolyline>
         {
             Polyline(0.1, 0.05, 1.0, 19.9, 19.95, 1.0),
             Polyline(0.2, 19.8, 1.0, 19.7, 0.15, 1.0)
@@ -159,10 +159,10 @@ public class ConstraintCoincidenceSnapperRegionTests
         var clipped = ConstraintCoincidenceSnapper.ForConstraints(
             vertices, vertexCount, faces, faceCount, tolerance, constraints);
 
-        foreach (SurfaceRemesher.ConstraintPolyline constraint in constraints)
+        foreach (ConstraintPolyline constraint in constraints)
         {
-            SurfaceRemesher.ConstraintPolyline expected = full.SnapConstraintPolyline(constraint);
-            SurfaceRemesher.ConstraintPolyline actual = clipped.SnapConstraintPolyline(constraint);
+            ConstraintPolyline expected = full.SnapConstraintPolyline(constraint);
+            ConstraintPolyline actual = clipped.SnapConstraintPolyline(constraint);
             Assert.Equal(expected.Points, actual.Points);
         }
 

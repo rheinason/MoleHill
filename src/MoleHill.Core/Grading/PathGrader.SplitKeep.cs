@@ -24,7 +24,7 @@ public static partial class PathGrader
         int[] faces,
         int faceCount,
         PathDefinition[] paths,
-        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> hardConstraints,
+        IReadOnlyList<ConstraintPolyline> hardConstraints,
         double modelTolerance,
         out string? errorMessage,
         PerformanceTimings? performanceTimings)

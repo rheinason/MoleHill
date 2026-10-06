@@ -141,7 +141,7 @@ public static class IsotropicRemesher
     public static Result Remesh(
         double[] vertices,
         int[] faces,
-        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> constraints,
+        IReadOnlyList<ConstraintPolyline> constraints,
         Options options)
     {
         int vertexCount = vertices.Length / 3;

@@ -676,7 +676,7 @@ internal sealed partial class TerrainBuildService
         TerrainDefinition terrain,
         SimplifyModifierDefinition modifier,
         ulong upstreamFingerprint,
-        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> effectiveConstraints)
+        IReadOnlyList<ConstraintPolyline> effectiveConstraints)
     {
         var builder = new FingerprintBuilder();
         builder.Add("SurfaceSimplifierV1");
@@ -713,7 +713,7 @@ internal sealed partial class TerrainBuildService
         double[] xyCoords,
         double[] zValues,
         int[] segments,
-        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> persistentHardConstraints,
+        IReadOnlyList<ConstraintPolyline> persistentHardConstraints,
         IReadOnlyList<TinBoundaryPreparer.BoundaryPolyline> boundaryPolylines)
     {
         var builder = new FingerprintBuilder();

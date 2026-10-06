@@ -59,8 +59,8 @@ public class GradePadRetainingWallRegressionTests
 
         var wall = new[]
         {
-            new SurfaceRemesher.ConstraintPolyline(BuildRail(footX, 0.0), 4, false, true),
-            new SurfaceRemesher.ConstraintPolyline(BuildTopRail(topX, 1.5), 3, false, true),
+            new ConstraintPolyline(BuildRail(footX, 0.0), 4, false, true),
+            new ConstraintPolyline(BuildTopRail(topX, 1.5), 3, false, true),
         };
 
         // The pad's daylight loop, clipped to the terrain outline - the far third of the site.

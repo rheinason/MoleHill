@@ -325,7 +325,7 @@ internal static partial class MeshConstraintTopologyInserter
         int vertexCount,
         int[] faces,
         int faceCount,
-        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> constraints,
+        IReadOnlyList<ConstraintPolyline> constraints,
         double tolerance,
         out double[] outputVertices,
         out int outputVertexCount,
@@ -351,7 +351,7 @@ internal static partial class MeshConstraintTopologyInserter
         int vertexCount,
         int[] faces,
         int faceCount,
-        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> constraints,
+        IReadOnlyList<ConstraintPolyline> constraints,
         double[] pointXy,
         double tolerance,
         out double[] outputVertices,
@@ -641,7 +641,7 @@ internal static partial class MeshConstraintTopologyInserter
     }
 
     private static List<ConstraintSegment> BuildConstraintSegments(
-        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> constraints,
+        IReadOnlyList<ConstraintPolyline> constraints,
         double tolerance)
     {
         var sourceSegments = new List<ConstraintSegment>();
@@ -752,7 +752,7 @@ internal static partial class MeshConstraintTopologyInserter
 
     private static void AddSourceSegment(
         List<ConstraintSegment> destination,
-        SurfaceRemesher.ConstraintPolyline constraint,
+        ConstraintPolyline constraint,
         int startIndex,
         int endIndex,
         double tolerance)
@@ -765,7 +765,7 @@ internal static partial class MeshConstraintTopologyInserter
         destination.Add(new ConstraintSegment(start, end));
     }
 
-    private static int NormalizePointCount(SurfaceRemesher.ConstraintPolyline constraint, double tolerance)
+    private static int NormalizePointCount(ConstraintPolyline constraint, double tolerance)
     {
         if (!constraint.IsClosed || constraint.PointCount < 3)
             return constraint.PointCount;

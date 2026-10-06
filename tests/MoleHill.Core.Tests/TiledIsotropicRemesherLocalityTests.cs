@@ -19,8 +19,8 @@ public class TiledIsotropicRemesherLocalityTests(ITestOutputHelper output)
         TiledIsotropicRemesherQualityTests.GradedTerrain(96, out double[] vertices, out int[] faces);
         IsotropicRemesher.Options options = OptionsFor(vertices, faces);
 
-        IsotropicRemesher.Result first = TiledIsotropicRemesher.Remesh(vertices, faces, Array.Empty<SurfaceRemesher.ConstraintPolyline>(), options, Tile);
-        IsotropicRemesher.Result second = TiledIsotropicRemesher.Remesh(vertices, faces, Array.Empty<SurfaceRemesher.ConstraintPolyline>(), options, Tile);
+        IsotropicRemesher.Result first = TiledIsotropicRemesher.Remesh(vertices, faces, Array.Empty<ConstraintPolyline>(), options, Tile);
+        IsotropicRemesher.Result second = TiledIsotropicRemesher.Remesh(vertices, faces, Array.Empty<ConstraintPolyline>(), options, Tile);
 
         Assert.Equal(first.Vertices, second.Vertices);
         Assert.Equal(first.Faces, second.Faces);
@@ -31,7 +31,7 @@ public class TiledIsotropicRemesherLocalityTests(ITestOutputHelper output)
     {
         TiledIsotropicRemesherQualityTests.GradedTerrain(96, out double[] vertices, out int[] faces);
         IsotropicRemesher.Options options = OptionsFor(vertices, faces);
-        IsotropicRemesher.Result before = TiledIsotropicRemesher.Remesh(vertices, faces, Array.Empty<SurfaceRemesher.ConstraintPolyline>(), options, Tile);
+        IsotropicRemesher.Result before = TiledIsotropicRemesher.Remesh(vertices, faces, Array.Empty<ConstraintPolyline>(), options, Tile);
 
         // Raise the input vertex nearest a point well away from the road.
         const double ex = 80.0, ey = 12.0;
@@ -49,7 +49,7 @@ public class TiledIsotropicRemesherLocalityTests(ITestOutputHelper output)
 
         var raised = (double[])vertices.Clone();
         raised[edited * 3 + 2] += 0.5;
-        IsotropicRemesher.Result after = TiledIsotropicRemesher.Remesh(raised, faces, Array.Empty<SurfaceRemesher.ConstraintPolyline>(), options, Tile);
+        IsotropicRemesher.Result after = TiledIsotropicRemesher.Remesh(raised, faces, Array.Empty<ConstraintPolyline>(), options, Tile);
 
         HashSet<(double, double, double, double, double, double, double, double, double)> beforeFaces = FaceSet(before);
         HashSet<(double, double, double, double, double, double, double, double, double)> afterFaces = FaceSet(after);
@@ -73,7 +73,7 @@ public class TiledIsotropicRemesherLocalityTests(ITestOutputHelper output)
     {
         TiledIsotropicRemesherQualityTests.GradedTerrain(96, out double[] vertices, out int[] faces);
         IsotropicRemesher.Options options = OptionsFor(vertices, faces);
-        var none = Array.Empty<SurfaceRemesher.ConstraintPolyline>();
+        var none = Array.Empty<ConstraintPolyline>();
         TiledIsotropicRemesher.Remesh(vertices, faces, none, options, Tile, previous: null, out TiledIsotropicRemesher.TiledRemeshMemo memo);
 
         var raised = (double[])vertices.Clone();
@@ -94,7 +94,7 @@ public class TiledIsotropicRemesherLocalityTests(ITestOutputHelper output)
     {
         TiledIsotropicRemesherQualityTests.GradedTerrain(96, out double[] vertices, out int[] faces);
         IsotropicRemesher.Options options = OptionsFor(vertices, faces);
-        var none = Array.Empty<SurfaceRemesher.ConstraintPolyline>();
+        var none = Array.Empty<ConstraintPolyline>();
         IsotropicRemesher.Result first = TiledIsotropicRemesher.Remesh(vertices, faces, none, options, Tile, previous: null, out TiledIsotropicRemesher.TiledRemeshMemo memo);
 
         IsotropicRemesher.Result again = TiledIsotropicRemesher.Remesh(vertices, faces, none, options, Tile, memo, out TiledIsotropicRemesher.TiledRemeshMemo after);

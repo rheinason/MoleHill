@@ -73,7 +73,7 @@ internal sealed partial class TerrainBuildService
 
     internal static void ApplyPreservedConstraintElevations(
         double[] vertices,
-        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> constraints,
+        IReadOnlyList<ConstraintPolyline> constraints,
         double tolerance)
     {
         double matchTolerance = Math.Max(Math.Abs(tolerance), double.Epsilon);
@@ -91,14 +91,14 @@ internal sealed partial class TerrainBuildService
     private static bool TryGetPreservedConstraintElevation(
         double x,
         double y,
-        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> constraints,
+        IReadOnlyList<ConstraintPolyline> constraints,
         double maxDistanceSquared,
         out double z)
     {
         z = 0.0;
         bool found = false;
         double bestDistanceSquared = maxDistanceSquared;
-        foreach (SurfaceRemesher.ConstraintPolyline constraint in constraints)
+        foreach (ConstraintPolyline constraint in constraints)
         {
             if (!constraint.PreserveInputElevation || constraint.PointCount < 2)
                 continue;
@@ -131,7 +131,7 @@ internal sealed partial class TerrainBuildService
     }
 
     private static bool TryProjectToConstraintSegment(
-        SurfaceRemesher.ConstraintPolyline constraint,
+        ConstraintPolyline constraint,
         int startPointIndex,
         int endPointIndex,
         double x,
@@ -190,7 +190,7 @@ internal sealed partial class TerrainBuildService
         TerrainBuildSnapshot snapshot,
         TerrainDefinition terrain,
         RhinoMesh mesh,
-        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> constraints,
+        IReadOnlyList<ConstraintPolyline> constraints,
         double requestedEdgeLength,
         double maxArea,
         double minAngle,
@@ -307,21 +307,21 @@ internal sealed partial class TerrainBuildService
         return $"{inputVertexCount:N0} verts/{inputFaceCount:N0} faces -> {outputVertexCount:N0} verts/{outputFaceCount:N0} faces";
     }
 
-    private static List<SurfaceRemesher.ConstraintPolyline> CombineConstraints(
-        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> persistentConstraints,
-        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> additionalConstraints)
+    private static List<ConstraintPolyline> CombineConstraints(
+        IReadOnlyList<ConstraintPolyline> persistentConstraints,
+        IReadOnlyList<ConstraintPolyline> additionalConstraints)
     {
         var seen = new HashSet<ConstraintSignature>();
-        var result = new List<SurfaceRemesher.ConstraintPolyline>(persistentConstraints.Count + additionalConstraints.Count);
+        var result = new List<ConstraintPolyline>(persistentConstraints.Count + additionalConstraints.Count);
         AppendUniqueConstraints(result, seen, persistentConstraints);
         AppendUniqueConstraints(result, seen, additionalConstraints);
         return result;
     }
 
     private static void AppendUniqueConstraints(
-        List<SurfaceRemesher.ConstraintPolyline> destination,
+        List<ConstraintPolyline> destination,
         HashSet<ConstraintSignature> seen,
-        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> constraints)
+        IReadOnlyList<ConstraintPolyline> constraints)
     {
         foreach (var constraint in constraints)
         {
@@ -333,7 +333,7 @@ internal sealed partial class TerrainBuildService
         }
     }
 
-    private static ConstraintSignature CreateConstraintSignature(SurfaceRemesher.ConstraintPolyline constraint)
+    private static ConstraintSignature CreateConstraintSignature(ConstraintPolyline constraint)
     {
         var fingerprint = new FingerprintBuilder();
         fingerprint.Add(constraint.PointCount);
@@ -351,7 +351,7 @@ internal sealed partial class TerrainBuildService
             constraint.PreserveInputElevation);
     }
 
-    private static List<SurfaceRemesher.ConstraintPolyline> CreateConstraintPolylines(
+    private static List<ConstraintPolyline> CreateConstraintPolylines(
         IReadOnlyList<Curve> curves,
         double tolerance,
         bool preserveInputElevation,
@@ -365,7 +365,7 @@ internal sealed partial class TerrainBuildService
                 preserveInputElevation);
         }
 
-        var result = new List<SurfaceRemesher.ConstraintPolyline>();
+        var result = new List<ConstraintPolyline>();
         foreach (var curve in curves)
         {
             if (curve == null)
@@ -380,17 +380,17 @@ internal sealed partial class TerrainBuildService
         return result;
     }
 
-    private static List<SurfaceRemesher.ConstraintPolyline> CreateConstraintPolylines(
+    private static List<ConstraintPolyline> CreateConstraintPolylines(
         IReadOnlyList<TerrainTriangulationInputBuilder.FlattenedPolyline> polylines,
         bool preserveInputElevation)
     {
-        var result = new List<SurfaceRemesher.ConstraintPolyline>(polylines.Count);
+        var result = new List<ConstraintPolyline>(polylines.Count);
         foreach (TerrainTriangulationInputBuilder.FlattenedPolyline polyline in polylines)
         {
             if (polyline.Points.Length < 6)
                 continue;
 
-            result.Add(new SurfaceRemesher.ConstraintPolyline(
+            result.Add(new ConstraintPolyline(
                 polyline.Points,
                 polyline.Points.Length / 3,
                 polyline.IsClosed,
@@ -404,19 +404,19 @@ internal sealed partial class TerrainBuildService
     /// Constraints from preprocessed points, keeping each source polyline's closed flag.
     /// <paramref name="processed"/> is aligned with <paramref name="sources"/>; a null entry was dropped.
     /// </summary>
-    private static List<SurfaceRemesher.ConstraintPolyline> CreateConstraintPolylines(
+    private static List<ConstraintPolyline> CreateConstraintPolylines(
         IReadOnlyList<TerrainTriangulationInputBuilder.FlattenedPolyline> sources,
         IReadOnlyList<double[]?> processed,
         bool preserveInputElevation)
     {
-        var result = new List<SurfaceRemesher.ConstraintPolyline>(processed.Count);
+        var result = new List<ConstraintPolyline>(processed.Count);
         for (int i = 0; i < processed.Count && i < sources.Count; i++)
         {
             double[]? points = processed[i];
             if (points == null || points.Length < 6)
                 continue;
 
-            result.Add(new SurfaceRemesher.ConstraintPolyline(
+            result.Add(new ConstraintPolyline(
                 points,
                 points.Length / 3,
                 sources[i].IsClosed,
@@ -431,7 +431,7 @@ internal sealed partial class TerrainBuildService
         return TerrainTriangulationInputBuilder.CreateFlatPolylines(curves, tolerance);
     }
 
-    private static List<double[]> CreateFlatPolylines(IReadOnlyList<SurfaceRemesher.ConstraintPolyline> constraints)
+    private static List<double[]> CreateFlatPolylines(IReadOnlyList<ConstraintPolyline> constraints)
     {
         var result = new List<double[]>(constraints.Count);
         foreach (var constraint in constraints)
@@ -445,7 +445,7 @@ internal sealed partial class TerrainBuildService
         return result;
     }
 
-    private static SurfaceRemesher.ConstraintPolyline ToConstraintPolyline(Polyline polyline, bool isClosed, bool preserveInputElevation = false)
+    private static ConstraintPolyline ToConstraintPolyline(Polyline polyline, bool isClosed, bool preserveInputElevation = false)
     {
         var points = new double[polyline.Count * 3];
         for (int i = 0; i < polyline.Count; i++)
@@ -455,7 +455,7 @@ internal sealed partial class TerrainBuildService
             points[i * 3 + 2] = polyline[i].Z;
         }
 
-        return new SurfaceRemesher.ConstraintPolyline(points, polyline.Count, isClosed, preserveInputElevation);
+        return new ConstraintPolyline(points, polyline.Count, isClosed, preserveInputElevation);
     }
 
     private static double[] ToFlatPolyline(Polyline polyline)

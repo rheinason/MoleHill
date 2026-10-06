@@ -46,7 +46,7 @@ public sealed class RetopoComponent : RegistryTerrainComponent
         if (mesh.Faces.Count == 0) { ctx.Error("Input mesh has no faces."); return; }
 
         var vertices = GhSolveContext.ToFlatVertices(mesh);
-        var constraints = new List<SurfaceRemesher.ConstraintPolyline>();
+        var constraints = new List<ConstraintPolyline>();
         foreach (var curve in ctx.GetCurves(1))
         {
             if (curve == null || !curve.TryGetPolyline(out var polyline) || polyline.Count < 2) continue;
@@ -55,7 +55,7 @@ public sealed class RetopoComponent : RegistryTerrainComponent
             {
                 points[i * 3] = polyline[i].X; points[i * 3 + 1] = polyline[i].Y; points[i * 3 + 2] = polyline[i].Z;
             }
-            constraints.Add(new SurfaceRemesher.ConstraintPolyline(points, polyline.Count, curve.IsClosed));
+            constraints.Add(new ConstraintPolyline(points, polyline.Count, curve.IsClosed));
         }
 
         var result = QuadRemesher.Remesh(vertices, faces, constraints, new QuadRemesher.Options

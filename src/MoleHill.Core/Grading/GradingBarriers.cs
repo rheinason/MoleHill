@@ -30,7 +30,7 @@ internal static class GradingBarriers
     /// Builds barrier segments from hard constraints (PathGrader source).
     /// Only constraints with PreserveInputElevation=true are treated as barriers.
     /// </summary>
-    internal static PreparedBarriers Build(IReadOnlyList<SurfaceRemesher.ConstraintPolyline> constraints)
+    internal static PreparedBarriers Build(IReadOnlyList<ConstraintPolyline> constraints)
     {
         if (constraints.Count == 0)
             return PreparedBarriers.Empty;
@@ -319,7 +319,7 @@ internal static class GradingBarriers
                 Math.Max(ay, by))));
     }
 
-    private static int NormalizeConstraintPointCount(SurfaceRemesher.ConstraintPolyline constraint, double tolerance)
+    private static int NormalizeConstraintPointCount(ConstraintPolyline constraint, double tolerance)
     {
         int count = constraint.PointCount;
         if (!constraint.IsClosed || count < 2 || constraint.Points.Length < (long)count * 3)

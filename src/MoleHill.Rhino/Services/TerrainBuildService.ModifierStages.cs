@@ -134,7 +134,7 @@ internal sealed partial class TerrainBuildService
     {
         var simplify = (SimplifyModifierDefinition)c.Modifier;
         RhinoMesh? input = c.CurrentMesh;
-        List<MoleHill.Core.Engine.SurfaceRemesher.ConstraintPolyline> effectiveConstraints =
+        List<MoleHill.Core.Engine.ConstraintPolyline> effectiveConstraints =
             CombineConstraints(c.Build.PersistentHardConstraints, c.Build.PersistentElevationConstraints);
         c.CurrentMesh = ExecuteCachedMeshStage(
             c.Build,

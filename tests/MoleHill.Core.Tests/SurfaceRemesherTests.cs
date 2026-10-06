@@ -11,7 +11,7 @@ public class SurfaceRemesherTests
         var result = SurfaceRemesher.Remesh(
             CreateSlopedSquareVertices(),
             CreateSquareFaces(),
-            Array.Empty<SurfaceRemesher.ConstraintPolyline>(),
+            Array.Empty<ConstraintPolyline>(),
             new SurfaceRemesher.Options
             {
                 Tolerance = 0.001,
@@ -43,7 +43,7 @@ public class SurfaceRemesherTests
     [Fact]
     public void Remesh_InternalConstraint_PreSplitsConstraintWithoutTinyEdges()
     {
-        var constraint = new SurfaceRemesher.ConstraintPolyline(
+        var constraint = new ConstraintPolyline(
             new[]
             {
                 0.0, 5.0, 5.0,
@@ -78,7 +78,7 @@ public class SurfaceRemesherTests
     [Fact]
     public void Remesh_PreserveInputElevation_KeepsConstraintVerticesOnConstraintZ()
     {
-        var constraint = new SurfaceRemesher.ConstraintPolyline(
+        var constraint = new ConstraintPolyline(
             new[]
             {
                 0.0, 5.0, 4.0,
@@ -113,7 +113,7 @@ public class SurfaceRemesherTests
     [Fact]
     public void Remesh_ClosedInnerConstraintLoop_RefinesInteriorRegion()
     {
-        var constraint = new SurfaceRemesher.ConstraintPolyline(
+        var constraint = new ConstraintPolyline(
             CreateRegularLoopPoints(centerX: 10.0, centerY: 10.0, radius: 4.0, sides: 12, z: 5.0),
             PointCount: 12,
             IsClosed: true,
@@ -151,13 +151,13 @@ public class SurfaceRemesherTests
     [Fact]
     public void Remesh_TwoParallelOpenConstraints_RefinesStripBetweenThem()
     {
-        var topConstraint = new SurfaceRemesher.ConstraintPolyline(
+        var topConstraint = new ConstraintPolyline(
             CreateArcPolylinePoints(centerX: 10.0, centerY: 10.0, radius: 4.0, startAngleDeg: 180.0, endAngleDeg: 0.0, divisions: 12, z: 6.0),
             PointCount: 13,
             IsClosed: false,
             PreserveInputElevation: true);
 
-        var bottomConstraint = new SurfaceRemesher.ConstraintPolyline(
+        var bottomConstraint = new ConstraintPolyline(
             CreateArcPolylinePoints(centerX: 10.0, centerY: 10.0, radius: 2.4, startAngleDeg: 180.0, endAngleDeg: 0.0, divisions: 12, z: 4.0),
             PointCount: 13,
             IsClosed: false,
@@ -229,7 +229,7 @@ public class SurfaceRemesherTests
         var result = SurfaceRemesher.Remesh(
             vertices,
             faces,
-            Array.Empty<SurfaceRemesher.ConstraintPolyline>(),
+            Array.Empty<ConstraintPolyline>(),
             new SurfaceRemesher.Options
             {
                 Tolerance = 0.01,
@@ -256,13 +256,13 @@ public class SurfaceRemesherTests
     [Fact]
     public void Remesh_TwoBreaklinesWithInferredBoundary_DoesNotLeaveCoarseIsland()
     {
-        var topConstraint = new SurfaceRemesher.ConstraintPolyline(
+        var topConstraint = new ConstraintPolyline(
             CreateArcPolylinePoints(centerX: 10.0, centerY: 10.0, radius: 4.0, startAngleDeg: 180.0, endAngleDeg: 0.0, divisions: 12, z: 6.0),
             PointCount: 13,
             IsClosed: false,
             PreserveInputElevation: true);
 
-        var bottomConstraint = new SurfaceRemesher.ConstraintPolyline(
+        var bottomConstraint = new ConstraintPolyline(
             CreateArcPolylinePoints(centerX: 10.0, centerY: 10.0, radius: 2.4, startAngleDeg: 180.0, endAngleDeg: 0.0, divisions: 12, z: 4.0),
             PointCount: 13,
             IsClosed: false,
@@ -455,7 +455,7 @@ public class SurfaceRemesherTests
         var remesh = SurfaceRemesher.Remesh(
             vertices,
             faces,
-            Array.Empty<SurfaceRemesher.ConstraintPolyline>(),
+            Array.Empty<ConstraintPolyline>(),
             new SurfaceRemesher.Options
             {
                 Tolerance = 0.001,
@@ -496,7 +496,7 @@ public class SurfaceRemesherTests
         var remesh = SurfaceRemesher.Remesh(
             vertices,
             faces,
-            Array.Empty<SurfaceRemesher.ConstraintPolyline>(),
+            Array.Empty<ConstraintPolyline>(),
             new SurfaceRemesher.Options
             {
                 Tolerance = 0.001,
@@ -526,12 +526,12 @@ public class SurfaceRemesherTests
             0.0, 200.0, 10.0
         };
 
-        var outerConstraint = new SurfaceRemesher.ConstraintPolyline(
+        var outerConstraint = new ConstraintPolyline(
             CreateRegularLoopPoints(centerX, centerY, outerRadius, sides, z: 6.0),
             PointCount: sides,
             IsClosed: true,
             PreserveInputElevation: true);
-        var innerConstraint = new SurfaceRemesher.ConstraintPolyline(
+        var innerConstraint = new ConstraintPolyline(
             CreateRegularLoopPoints(centerX, centerY, innerRadius, sides, z: 4.0),
             PointCount: sides,
             IsClosed: true,
@@ -657,7 +657,7 @@ public class SurfaceRemesherTests
         return points;
     }
 
-    private static (double[] xy, double[] z, int[] segments) CreateTinInputs(params SurfaceRemesher.ConstraintPolyline[] breaklines)
+    private static (double[] xy, double[] z, int[] segments) CreateTinInputs(params ConstraintPolyline[] breaklines)
     {
         var xy = new List<double>();
         var z = new List<double>();
@@ -700,11 +700,11 @@ public class SurfaceRemesherTests
         return points;
     }
 
-    private static SurfaceRemesher.ConstraintPolyline[] CreateUserReportedBreaklines()
+    private static ConstraintPolyline[] CreateUserReportedBreaklines()
     {
         return new[]
         {
-            new SurfaceRemesher.ConstraintPolyline(
+            new ConstraintPolyline(
                 new[]
                 {
                     0.0, 0.0, 0.0,
@@ -713,7 +713,7 @@ public class SurfaceRemesherTests
                 PointCount: 2,
                 IsClosed: false,
                 PreserveInputElevation: true),
-            new SurfaceRemesher.ConstraintPolyline(
+            new ConstraintPolyline(
                 new[]
                 {
                     0.0, 76.79, 10.62,
@@ -722,7 +722,7 @@ public class SurfaceRemesherTests
                 PointCount: 2,
                 IsClosed: false,
                 PreserveInputElevation: true),
-            new SurfaceRemesher.ConstraintPolyline(
+            new ConstraintPolyline(
                 new[]
                 {
                     22.70, 41.88, 2.17,
@@ -732,7 +732,7 @@ public class SurfaceRemesherTests
                 PointCount: 3,
                 IsClosed: false,
                 PreserveInputElevation: true),
-            new SurfaceRemesher.ConstraintPolyline(
+            new ConstraintPolyline(
                 new[]
                 {
                     0.0, 49.93, 6.90,
@@ -741,7 +741,7 @@ public class SurfaceRemesherTests
                 PointCount: 2,
                 IsClosed: false,
                 PreserveInputElevation: true),
-            new SurfaceRemesher.ConstraintPolyline(
+            new ConstraintPolyline(
                 new[]
                 {
                     22.84, 42.02, 2.78,

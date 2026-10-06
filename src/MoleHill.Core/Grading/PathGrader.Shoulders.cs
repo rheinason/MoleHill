@@ -249,7 +249,7 @@ public static partial class PathGrader
     }
 
     private static void AddConstraintPolyline(
-        List<SurfaceRemesher.ConstraintPolyline> constraints,
+        List<ConstraintPolyline> constraints,
         double[] xyVertices,
         double[] zValues,
         int vertexCount)
@@ -265,11 +265,11 @@ public static partial class PathGrader
             points[i * 3 + 2] = zValues[i];
         }
 
-        constraints.Add(new SurfaceRemesher.ConstraintPolyline(points, vertexCount, IsClosed: false, PreserveInputElevation: false));
+        constraints.Add(new ConstraintPolyline(points, vertexCount, IsClosed: false, PreserveInputElevation: false));
     }
 
     private static void AddPathStationConstraints(
-        List<SurfaceRemesher.ConstraintPolyline> constraints,
+        List<ConstraintPolyline> constraints,
         ConstraintPath centerPath,
         double[] leftRoadXy,
         double[] rightRoadXy,

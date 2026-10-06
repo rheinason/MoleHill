@@ -11,8 +11,8 @@ namespace MoleHill.Core.Tests;
 /// </summary>
 public class QuadRemesherTests
 {
-    private static readonly IReadOnlyList<SurfaceRemesher.ConstraintPolyline> NoConstraints =
-        Array.Empty<SurfaceRemesher.ConstraintPolyline>();
+    private static readonly IReadOnlyList<ConstraintPolyline> NoConstraints =
+        Array.Empty<ConstraintPolyline>();
 
     private static (double[] vertices, int[] faces) BuildGrid(double[] xs, double[] ys, Func<double, double, double> z)
     {
@@ -210,7 +210,7 @@ public class QuadRemesherTests
         var (vertices, faces) = BuildGrid(Steps(0, 12, 1.0), Steps(0, 12, 1.0), (_, _) => 0.0);
         var points = new double[3 * 13];
         for (int i = 0; i <= 12; i++) { points[i * 3] = 6; points[i * 3 + 1] = i; }
-        var constraints = new[] { new SurfaceRemesher.ConstraintPolyline(points, 13, false) };
+        var constraints = new[] { new ConstraintPolyline(points, 13, false) };
 
         var result = QuadRemesher.Remesh(vertices, faces, constraints, new QuadRemesher.Options
         {

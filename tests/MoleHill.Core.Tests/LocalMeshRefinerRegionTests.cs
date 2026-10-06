@@ -10,8 +10,8 @@ namespace MoleHill.Core.Tests;
 /// </summary>
 public class LocalMeshRefinerRegionTests
 {
-    private static IReadOnlyList<SurfaceRemesher.ConstraintPolyline> NoConstraints =>
-        Array.Empty<SurfaceRemesher.ConstraintPolyline>();
+    private static IReadOnlyList<ConstraintPolyline> NoConstraints =>
+        Array.Empty<ConstraintPolyline>();
 
     /// <summary>Flat 10x10 grid (spacing 1) triangulated into two triangles per cell.</summary>
     private static (double[] Verts, int[] Faces) FlatGrid()

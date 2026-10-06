@@ -311,7 +311,7 @@ public class GradingWindowsTests(ITestOutputHelper output)
         {
             next = new GradingWindows.Memo();
             return PathGrader.GradeWindowed(vertices, vertices.Length / 3, f, f.Length / 3, paths,
-                Array.Empty<SurfaceRemesher.ConstraintPolyline>(), 0.001, preferSplitKeep: false, previous, next, notes, out _);
+                Array.Empty<ConstraintPolyline>(), 0.001, preferSplitKeep: false, previous, next, notes, out _);
         }
 
         var notes = new List<string>();
@@ -341,7 +341,7 @@ public class GradingWindowsTests(ITestOutputHelper output)
     public void GradeWindowed_PocketPinchedToTheWindowRim_WeldsLikeTheWholeMesh()
     {
         ReadPadCase("MoleHill.Core.Tests.TestData.PadWindowPocketCase.bin", out double[] v, out int[] f,
-            out PadGrader.PadBoundary[] pads, out List<SurfaceRemesher.ConstraintPolyline> hard, out double tol, out double detail);
+            out PadGrader.PadBoundary[] pads, out List<ConstraintPolyline> hard, out double tol, out double detail);
 
         GradingResult whole = PadGrader.Grade(v, v.Length / 3, f, f.Length / 3, pads, null, out _, out _, out _, tol, detail, hard)!;
         var notes = new List<string>();
@@ -356,7 +356,7 @@ public class GradingWindowsTests(ITestOutputHelper output)
     }
 
     private static void ReadPadCase(string resource, out double[] v, out int[] f, out PadGrader.PadBoundary[] pads,
-        out List<SurfaceRemesher.ConstraintPolyline> hard, out double tolerance, out double detail)
+        out List<ConstraintPolyline> hard, out double tolerance, out double detail)
     {
         using Stream stream = typeof(GradingWindowsTests).Assembly.GetManifestResourceStream(resource)!;
         using var r = new BinaryReader(stream);
@@ -381,7 +381,7 @@ public class GradingWindowsTests(ITestOutputHelper output)
             pads[p] = PadGrader.PadBoundary.CreatePlanar(boundary, n, px, py, pc, slope, maxDistance, cornerFan, apron, fillSlope);
         }
 
-        hard = new List<SurfaceRemesher.ConstraintPolyline>();
+        hard = new List<ConstraintPolyline>();
         int constraintCount = r.ReadInt32();
         for (int c = 0; c < constraintCount; c++)
         {
@@ -390,7 +390,7 @@ public class GradingWindowsTests(ITestOutputHelper output)
             var points = new double[n * 3];
             for (int i = 0; i < points.Length; i++)
                 points[i] = r.ReadDouble();
-            hard.Add(new SurfaceRemesher.ConstraintPolyline(points, n, closed, preserve));
+            hard.Add(new ConstraintPolyline(points, n, closed, preserve));
         }
 
         tolerance = r.ReadDouble();

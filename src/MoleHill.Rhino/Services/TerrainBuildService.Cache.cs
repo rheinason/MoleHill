@@ -48,7 +48,7 @@ internal sealed partial class TerrainBuildService
         ulong preResolutionFingerprint,
         ulong resolvedInputFingerprint,
         RhinoMesh? mesh,
-        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> persistentHardConstraints,
+        IReadOnlyList<ConstraintPolyline> persistentHardConstraints,
         IEnumerable<GeneratedRhinoObject> auxiliaryObjects,
         IEnumerable<string> diagnostics,
         string? detail,

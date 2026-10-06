@@ -50,7 +50,7 @@ public sealed class ContourSliverCurbInsertionCaseTests
     public void TryInsert_SplitNearSliverFarCorner_CutsBothSidesOfTheEdge()
     {
         var before = MeshTopologyValidator.AnalyzeBoundaryGraph(FarCornerFaces, FarCornerFaces.Length / 3);
-        SurfaceRemesher.ConstraintPolyline curb = new([-1.4930085585699615, -0.7861726487189813, 7.399371621116108, 1.9195150946215733, 1.3006149102836844, 7.399371621116108], 2, IsClosed: false, PreserveInputElevation: true);
+        ConstraintPolyline curb = new([-1.4930085585699615, -0.7861726487189813, 7.399371621116108, 1.9195150946215733, 1.3006149102836844, 7.399371621116108], 2, IsClosed: false, PreserveInputElevation: true);
         bool inserted = MeshConstraintTopologyInserter.TryInsert(
             FarCornerVertices, FarCornerVertices.Length / 3, FarCornerFaces, FarCornerFaces.Length / 3, [curb], Tolerance,
             out _, out int vertexCount, out int[] faces, out int faceCount, out string? error);
@@ -1689,7 +1689,7 @@ public sealed class ContourSliverCurbInsertionCaseTests
         502, 499, 503,
     ];
 
-    private static SurfaceRemesher.ConstraintPolyline Curb() =>
+    private static ConstraintPolyline Curb() =>
         new([-0.5358163860658536, -2.0131676368321934, 6.670159872719451, 1.1095879914600175, 2.5689711360246292, 7.096671134985881], 2, IsClosed: false, PreserveInputElevation: true);
 
     private static void AssertTilesInput(double[] vertices, int[] faces, int faceCount)

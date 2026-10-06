@@ -53,7 +53,7 @@ public class SurfaceRemesherVertexMergeTests
         Assert.Equal(1, CountPairsWithin(verts, 0.1)); // the 0.04 pinch is present in the input
 
         SurfaceRemesher.Result r = SurfaceRemesher.Remesh(
-            verts, faces, Array.Empty<SurfaceRemesher.ConstraintPolyline>(),
+            verts, faces, Array.Empty<ConstraintPolyline>(),
             new SurfaceRemesher.Options { Tolerance = 0.01, MinAngle = 20 });
 
         Assert.True(r.Success);
@@ -66,7 +66,7 @@ public class SurfaceRemesherVertexMergeTests
         (double[] verts, int[] faces) = PinchedMesh();
 
         SurfaceRemesher.Result r = SurfaceRemesher.Remesh(
-            verts, faces, Array.Empty<SurfaceRemesher.ConstraintPolyline>(),
+            verts, faces, Array.Empty<ConstraintPolyline>(),
             new SurfaceRemesher.Options { Tolerance = 0.01, MinAngle = 20, VertexMergeTolerance = 0.1 });
 
         Assert.True(r.Success);

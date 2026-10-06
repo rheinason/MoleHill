@@ -6,7 +6,7 @@ public static partial class PathGrader
 {
     private static void ApplyPathGradingWithSections(
         PathDefinition[] paths,
-        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> barrierConstraints,
+        IReadOnlyList<ConstraintPolyline> barrierConstraints,
         double[] outXy,
         double[] origZ,
         double[] newZ,

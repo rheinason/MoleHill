@@ -22,7 +22,7 @@ public class MeshConstraintTopologyInserterTests
             vertices.Length / 3,
             faces,
             faces.Length / 3,
-            Array.Empty<SurfaceRemesher.ConstraintPolyline>(),
+            Array.Empty<ConstraintPolyline>(),
             Tolerance,
             out double[] outVertices,
             out int outVertexCount,
@@ -187,7 +187,7 @@ public class MeshConstraintTopologyInserterTests
     private static bool Insert(
         double[] vertices,
         int[] faces,
-        SurfaceRemesher.ConstraintPolyline[] constraints,
+        ConstraintPolyline[] constraints,
         out double[] outVertices,
         out int outFaceCount,
         out int[] outFaces,
@@ -207,17 +207,17 @@ public class MeshConstraintTopologyInserterTests
             out error);
     }
 
-    private static SurfaceRemesher.ConstraintPolyline Open(params double[] xy)
+    private static ConstraintPolyline Open(params double[] xy)
     {
         return Build(xy, isClosed: false);
     }
 
-    private static SurfaceRemesher.ConstraintPolyline Closed(params double[] xy)
+    private static ConstraintPolyline Closed(params double[] xy)
     {
         return Build(xy, isClosed: true);
     }
 
-    private static SurfaceRemesher.ConstraintPolyline Build(double[] xy, bool isClosed)
+    private static ConstraintPolyline Build(double[] xy, bool isClosed)
     {
         int pointCount = xy.Length / 2;
         var points = new double[pointCount * 3];
@@ -228,7 +228,7 @@ public class MeshConstraintTopologyInserterTests
             points[(i * 3) + 2] = 0.0;
         }
 
-        return new SurfaceRemesher.ConstraintPolyline(points, pointCount, isClosed);
+        return new ConstraintPolyline(points, pointCount, isClosed);
     }
 
     private static (double[] Vertices, int[] Faces) BuildGrid(int columns, int rows, Func<double, double, double>? height = null)

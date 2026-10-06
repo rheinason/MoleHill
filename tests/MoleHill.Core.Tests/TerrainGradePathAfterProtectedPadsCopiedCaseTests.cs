@@ -24,8 +24,8 @@ public class TerrainGradePathAfterProtectedPadsCopiedCaseTests
                 path.SlopeAngleDeg,
                 path.MaxDistance))
             .ToArray();
-        SurfaceRemesher.ConstraintPolyline[] hardConstraints = fixture.HardConstraints
-            .Select(constraint => new SurfaceRemesher.ConstraintPolyline(
+        ConstraintPolyline[] hardConstraints = fixture.HardConstraints
+            .Select(constraint => new ConstraintPolyline(
                 constraint.Points,
                 constraint.PointCount,
                 constraint.IsClosed,

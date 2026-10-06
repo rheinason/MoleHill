@@ -15,7 +15,7 @@ public class IsotropicRemesherFlipEquivalenceTests
     public void FlipForQuality_JitteredGridWithBadDiagonals_MatchesReference()
     {
         BuildJitteredGrid(60, 1.0, out double[] vertices, out int[] faces);
-        AssertFlipsMatch(vertices, faces, Array.Empty<SurfaceRemesher.ConstraintPolyline>(), wallSlopeDeg: 0.0);
+        AssertFlipsMatch(vertices, faces, Array.Empty<ConstraintPolyline>(), wallSlopeDeg: 0.0);
     }
 
     [Fact]
@@ -30,7 +30,7 @@ public class IsotropicRemesherFlipEquivalenceTests
             for (int i = 0; i <= n; i++)
                 vertices[((j * (n + 1)) + i) * 3 + 2] += 6.0;
 
-        var breakline = new SurfaceRemesher.ConstraintPolyline(
+        var breakline = new ConstraintPolyline(
             new[] { 5.0, 5.0, 0.0, 20.0, 12.0, 0.0, 40.0, 25.0, 0.0 },
             PointCount: 3,
             IsClosed: false,
@@ -64,8 +64,8 @@ public class IsotropicRemesherFlipEquivalenceTests
         double[] vertexArray = vertices.ToArray();
 
         // Tombstone every 17th grid face, as a collapse round leaves them before its sweep.
-        IsotropicRemesher.MeshState reference = CreateState(vertexArray, faceArray, Array.Empty<SurfaceRemesher.ConstraintPolyline>(), 0.0);
-        IsotropicRemesher.MeshState indexed = CreateState(vertexArray, faceArray, Array.Empty<SurfaceRemesher.ConstraintPolyline>(), 0.0);
+        IsotropicRemesher.MeshState reference = CreateState(vertexArray, faceArray, Array.Empty<ConstraintPolyline>(), 0.0);
+        IsotropicRemesher.MeshState indexed = CreateState(vertexArray, faceArray, Array.Empty<ConstraintPolyline>(), 0.0);
         for (int t = 0; t < gridFaces.Length / 3; t += 17)
         {
             reference.Tris[t * 3] = -1;
@@ -84,8 +84,8 @@ public class IsotropicRemesherFlipEquivalenceTests
         for (int v = 0; v < vertexCount; v++)
             theta[v] = 0.25 + (vertices[v * 3] * 0.02) - (vertices[v * 3 + 1] * 0.015);
 
-        IsotropicRemesher.MeshState reference = CreateState(vertices, faces, Array.Empty<SurfaceRemesher.ConstraintPolyline>(), 0.0);
-        IsotropicRemesher.MeshState indexed = CreateState(vertices, faces, Array.Empty<SurfaceRemesher.ConstraintPolyline>(), 0.0);
+        IsotropicRemesher.MeshState reference = CreateState(vertices, faces, Array.Empty<ConstraintPolyline>(), 0.0);
+        IsotropicRemesher.MeshState indexed = CreateState(vertices, faces, Array.Empty<ConstraintPolyline>(), 0.0);
         reference.Field = CreateField(vertices, faces, theta);
         indexed.Field = CreateField(vertices, faces, theta);
 
@@ -102,8 +102,8 @@ public class IsotropicRemesherFlipEquivalenceTests
         BuildJitteredGrid(70, 0.5, out double[] vertices, out int[] faces);
         const double target = 1.1;
         var projection = new TerrainFaceGrid(vertices, vertices.Length / 3, faces, faces.Length / 3, target * 0.5);
-        IsotropicRemesher.MeshState reference = CreateState(vertices, faces, Array.Empty<SurfaceRemesher.ConstraintPolyline>(), 0.0);
-        IsotropicRemesher.MeshState indexed = CreateState(vertices, faces, Array.Empty<SurfaceRemesher.ConstraintPolyline>(), 0.0);
+        IsotropicRemesher.MeshState reference = CreateState(vertices, faces, Array.Empty<ConstraintPolyline>(), 0.0);
+        IsotropicRemesher.MeshState indexed = CreateState(vertices, faces, Array.Empty<ConstraintPolyline>(), 0.0);
 
         int totalFlips = 0;
         for (int iteration = 0; iteration < 6; iteration++)
@@ -132,7 +132,7 @@ public class IsotropicRemesherFlipEquivalenceTests
     private static void AssertFlipsMatch(
         double[] vertices,
         int[] faces,
-        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> constraints,
+        IReadOnlyList<ConstraintPolyline> constraints,
         double wallSlopeDeg)
     {
         AssertSameFlips(
@@ -153,7 +153,7 @@ public class IsotropicRemesherFlipEquivalenceTests
     private static IsotropicRemesher.MeshState CreateState(
         double[] vertices,
         int[] faces,
-        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> constraints,
+        IReadOnlyList<ConstraintPolyline> constraints,
         double wallSlopeDeg)
     {
         FeaturePolylineGraph graph = FeaturePolylineGraph.Build(

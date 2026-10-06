@@ -25,10 +25,10 @@ public class PathGraderBarrierClippingTests
         0, 2, 3
     };
 
-    private static SurfaceRemesher.ConstraintPolyline MakeBarrier(
+    private static ConstraintPolyline MakeBarrier(
         double x0, double y0, double x1, double y1)
     {
-        return new SurfaceRemesher.ConstraintPolyline(
+        return new ConstraintPolyline(
             new[] { x0, y0, 0.0, x1, y1, 0.0 },
             PointCount: 2,
             IsClosed: false,
@@ -164,7 +164,7 @@ public class PathGraderBarrierClippingTests
     public void Grade_RoadThroughClosedBarrier_LeavesTheInsideToIt()
     {
         var path = MakeHorizontalPath(y: 50.0, width: 4.0, maxDist: 5.0, z: 2.0);
-        var pad = new SurfaceRemesher.ConstraintPolyline(
+        var pad = new ConstraintPolyline(
             new[] { 40.0, 40.0, 0.0, 60.0, 40.0, 0.0, 60.0, 60.0, 0.0, 40.0, 60.0, 0.0 },
             PointCount: 4,
             IsClosed: true,
@@ -274,7 +274,7 @@ public class PathGraderBarrierClippingTests
             CoarseVertices, CoarseVertices.Length / 3,
             CoarseFaces, CoarseFaces.Length / 3,
             new[] { path },
-            Array.Empty<SurfaceRemesher.ConstraintPolyline>(),
+            Array.Empty<ConstraintPolyline>(),
             out string? errorEmpty);
 
         GradingResult? withNoArg = PathGrader.Grade(

@@ -12,8 +12,8 @@ namespace MoleHill.Rhino.Services;
 internal sealed partial class TerrainBuildService
 {
     /// <summary>The lines a grading card must respect: every upstream breakline, or none when it grades through them.</summary>
-    private static IReadOnlyList<SurfaceRemesher.ConstraintPolyline> UpstreamBreaklines(TerrainBuildResult build, bool gradeThrough) =>
-        gradeThrough ? Array.Empty<SurfaceRemesher.ConstraintPolyline>() : build.PersistentHardConstraints;
+    private static IReadOnlyList<ConstraintPolyline> UpstreamBreaklines(TerrainBuildResult build, bool gradeThrough) =>
+        gradeThrough ? Array.Empty<ConstraintPolyline>() : build.PersistentHardConstraints;
 
     /// <summary>
     /// Cuts the persisted breaklines and contours down to where they still lie on the graded terrain. Call it
@@ -34,9 +34,9 @@ internal sealed partial class TerrainBuildService
 
         var graded = new TerrainFaceGrid(vertices, vertexCount, faces, faceCount);
         double heightTolerance = Math.Max(modelTolerance * 10.0, 1e-9);
-        List<SurfaceRemesher.ConstraintPolyline> hard = RegradedConstraintTrimmer.Trim(
+        List<ConstraintPolyline> hard = RegradedConstraintTrimmer.Trim(
             build.PersistentHardConstraints, graded, heightTolerance, out double hardRemoved, out int hardTrimmed);
-        List<SurfaceRemesher.ConstraintPolyline> elevation = RegradedConstraintTrimmer.Trim(
+        List<ConstraintPolyline> elevation = RegradedConstraintTrimmer.Trim(
             build.PersistentElevationConstraints, graded, heightTolerance, out double elevationRemoved, out int elevationTrimmed);
         build.PersistentHardConstraints.Clear();
         build.PersistentHardConstraints.AddRange(hard);

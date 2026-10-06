@@ -93,7 +93,7 @@ public sealed class RemeshComponent : RegistryTerrainComponent
         if (!ctx.TryToFlatFaces(mesh, out var origFaces))
             return;
 
-        var remeshConstraints = new List<SurfaceRemesher.ConstraintPolyline>();
+        var remeshConstraints = new List<ConstraintPolyline>();
         foreach (var crv in constraints)
         {
             if (crv == null)
@@ -147,7 +147,7 @@ public sealed class RemeshComponent : RegistryTerrainComponent
         ctx.SetData(3, new MoleHillTerrainGoo(terrain));
     }
 
-    private static SurfaceRemesher.ConstraintPolyline ToConstraintPolyline(Polyline polyline, bool isClosed)
+    private static ConstraintPolyline ToConstraintPolyline(Polyline polyline, bool isClosed)
     {
         var points = new double[polyline.Count * 3];
         for (int i = 0; i < polyline.Count; i++)
@@ -157,6 +157,6 @@ public sealed class RemeshComponent : RegistryTerrainComponent
             points[i * 3 + 2] = polyline[i].Z;
         }
 
-        return new SurfaceRemesher.ConstraintPolyline(points, polyline.Count, isClosed);
+        return new ConstraintPolyline(points, polyline.Count, isClosed);
     }
 }

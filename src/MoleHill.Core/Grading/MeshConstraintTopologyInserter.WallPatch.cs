@@ -9,7 +9,7 @@ internal static partial class MeshConstraintTopologyInserter
 {
     internal static bool TryBuildWallPatchCandidate(
         double[] vertices, int[] faces,
-        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> constraints,
+        IReadOnlyList<ConstraintPolyline> constraints,
         double tolerance, int segmentSplitting,
         out double[] outputVertices, out int[] outputFaces, out string? error, int neighbourRings = 0, double maxArea = 0)
     {
@@ -24,7 +24,7 @@ internal static partial class MeshConstraintTopologyInserter
     /// </param>
     internal static bool TryBuildWallPatchCandidate(
         double[] vertices, int[] faces,
-        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> constraints,
+        IReadOnlyList<ConstraintPolyline> constraints,
         double tolerance, int segmentSplitting,
         out double[] outputVertices, out int[] outputFaces, out string? error, out bool exceededFaceBudget,
         int neighbourRings = 0, double maxArea = 0, int maxOutputFaces = int.MaxValue)

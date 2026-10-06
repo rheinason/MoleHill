@@ -66,14 +66,14 @@ public static partial class PathGrader
         double modelTolerance = GradingTolerances.DefaultModelTolerance,
         bool preferSplitKeep = false)
     {
-        return Grade(vertices, vertexCount, faces, faceCount, paths, Array.Empty<SurfaceRemesher.ConstraintPolyline>(), out errorMessage, modelTolerance, preferSplitKeep);
+        return Grade(vertices, vertexCount, faces, faceCount, paths, Array.Empty<ConstraintPolyline>(), out errorMessage, modelTolerance, preferSplitKeep);
     }
 
     public static GradingResult? Grade(
         double[] vertices, int vertexCount,
         int[] faces, int faceCount,
         PathDefinition[] paths,
-        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> hardConstraints,
+        IReadOnlyList<ConstraintPolyline> hardConstraints,
         out string? errorMessage,
         double modelTolerance = GradingTolerances.DefaultModelTolerance,
         bool preferSplitKeep = false)
@@ -97,7 +97,7 @@ public static partial class PathGrader
         int[] faces,
         int faceCount,
         PathDefinition[] paths,
-        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> hardConstraints,
+        IReadOnlyList<ConstraintPolyline> hardConstraints,
         out string? errorMessage,
         double modelTolerance,
         bool preferSplitKeep,
@@ -123,7 +123,7 @@ public static partial class PathGrader
         int[] faces,
         int faceCount,
         PathDefinition[] paths,
-        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> hardConstraints,
+        IReadOnlyList<ConstraintPolyline> hardConstraints,
         out string? errorMessage,
         double modelTolerance,
         bool preferSplitKeep,
@@ -137,7 +137,7 @@ public static partial class PathGrader
         try
         {
             errorMessage = null;
-            hardConstraints ??= Array.Empty<SurfaceRemesher.ConstraintPolyline>();
+            hardConstraints ??= Array.Empty<ConstraintPolyline>();
 
             if (!GradingInputValidator.ValidateTerrainMesh(vertices, vertexCount, faces, faceCount, out errorMessage))
                 return null;
@@ -186,7 +186,7 @@ public static partial class PathGrader
         int[] faces,
         int faceCount,
         PathDefinition[] paths,
-        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> hardConstraints,
+        IReadOnlyList<ConstraintPolyline> hardConstraints,
         out string? errorMessage,
         double modelTolerance,
         bool preferSplitKeep,

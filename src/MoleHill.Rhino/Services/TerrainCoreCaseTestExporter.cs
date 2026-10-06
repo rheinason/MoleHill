@@ -272,19 +272,19 @@ internal static class TerrainCoreCaseTestExporter
         builder.AppendLine("        };");
     }
 
-    private static void AppendConstraintArray(StringBuilder builder, SurfaceRemesher.ConstraintPolyline[] constraints)
+    private static void AppendConstraintArray(StringBuilder builder, ConstraintPolyline[] constraints)
     {
         if (constraints.Length == 0)
         {
-            builder.AppendLine("        var hardConstraints = Array.Empty<SurfaceRemesher.ConstraintPolyline>();");
+            builder.AppendLine("        var hardConstraints = Array.Empty<ConstraintPolyline>();");
             return;
         }
 
         builder.AppendLine("        var hardConstraints = new[]");
         builder.AppendLine("        {");
-        foreach (SurfaceRemesher.ConstraintPolyline constraint in constraints)
+        foreach (ConstraintPolyline constraint in constraints)
         {
-            builder.AppendLine("            new SurfaceRemesher.ConstraintPolyline(");
+            builder.AppendLine("            new ConstraintPolyline(");
             AppendInlineDoubleArray(builder, constraint.Points, 16, trailingComma: true);
             builder.AppendLine($"                {constraint.PointCount.ToString(CultureInfo.InvariantCulture)},");
             builder.AppendLine($"                {FormatBool(constraint.IsClosed)},");

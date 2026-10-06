@@ -155,7 +155,7 @@ internal static class GradingInputValidator
     }
 
     public static bool ValidateConstraintPolylines(
-        IReadOnlyList<SurfaceRemesher.ConstraintPolyline>? constraints,
+        IReadOnlyList<ConstraintPolyline>? constraints,
         string label,
         out string? errorMessage)
     {
@@ -165,7 +165,7 @@ internal static class GradingInputValidator
 
         for (int i = 0; i < constraints.Count; i++)
         {
-            SurfaceRemesher.ConstraintPolyline constraint = constraints[i];
+            ConstraintPolyline constraint = constraints[i];
             if (constraint.PointCount < 0)
             {
                 errorMessage = $"{label} constraint {i} has an invalid point count.";

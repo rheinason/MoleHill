@@ -11,8 +11,6 @@ namespace MoleHill.Core.Engine;
 /// </summary>
 public static class SurfaceRemesher
 {
-    public readonly record struct ConstraintPolyline(double[] Points, int PointCount, bool IsClosed, bool PreserveInputElevation = false);
-
     public readonly record struct TimingEntry(string Name, TimeSpan Elapsed);
 
     public sealed class Options

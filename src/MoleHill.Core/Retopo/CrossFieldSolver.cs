@@ -64,7 +64,7 @@ public static class CrossFieldSolver
     public static Result Solve(
         double[] vertices,
         int[] faces,
-        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> constraints,
+        IReadOnlyList<ConstraintPolyline> constraints,
         Options options)
     {
         int vertexCount = vertices.Length / 3;
@@ -252,7 +252,7 @@ public static class CrossFieldSolver
         int vertexCount,
         int[] faces,
         int faceCount,
-        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> constraints,
+        IReadOnlyList<ConstraintPolyline> constraints,
         double tolerance)
     {
         if (constraints.Count == 0)
@@ -269,7 +269,7 @@ public static class CrossFieldSolver
 
         var index = new VertexHashGrid(vertices, vertexCount, Math.Max(tolerance * 4.0, 1e-6));
 
-        foreach (SurfaceRemesher.ConstraintPolyline constraint in constraints)
+        foreach (ConstraintPolyline constraint in constraints)
         {
             int pointCount = constraint.PointCount;
             if (pointCount < 2)

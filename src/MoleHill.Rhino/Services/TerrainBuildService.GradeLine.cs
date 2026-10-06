@@ -75,7 +75,7 @@ internal sealed partial class TerrainBuildService
 
         // Same rule as Grade Path: only a hard constraint that meets this line's corridor may reorder
         // the tiers. The corridor constraints are built only when the answer could change.
-        IReadOnlyList<MoleHill.Core.Engine.SurfaceRemesher.ConstraintPolyline> lineBarriers = UpstreamBreaklines(build, modifier.GradeThroughBreaklines);
+        IReadOnlyList<MoleHill.Core.Engine.ConstraintPolyline> lineBarriers = UpstreamBreaklines(build, modifier.GradeThroughBreaklines);
         bool hasInteractingHardConstraints =
             TerrainBuildHeuristics.ShouldPreferSplitKeepGradePath(mode, hasInteractingHardConstraints: true, faceCount) &&
             lineBarriers.Count > 0 &&

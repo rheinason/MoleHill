@@ -47,7 +47,7 @@ public class ConstraintCoincidenceSnapperScalingBenchmarkTests(ITestOutputHelper
         double extent = side;
         double padSize = extent * padFraction;
         double origin = (extent - padSize) * 0.5;
-        var constraints = new List<SurfaceRemesher.ConstraintPolyline>
+        var constraints = new List<ConstraintPolyline>
         {
             ClosedLoop(origin, origin, padSize)
         };
@@ -66,7 +66,7 @@ public class ConstraintCoincidenceSnapperScalingBenchmarkTests(ITestOutputHelper
         clippedTimer.Stop();
 
         var snapTimer = Stopwatch.StartNew();
-        SurfaceRemesher.ConstraintPolyline snapped = clipped.SnapConstraintPolyline(constraints[0]);
+        ConstraintPolyline snapped = clipped.SnapConstraintPolyline(constraints[0]);
         snapTimer.Stop();
 
         output.WriteLine(
@@ -77,7 +77,7 @@ public class ConstraintCoincidenceSnapperScalingBenchmarkTests(ITestOutputHelper
             $"escaped={clipped.RegionWasAbandoned}");
     }
 
-    private static SurfaceRemesher.ConstraintPolyline ClosedLoop(double x, double y, double size)
+    private static ConstraintPolyline ClosedLoop(double x, double y, double size)
     {
         // Deliberately off-grid, so the snap does real work rather than matching vertices exactly.
         double[] points =
@@ -87,7 +87,7 @@ public class ConstraintCoincidenceSnapperScalingBenchmarkTests(ITestOutputHelper
             x + size + 0.13, y + size + 0.07, 0.0,
             x + 0.13, y + size + 0.07, 0.0
         ];
-        return new SurfaceRemesher.ConstraintPolyline(points, 4, IsClosed: true, PreserveInputElevation: false);
+        return new ConstraintPolyline(points, 4, IsClosed: true, PreserveInputElevation: false);
     }
 
     private static void BuildGrid(int divisions, out double[] vertices, out int vertexCount, out int[] faces, out int faceCount)

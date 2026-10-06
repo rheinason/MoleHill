@@ -12,8 +12,8 @@ namespace MoleHill.Core.Tests;
 /// </summary>
 public class CoreStageCancellationTests
 {
-    private static readonly IReadOnlyList<SurfaceRemesher.ConstraintPolyline> NoConstraints =
-        Array.Empty<SurfaceRemesher.ConstraintPolyline>();
+    private static readonly IReadOnlyList<ConstraintPolyline> NoConstraints =
+        Array.Empty<ConstraintPolyline>();
 
     [Fact]
     public void Probe_None_NeverCancels()

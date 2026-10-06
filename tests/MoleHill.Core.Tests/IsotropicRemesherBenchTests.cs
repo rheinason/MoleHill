@@ -50,7 +50,7 @@ public class IsotropicRemesherBenchTests
 
         long allocatedBefore = GC.GetTotalAllocatedBytes(precise: true);
         var sw = Stopwatch.StartNew();
-        var result = IsotropicRemesher.Remesh(vertices, faces, Array.Empty<SurfaceRemesher.ConstraintPolyline>(),
+        var result = IsotropicRemesher.Remesh(vertices, faces, Array.Empty<ConstraintPolyline>(),
             new IsotropicRemesher.Options
             {
                 TargetEdgeLength = 1.2,
@@ -111,7 +111,7 @@ public class IsotropicRemesherBenchTests
 
         long allocatedBefore = GC.GetTotalAllocatedBytes(precise: true);
         var sw = Stopwatch.StartNew();
-        var result = IsotropicRemesher.Remesh(vertices, faces, Array.Empty<SurfaceRemesher.ConstraintPolyline>(),
+        var result = IsotropicRemesher.Remesh(vertices, faces, Array.Empty<ConstraintPolyline>(),
             new IsotropicRemesher.Options
             {
                 TargetEdgeLength = 3.0,
@@ -149,7 +149,7 @@ public class IsotropicRemesherBenchTests
             vertices,
             faces,
             faces.Length / 3,
-            Array.Empty<SurfaceRemesher.ConstraintPolyline>(),
+            Array.Empty<ConstraintPolyline>(),
             creaseAngleDeg: 30.0,
             wallFaceMinSlopeDeg: 0.0,
             tolerance: 0.01,

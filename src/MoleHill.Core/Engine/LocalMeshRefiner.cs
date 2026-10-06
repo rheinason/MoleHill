@@ -84,7 +84,7 @@ public static class LocalMeshRefiner
     public static Result Refine(
         double[] vertices,
         int[] faces,
-        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> constraints,
+        IReadOnlyList<ConstraintPolyline> constraints,
         Options options)
     {
         int vertexCount = vertices.Length / 3;
@@ -469,7 +469,7 @@ public static class LocalMeshRefiner
         int vertexCount,
         int[] faces,
         int faceCount,
-        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> constraints,
+        IReadOnlyList<ConstraintPolyline> constraints,
         double tolerance,
         HashSet<long> featureEdges)
     {
@@ -477,7 +477,7 @@ public static class LocalMeshRefiner
             return;
 
         bool hasWork = false;
-        foreach (SurfaceRemesher.ConstraintPolyline constraint in constraints)
+        foreach (ConstraintPolyline constraint in constraints)
         {
             if (constraint.PointCount >= 2)
             {
@@ -501,7 +501,7 @@ public static class LocalMeshRefiner
 
         var index = new VertexHashGrid(vertices, vertexCount, Math.Max(tolerance * 4.0, 1e-6));
 
-        foreach (SurfaceRemesher.ConstraintPolyline constraint in constraints)
+        foreach (ConstraintPolyline constraint in constraints)
         {
             int pointCount = constraint.PointCount;
             if (pointCount < 2)

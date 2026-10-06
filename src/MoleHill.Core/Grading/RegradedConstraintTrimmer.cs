@@ -14,8 +14,8 @@ internal static class RegradedConstraintTrimmer
     /// <paramref name="heightTolerance"/> (a vertex off the terrain in plan is kept: nothing regraded it). Runs
     /// shorter than two vertices are dropped. <paramref name="removedLength"/> is the plan length taken away.
     /// </summary>
-    public static List<SurfaceRemesher.ConstraintPolyline> Trim(
-        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> constraints,
+    public static List<ConstraintPolyline> Trim(
+        IReadOnlyList<ConstraintPolyline> constraints,
         TerrainFaceGrid graded,
         double heightTolerance,
         out double removedLength,
@@ -23,8 +23,8 @@ internal static class RegradedConstraintTrimmer
     {
         removedLength = 0.0;
         trimmedLineCount = 0;
-        var result = new List<SurfaceRemesher.ConstraintPolyline>(constraints.Count);
-        foreach (SurfaceRemesher.ConstraintPolyline line in constraints)
+        var result = new List<ConstraintPolyline>(constraints.Count);
+        foreach (ConstraintPolyline line in constraints)
         {
             int n = line.PointCount;
             var keep = new bool[n];
@@ -66,7 +66,7 @@ internal static class RegradedConstraintTrimmer
             void Flush()
             {
                 if (run.Count >= 6)
-                    result.Add(new SurfaceRemesher.ConstraintPolyline(run.ToArray(), run.Count / 3, IsClosed: false, line.PreserveInputElevation));
+                    result.Add(new ConstraintPolyline(run.ToArray(), run.Count / 3, IsClosed: false, line.PreserveInputElevation));
                 run.Clear();
             }
 

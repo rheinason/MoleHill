@@ -57,7 +57,7 @@ public static class QuadRemesher
     public static Result Remesh(
         double[] vertices,
         int[] faces,
-        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> constraints,
+        IReadOnlyList<ConstraintPolyline> constraints,
         Options options)
     {
         CrossFieldSolver.Result field = CrossFieldSolver.Solve(

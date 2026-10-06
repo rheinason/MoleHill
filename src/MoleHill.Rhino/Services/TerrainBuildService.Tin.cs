@@ -197,7 +197,7 @@ internal sealed partial class TerrainBuildService
             preserveInputElevation: true);
         var persistentElevationConstraints = constrainContours
             ? CreateConstraintPolylines(flattenedContours, processed.Contours, preserveInputElevation: true)
-            : new List<SurfaceRemesher.ConstraintPolyline>();
+            : new List<ConstraintPolyline>();
         var boundaryPolylines = Array.Empty<TinBoundaryPreparer.BoundaryPolyline>();
         int constraintVertexCount = polylines.Sum(static polyline => polyline.Length / 3);
         int boundaryVertexCount = boundaryPolylines.Sum(static polyline => polyline.PointCount);
@@ -894,8 +894,8 @@ internal sealed partial class TerrainBuildService
     /// </summary>
     private static RhinoMesh ApplyRemeshIsotropic(
         RhinoMesh mesh,
-        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> constraints,
-        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> localConstraints,
+        IReadOnlyList<ConstraintPolyline> constraints,
+        IReadOnlyList<ConstraintPolyline> localConstraints,
         double edgeLength,
         RemeshModifierDefinition modifier,
         TerrainBuildResult build,
@@ -1017,7 +1017,7 @@ internal sealed partial class TerrainBuildService
         TerrainBuildSnapshot snapshot,
         TerrainDefinition terrain,
         RhinoMesh mesh,
-        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> constraints,
+        IReadOnlyList<ConstraintPolyline> constraints,
         double edgeLength,
         RemeshModifierDefinition modifier,
         TerrainBuildResult build,
@@ -1057,7 +1057,7 @@ internal sealed partial class TerrainBuildService
     /// </summary>
     private static RhinoMesh ApplyRemeshLocalRefine(
         RhinoMesh mesh,
-        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> constraints,
+        IReadOnlyList<ConstraintPolyline> constraints,
         double requestedEdgeLength,
         double creaseAngleDeg,
         double tolerance,

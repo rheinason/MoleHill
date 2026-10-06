@@ -37,9 +37,9 @@ public static partial class PadGrader
 
     public sealed class ConstraintSet
     {
-        public required SurfaceRemesher.ConstraintPolyline[] Constraints { get; init; }
+        public required ConstraintPolyline[] Constraints { get; init; }
 
-        public SurfaceRemesher.ConstraintPolyline[] GuidePolylines { get; init; } = Array.Empty<SurfaceRemesher.ConstraintPolyline>();
+        public ConstraintPolyline[] GuidePolylines { get; init; } = Array.Empty<ConstraintPolyline>();
 
         public required double SuggestedEdgeLength { get; init; }
 

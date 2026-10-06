@@ -76,7 +76,7 @@ internal sealed partial class TerrainBuildService
         TerrainDefinition terrain,
         RhinoMesh mesh,
         RhinoMesh baseMesh,
-        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> persistentHardConstraints,
+        IReadOnlyList<ConstraintPolyline> persistentHardConstraints,
         ulong currentMeshFingerprint,
         ulong baseMeshFingerprint)
     {
@@ -245,7 +245,7 @@ internal sealed partial class TerrainBuildService
 
     private static ulong ComputeMeshStageOutputFingerprint(
         RhinoMesh? mesh,
-        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> persistentHardConstraints)
+        IReadOnlyList<ConstraintPolyline> persistentHardConstraints)
     {
         var builder = new FingerprintBuilder();
         builder.Add(ComputeMeshFingerprint(mesh));
@@ -288,7 +288,7 @@ internal sealed partial class TerrainBuildService
 
     internal static ulong ComputeMeshFingerprintForDiagnostics(RhinoMesh? mesh) => ComputeMeshFingerprint(mesh);
 
-    private static ulong ComputeConstraintsFingerprint(IReadOnlyList<SurfaceRemesher.ConstraintPolyline> constraints)
+    private static ulong ComputeConstraintsFingerprint(IReadOnlyList<ConstraintPolyline> constraints)
     {
         var builder = new FingerprintBuilder();
         builder.Add(constraints.Count);

@@ -20,7 +20,7 @@ public class MeshAreaSplitterTests
                     new[] { 1.0, 1.0, 3.0, 1.0, 3.0, 3.0, 1.0, 3.0 },
                     4)
             },
-            Array.Empty<SurfaceRemesher.ConstraintPolyline>(),
+            Array.Empty<ConstraintPolyline>(),
             0.001,
             0,
             0,
@@ -47,7 +47,7 @@ public class MeshAreaSplitterTests
             CreateMeshFaces(),
             2,
             new[] { outer, inner },
-            Array.Empty<SurfaceRemesher.ConstraintPolyline>(),
+            Array.Empty<ConstraintPolyline>(),
             0.001,
             0,
             0,
@@ -98,7 +98,7 @@ public class MeshAreaSplitterTests
                     new[] { 1.0, 1.0, 3.0, 1.0, 3.0, 3.0, 1.0, 3.0 },
                     4)
             },
-            Array.Empty<SurfaceRemesher.ConstraintPolyline>(),
+            Array.Empty<ConstraintPolyline>(),
             0.001,
             0,
             0,
@@ -115,7 +115,7 @@ public class MeshAreaSplitterTests
     [Fact]
     public void Split_PersistentHardConstraint_PreservesConstraintElevation()
     {
-        var hardConstraint = new SurfaceRemesher.ConstraintPolyline(
+        var hardConstraint = new ConstraintPolyline(
             new[]
             {
                 0.0, 2.0, 3.0,

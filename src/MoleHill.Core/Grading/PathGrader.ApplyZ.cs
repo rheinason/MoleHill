@@ -13,7 +13,7 @@ public static partial class PathGrader
         double[] topologyVertices,
         int vertexCount,
         PathDefinition[] paths,
-        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> barrierConstraints)
+        IReadOnlyList<ConstraintPolyline> barrierConstraints)
     {
         if (!GradingInputValidator.ValidateVertexArray(topologyVertices, vertexCount, "Topology", out string? errorMessage))
             throw new ArgumentException(errorMessage, nameof(topologyVertices));
@@ -23,7 +23,7 @@ public static partial class PathGrader
 
     private static void ValidatePathAndBarrierInputs(
         PathDefinition[] paths,
-        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> barrierConstraints)
+        IReadOnlyList<ConstraintPolyline> barrierConstraints)
     {
         if (!GradingInputValidator.ValidatePathDefinitions(paths, out string? errorMessage, requireAny: false))
             throw new ArgumentException(errorMessage, nameof(paths));
@@ -137,17 +137,17 @@ public static partial class PathGrader
 
     public static double[] ApplyGradingZ(double[] topologyVertices, int vertexCount, PathDefinition[] paths, out int changedVertexCount)
     {
-        return ApplyGradingZ(topologyVertices, vertexCount, paths, Array.Empty<SurfaceRemesher.ConstraintPolyline>(), out changedVertexCount);
+        return ApplyGradingZ(topologyVertices, vertexCount, paths, Array.Empty<ConstraintPolyline>(), out changedVertexCount);
     }
 
     public static double[] ApplyGradingZ(
         double[] topologyVertices,
         int vertexCount,
         PathDefinition[] paths,
-        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> barrierConstraints,
+        IReadOnlyList<ConstraintPolyline> barrierConstraints,
         out int changedVertexCount)
     {
-        barrierConstraints ??= Array.Empty<SurfaceRemesher.ConstraintPolyline>();
+        barrierConstraints ??= Array.Empty<ConstraintPolyline>();
         ValidateApplyGradingZInputs(topologyVertices, vertexCount, paths, barrierConstraints);
 
         if (paths.Length == 0)
@@ -198,7 +198,7 @@ public static partial class PathGrader
             faces,
             faceCount,
             paths,
-            Array.Empty<SurfaceRemesher.ConstraintPolyline>(),
+            Array.Empty<ConstraintPolyline>(),
             out changedVertexCount);
     }
 
@@ -208,10 +208,10 @@ public static partial class PathGrader
         int[] faces,
         int faceCount,
         PathDefinition[] paths,
-        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> barrierConstraints,
+        IReadOnlyList<ConstraintPolyline> barrierConstraints,
         out int changedVertexCount)
     {
-        barrierConstraints ??= Array.Empty<SurfaceRemesher.ConstraintPolyline>();
+        barrierConstraints ??= Array.Empty<ConstraintPolyline>();
         ValidateApplyGradingZInputs(topologyVertices, vertexCount, faces, faceCount, paths, barrierConstraints);
         return ApplyGradingZWithBoundaryTopology(
             topologyVertices,
@@ -230,7 +230,7 @@ public static partial class PathGrader
         int[] faces,
         int faceCount,
         PathDefinition[] paths,
-        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> barrierConstraints,
+        IReadOnlyList<ConstraintPolyline> barrierConstraints,
         MeshTopologyValidator.FlatBoundaryTopology? boundaryTopology,
         out int changedVertexCount)
     {
@@ -300,7 +300,7 @@ public static partial class PathGrader
         int[] faces,
         int faceCount,
         PathDefinition[] paths,
-        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> barrierConstraints)
+        IReadOnlyList<ConstraintPolyline> barrierConstraints)
     {
         if (!GradingInputValidator.ValidateTerrainMesh(topologyVertices, vertexCount, faces, faceCount, out string? errorMessage))
             throw new ArgumentException(errorMessage, nameof(topologyVertices));

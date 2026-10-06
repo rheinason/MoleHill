@@ -10,7 +10,7 @@ public sealed class SurfaceConstraintEdgeResolverTests
     public void TryResolve_LongConstraint_MapsEveryCoincidentMeshEdge()
     {
         Grid(out double[] vertices, out int[] faces);
-        var constraint = new SurfaceRemesher.ConstraintPolyline(
+        var constraint = new ConstraintPolyline(
             new[] { 0.0, 1.0, 1.0, 2.0, 1.0, 3.0 }, 2, IsClosed: false, PreserveInputElevation: true);
 
         bool success = SurfaceConstraintEdgeResolver.TryResolve(
@@ -28,7 +28,7 @@ public sealed class SurfaceConstraintEdgeResolverTests
     public void TryResolve_ConflictingElevation_ReturnsFailure()
     {
         Grid(out double[] vertices, out int[] faces);
-        var constraint = new SurfaceRemesher.ConstraintPolyline(
+        var constraint = new ConstraintPolyline(
             new[] { 0.0, 1.0, 8.0, 2.0, 1.0, 8.0 }, 2, IsClosed: false, PreserveInputElevation: true);
 
         bool success = SurfaceConstraintEdgeResolver.TryResolve(
@@ -42,7 +42,7 @@ public sealed class SurfaceConstraintEdgeResolverTests
     public void TryResolve_ConstraintMissingFromMesh_ReturnsFailure()
     {
         Grid(out double[] vertices, out int[] faces);
-        var constraint = new SurfaceRemesher.ConstraintPolyline(
+        var constraint = new ConstraintPolyline(
             new[] { 0.25, 0.25, 0.5, 1.75, 0.25, 2.0 }, 2, IsClosed: false);
 
         bool success = SurfaceConstraintEdgeResolver.TryResolve(
@@ -56,9 +56,9 @@ public sealed class SurfaceConstraintEdgeResolverTests
     public void ResolveEach_OneConstraintMissingFromMesh_KeepsTheRepresentedOne()
     {
         Grid(out double[] vertices, out int[] faces);
-        var onMesh = new SurfaceRemesher.ConstraintPolyline(
+        var onMesh = new ConstraintPolyline(
             new[] { 0.0, 1.0, 1.0, 2.0, 1.0, 3.0 }, 2, IsClosed: false, PreserveInputElevation: true);
-        var offMesh = new SurfaceRemesher.ConstraintPolyline(
+        var offMesh = new ConstraintPolyline(
             new[] { 0.25, 0.25, 0.5, 1.75, 0.25, 2.0 }, 2, IsClosed: false);
 
         int[] segments = SurfaceConstraintEdgeResolver.ResolveEach(

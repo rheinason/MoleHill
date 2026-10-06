@@ -22,7 +22,7 @@ public static partial class PathGrader
             faceCount,
             paths,
             tolerance,
-            Array.Empty<SurfaceRemesher.ConstraintPolyline>(),
+            Array.Empty<ConstraintPolyline>(),
             outputPolylines: null);
     }
 
@@ -44,7 +44,7 @@ public static partial class PathGrader
             faceCount,
             paths,
             tolerance,
-            Array.Empty<SurfaceRemesher.ConstraintPolyline>(),
+            Array.Empty<ConstraintPolyline>(),
             outputPolylines: null,
             includeStationConstraints: false);
     }
@@ -67,7 +67,7 @@ public static partial class PathGrader
             faceCount,
             paths,
             tolerance,
-            Array.Empty<SurfaceRemesher.ConstraintPolyline>(),
+            Array.Empty<ConstraintPolyline>(),
             outputPolylines: null,
             includeStationConstraints: false,
             includeShoulderConstraints: false,
@@ -178,7 +178,7 @@ public static partial class PathGrader
 
         return new ConstraintSet
         {
-            Constraints = Array.Empty<SurfaceRemesher.ConstraintPolyline>(),
+            Constraints = Array.Empty<ConstraintPolyline>(),
             SuggestedEdgeLength = 0.0,
             StructuredDiagnostics = [diagnostic]
         };
@@ -191,7 +191,7 @@ public static partial class PathGrader
         int faceCount,
         PathDefinition[] paths,
         double tolerance,
-        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> barrierConstraints,
+        IReadOnlyList<ConstraintPolyline> barrierConstraints,
         List<OutputPolyline>? outputPolylines,
         GradingDiagnosticCollector? diagnostics = null,
         bool includeStationConstraints = true,
@@ -200,7 +200,7 @@ public static partial class PathGrader
     {
         double dedupTol = GradingTolerances.ModelToleranceOrDefault(tolerance);
         bool hasBoundaryLoop = MeshBoundaryLoopBuilder.TryBuildBoundaryLoop(vertices, faces, faceCount, out var boundaryLoop, out int boundaryVertexCount);
-        var constraints = new List<SurfaceRemesher.ConstraintPolyline>(paths.Length * 5);
+        var constraints = new List<ConstraintPolyline>(paths.Length * 5);
         double suggestedEdgeLength = double.MaxValue;
         var faceGrid = new TerrainFaceGrid(vertices, vertexCount, faces, faceCount);
         PreparedBarriers preparedBarriers = GradingBarriers.Build(barrierConstraints);

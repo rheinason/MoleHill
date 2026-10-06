@@ -24,7 +24,7 @@ public class TiledRemeshReplayBenchmarkTests(ITestOutputHelper output)
             return;
         }
 
-        Load(path, out double[] vertices, out int[] faces, out List<SurfaceRemesher.ConstraintPolyline> constraints);
+        Load(path, out double[] vertices, out int[] faces, out List<ConstraintPolyline> constraints);
         double target = TiledIsotropicRemesher.RoundedTarget(IsotropicRemesher.EstimateFaceCountPreservingTarget(vertices, faces));
         var options = new IsotropicRemesher.Options { TargetEdgeLength = target, CreaseAngleDeg = 30, Tolerance = 0.001, WallFaceMinSlopeDeg = 70, Iterations = 3 };
 
@@ -45,7 +45,7 @@ public class TiledRemeshReplayBenchmarkTests(ITestOutputHelper output)
         Assert.Equal(cold.Vertices, incremental.Vertices);
     }
 
-    private static void Load(string path, out double[] vertices, out int[] faces, out List<SurfaceRemesher.ConstraintPolyline> constraints)
+    private static void Load(string path, out double[] vertices, out int[] faces, out List<ConstraintPolyline> constraints)
     {
         using var reader = new BinaryReader(File.OpenRead(path));
         vertices = new double[reader.ReadInt32() * 3];
@@ -55,7 +55,7 @@ public class TiledRemeshReplayBenchmarkTests(ITestOutputHelper output)
         for (int i = 0; i < faces.Length; i++)
             faces[i] = reader.ReadInt32();
         int constraintCount = reader.ReadInt32();
-        constraints = new List<SurfaceRemesher.ConstraintPolyline>(constraintCount);
+        constraints = new List<ConstraintPolyline>(constraintCount);
         for (int c = 0; c < constraintCount; c++)
         {
             int n = reader.ReadInt32();
@@ -64,7 +64,7 @@ public class TiledRemeshReplayBenchmarkTests(ITestOutputHelper output)
             var points = new double[n * 3];
             for (int i = 0; i < points.Length; i++)
                 points[i] = reader.ReadDouble();
-            constraints.Add(new SurfaceRemesher.ConstraintPolyline(points, n, closed, preserve));
+            constraints.Add(new ConstraintPolyline(points, n, closed, preserve));
         }
     }
 }

@@ -68,9 +68,9 @@ internal sealed class TerrainBuildResult
 
     public List<TerrainBuildTiming> Timings { get; } = new();
 
-    public List<SurfaceRemesher.ConstraintPolyline> PersistentHardConstraints { get; } = new();
+    public List<ConstraintPolyline> PersistentHardConstraints { get; } = new();
 
-    public List<SurfaceRemesher.ConstraintPolyline> PersistentElevationConstraints { get; } = new();
+    public List<ConstraintPolyline> PersistentElevationConstraints { get; } = new();
 
     /// <summary>Runtime-only guide and diagnostic geometry. It is displayed by the conduit and is never baked.</summary>
     public List<RuntimeOverlayItem> RuntimeOverlays { get; } = new();

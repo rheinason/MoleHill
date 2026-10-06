@@ -21,7 +21,7 @@ public static partial class PathGrader
     /// </summary>
     private static bool AnyRoadEdgeCrossesBarrier(
         PathDefinition[] paths,
-        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> hardConstraints,
+        IReadOnlyList<ConstraintPolyline> hardConstraints,
         double modelTolerance)
     {
         PreparedBarriers roadBarriers = GradingBarriers.Build(hardConstraints);
@@ -83,7 +83,7 @@ public static partial class PathGrader
         int[] faces,
         int faceCount,
         PathDefinition[] paths,
-        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> hardConstraints,
+        IReadOnlyList<ConstraintPolyline> hardConstraints,
         double modelTolerance,
         out string? errorMessage)
     {
@@ -721,7 +721,7 @@ public static partial class PathGrader
         int boundaryCount,
         PathCorridor corridor,
         PathDefinition[] paths,
-        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> hardConstraints,
+        IReadOnlyList<ConstraintPolyline> hardConstraints,
         TerrainFaceGrid terrain,
         double tolerance)
     {

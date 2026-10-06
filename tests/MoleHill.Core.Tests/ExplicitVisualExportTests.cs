@@ -127,7 +127,7 @@ public class ExplicitVisualExportTests
                 new[] { 18.0, 30.0, 42.0, 30.0 }, new[] { 3.0, 1.0 }, 2, width: 5.0, slopeAngleDeg: 30.0, maxDistance: 8.0)
         };
         // Lock curve (retaining wall) parallel to and just north of the road, clipping the +y batter.
-        var lockCurve = new MoleHill.Core.Engine.SurfaceRemesher.ConstraintPolyline(
+        var lockCurve = new MoleHill.Core.Engine.ConstraintPolyline(
             new[] { 18.0, 36.0, 0.0, 42.0, 36.0, 0.0 }, PointCount: 2, IsClosed: false, PreserveInputElevation: false);
 
         GradingResult? r = PathGrader.Grade(t.v, t.vc, t.f, t.fc, paths, new[] { lockCurve }, out string? err);

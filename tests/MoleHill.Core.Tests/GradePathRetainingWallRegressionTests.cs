@@ -38843,7 +38843,7 @@ public class GradePathRetainingWallRegressionTests
         };
         var hardConstraints = new[]
         {
-            new SurfaceRemesher.ConstraintPolyline(
+            new ConstraintPolyline(
                 new[]
                 {
                     5.43149995803833, -76.37239837646484, 104.20047432674328, 5.431499999947846, -55.99869853447219, 104.20047432674328, 24.626289326362244, -41.30613280834591, 104.20047432674328, 32.3864472803022, -25.785816900466024, 104.20047432674328, 46.251262824674896, -15.749345946703704, 104.20047432674328, 56.9085464147524,
@@ -38853,7 +38853,7 @@ public class GradePathRetainingWallRegressionTests
                 12,
                 false,
                 true),
-            new SurfaceRemesher.ConstraintPolyline(
+            new ConstraintPolyline(
                 new[]
                 {
                     5.231499999947846, -76.37240000069141, 108, 5.231499999947846, -55.89992205270773, 119.2540026265302, 24.468055718690565, -41.1753864281893, 121.4919735799391, 32.22947720946974, -25.65254344663097, 121.4919735799391, 46.084709154430286, -15.623009874532757, 121.4919735799391, 56.70923245588274,
@@ -38863,7 +38863,7 @@ public class GradePathRetainingWallRegressionTests
                 12,
                 false,
                 true),
-            new SurfaceRemesher.ConstraintPolyline(
+            new ConstraintPolyline(
                 new[]
                 {
                     -35.878483942624285, -67.63757679255535, 102, -37.510690108871586, -66.9624825463261, 102.13782026384027, -39.11286574215535, -66.2879091195455, 102.27405230045265, -40.685246882305925, -65.61387823623335, 102.40870862260086, -42.228069569153654, -64.94041162040939, 102.54180174304848, -43.74156984252889,
@@ -38920,7 +38920,7 @@ public class GradePathRetainingWallRegressionTests
                 265,
                 false,
                 true),
-            new SurfaceRemesher.ConstraintPolyline(
+            new ConstraintPolyline(
                 new[]
                 {
                     -35.78365110787687, -67.40626156725929, 104, -37.75809935516192, -66.5880817673339, 104.16698876006814, -39.72604376778954, -65.75457062338035, 104.33487189701125, -41.68704308716014, -64.9050445722746, 104.50368590751863, -43.64064170067049, -64.03880451489118, 104.67346798089288, -45.58628565918227,
@@ -38975,7 +38975,7 @@ public class GradePathRetainingWallRegressionTests
                 254,
                 false,
                 true),
-            new SurfaceRemesher.ConstraintPolyline(
+            new ConstraintPolyline(
                 new[]
                 {
                     66.77243004977831, 62.589201536046446, 104, 68.23768004967027, -4.291748464090645, 104,
@@ -38983,7 +38983,7 @@ public class GradePathRetainingWallRegressionTests
                 2,
                 false,
                 true),
-            new SurfaceRemesher.ConstraintPolyline(
+            new ConstraintPolyline(
                 new[]
                 {
                     66.2725485410412, 62.578250425788596, 108.33535624853315, 67.73780059814453, -4.302700042724609, 108.33535624853315,
@@ -38991,7 +38991,7 @@ public class GradePathRetainingWallRegressionTests
                 2,
                 false,
                 true),
-            new SurfaceRemesher.ConstraintPolyline(
+            new ConstraintPolyline(
                 new[]
                 {
                     -14.794413272836163, -5.00031706303843, 118.74076220036525, -42.10493777868626, 10.577981871333044, 118.74076220036525, -49.236200890612295, -1.923931000951839, 118.74076220036525, -32.84377649516945, -1.4360290356516288, 118.74076220036525, -41.79356859899851, -29.73437795793932, 118.74076220036525, -32.06761386023164,

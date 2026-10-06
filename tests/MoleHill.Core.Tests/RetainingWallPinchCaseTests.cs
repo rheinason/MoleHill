@@ -56,7 +56,7 @@ public class RetainingWallPinchCaseTests
             3, 7, 13, 12, 13, 7, 6, 15, 12, 9, 6, 10,
             7, 10, 6, 10, 7, 11, 7, 6, 12, 2, 13, 14
         };
-        SurfaceRemesher.ConstraintPolyline[] rails =
+        ConstraintPolyline[] rails =
         {
             Rail((-0.2, 0, 2.95), (-0.2, 8, 2.95)),
             Rail((0, 0, 1.8), (0, 8, 1.8)),
@@ -178,7 +178,7 @@ public class RetainingWallPinchCaseTests
         }
     }
 
-    private static void AssertRailEdges(double[] vertices, int[] faces, SurfaceRemesher.ConstraintPolyline[] rails)
+    private static void AssertRailEdges(double[] vertices, int[] faces, ConstraintPolyline[] rails)
     {
         var edges = new HashSet<long>(IndexedMeshTools.EdgeKeyComparer.Instance);
         static long Key(int a, int b) => ((long)Math.Min(a, b) << 32) | (uint)Math.Max(a, b);
@@ -223,7 +223,7 @@ public class RetainingWallPinchCaseTests
         AssertRailElevations(refined, rails);
     }
 
-    private static void AssertRailElevations(double[] vertices, SurfaceRemesher.ConstraintPolyline[] rails)
+    private static void AssertRailElevations(double[] vertices, ConstraintPolyline[] rails)
     {
         foreach (var rail in rails)
         for (int s = 0; s < rail.PointCount - 1; s++)
@@ -276,7 +276,7 @@ public class RetainingWallPinchCaseTests
         }
     }
 
-    private static SurfaceRemesher.ConstraintPolyline Rail(params (double X, double Y, double Z)[] points)
+    private static ConstraintPolyline Rail(params (double X, double Y, double Z)[] points)
     {
         double[] xyz = new double[points.Length * 3];
         for (int i = 0; i < points.Length; i++)
@@ -285,7 +285,7 @@ public class RetainingWallPinchCaseTests
             xyz[i * 3 + 1] = points[i].Y;
             xyz[i * 3 + 2] = points[i].Z;
         }
-        return new SurfaceRemesher.ConstraintPolyline(xyz, points.Length, false, true);
+        return new ConstraintPolyline(xyz, points.Length, false, true);
     }
 
     private static AngleSummary Measure(double[] vertices, int[] faces)
@@ -369,7 +369,7 @@ public class RetainingWallPinchCaseTests
             3, 7, 13, 12, 13, 7, 6, 15, 12, 9, 6, 10,
             7, 10, 6, 10, 7, 11, 7, 6, 12, 2, 13, 14
         };
-        SurfaceRemesher.ConstraintPolyline[] rails =
+        ConstraintPolyline[] rails =
         {
             Rail((-0.2, 0, 2.95), (-0.2, 8, 2.95)),
             Rail((0, 0, 1.8), (0, 8, 1.8)),

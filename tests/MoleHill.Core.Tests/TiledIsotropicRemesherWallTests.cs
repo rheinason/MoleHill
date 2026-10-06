@@ -29,7 +29,7 @@ public class TiledIsotropicRemesherWallTests(ITestOutputHelper output)
             WallFaceMinSlopeDeg = 70
         };
 
-        IsotropicRemesher.Result result = TiledIsotropicRemesher.Remesh(vertices, faces, Array.Empty<SurfaceRemesher.ConstraintPolyline>(), options, Tile);
+        IsotropicRemesher.Result result = TiledIsotropicRemesher.Remesh(vertices, faces, Array.Empty<ConstraintPolyline>(), options, Tile);
 
         Assert.True(result.Success, result.Warning);
         double inputWall = SteepArea(vertices, faces);

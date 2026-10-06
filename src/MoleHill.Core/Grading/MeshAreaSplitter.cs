@@ -95,7 +95,7 @@ public static class MeshAreaSplitter
         int[] faces,
         int faceCount,
         AreaBoundary[] areas,
-        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> persistentConstraints,
+        IReadOnlyList<ConstraintPolyline> persistentConstraints,
         double tolerance,
         double maxArea,
         double minAngle,
@@ -109,7 +109,7 @@ public static class MeshAreaSplitter
             return null;
         }
 
-        var constraints = new List<SurfaceRemesher.ConstraintPolyline>(persistentConstraints.Count + areas.Length);
+        var constraints = new List<ConstraintPolyline>(persistentConstraints.Count + areas.Length);
         constraints.AddRange(persistentConstraints);
         for (int i = 0; i < areas.Length; i++)
         {
@@ -222,7 +222,7 @@ public static class MeshAreaSplitter
             areas.Length);
     }
 
-    private static SurfaceRemesher.ConstraintPolyline ToConstraintPolyline(AreaBoundary area)
+    private static ConstraintPolyline ToConstraintPolyline(AreaBoundary area)
     {
         var points = new double[area.VertexCount * 3];
         for (int i = 0; i < area.VertexCount; i++)
@@ -232,7 +232,7 @@ public static class MeshAreaSplitter
             points[i * 3 + 2] = 0.0;
         }
 
-        return new SurfaceRemesher.ConstraintPolyline(points, area.VertexCount, IsClosed: true, PreserveInputElevation: false);
+        return new ConstraintPolyline(points, area.VertexCount, IsClosed: true, PreserveInputElevation: false);
     }
 
     private static IndexedArea[] BuildIndexedAreas(AreaBoundary[] areas)

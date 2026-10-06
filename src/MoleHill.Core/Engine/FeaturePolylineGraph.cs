@@ -71,7 +71,7 @@ internal sealed class FeaturePolylineGraph
         double[] vertices,
         int[] faces,
         int faceCount,
-        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> constraints,
+        IReadOnlyList<ConstraintPolyline> constraints,
         double creaseAngleDeg,
         double wallFaceMinSlopeDeg,
         double tolerance,
@@ -706,12 +706,12 @@ internal sealed class FeaturePolylineGraph
         int vertexCount,
         int[] faces,
         int faceCount,
-        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> constraints,
+        IReadOnlyList<ConstraintPolyline> constraints,
         double tolerance,
         HashSet<long> featureEdges)
     {
         bool hasWork = false;
-        foreach (SurfaceRemesher.ConstraintPolyline constraint in constraints)
+        foreach (ConstraintPolyline constraint in constraints)
         {
             if (constraint.PointCount >= 2)
             {
@@ -741,7 +741,7 @@ internal sealed class FeaturePolylineGraph
         double spacing = Math.Sqrt(Math.Max((maxX - minX) * (maxY - minY), 0.0) / vertexCount);
         var index = new VertexXYGrid(vertices, vertexCount, Math.Max(Math.Max(spacing, tolerance * 4.0), 1e-6));
         var onSegment = new List<(double T, int Vertex)>();
-        foreach (SurfaceRemesher.ConstraintPolyline constraint in constraints)
+        foreach (ConstraintPolyline constraint in constraints)
         {
             int pointCount = constraint.PointCount;
             if (pointCount < 2)

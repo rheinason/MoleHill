@@ -86,7 +86,7 @@ internal sealed partial class TerrainBuildService
 
         public required PadGrader.LockCurve[] Locks { get; init; }
 
-        public required SurfaceRemesher.ConstraintPolyline[] Constraints { get; init; }
+        public required ConstraintPolyline[] Constraints { get; init; }
 
         public required double SuggestedEdgeLength { get; init; }
 
@@ -106,7 +106,7 @@ internal sealed partial class TerrainBuildService
     {
         public required PathGrader.PathDefinition[] Paths { get; init; }
 
-        public required SurfaceRemesher.ConstraintPolyline[] Constraints { get; init; }
+        public required ConstraintPolyline[] Constraints { get; init; }
 
         public required double SuggestedEdgeLength { get; init; }
 

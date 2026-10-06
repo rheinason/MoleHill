@@ -105,11 +105,11 @@ public class FeaturePolylineGraphConstraintTests
         }
     }
 
-    private static FeaturePolylineGraph Build(double[] vertices, int[] faces, SurfaceRemesher.ConstraintPolyline constraint) =>
+    private static FeaturePolylineGraph Build(double[] vertices, int[] faces, ConstraintPolyline constraint) =>
         FeaturePolylineGraph.Build(vertices, faces, faces.Length / 3, new[] { constraint },
             creaseAngleDeg: 0.0, wallFaceMinSlopeDeg: 0.0, tolerance: 1e-6);
 
-    private static SurfaceRemesher.ConstraintPolyline Line((double X, double Y) start, (double X, double Y) end) =>
+    private static ConstraintPolyline Line((double X, double Y) start, (double X, double Y) end) =>
         new(new[] { start.X, start.Y, 0, end.X, end.Y, 0 }, 2, false, false);
 
     private static long EdgeKey(int a, int b) => ((long)Math.Min(a, b) << 32) | (uint)Math.Max(a, b);

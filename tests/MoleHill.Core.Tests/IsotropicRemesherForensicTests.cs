@@ -69,7 +69,7 @@ public class IsotropicRemesherForensicTests
         _output.WriteLine($"input: {vertices.Length / 3} verts / {faces.Length / 3} faces");
 
         var sw = Stopwatch.StartNew();
-        var result = IsotropicRemesher.Remesh(vertices, faces, Array.Empty<SurfaceRemesher.ConstraintPolyline>(),
+        var result = IsotropicRemesher.Remesh(vertices, faces, Array.Empty<ConstraintPolyline>(),
             new IsotropicRemesher.Options { TargetEdgeLength = 3.0, CreaseAngleDeg = 30, Tolerance = 0.01 });
         sw.Stop();
 
@@ -116,9 +116,9 @@ public class IsotropicRemesherForensicTests
         foreach (double threshold in new[] { 0.8, 1.0, 1.2, 1.5 })
         {
             var field = MoleHill.Core.Retopo.CrossFieldSolver.Solve(vertices, faces,
-                Array.Empty<SurfaceRemesher.ConstraintPolyline>(),
+                Array.Empty<ConstraintPolyline>(),
                 new MoleHill.Core.Retopo.CrossFieldSolver.Options { CreaseAngleDeg = 30, Tolerance = 0.01 });
-            var remesh = IsotropicRemesher.Remesh(vertices, faces, Array.Empty<SurfaceRemesher.ConstraintPolyline>(),
+            var remesh = IsotropicRemesher.Remesh(vertices, faces, Array.Empty<ConstraintPolyline>(),
                 new IsotropicRemesher.Options { TargetEdgeLength = 3.0, CreaseAngleDeg = 30, Tolerance = 0.01, FieldTheta = field.Theta });
             Assert.True(remesh.Success, remesh.Warning);
 
@@ -155,7 +155,7 @@ public class IsotropicRemesherForensicTests
         var (vertices, faces) = LoadObj(path);
         const double target = 3.0;
         var graph = FeaturePolylineGraph.Build(vertices, faces, faces.Length / 3,
-            Array.Empty<SurfaceRemesher.ConstraintPolyline>(), 30.0, 0.0, 0.01, minCreaseChainLength: target * 3.0);
+            Array.Empty<ConstraintPolyline>(), 30.0, 0.0, 0.01, minCreaseChainLength: target * 3.0);
         var projection = new MoleHill.Core.Grading.TerrainFaceGrid(vertices, vertices.Length / 3, faces, faces.Length / 3, target * 0.5);
         var state = new IsotropicRemesher.MeshState(vertices, faces, graph);
 

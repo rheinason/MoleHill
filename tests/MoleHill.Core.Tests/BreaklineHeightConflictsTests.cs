@@ -6,7 +6,7 @@ namespace MoleHill.Core.Tests;
 
 public class BreaklineHeightConflictsTests
 {
-    private static SurfaceRemesher.ConstraintPolyline Line(params double[] xyz) => new(xyz, xyz.Length / 3, IsClosed: false);
+    private static ConstraintPolyline Line(params double[] xyz) => new(xyz, xyz.Length / 3, IsClosed: false);
 
     [Fact]
     public void Find_RailAboveAContour_ReportsTheCrossingAndBothHeights()
@@ -44,7 +44,7 @@ public class BreaklineHeightConflictsTests
     [Fact]
     public void Find_ClosedRing_ChecksItsClosingSegment()
     {
-        var ring = new SurfaceRemesher.ConstraintPolyline(new double[] { 0, 0, 3, 10, 0, 3, 10, 10, 3, 0, 10, 3 }, 4, IsClosed: true);
+        var ring = new ConstraintPolyline(new double[] { 0, 0, 3, 10, 0, 3, 10, 10, 3, 0, 10, 3 }, 4, IsClosed: true);
         var crossing = Line(-5, 5, 0, 5, 5, 0);   // crosses only the closing edge x = 0
 
         var conflict = Assert.Single(BreaklineHeightConflicts.Find(new[] { ring }, new[] { crossing }, 0.001));

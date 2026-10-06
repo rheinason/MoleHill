@@ -78,7 +78,7 @@ public class SurfaceRemesherCreaseTests
         (double[] verts, int[] faces) = RoofMesh();
 
         SurfaceRemesher.Result r = SurfaceRemesher.Remesh(
-            verts, faces, Array.Empty<SurfaceRemesher.ConstraintPolyline>(),
+            verts, faces, Array.Empty<ConstraintPolyline>(),
             new SurfaceRemesher.Options { Tolerance = 0.01, MinAngle = 20, MaxArea = maxArea, PreserveCreaseAngleDeg = 30 });
 
         Assert.True(r.Success, r.Warning);
@@ -93,7 +93,7 @@ public class SurfaceRemesherCreaseTests
         (double[] verts, int[] faces) = RoofMesh();
 
         SurfaceRemesher.Result r = SurfaceRemesher.Remesh(
-            verts, faces, Array.Empty<SurfaceRemesher.ConstraintPolyline>(),
+            verts, faces, Array.Empty<ConstraintPolyline>(),
             new SurfaceRemesher.Options
             {
                 Tolerance = 0.01,

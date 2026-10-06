@@ -57,7 +57,7 @@ internal sealed partial class TerrainBuildService
         // The exact arguments handed to Core, kept so the call can be replayed verbatim. Built once and
         // shared with the recorder below: a recorder that re-derives them can drift from the real call.
         PathGrader.PathDefinition[] railGradeArray = railGrades.ToArray();
-        SurfaceRemesher.ConstraintPolyline[] railHardConstraints = Array.Empty<SurfaceRemesher.ConstraintPolyline>();
+        ConstraintPolyline[] railHardConstraints = Array.Empty<ConstraintPolyline>();
         bool railPreferSplitKeep = TerrainBuildHeuristics.ShouldPreferSplitKeepGradePath(
             mode,
             hasInteractingHardConstraints: false,

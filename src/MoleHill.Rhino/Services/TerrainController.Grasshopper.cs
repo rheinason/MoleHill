@@ -160,7 +160,7 @@ internal sealed partial class TerrainController
         return TerrainReferenceResolver.Resolve(GetTerrains(doc), terrainKey, out errorMessage);
     }
 
-    private static Curve? CreateConstraintCurve(SurfaceRemesher.ConstraintPolyline constraint)
+    private static Curve? CreateConstraintCurve(ConstraintPolyline constraint)
     {
         if (constraint.PointCount < 2 || constraint.Points.Length < constraint.PointCount * 3)
             return null;

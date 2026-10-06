@@ -10,7 +10,7 @@ internal static partial class MeshConstraintTopologyInserter
     private const int MaxQualityPatchFaces = 25000;
 
     internal static bool TryInsertQualityWallPatch(double[] vertices, int[] faces,
-        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> constraints, double tolerance,
+        IReadOnlyList<ConstraintPolyline> constraints, double tolerance,
         out double[] outputVertices, out int[] outputFaces, out string? message)
     {
         outputVertices = vertices;

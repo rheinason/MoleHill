@@ -6,7 +6,7 @@ public static partial class PadGrader
 {
     /// <summary>
     /// Grades the pads window by window (<see cref="GradingWindows"/>), as
-    /// <see cref="Grade(double[], int, int[], int, PadBoundary[], LockCurve[], out string, out IReadOnlyList{OutputPolyline}, out IReadOnlyList{GradingDiagnostic}, double, double, IReadOnlyList{SurfaceRemesher.ConstraintPolyline})"/>
+    /// <see cref="Grade(double[], int, int[], int, PadBoundary[], LockCurve[], out string, out IReadOnlyList{OutputPolyline}, out IReadOnlyList{GradingDiagnostic}, double, double, IReadOnlyList{ConstraintPolyline})"/>
     /// grades them whole: each group of pads whose reach overlaps is graded on the
     /// faces under its window, and a window unchanged since <paramref name="previous"/> is reused, exactly.
     /// A pad's reach is its outline grown by its max distance, or, with none, by how far its batter can run
@@ -19,7 +19,7 @@ public static partial class PadGrader
         int faceCount,
         PadBoundary[] pads,
         LockCurve[] locks,
-        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> hardConstraints,
+        IReadOnlyList<ConstraintPolyline> hardConstraints,
         double modelTolerance,
         double terrainDetailSize,
         GradingWindows.Memo? previous,
@@ -103,7 +103,7 @@ public static partial class PadGrader
                         Add(l.XyVertices[k]);
                 }
 
-                foreach (SurfaceRemesher.ConstraintPolyline c in hardConstraints.Where(c => GradingWindows.PointsOverlap(c.Points, c.PointCount, box)))
+                foreach (ConstraintPolyline c in hardConstraints.Where(c => GradingWindows.PointsOverlap(c.Points, c.PointCount, box)))
                 {
                     Add(c.PointCount);
                     Add(c.IsClosed ? 1 : 0);

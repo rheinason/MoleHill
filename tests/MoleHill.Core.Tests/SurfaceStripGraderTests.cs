@@ -83,7 +83,7 @@ public class SurfaceStripGraderTests
             planeXCoeff: 0.2,
             planeYCoeff: 0.0,
             planeConstant: 0.0);
-        var barrier = new SurfaceRemesher.ConstraintPolyline(
+        var barrier = new ConstraintPolyline(
             new[] { 0.0, 0.5, 0.0, 2.0, double.PositiveInfinity, 0.0 },
             2,
             IsClosed: false,
@@ -111,7 +111,7 @@ public class SurfaceStripGraderTests
             BuildGridFaces(),
             16,
             Array.Empty<SurfaceStripGrader.SurfaceDefinition>(),
-            Array.Empty<SurfaceRemesher.ConstraintPolyline>(),
+            Array.Empty<ConstraintPolyline>(),
             out string? errorMessage);
 
         Assert.Null(result);
@@ -292,7 +292,7 @@ public class SurfaceStripGraderTests
             surface,
             out string? withoutBarrierWarning);
 
-        var barrier = new SurfaceRemesher.ConstraintPolyline(
+        var barrier = new ConstraintPolyline(
             new[]
             {
                 1.4, -1.0, 0.0,

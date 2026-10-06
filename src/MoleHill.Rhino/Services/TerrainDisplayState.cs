@@ -112,9 +112,9 @@ internal sealed class TerrainDisplayState
 
     public List<RuntimeOverlayItem> RuntimeOverlays { get; } = new();
 
-    public List<SurfaceRemesher.ConstraintPolyline> HardConstraints { get; } = new();
+    public List<ConstraintPolyline> HardConstraints { get; } = new();
 
-    public List<SurfaceRemesher.ConstraintPolyline> ElevationConstraints { get; } = new();
+    public List<ConstraintPolyline> ElevationConstraints { get; } = new();
 
     public HashSet<RuntimeOverlayOwner> VisibleDiagnosticOwners { get; } = new();
 

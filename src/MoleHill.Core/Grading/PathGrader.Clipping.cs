@@ -157,7 +157,7 @@ public static partial class PathGrader
     }
 
     private static void AddBoundaryClippedConstraintRuns(
-        List<SurfaceRemesher.ConstraintPolyline> constraints,
+        List<ConstraintPolyline> constraints,
         double[] xyVertices,
         double[] zValues,
         int vertexCount,

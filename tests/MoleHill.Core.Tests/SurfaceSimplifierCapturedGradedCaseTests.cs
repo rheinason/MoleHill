@@ -20,8 +20,8 @@ public sealed class SurfaceSimplifierCapturedGradedCaseTests(ITestOutputHelper o
         Fixture fixture = LoadFixture();
         PathGrader.PathDefinition[] paths = fixture.Paths.Select(path => new PathGrader.PathDefinition(
             path.XyVertices, path.ZValues, path.VertexCount, path.Width, path.SlopeAngleDeg, path.MaxDistance)).ToArray();
-        SurfaceRemesher.ConstraintPolyline[] hardConstraints = fixture.HardConstraints.Select(constraint =>
-            new SurfaceRemesher.ConstraintPolyline(
+        ConstraintPolyline[] hardConstraints = fixture.HardConstraints.Select(constraint =>
+            new ConstraintPolyline(
                 constraint.Points, constraint.PointCount, constraint.IsClosed, constraint.PreserveInputElevation)).ToArray();
         GradingResult? graded = PathGrader.Grade(
             fixture.Vertices, fixture.VertexCount, fixture.Faces, fixture.FaceCount,
@@ -34,7 +34,7 @@ public sealed class SurfaceSimplifierCapturedGradedCaseTests(ITestOutputHelper o
             out _, out string? staleConstraintFailure));
         Assert.Contains("not represented", staleConstraintFailure, StringComparison.OrdinalIgnoreCase);
 
-        SurfaceRemesher.ConstraintPolyline[] coherentConstraints = hardConstraints
+        ConstraintPolyline[] coherentConstraints = hardConstraints
             .Where(constraint => SurfaceConstraintEdgeResolver.TryResolve(
                 graded.Vertices, graded.Faces, [constraint], 1e-3, out _, out _))
             .ToArray();
