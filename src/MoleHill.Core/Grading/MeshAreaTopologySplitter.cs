@@ -16,6 +16,10 @@ internal static class MeshAreaTopologySplitter
     /// </summary>
     internal const double ConformSnapToleranceFactor = 8.0;
 
+    /// <summary>A face whose middle corner lies within this distance of its long edge is treated as a cap:
+    /// far below any terrain detail, and above the few micrometres float rounding leaves.</summary>
+    internal const double ThinCapApexDistance = 1e-5;
+
     internal sealed class PerformanceTimings
     {
         public double FaceDataMilliseconds { get; internal set; }
@@ -186,22 +190,61 @@ internal static class MeshAreaTopologySplitter
         public List<double> Xy { get; } = new();
         public List<double> Z { get; } = new();
 
+        /// <summary>Bit mask of the face edges each point lies on (a corner lies on two), or 0.</summary>
+        private readonly List<int> _edges = new();
+
         public int Count => Z.Count;
 
-        public int Add(Point2D point, double z)
+        /// <summary>
+        /// Adds a point, or returns an existing one within tolerance. A point on a face edge
+        /// (<paramref name="edgeMask"/>) never merges into a point lying only on other edges: in a sliver an
+        /// edge passes within tolerance of the far corner or the next edge, and one point cannot lie on both.
+        /// </summary>
+        public int Add(Point2D point, double z, int edgeMask = 0)
         {
+            int best = -1;
+            if (IsCornerMask(edgeMask))
+                return Append(point, z, edgeMask);
+
+            double bestDistance = double.MaxValue;
             for (int i = 0; i < Z.Count; i++)
             {
+                if (edgeMask != 0 && _edges[i] != 0 && (_edges[i] & edgeMask) == 0)
+                    continue;
+
                 double dx = Xy[i * 2] - point.X;
                 double dy = Xy[i * 2 + 1] - point.Y;
-                if ((dx * dx) + (dy * dy) <= _toleranceSquared)
-                    return i;
+                double distance = (dx * dx) + (dy * dy);
+                if (distance <= _toleranceSquared && distance < bestDistance)
+                {
+                    best = i;
+                    bestDistance = distance;
+                    if (edgeMask == 0)
+                        break; // untagged points keep the first match
+                }
             }
 
+            if (best >= 0)
+            {
+                if (_edges[best] == 0)
+                    _edges[best] = edgeMask;
+                return best;
+            }
+
+            return Append(point, z, edgeMask);
+        }
+
+        // A face's corners are distinct mesh vertices: never merged with each other, even when a short edge
+        // between two of them is under tolerance. Merging them dropped the triangle on that edge - a hole.
+        private static bool IsCornerMask(int edgeMask) => edgeMask is 0b011 or 0b101 or 0b110;
+
+        private int Append(Point2D point, double z, int edgeMask)
+        {
             int index = Z.Count;
             Xy.Add(point.X);
             Xy.Add(point.Y);
             Z.Add(z);
+            _edges.Add(edgeMask);
             return index;
         }
 
@@ -249,11 +292,17 @@ internal static class MeshAreaTopologySplitter
             if (TryFind(point, out int existing))
                 return existing;
 
+            return Append(point.X, point.Y, z);
+        }
+
+        /// <summary>Adds a vertex exactly where given, without merging, and registers it for later lookups.</summary>
+        public int Append(double x, double y, double z)
+        {
             int index = _vertices.Count / 3;
-            _vertices.Add(point.X);
-            _vertices.Add(point.Y);
+            _vertices.Add(x);
+            _vertices.Add(y);
             _vertices.Add(z);
-            Register(index, point.X, point.Y);
+            Register(index, x, y);
             return index;
         }
 
@@ -424,6 +473,12 @@ internal static class MeshAreaTopologySplitter
             return null;
         }
 
+        // A cap - a face whose middle corner lies on the edge between the other two, as float-rounded
+        // terrain carries by the hundred - has no area to re-triangulate, so it was emitted whole while its
+        // neighbour split the shared edge: a zero-area slit in the zone mesh. Split the caps across their
+        // long edges first; the surface moves by at most ThinCapApexDistance.
+        faces = MeshArrayNormalizer.SplitCollinearCaps(vertices, faces, faceCount, out faceCount, out _, ThinCapApexDistance);
+
         double tolerance = Math.Max(boundaryTolerance, 1e-9);
         Stopwatch? phaseTimer = performanceTimings != null ? Stopwatch.StartNew() : null;
         long phaseAllocatedBefore = performanceTimings != null
@@ -503,6 +558,7 @@ internal static class MeshAreaTopologySplitter
         var globalVertices = new List<double>(vertices);
         var globalFaces = new FaceBuffer();
         var pointLookup = new GlobalPointLookup(globalVertices, tolerance);
+        var edgeSplits = new MeshEdgeSplitRegistry(globalVertices, pointLookup.Append, tolerance);
         if (performanceTimings != null)
         {
             performanceTimings.OutputSetupMilliseconds = phaseTimer!.Elapsed.TotalMilliseconds;
@@ -549,7 +605,7 @@ internal static class MeshAreaTopologySplitter
             }
 
             bool forceFailure = ForceRetriangulationFailureForTesting?.Invoke(faceIndex) == true;
-            if (!TriangulateTouchedFace(face, cuts, sharedEdgePoints, pointLookup, globalFaces, tolerance, forceFailure, out string? faceError))
+            if (!TriangulateTouchedFace(face, cuts, sharedEdgePoints, pointLookup, edgeSplits, globalFaces, tolerance, forceFailure, out string? faceError))
             {
                 // One face that cannot be re-triangulated must not discard the split for the whole
                 // terrain. On a multi-million-face GIS mesh a handful of faces are degenerate or carry
@@ -583,12 +639,18 @@ internal static class MeshAreaTopologySplitter
             phaseTimer.Restart();
         }
 
+        // Splits are resolved per edge, so the faces agree, but that leaves the near-twin vertices the old
+        // per-face position merge used to fuse. Fuse them now, as edges of the finished mesh.
+        cancellation.ThrowIfCancelled();
+        var outputFaces = new List<int>(globalFaces.ToArray());
+        NearVertexCollapser.Collapse(globalVertices, outputFaces, vertices.Length / 3, tolerance);
+
         cancellation.ThrowIfCancelled();
         MeshAreaSplitter.SplitResult? result = MeshAreaSplitter.Classify(
             globalVertices.ToArray(),
             globalVertices.Count / 3,
-            globalFaces.ToArray(),
-            globalFaces.Count / 3,
+            outputFaces.ToArray(),
+            outputFaces.Count / 3,
             areas,
             0.0,
             out string? classifyMessage);
@@ -642,8 +704,11 @@ internal static class MeshAreaTopologySplitter
             FaceData face = faceData.Get(faceIndex);
             foreach (var edgePoint in cuts.EdgePoints)
             {
-                // Endpoints that coincide with a triangle vertex never subdivide the edge.
-                if (face.IsNearVertex(edgePoint.Point, tolerance))
+                // A point at one of the edge's own ends never subdivides it. Only those: a sliver's far
+                // corner can lie within tolerance of the point too, but the face across the edge does not
+                // have that corner and would split the edge anyway.
+                if (DistanceSquared(edgePoint.Point, face.GetEdgeStart(edgePoint.EdgeIndex)) <= toleranceSquared ||
+                    DistanceSquared(edgePoint.Point, face.GetEdgeEnd(edgePoint.EdgeIndex)) <= toleranceSquared)
                     continue;
 
                 (int, int) key = EdgeKey(face, edgePoint.EdgeIndex);
@@ -987,6 +1052,7 @@ internal static class MeshAreaTopologySplitter
         FaceCutData? cutData,
         Dictionary<(int, int), List<Point2D>> sharedEdgePoints,
         GlobalPointLookup pointLookup,
+        MeshEdgeSplitRegistry edgeSplits,
         FaceBuffer globalFaces,
         double tolerance,
         bool forceFailure,
@@ -994,10 +1060,16 @@ internal static class MeshAreaTopologySplitter
     {
         errorMessage = null;
 
+        FaceData self = face; // the corner/edge resolver below cannot capture an in parameter
         var localPoints = new LocalPointBuilder(tolerance);
-        int a = localPoints.Add(face.A, face.Az);
-        int b = localPoints.Add(face.B, face.Bz);
-        int c = localPoints.Add(face.C, face.Cz);
+        var identities = new LocalPointIdentities();
+        // Edge 0 runs A-B, edge 1 B-C, edge 2 C-A.
+        int a = localPoints.Add(face.A, face.Az, 0b101);
+        identities.SetCorner(a, face.I0);
+        int b = localPoints.Add(face.B, face.Bz, 0b011);
+        identities.SetCorner(b, face.I1);
+        int c = localPoints.Add(face.C, face.Cz, 0b110);
+        identities.SetCorner(c, face.I2);
 
         // Snap a cut point that lands very close to a triangle CORNER onto that corner. A daylight-loop
         // segment that grazes near an existing terrain vertex otherwise leaves a cut point a hair off
@@ -1028,16 +1100,21 @@ internal static class MeshAreaTopologySplitter
             if (!sharedEdgePoints.TryGetValue(EdgeKey(face, edgeIndex), out var points))
                 continue;
 
+            Point2D edgeStart = face.GetEdgeStart(edgeIndex), edgeEnd = face.GetEdgeEnd(edgeIndex);
             foreach (Point2D rawPoint in points)
             {
-                Point2D point = SnapToCorner(face, rawPoint, cornerSnapTolSq);
-
-                // A point that snapped to (or already coincides with) a corner does not subdivide the
-                // edge — the corner is already a triangle vertex.
-                if (face.IsNearVertex(point, tolerance))
+                // Snap only to this edge's own ends: the face across the edge shares those, so both land on
+                // the same vertex. A sliver's far corner is this face's alone - snapping to it moved the split
+                // off the shared edge on one side only, folding the two faces over each other.
+                Point2D point = SnapToEdgeEnd(edgeStart, edgeEnd, rawPoint, cornerSnapTolSq);
+                if (DistanceSquared(point, edgeStart) <= tolerance * tolerance || DistanceSquared(point, edgeEnd) <= tolerance * tolerance)
                     continue;
 
-                int localIndex = localPoints.Add(point, face.InterpolateZ(point));
+                // Triangulate the split where it will land - exactly on the edge. Left a hair off it, the thin
+                // triangle between it and the unsplit hull edge has area here and none once resolved: a cap.
+                point = SnapPointToEdge(edgeStart, edgeEnd, point);
+                int localIndex = localPoints.Add(point, face.InterpolateZ(point), 1 << edgeIndex);
+                identities.SetEdge(localIndex, edgeIndex);
                 double parameter = ParameterOnEdge(face.GetEdgeStart(edgeIndex), face.GetEdgeEnd(edgeIndex), point);
                 edgePointLists[edgeIndex].Add((parameter, localIndex));
             }
@@ -1050,8 +1127,8 @@ internal static class MeshAreaTopologySplitter
         {
             foreach (var piece in cutData.InternalSegments)
             {
-                Point2D pieceStart = SnapToCorner(face, piece.Start, cornerSnapTolSq);
-                Point2D pieceEnd = SnapToCorner(face, piece.End, cornerSnapTolSq);
+                Point2D pieceStart = SnapToCorner(face, piece.Start, cornerSnapTolSq, tolerance);
+                Point2D pieceEnd = SnapToCorner(face, piece.End, cornerSnapTolSq, tolerance);
                 int start = localPoints.Add(pieceStart, face.InterpolateZ(pieceStart));
                 int end = localPoints.Add(pieceEnd, face.InterpolateZ(pieceEnd));
                 if (start == end)
@@ -1116,7 +1193,7 @@ internal static class MeshAreaTopologySplitter
                 $"face at ({face.A.X:0.###}, {face.A.Y:0.###}) with {localPoints.Count} local points and " +
                 $"{segments.Count} constraint segments - " +
                 (outcome.WarningMessage ?? "no triangles produced.");
-            EmitBoundaryFan(face, edgePointLists, edgePointCounts, localPoints, pointLookup, globalFaces);
+            EmitBoundaryFan(face, edgePointLists, edgePointCounts, localPoints, ResolveLocal, pointLookup, globalFaces);
             return false;
         }
 
@@ -1125,7 +1202,10 @@ internal static class MeshAreaTopologySplitter
         for (int i = 0; i < extracted.VertexCount; i++)
         {
             var point = new Point2D(extracted.Xy[i * 2], extracted.Xy[i * 2 + 1]);
-            extractedToGlobal[i] = pointLookup.Resolve(point, face.InterpolateZ(point));
+            int local = extracted.SourceIds[i];
+            bool isLocal = local >= 0 && local < localPoints.Count &&
+                           localPoints.Xy[local * 2] == point.X && localPoints.Xy[(local * 2) + 1] == point.Y;
+            extractedToGlobal[i] = isLocal ? ResolveLocal(local) : pointLookup.Resolve(point, face.InterpolateZ(point));
         }
 
         // Triangle.NET emits counter-clockwise triangles. A face that runs clockwise in plan (a sliver leaning
@@ -1162,6 +1242,28 @@ internal static class MeshAreaTopologySplitter
         }
 
         return true;
+
+        // A corner is this face's own vertex and a split of a terrain edge resolves against that edge alone,
+        // so the two faces sharing an edge land on one vertex lying on it. Anything else resolves by position.
+        int ResolveLocal(int local)
+        {
+            if (identities.TryGetCorner(local, out int corner))
+                return corner;
+
+            Point2D point = localPoints.GetPoint(local);
+            if (identities.TryGetEdge(local, out int edgeIndex))
+            {
+                (int start, int end) = edgeIndex switch
+                {
+                    0 => (self.I0, self.I1),
+                    1 => (self.I1, self.I2),
+                    _ => (self.I2, self.I0)
+                };
+                return edgeSplits.Resolve(start, end, point.X, point.Y);
+            }
+
+            return pointLookup.Resolve(point, self.InterpolateZ(point));
+        }
     }
 
     /// <summary>
@@ -1178,6 +1280,7 @@ internal static class MeshAreaTopologySplitter
         List<(double Parameter, int LocalIndex)>[] edgePointLists,
         int[] edgePointCounts,
         LocalPointBuilder localPoints,
+        Func<int, int> resolveLocal,
         GlobalPointLookup pointLookup,
         FaceBuffer globalFaces)
     {
@@ -1189,9 +1292,7 @@ internal static class MeshAreaTopologySplitter
             var points = edgePointLists[edgeIndex];
             for (int i = 0; i < edgePointCounts[edgeIndex]; i++)
             {
-                int localIndex = points[i].LocalIndex;
-                Point2D point = localPoints.GetPoint(localIndex);
-                int global = pointLookup.Resolve(point, face.InterpolateZ(point));
+                int global = resolveLocal(points[i].LocalIndex);
 
                 // Each edge ends on the corner the next one starts from.
                 if (ring.Count == 0 || ring[^1] != global)
@@ -1640,16 +1741,30 @@ internal static class MeshAreaTopologySplitter
     /// <summary>Snaps a cut point that lands very close to a triangle CORNER onto that corner, so both
     /// faces sharing the corner place it at the identical global vertex instead of two hair-apart
     /// points that would emit overlapping slivers (a non-manifold edge).</summary>
-    private static Point2D SnapToCorner(in FaceData face, Point2D p, double cornerSnapTolSq)
+    private static Point2D SnapToCorner(in FaceData face, Point2D p, double cornerSnapTolSq, double tolerance)
     {
-        double da = DistanceSquared(p, face.A);
-        double db = DistanceSquared(p, face.B);
-        double dc = DistanceSquared(p, face.C);
+        // A point on an edge snaps only to that edge's own ends (see SnapToEdgeEnd); a point inside the face
+        // may snap to any corner, since no neighbour sees it.
+        bool onAB = PointOnSegment(p, face.A, face.B, tolerance);
+        bool onBC = PointOnSegment(p, face.B, face.C, tolerance);
+        bool onCA = PointOnSegment(p, face.C, face.A, tolerance);
+        bool anyEdge = onAB || onBC || onCA;
+        double da = !anyEdge || onAB || onCA ? DistanceSquared(p, face.A) : double.MaxValue;
+        double db = !anyEdge || onAB || onBC ? DistanceSquared(p, face.B) : double.MaxValue;
+        double dc = !anyEdge || onBC || onCA ? DistanceSquared(p, face.C) : double.MaxValue;
         double best = Math.Min(da, Math.Min(db, dc));
         if (best > cornerSnapTolSq)
             return p;
 
         return best == da ? face.A : (best == db ? face.B : face.C);
+    }
+
+    private static Point2D SnapToEdgeEnd(Point2D start, Point2D end, Point2D p, double snapTolSq)
+    {
+        double ds = DistanceSquared(p, start), de = DistanceSquared(p, end);
+        if (Math.Min(ds, de) > snapTolSq)
+            return p;
+        return ds <= de ? start : end;
     }
 
     /// <summary>

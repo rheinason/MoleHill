@@ -865,6 +865,48 @@ starts drawing its annotations — the correct reading of a flag that only ever 
   incremental Delaunay insertion would give them. A point on an existing vertex is still merged away and
   one outside the terrain ignored, each with a diagnostic. The rebuild remains solely as the fallback
   when local insertion declines, and says so in the build diagnostics.
+- **Face-by-face constraint insertion checks itself, and resolves splits by identity, not position**
+  (2026-10-06, Verandi Lendi case). `MeshConstraintTopologyInserter.TryInsert` re-triangulates each
+  crossed face on its own, so two faces must agree on every shared edge. They used to resolve every
+  local point to the nearest global vertex within tolerance; on a band of contour slivers a split of one
+  edge merged into a split of the next edge over (2.95 mm away), one face took it as on the edge and the
+  other as inside, and the mesh folded — an edge with 3–16 faces — which then crashed `LawsonFlipper`.
+  Now a face's corners resolve to its own vertices, a split of a mesh edge resolves through a per-edge
+  registry onto that edge exactly (reusing the endpoints or another split of the *same* edge), a split
+  never merges into a point on another edge, and only an edge's own endpoints absorb a split (a sliver's
+  far corner within tolerance used to swallow it on one side only, leaving a zero-area slit). The result is
+  then checked — same plan area as the faces replaced, no edge with more than two faces, no single-use
+  edge off the input border — and an inconsistent result falls back to the one-piece re-triangulation or
+  declines, so every caller (Add Geometry, Remesh breaklines, Grade Path, walls) gets a valid mesh or a
+  reason, never a folded one.
+- **Zone splitting resolves splits by identity too, and fuses near-twins afterwards** (2026-10-06,
+  Verandi Lendi: 9 of 14 zone meshes non-manifold). `MeshAreaTopologySplitter` shares the inserter's
+  per-edge `MeshEdgeSplitRegistry` and `LocalPointIdentities`; a registry split snaps only to its own edge's
+  ends (the old 8x-tolerance snap to *any* corner moved splits onto a sliver's far corner); corners never
+  merge locally (two corners 6.7 mm apart under a 12.5 mm tolerance dropped a triangle - a hole). Caps
+  (`MeshArrayNormalizer.SplitCollinearCaps`, apex within `ThinCapApexDistance` = 10 um of the long edge) are
+  split across their long edge before splitting, because a face with no area cannot be re-triangulated and
+  was emitted whole beside a neighbour that split it. Near-twin vertices the old per-face XY merge used to
+  fuse are fused after splitting by `NearVertexCollapser` - an edge collapse taken only when it keeps the
+  mesh manifold, flips nothing and moves no input vertex. Result on the case: 0 non-manifold edges, 0
+  interior slits, plan area exact. Grade Path's `GradedRegionAssembler` now accepts the detail-preserving
+  split where it used to reject it and fall back to its CDT re-conform.
+- **Mesh hand-off never culls a cap into a slit.** Normalization culls an exactly collinear face; a cap culled
+  from the middle of a terrain leaves its short edges and the long edge across from it each used once.
+  `RhinoGeometryConversions.BuildMesh` splits exact caps across their long edge first (found as a 0.3 m slit
+  after Smooth: Remesh leaves near-caps, smoothing makes one exact).
+- **Inserted lines that run off the terrain are traced piecewise.** `InsertedConstraintTracer.TraceAll` clips
+  a line that does not trace whole to the terrain's outer border and traces each inside piece, so Add
+  Geometry persists the inserted form rather than the drawn line (outside part included).
+- **Triangulate repairs input topology on every build, but never removes vertices.** `TinInputCleaner`
+  used to run only after a failed triangulation, so a terrain that triangulated "fine" kept every crossing
+  as a Steiner point a hair from an existing vertex (Verandi Lendi: 976 Steiner points, 382 near-duplicate
+  vertex pairs). `RepairTinInputTopology` now runs its non-destructive repairs first — degenerate and
+  duplicate segments, tiny spikes, crossings split at one shared vertex — and reports crossings whose two
+  lines disagree in elevation (13,120 there: two overlapping contour sets), which no cleanup can resolve.
+  Collinear-vertex collapse stays retry-only: breaklines are stationed to their neighbours on purpose and
+  the persisted constraints record those stations, so collapsing them would bring back fans and
+  constraint/mesh mismatches. Same size cap as the retry (120k vertices / 180k segments).
 - Triangulate **Contour Mode** controls the large-input tradeoff: `Constrained` inserts every contour
   segment, `Vertices only` matches an exploded-points Grasshopper solve, and the default `Auto` switches
   contours to vertex samples at 250,000 source vertices. Breaklines remain constrained; boundary roles

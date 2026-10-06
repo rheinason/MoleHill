@@ -150,22 +150,56 @@ internal static partial class MeshConstraintTopologyInserter
         public List<double> Xy { get; } = new();
         public List<double> Z { get; } = new();
 
+        /// <summary>Bit mask of the face edges each point lies on (a corner lies on two), or 0.</summary>
+        private readonly List<int> _edges = new();
+
         public int Count => Z.Count;
 
-        public int Add(Point2D point, double z)
+        /// <summary>
+        /// Adds a point, or returns the nearest existing one within tolerance. A point on a face edge
+        /// (<paramref name="edgeMask"/>) never merges into a point lying only on other edges: in a sliver,
+        /// an edge passes within tolerance of the far corner or of the next edge, and a single point cannot
+        /// lie on both, so merging them leaves the edge cut on one side and whole on the other.
+        /// </summary>
+        public int Add(Point2D point, double z, int edgeMask = 0)
         {
+            int best = -1;
+
+            double bestDistance = double.MaxValue;
             for (int i = 0; i < Z.Count; i++)
             {
+                if (edgeMask != 0 && _edges[i] != 0 && (_edges[i] & edgeMask) == 0)
+                    continue;
+
                 double dx = Xy[i * 2] - point.X;
                 double dy = Xy[(i * 2) + 1] - point.Y;
-                if ((dx * dx) + (dy * dy) <= _toleranceSquared)
-                    return i;
+                double distance = (dx * dx) + (dy * dy);
+                if (distance <= _toleranceSquared && distance < bestDistance)
+                {
+                    best = i;
+                    bestDistance = distance;
+                    if (edgeMask == 0)
+                        break; // untagged points keep the first match, as every other caller expects
+                }
             }
 
+            if (best >= 0)
+            {
+                if (_edges[best] == 0)
+                    _edges[best] = edgeMask;
+                return best;
+            }
+
+            return Append(point, z, edgeMask);
+        }
+
+        private int Append(Point2D point, double z, int edgeMask)
+        {
             int index = Z.Count;
             Xy.Add(point.X);
             Xy.Add(point.Y);
             Z.Add(z);
+            _edges.Add(edgeMask);
             return index;
         }
     }
@@ -199,6 +233,17 @@ internal static partial class MeshConstraintTopologyInserter
             _vertices.Add(point.Y);
             _vertices.Add(z);
             Register(index, point.X, point.Y);
+            return index;
+        }
+
+        /// <summary>Adds a vertex exactly where given, without merging, and registers it for later lookups.</summary>
+        public int Append(double x, double y, double z)
+        {
+            int index = _vertices.Count / 3;
+            _vertices.Add(x);
+            _vertices.Add(y);
+            _vertices.Add(z);
+            Register(index, x, y);
             return index;
         }
 
@@ -363,6 +408,9 @@ internal static partial class MeshConstraintTopologyInserter
         // input face array costs hundreds of megabytes on a multi-million-face terrain for a few cuts.
         var globalFaces = new List<int>(EstimateOutputFaceCapacity(faceCount, touchedFaceCount));
         var pointLookup = new GlobalPointLookup(globalVertices, resolvedTolerance);
+        var edgeSplits = new MeshEdgeSplitRegistry(globalVertices, pointLookup.Append, resolvedTolerance);
+        var touchedFaceRanges = new List<(int Start, int End)>(touchedFaceCount);
+        double touchedArea = 0.0;
 
         for (int faceIndex = 0; faceIndex < faceCount; faceIndex++)
         {
@@ -376,11 +424,40 @@ internal static partial class MeshConstraintTopologyInserter
             }
 
             var face = new FaceData(vertices, faces, faceIndex);
-            if (!TriangulateTouchedFace(face, cutData, pointLookup, globalFaces, resolvedTolerance, out errorMessage))
+            touchedArea += Math.Abs(Cross(face.B.X - face.A.X, face.B.Y - face.A.Y, face.C.X - face.A.X, face.C.Y - face.A.Y));
+            int start = globalFaces.Count / 3;
+            if (!TriangulateTouchedFace(face, cutData, pointLookup, edgeSplits, globalFaces, resolvedTolerance, out errorMessage))
             {
                 CloneInput(vertices, faces, out outputVertices, out outputFaces);
                 return false;
             }
+
+            touchedFaceRanges.Add((start, globalFaces.Count / 3));
+        }
+
+        if (!IsFaceByFaceResultConsistent(
+                faces, faceCount, globalVertices, globalFaces, touchedFaceRanges, touchedArea, edgeSplits, out string? inconsistency))
+        {
+            // Each crossed face was triangulated on its own, so neighbours must agree about where their
+            // shared edge was cut. On a terrain of slivers (contour bands, a split point a few millimetres off
+            // an edge within tolerance) they can disagree: one face takes the point as on the edge, the other
+            // as inside, and the two overlap. That is a folded mesh, never an answer — re-triangulate the
+            // neighbourhood as one piece instead, which has no shared edge to disagree about, or decline.
+            string? localError = "it cannot place isolated points";
+            if (pointXy.Length == 0 &&
+                TryInsertByLocalTriangulation(
+                    vertices, vertexCount, faces, faceCount, constraints, tolerance,
+                    out outputVertices, out outputVertexCount, out outputFaces, out outputFaceCount, out localError))
+            {
+                return true;
+            }
+
+            CloneInput(vertices, faces, out outputVertices, out outputFaces);
+            outputVertexCount = vertexCount;
+            outputFaceCount = faceCount;
+            errorMessage = $"Face-by-face insertion produced an inconsistent mesh ({inconsistency}), and re-triangulating " +
+                           $"the neighbourhood as one piece declined ({localError}).";
+            return false;
         }
 
         outputVertices = globalVertices.ToArray();
@@ -388,6 +465,134 @@ internal static partial class MeshConstraintTopologyInserter
         outputFaces = globalFaces.ToArray();
         outputFaceCount = outputFaces.Length / 3;
         return true;
+    }
+
+    /// <summary>
+    /// Whether the re-triangulated faces exactly tile the faces they replaced: the same plan area (an overlap
+    /// adds area, a gap removes it), no edge among them carries more than two faces, and every edge only one
+    /// face uses is the terrain border - an input border edge, or a piece of one split on that edge. Any
+    /// other single-use edge is a cut one side of an edge made and the other did not: a slit.
+    /// </summary>
+    private static bool IsFaceByFaceResultConsistent(
+        int[] inputFaces,
+        int inputFaceCount,
+        List<double> vertices,
+        List<int> faces,
+        List<(int Start, int End)> touchedFaceRanges,
+        double touchedArea,
+        MeshEdgeSplitRegistry edgeSplits,
+        out string? inconsistency)
+    {
+        inconsistency = null;
+        int faceCount = faces.Count / 3;
+        double emittedArea = 0.0;
+        var nearTouched = new HashSet<int>();
+        foreach ((int start, int end) in touchedFaceRanges)
+        {
+            for (int f = start; f < end; f++)
+            {
+                int a = faces[f * 3], b = faces[(f * 3) + 1], c = faces[(f * 3) + 2];
+                double ax = vertices[a * 3], ay = vertices[(a * 3) + 1];
+                emittedArea += Math.Abs(Cross(
+                    vertices[b * 3] - ax, vertices[(b * 3) + 1] - ay,
+                    vertices[c * 3] - ax, vertices[(c * 3) + 1] - ay));
+                nearTouched.Add(a);
+                nearTouched.Add(b);
+                nearTouched.Add(c);
+            }
+        }
+
+        if (!double.IsFinite(emittedArea) || Math.Abs(emittedArea - touchedArea) > Math.Max(touchedArea, 1e-12) * 1e-7)
+        {
+            inconsistency = $"plan area {emittedArea * 0.5:G6} where the crossed faces cover {touchedArea * 0.5:G6}";
+            return false;
+        }
+
+        Dictionary<long, int> edgeUses = IndexedMeshTools.CreateEdgeKeyMap<int>(nearTouched.Count * 6);
+        for (int f = 0; f < faceCount; f++)
+        {
+            int a = faces[f * 3], b = faces[(f * 3) + 1], c = faces[(f * 3) + 2];
+            if (!nearTouched.Contains(a) && !nearTouched.Contains(b) && !nearTouched.Contains(c))
+                continue;
+
+            for (int k = 0; k < 3; k++)
+            {
+                int u = faces[(f * 3) + k], w = faces[(f * 3) + ((k + 1) % 3)];
+                long key = IndexedMeshTools.GetEdgeKey(u, w);
+                int uses = edgeUses.GetValueOrDefault(key) + 1;
+                if (uses > 2)
+                {
+                    inconsistency = $"edge {u}-{w} shared by more than two faces";
+                    return false;
+                }
+
+                edgeUses[key] = uses;
+            }
+        }
+
+        // Input border edges around the change. Every face on a vertex of the change is visited, so an edge
+        // with such an endpoint has its full use count in both maps.
+        Dictionary<long, int> inputUses = IndexedMeshTools.CreateEdgeKeyMap<int>(nearTouched.Count * 6);
+        for (int f = 0; f < inputFaceCount; f++)
+        {
+            int a = inputFaces[f * 3], b = inputFaces[(f * 3) + 1], c = inputFaces[(f * 3) + 2];
+            if (!nearTouched.Contains(a) && !nearTouched.Contains(b) && !nearTouched.Contains(c))
+                continue;
+
+            for (int k = 0; k < 3; k++)
+            {
+                long key = IndexedMeshTools.GetEdgeKey(inputFaces[(f * 3) + k], inputFaces[(f * 3) + ((k + 1) % 3)]);
+                inputUses[key] = inputUses.GetValueOrDefault(key) + 1;
+            }
+        }
+
+        foreach ((long key, int uses) in edgeUses)
+        {
+            if (uses != 1)
+                continue;
+
+            int u = (int)(key >> 32), w = (int)(key & 0xffffffff);
+            if (!nearTouched.Contains(u) && !nearTouched.Contains(w))
+                continue;
+
+            if (!IsOnInputBorder(u, w, inputUses, edgeSplits))
+            {
+                inconsistency = $"edge {u}-{w} used by one face away from the terrain border";
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static bool IsOnInputBorder(int u, int w, Dictionary<long, int> inputUses, MeshEdgeSplitRegistry edgeSplits)
+    {
+        if (inputUses.TryGetValue(IndexedMeshTools.GetEdgeKey(u, w), out int uses))
+            return uses == 1;
+
+        // A sub-edge of a split border edge: each end is either an end of the host edge or a split placed on it.
+        long host = -1;
+        foreach (int end in new[] { u, w })
+        {
+            if (edgeSplits.TryGetHost(end, out long splitHost))
+            {
+                if (host >= 0 && host != splitHost)
+                    return false;
+                host = splitHost;
+            }
+        }
+
+        if (host < 0)
+            return false;
+
+        int hostA = (int)(host >> 32), hostB = (int)(host & 0xffffffff);
+        foreach (int end in new[] { u, w })
+        {
+            if (end != hostA && end != hostB && !(edgeSplits.TryGetHost(end, out long h) && h == host))
+                return false;
+        }
+
+        return inputUses.TryGetValue(host, out int hostUses) && hostUses == 1;
     }
 
     private static void CloneInput(double[] vertices, int[] faces, out double[] outputVertices, out int[] outputFaces)
@@ -769,19 +974,19 @@ internal static partial class MeshConstraintTopologyInserter
                 continue;
 
             var faceB = new FaceData(vertices, faces, entry.FaceB);
+            double toleranceSquared = tolerance * tolerance;
             foreach (var (_, point) in pointsOnEdge)
             {
-                if (!faceA.IsNearVertex(point, tolerance))
-                {
-                    cutA ??= cuts[entry.FaceA] = new FaceCutData();
-                    AddUniqueEdgePoint(cutA.EdgePoints, new EdgePoint(entry.EdgeA, point), faceA, tolerance);
-                }
+                // Only the shared edge's own endpoints absorb a split. A sliver's far corner can lie within
+                // tolerance of the split too, but the face across the edge does not have that corner and
+                // cuts the edge anyway; skipping the split here left the edge cut on one side only.
+                if (DistanceSquared(point, edgeStart) <= toleranceSquared || DistanceSquared(point, edgeEnd) <= toleranceSquared)
+                    continue;
 
-                if (!faceB.IsNearVertex(point, tolerance))
-                {
-                    cutB ??= cuts[entry.FaceB] = new FaceCutData();
-                    AddUniqueEdgePoint(cutB.EdgePoints, new EdgePoint(entry.EdgeB, point), faceB, tolerance);
-                }
+                cutA ??= cuts[entry.FaceA] = new FaceCutData();
+                AddUniqueEdgePoint(cutA.EdgePoints, new EdgePoint(entry.EdgeA, point), faceA, tolerance);
+                cutB ??= cuts[entry.FaceB] = new FaceCutData();
+                AddUniqueEdgePoint(cutB.EdgePoints, new EdgePoint(entry.EdgeB, point), faceB, tolerance);
             }
         }
     }
@@ -853,6 +1058,7 @@ internal static partial class MeshConstraintTopologyInserter
         FaceData face,
         FaceCutData cutData,
         GlobalPointLookup pointLookup,
+        MeshEdgeSplitRegistry edgeSplits,
         List<int> globalFaces,
         double tolerance,
         out string? errorMessage)
@@ -860,9 +1066,14 @@ internal static partial class MeshConstraintTopologyInserter
         errorMessage = null;
 
         var localPoints = new LocalPointBuilder(tolerance);
-        int a = localPoints.Add(face.A, face.Az);
-        int b = localPoints.Add(face.B, face.Bz);
-        int c = localPoints.Add(face.C, face.Cz);
+        var identities = new LocalPointIdentities();
+        // Edge 0 runs A-B, edge 1 B-C, edge 2 C-A.
+        int a = localPoints.Add(face.A, face.Az, 0b101);
+        identities.SetCorner(a, face.I0);
+        int b = localPoints.Add(face.B, face.Bz, 0b011);
+        identities.SetCorner(b, face.I1);
+        int c = localPoints.Add(face.C, face.Cz, 0b110);
+        identities.SetCorner(c, face.I2);
 
         var edgePointLists = new List<(double Parameter, int LocalIndex)>[3];
         for (int edgeIndex = 0; edgeIndex < 3; edgeIndex++)
@@ -877,10 +1088,19 @@ internal static partial class MeshConstraintTopologyInserter
 
         foreach (EdgePoint edgePoint in cutData.EdgePoints)
         {
-            if (face.IsNearVertex(edgePoint.Point, tolerance))
+            // Only the edge's own endpoints absorb a split. The far corner of a sliver can sit within
+            // tolerance of the edge too, but the face across the edge cannot see that corner and splits
+            // the edge regardless, so this face must split it as well.
+            Point2D edgeStart = face.GetEdgeStart(edgePoint.EdgeIndex), edgeEnd = face.GetEdgeEnd(edgePoint.EdgeIndex);
+            if (DistanceSquared(edgePoint.Point, edgeStart) <= tolerance * tolerance ||
+                DistanceSquared(edgePoint.Point, edgeEnd) <= tolerance * tolerance)
                 continue;
 
-            int localIndex = localPoints.Add(edgePoint.Point, face.InterpolateZ(edgePoint.Point));
+            // Triangulate the split where it will land - exactly on the edge. Left a hair off it, the thin
+            // triangle between it and the unsplit hull edge has area here and none once resolved: a cap.
+            Point2D onEdge = SnapPointToEdge(edgeStart, edgeEnd, edgePoint.Point);
+            int localIndex = localPoints.Add(onEdge, face.InterpolateZ(onEdge), 1 << edgePoint.EdgeIndex);
+            identities.SetEdge(localIndex, edgePoint.EdgeIndex);
             double parameter = ParameterOnEdge(face.GetEdgeStart(edgePoint.EdgeIndex), face.GetEdgeEnd(edgePoint.EdgeIndex), edgePoint.Point);
             edgePointLists[edgePoint.EdgeIndex].Add((parameter, localIndex));
         }
@@ -943,7 +1163,32 @@ internal static partial class MeshConstraintTopologyInserter
         for (int i = 0; i < extracted.VertexCount; i++)
         {
             var point = new Point2D(extracted.Xy[i * 2], extracted.Xy[(i * 2) + 1]);
-            extractedToGlobal[i] = pointLookup.Resolve(point, face.InterpolateZ(point));
+            int local = extracted.SourceIds[i];
+            bool isLocal = local >= 0 && local < localPoints.Count &&
+                           localPoints.Xy[local * 2] == point.X && localPoints.Xy[(local * 2) + 1] == point.Y;
+
+            // A corner is this face's own vertex, and a split of a mesh edge is resolved against that edge
+            // alone, so both faces sharing the edge land on one vertex lying exactly on it. Resolving them by
+            // XY instead let a split merge into whatever vertex was nearest within tolerance - on a band of
+            // slivers, a split of the next edge over - and the two faces then disagreed about the edge.
+            if (isLocal && identities.TryGetCorner(local, out int corner))
+            {
+                extractedToGlobal[i] = corner;
+            }
+            else if (isLocal && identities.TryGetEdge(local, out int edgeIndex))
+            {
+                (int start, int end) = edgeIndex switch
+                {
+                    0 => (face.I0, face.I1),
+                    1 => (face.I1, face.I2),
+                    _ => (face.I2, face.I0)
+                };
+                extractedToGlobal[i] = edgeSplits.Resolve(start, end, point.X, point.Y);
+            }
+            else
+            {
+                extractedToGlobal[i] = pointLookup.Resolve(point, face.InterpolateZ(point));
+            }
         }
 
         for (int faceIndex = 0; faceIndex < extracted.FaceCount; faceIndex++)

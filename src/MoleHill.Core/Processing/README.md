@@ -19,7 +19,10 @@ Pure, unit-tested.
   as a constraint must persist this processed form**, not the raw one: a later constrained rebuild seeds
   every mesh vertex, and a raw long segment passing within rounding of the stations leaves a zero-area
   cap at each one (~11,000 on one terrain, which downstream cleanup then deleted into holes).
-- `TinInputCleaner.cs` — removes degenerate/duplicate input geometry.
+- `TinInputCleaner.cs` — input topology repair: degenerate/duplicate segments, tiny spikes, crossings split
+  at one shared vertex, and a count of crossings whose lines disagree in elevation. Triangulate and Add
+  Geometry's rebuild run it on every build with `collapseCollinearVertices: false`; collinear collapse
+  (which would delete deliberate breakline stations) is used only by the failure retry.
 - `RegionInputClipper.cs` — exact union clipping for Data Clip: keeps points inside/on closed World-XY
   loops and splits crossing polylines while linearly interpolating Z. The Rhino host applies it to raw
   Triangulate and Add Geometry sources, never to the carried mesh.

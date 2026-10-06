@@ -218,6 +218,221 @@ public static class MeshArrayNormalizer
     }
 
     /// <summary>
+    /// Removes each face <see cref="TryNormalize"/> would cull as three exactly collinear but distinct corners
+    /// (a cap: one corner lying on the edge between the other two) by splitting the face across that long
+    /// edge at the middle corner. Culling a cap leaves its two short edges and the long edge across from it
+    /// each used once - a zero-area slit in the terrain. The split covers exactly the same surface. A cap on
+    /// the border, with nothing across its long edge, is simply dropped: the border then runs through the
+    /// middle corner instead, with no slit. Returns <paramref name="faces"/> itself when there is nothing to do.
+    /// With <paramref name="maxApexDistance"/> above zero, a face whose middle corner lies within that distance
+    /// of its long edge counts as a cap too: float-rounded terrain carries thousands of caps a few micrometres
+    /// thick, and a face-by-face splitter cannot re-triangulate one, so it would leave its neighbours' splits
+    /// on single-use edges.
+    /// </summary>
+    public static int[] SplitCollinearCaps(
+        double[] vertices, int[] faces, int faceCount, out int outputFaceCount, out int capsResolved, double maxApexDistance = 0.0)
+    {
+        outputFaceCount = faceCount;
+        capsResolved = 0;
+        bool any = false;
+        for (int t = 0; t < faceCount && !any; t++)
+            any = IsCap(vertices, faces[t * 3], faces[t * 3 + 1], faces[t * 3 + 2], maxApexDistance);
+        if (!any)
+            return faces;
+
+        var work = new List<int>(faces.AsSpan(0, faceCount * 3).ToArray());
+        var removed = new List<bool>(new bool[faceCount]);
+        var edgeFaces = IndexedMeshTools.CreateEdgeKeyMap<List<int>>(faceCount * 2);
+        for (int t = 0; t < faceCount; t++)
+        {
+            for (int k = 0; k < 3; k++)
+                AddEdgeFace(edgeFaces, work[t * 3 + k], work[t * 3 + ((k + 1) % 3)], t);
+        }
+
+        // Two caps can face each other across one long edge. Splitting one at the other's middle corner
+        // leaves shorter caps whose long edges face real faces, so repeat until a pass changes nothing.
+        const int MaxPasses = 16;
+        for (int pass = 0; pass < MaxPasses; pass++)
+        {
+            int resolvedThisPass = 0;
+            int faceTotal = work.Count / 3;
+            for (int cap = 0; cap < faceTotal; cap++)
+            {
+                if (removed[cap])
+                    continue;
+
+                int a = work[cap * 3], b = work[cap * 3 + 1], c = work[cap * 3 + 2];
+                if (!IsCap(vertices, a, b, c, maxApexDistance) || !TryOrderCap(vertices, a, b, c, out int p, out int q, out int r))
+                    continue;
+
+                long longEdge = IndexedMeshTools.GetEdgeKey(p, q);
+                int across = -1, acrossCount = 0;
+                foreach (int f in edgeFaces[longEdge])
+                {
+                    if (f != cap && !removed[f])
+                    {
+                        across = f;
+                        acrossCount++;
+                    }
+                }
+
+                if (acrossCount > 1)
+                    continue; // non-manifold: leave it
+
+                removed[cap] = true;
+                for (int k = 0; k < 3; k++)
+                    edgeFaces[IndexedMeshTools.GetEdgeKey(work[cap * 3 + k], work[cap * 3 + ((k + 1) % 3)])].Remove(cap);
+                resolvedThisPass++;
+                if (acrossCount == 0)
+                    continue;
+
+                // Split the neighbour at r, keeping its winding: (u, v, s) becomes (u, r, s) and (r, v, s).
+                int n = across;
+                int u = -1, v = -1, s = -1;
+                for (int k = 0; k < 3; k++)
+                {
+                    int x = work[n * 3 + k], y = work[n * 3 + ((k + 1) % 3)];
+                    if ((x == p && y == q) || (x == q && y == p))
+                    {
+                        u = x;
+                        v = y;
+                        s = work[n * 3 + ((k + 2) % 3)];
+                    }
+                }
+
+                if (s == r)
+                {
+                    // The cap's mirror: the same three corners wound the other way. Together they cover
+                    // nothing and their short edges pair up with each other's, so both simply go.
+                    removed[n] = true;
+                    for (int k = 0; k < 3; k++)
+                        edgeFaces[IndexedMeshTools.GetEdgeKey(work[n * 3 + k], work[n * 3 + ((k + 1) % 3)])].Remove(n);
+                    continue;
+                }
+
+                int added = work.Count / 3;
+                work[n * 3] = u;
+                work[n * 3 + 1] = r;
+                work[n * 3 + 2] = s;
+                work.Add(r);
+                work.Add(v);
+                work.Add(s);
+                removed.Add(false);
+                edgeFaces[longEdge].Remove(n);
+                edgeFaces[IndexedMeshTools.GetEdgeKey(v, s)].Remove(n);
+                AddEdgeFace(edgeFaces, u, r, n);
+                AddEdgeFace(edgeFaces, r, s, n);
+                AddEdgeFace(edgeFaces, r, v, added);
+                AddEdgeFace(edgeFaces, r, s, added);
+                AddEdgeFace(edgeFaces, v, s, added);
+            }
+
+            capsResolved += resolvedThisPass;
+            if (resolvedThisPass == 0)
+                break;
+        }
+
+        if (capsResolved == 0)
+            return faces;
+
+        // Where many vertices lie on one line (a flat graded edge), splitting caps can produce a face and its
+        // mirror - the same corners wound the other way. The pair covers nothing and doubles every edge it
+        // touches, so both go.
+        var byCorners = new Dictionary<(int, int, int), int>();
+        for (int t = 0; t < work.Count / 3; t++)
+        {
+            if (removed[t])
+                continue;
+
+            int a = work[t * 3], b = work[t * 3 + 1], c = work[t * 3 + 2];
+            int lo = Math.Min(a, Math.Min(b, c)), hi = Math.Max(a, Math.Max(b, c)), mid = a + b + c - lo - hi;
+            if (byCorners.Remove((lo, mid, hi), out int other) && !SameWinding(work, t, other))
+            {
+                removed[t] = true;
+                removed[other] = true;
+                continue;
+            }
+
+            byCorners[(lo, mid, hi)] = t;
+        }
+
+        var output = new List<int>(work.Count);
+        for (int t = 0; t < work.Count / 3; t++)
+        {
+            if (removed[t])
+                continue;
+            output.Add(work[t * 3]);
+            output.Add(work[t * 3 + 1]);
+            output.Add(work[t * 3 + 2]);
+        }
+
+        outputFaceCount = output.Count / 3;
+        return output.ToArray();
+
+        static void AddEdgeFace(Dictionary<long, List<int>> map, int x, int y, int face)
+        {
+            long key = IndexedMeshTools.GetEdgeKey(x, y);
+            if (!map.TryGetValue(key, out var list))
+                map[key] = list = new List<int>(2);
+            if (!list.Contains(face))
+                list.Add(face);
+        }
+    }
+
+    private static bool SameWinding(List<int> faces, int t, int other)
+    {
+        int a = faces[t * 3], b = faces[t * 3 + 1];
+        for (int k = 0; k < 3; k++)
+        {
+            if (faces[other * 3 + k] == a)
+                return faces[other * 3 + ((k + 1) % 3)] == b;
+        }
+
+        return false;
+    }
+
+    private static bool IsCap(double[] v, int a, int b, int c, double maxApexDistance) =>
+        a != b && b != c && c != a &&
+        (ExactlyCollinear(v, a, b, c) || (maxApexDistance > 0.0 && IsThinCap(v, a, b, c, maxApexDistance)));
+
+    private static bool IsThinCap(double[] v, int a, int b, int c, double maxApexDistance)
+    {
+        if (!TryOrderCap(v, a, b, c, out int p, out int q, out int r))
+            return false;
+
+        double dx = v[q * 3] - v[p * 3], dy = v[q * 3 + 1] - v[p * 3 + 1], dz = v[q * 3 + 2] - v[p * 3 + 2];
+        double wx = v[r * 3] - v[p * 3], wy = v[r * 3 + 1] - v[p * 3 + 1], wz = v[r * 3 + 2] - v[p * 3 + 2];
+        double lengthSquared = (dx * dx) + (dy * dy) + (dz * dz);
+        double t = ((wx * dx) + (wy * dy) + (wz * dz)) / lengthSquared;
+        if (t <= 0.0 || t >= 1.0)
+            return false;
+
+        double cx = (wy * dz) - (wz * dy), cy = (wz * dx) - (wx * dz), cz = (wx * dy) - (wy * dx);
+        return ((cx * cx) + (cy * cy) + (cz * cz)) / lengthSquared <= maxApexDistance * maxApexDistance;
+    }
+
+    private static bool ExactlyCollinear(double[] v, int a, int b, int c)
+    {
+        double ux = v[b * 3] - v[a * 3], uy = v[b * 3 + 1] - v[a * 3 + 1], uz = v[b * 3 + 2] - v[a * 3 + 2];
+        double wx = v[c * 3] - v[a * 3], wy = v[c * 3 + 1] - v[a * 3 + 1], wz = v[c * 3 + 2] - v[a * 3 + 2];
+        return (uy * wz) - (uz * wy) == 0.0 && (uz * wx) - (ux * wz) == 0.0 && (ux * wy) - (uy * wx) == 0.0;
+    }
+
+    /// <summary>The cap's two outer corners (its long edge) and the corner between them.</summary>
+    private static bool TryOrderCap(double[] v, int a, int b, int c, out int p, out int q, out int r)
+    {
+        double ab = DistanceSquared(v, a, b), bc = DistanceSquared(v, b, c), ca = DistanceSquared(v, c, a);
+        (p, q, r) = ab >= bc && ab >= ca ? (a, b, c) : bc >= ca ? (b, c, a) : (c, a, b);
+        return DistanceSquared(v, p, r) > 0.0 && DistanceSquared(v, r, q) > 0.0;
+    }
+
+    private static double DistanceSquared(double[] v, int a, int b)
+    {
+        double dx = v[a * 3] - v[b * 3], dy = v[a * 3 + 1] - v[b * 3 + 1], dz = v[a * 3 + 2] - v[b * 3 + 2];
+        return (dx * dx) + (dy * dy) + (dz * dz);
+    }
+
+    /// <summary>
     /// True when <see cref="TryNormalize"/> would hand back these arrays unchanged, given that they came from a
     /// normalized mesh by moving vertices only in height. Height cannot change a face's plan winding or which
     /// vertices are used, so only two things can: two vertices meeting at one float position (a merge, which

@@ -3,8 +3,10 @@
 namespace MoleHill.Core.Processing;
 
 /// <summary>
-/// Conservative topology cleanup for TIN inputs. Intended as a fallback path
-/// when the exact triangulation input fails or produces an invalid mesh.
+/// Conservative topology cleanup for TIN inputs: degenerate and duplicate segments, tiny spikes, and
+/// crossings split at a shared vertex (instead of a Steiner point a hair from an existing vertex).
+/// Collinear-vertex collapse is the one step that removes deliberate data — breakline stations and
+/// straight-run vertices a stage relies on — so it is opt-in, used only by the failure retry.
 /// </summary>
 public static class TinInputCleaner
 {
@@ -110,7 +112,7 @@ public static class TinInputCleaner
         }
     }
 
-    public static CleanupResult Clean(PointCloudProcessor.MergedData input, double tolerance)
+    public static CleanupResult Clean(PointCloudProcessor.MergedData input, double tolerance, bool collapseCollinearVertices = true)
     {
         double xyTol = Math.Max(tolerance, 1e-9);
         double zTol = Math.Max(tolerance, 1e-6);
@@ -153,6 +155,7 @@ public static class TinInputCleaner
             segments,
             xyTol,
             zTol,
+            collapseCollinearVertices,
             ref collinearVerticesCollapsed,
             ref tinySpikesCollapsed);
 
@@ -246,6 +249,7 @@ public static class TinInputCleaner
         List<SegmentData> segments,
         double xyTol,
         double zTol,
+        bool collapseCollinear,
         ref int collinearVerticesCollapsed,
         ref int tinySpikesCollapsed)
     {
@@ -288,7 +292,7 @@ public static class TinInputCleaner
                 continue;
 
             bool spike = ShouldCollapseSpike(vertices, a, vertexIndex, b, xyTol, zTol);
-            if (!spike && !ShouldCollapseCollinear(vertices, a, vertexIndex, b, xyTol, zTol))
+            if (!spike && (!collapseCollinear || !ShouldCollapseCollinear(vertices, a, vertexIndex, b, xyTol, zTol)))
                 continue;
 
             foreach (int s in incident[vertexIndex])

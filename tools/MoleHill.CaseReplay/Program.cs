@@ -3,29 +3,38 @@ using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Runtime.Loader;
 using System.Text.Json;
-using Rhino.FileIO;
-using Rhino.Geometry;
 
 namespace MoleHill.CaseReplay;
 
+/// <summary>
+/// Replays a MoleHill case bundle (the "Copy Case" zip) outside an interactive Rhino: Rhino runs in-process
+/// and headless (Rhino.Inside), the bundle's sources go into a headless document on their original layers,
+/// and the terrain is built through the plugin's own snapshot builder and build service, as the panel would.
+/// </summary>
 internal static class Program
 {
-    private const string DefaultPluginDirectory = @".artifacts\build-verify\MoleHill.Rhino";
+    private const string DefaultPluginDirectory = @"src\MoleHill.Rhino\bin\Release\net7.0";
     private const string RhinoSystemDirectory = @"C:\Program Files\Rhino 8\System";
     private const string RhinoNetCoreDirectory = @"C:\Program Files\Rhino 8\System\netcore";
+
+    private sealed record Options(string CasePath, string PluginDirectory, string? Units, bool Stages);
 
     [STAThread]
     private static int Main(string[] args)
     {
-        if (args.Length == 0)
+        Options? options = ParseArguments(args);
+        if (options == null)
         {
-            Console.Error.WriteLine("Usage: dotnet run --project tools/MoleHill.CaseReplay/MoleHill.CaseReplay.csproj -- <case-zip-or-dir> [plugin-output-dir]");
+            Console.Error.WriteLine(
+                "Usage: MoleHill.CaseReplay <case-zip-or-dir> [--plugin <dir>] [--units Meters|Millimeters|...] [--stages]\n" +
+                "  --units   the source model's unit system; bundles exported before 2026-10-06 do not record it\n" +
+                "            and default to Meters\n" +
+                "  --stages  also build after each modifier and report the mesh's border loops and non-manifold edges");
             return 1;
         }
 
-        string casePath = Path.GetFullPath(args[0]);
-        string pluginDirectory = Path.GetFullPath(args.Length > 1 ? args[1] : DefaultPluginDirectory);
-        string pluginAssemblyPath = Path.Combine(pluginDirectory, "MoleHill.Rhino.rhp");
+        string casePath = Path.GetFullPath(options.CasePath);
+        string pluginAssemblyPath = Path.Combine(Path.GetFullPath(options.PluginDirectory), "MoleHill.Rhino.rhp");
 
         string caseDirectory;
         bool deleteExtractedDirectory = false;
@@ -47,30 +56,25 @@ internal static class Program
         try
         {
             PrintCaseInventory(caseDirectory);
-
             if (!File.Exists(pluginAssemblyPath))
             {
                 Console.Error.WriteLine($"Could not find plugin assembly at {pluginAssemblyPath}");
                 return 1;
             }
 
+            // Rhino.Inside finds the installed Rhino and loads RhinoCommon and the native core from it.
+            RhinoInside.Resolver.Initialize();
             PrependToPath(RhinoSystemDirectory);
-            PrependToPath(RhinoNetCoreDirectory);
-            RegisterAssemblyResolver(pluginDirectory);
-
+            RegisterAssemblyResolver(Path.GetDirectoryName(pluginAssemblyPath)!);
             try
             {
-                Rhino.Runtime.HostUtils.InitializeRhinoCommon();
-                var pluginAssembly = AssemblyLoadContext.Default.LoadFromAssemblyPath(pluginAssemblyPath);
-                BuildCase(pluginAssembly, caseDirectory);
-                return 0;
+                return RunInsideRhino(pluginAssemblyPath, caseDirectory, options);
             }
             catch (Exception ex)
             {
-                Console.Error.WriteLine("Replay failed after bundle inventory was read.");
-                Console.Error.WriteLine($"{ex.GetType().FullName}: {ex.Message}");
-                if (ex.InnerException != null)
-                    Console.Error.WriteLine($"Inner: {ex.InnerException.GetType().FullName}: {ex.InnerException.Message}");
+                Exception inner = ex is TargetInvocationException { InnerException: { } cause } ? cause : ex;
+                Console.Error.WriteLine("Replay failed after the bundle inventory was read.");
+                Console.Error.WriteLine(inner.ToString());
                 return 2;
             }
         }
@@ -79,6 +83,46 @@ internal static class Program
             if (deleteExtractedDirectory && Directory.Exists(caseDirectory))
                 Directory.Delete(caseDirectory, recursive: true);
         }
+    }
+
+    private static Options? ParseArguments(string[] args)
+    {
+        string? casePath = null, plugin = null, units = null;
+        bool stages = false;
+        for (int i = 0; i < args.Length; i++)
+        {
+            switch (args[i])
+            {
+                case "--plugin" when i + 1 < args.Length:
+                    plugin = args[++i];
+                    break;
+                case "--units" when i + 1 < args.Length:
+                    units = args[++i];
+                    break;
+                case "--stages":
+                    stages = true;
+                    break;
+                default:
+                    if (args[i].StartsWith("--", StringComparison.Ordinal) || casePath != null)
+                        return null;
+                    casePath = args[i];
+                    break;
+            }
+        }
+
+        return casePath == null ? null : new Options(casePath, plugin ?? DefaultPluginDirectory, units, stages);
+    }
+
+    // Kept out of Main so RhinoCommon is only loaded after the resolver and PATH are in place.
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static int RunInsideRhino(string pluginAssemblyPath, string caseDirectory, Options options)
+    {
+        using var core = new Rhino.Runtime.InProcess.RhinoCore(
+            new[] { "/netcore", "/nosplash" },
+            Rhino.Runtime.InProcess.WindowStyle.NoWindow);
+        Assembly plugin = AssemblyLoadContext.Default.LoadFromAssemblyPath(pluginAssemblyPath);
+        CaseReplayer.Run(plugin, caseDirectory, options.Units, options.Stages);
+        return 0;
     }
 
     private static void PrintCaseInventory(string caseDirectory)
@@ -98,6 +142,7 @@ internal static class Program
         Console.WriteLine($"Exported UTC: {ReadString(root, "exportedUtc") ?? "(unknown)"}");
         Console.WriteLine($"Plugin version: {ReadString(root, "pluginVersion") ?? "(unknown)"}");
         Console.WriteLine($"Rhino document: {ReadString(root, "rhinoDocumentName") ?? "(unknown)"}");
+        Console.WriteLine($"Model units: {ReadString(root, "modelUnitSystem") ?? "(not recorded)"}");
         if (root.TryGetProperty("modelAbsoluteTolerance", out JsonElement toleranceElement) &&
             toleranceElement.TryGetDouble(out double tolerance))
         {
@@ -125,32 +170,12 @@ internal static class Program
             CountObjMesh(objPath, out int vertexCount, out int faceCount);
             Console.WriteLine($"{Path.GetFileName(objPath)}: {vertexCount:N0} verts / {faceCount:N0} faces");
         }
-
-        if (root.TryGetProperty("sourceSets", out JsonElement sourceSets) &&
-            sourceSets.ValueKind == JsonValueKind.Array)
-        {
-            int sourceSetCount = 0;
-            int resolvedObjectCount = 0;
-            foreach (JsonElement sourceSet in sourceSets.EnumerateArray())
-            {
-                sourceSetCount++;
-                if (sourceSet.TryGetProperty("resolvedObjectCount", out JsonElement resolvedElement) &&
-                    resolvedElement.TryGetInt32(out int resolved))
-                {
-                    resolvedObjectCount += resolved;
-                }
-            }
-
-            Console.WriteLine($"Source sets: {sourceSetCount:N0}; resolved objects: {resolvedObjectCount:N0}");
-        }
     }
 
-    private static string? ReadString(JsonElement root, string propertyName)
-    {
-        return root.TryGetProperty(propertyName, out JsonElement value) && value.ValueKind == JsonValueKind.String
+    private static string? ReadString(JsonElement root, string propertyName) =>
+        root.TryGetProperty(propertyName, out JsonElement value) && value.ValueKind == JsonValueKind.String
             ? value.GetString()
             : null;
-    }
 
     private static void WriteManifestFileStatus(string caseDirectory, JsonElement root, string propertyName, string label)
     {
@@ -162,14 +187,9 @@ internal static class Program
     private static void WriteFileStatus(string caseDirectory, string fileName, string label)
     {
         string path = Path.Combine(caseDirectory, fileName);
-        if (!File.Exists(path))
-        {
-            Console.WriteLine($"{label}: {fileName} (missing)");
-            return;
-        }
-
-        var info = new FileInfo(path);
-        Console.WriteLine($"{label}: {fileName} ({info.Length:N0} bytes)");
+        Console.WriteLine(File.Exists(path)
+            ? $"{label}: {fileName} ({new FileInfo(path).Length:N0} bytes)"
+            : $"{label}: {fileName} (missing)");
     }
 
     private static void CountObjMesh(string objPath, out int vertexCount, out int faceCount)
@@ -183,203 +203,6 @@ internal static class Program
             else if (line.StartsWith("f ", StringComparison.Ordinal))
                 faceCount++;
         }
-    }
-
-    private static void BuildCase(Assembly pluginAssembly, string caseDirectory)
-    {
-        string terrainJsonPath = Path.Combine(caseDirectory, "terrain.json");
-        string manifestJsonPath = Path.Combine(caseDirectory, "manifest.json");
-        string sourcesPath = Path.Combine(caseDirectory, "sources.3dm");
-
-        if (!File.Exists(terrainJsonPath))
-            throw new FileNotFoundException("Case bundle is missing terrain.json", terrainJsonPath);
-        if (!File.Exists(manifestJsonPath))
-            throw new FileNotFoundException("Case bundle is missing manifest.json", manifestJsonPath);
-        if (!File.Exists(sourcesPath))
-            throw new FileNotFoundException("Case bundle is missing sources.3dm", sourcesPath);
-
-        using JsonDocument manifest = JsonDocument.Parse(File.ReadAllText(manifestJsonPath));
-        double modelAbsoluteTolerance = manifest.RootElement.GetProperty("modelAbsoluteTolerance").GetDouble();
-        Guid terrainId = manifest.RootElement.TryGetProperty("terrainId", out JsonElement terrainIdElement)
-            ? terrainIdElement.GetGuid()
-            : Guid.Empty;
-
-        Type terrainSerializerType = GetRequiredType(pluginAssembly, "MoleHill.Rhino.Services.TerrainSerializer");
-        MethodInfo deserializeMethod = terrainSerializerType.GetMethod("Deserialize", BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic)
-            ?? throw new MissingMethodException(terrainSerializerType.FullName, "Deserialize");
-        object terrains = deserializeMethod.Invoke(null, new object?[] { File.ReadAllText(terrainJsonPath) })
-            ?? throw new InvalidOperationException("TerrainSerializer.Deserialize returned null.");
-
-        object terrain = GetTerrainById(terrains, terrainId)
-            ?? throw new InvalidOperationException($"Could not find terrain {terrainId} in terrain.json.");
-
-        Type snapshotType = GetRequiredType(pluginAssembly, "MoleHill.Rhino.Services.TerrainBuildSnapshot");
-        object snapshot = Activator.CreateInstance(snapshotType, nonPublic: true)
-            ?? throw new InvalidOperationException("Could not create TerrainBuildSnapshot.");
-        snapshotType.GetProperty("Terrain")!.SetValue(snapshot, terrain);
-        snapshotType.GetProperty("ModelAbsoluteTolerance")!.SetValue(snapshot, modelAbsoluteTolerance);
-
-        var resolvedSourceObjects = LoadResolvedSourceObjects(pluginAssembly, sourcesPath);
-        PopulateSnapshotSourceSets(pluginAssembly, snapshot, terrain, resolvedSourceObjects);
-
-        Type runtimeCacheType = GetRequiredType(pluginAssembly, "MoleHill.Rhino.Services.TerrainRuntimeCache");
-        object runtimeCache = Activator.CreateInstance(runtimeCacheType, nonPublic: true)
-            ?? throw new InvalidOperationException("Could not create TerrainRuntimeCache.");
-
-        Type buildServiceType = GetRequiredType(pluginAssembly, "MoleHill.Rhino.Services.TerrainBuildService");
-        object buildService = Activator.CreateInstance(buildServiceType, nonPublic: true)
-            ?? throw new InvalidOperationException("Could not create TerrainBuildService.");
-
-        Type buildModeType = GetRequiredType(pluginAssembly, "MoleHill.Rhino.Services.TerrainBuildMode");
-        object finalMode = Enum.Parse(buildModeType, "Final");
-
-        MethodInfo buildMethod = buildServiceType.GetMethod(
-            "Build",
-            BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
-            binder: null,
-            types: new[] { snapshotType, runtimeCacheType, buildModeType, typeof(Func<bool>) },
-            modifiers: null)
-            ?? throw new MissingMethodException(buildServiceType.FullName, "Build(snapshot, runtimeCache, mode, shouldCancel)");
-
-        object buildResult = buildMethod.Invoke(buildService, new object?[] { snapshot, runtimeCache, finalMode, null })
-            ?? throw new InvalidOperationException("TerrainBuildService.Build returned null.");
-
-        Console.WriteLine($"Case: {caseDirectory}");
-        Console.WriteLine($"Terrain: {GetPropertyValue<string>(terrain, "Name")}");
-
-        IEnumerable<object> diagnostics = EnumerateObjects(GetPropertyValue<object>(buildResult, "Diagnostics"));
-        foreach (object diagnostic in diagnostics)
-            Console.WriteLine(diagnostic);
-
-        object? primaryMesh = GetPropertyValue<object?>(buildResult, "PrimaryMesh");
-        if (primaryMesh is Mesh mesh)
-            Console.WriteLine($"Replay primary mesh: {mesh.Vertices.Count} verts / {mesh.Faces.Count} faces");
-    }
-
-    private static object? GetTerrainById(object terrains, Guid terrainId)
-    {
-        foreach (object terrain in EnumerateObjects(terrains))
-        {
-            if (terrainId == Guid.Empty || GetPropertyValue<Guid>(terrain, "TerrainId") == terrainId)
-                return terrain;
-        }
-
-        return null;
-    }
-
-    private static List<object> LoadResolvedSourceObjects(Assembly pluginAssembly, string sourcesPath)
-    {
-        var file = File3dm.Read(sourcesPath)
-            ?? throw new InvalidOperationException($"Could not read source model {sourcesPath}");
-
-        Type resolvedSourceObjectType = GetRequiredType(pluginAssembly, "MoleHill.Rhino.Services.ResolvedSourceObject");
-        var sourceObjects = new List<object>(file.Objects.Count);
-        foreach (File3dmObject fileObject in file.Objects)
-        {
-            GeometryBase? geometry = fileObject.Geometry?.Duplicate();
-            if (geometry == null)
-                continue;
-
-            var resolvedSourceObject = Activator.CreateInstance(resolvedSourceObjectType, nonPublic: true)
-                ?? throw new InvalidOperationException("Could not create ResolvedSourceObject.");
-
-            string? sourceObjectIdText = fileObject.Attributes.GetUserString("MoleHill.SourceObjectId");
-            Guid sourceObjectId = Guid.TryParse(sourceObjectIdText, out Guid parsedSourceObjectId)
-                ? parsedSourceObjectId
-                : Guid.Empty;
-            string? sourceLayerPath = fileObject.Attributes.GetUserString("MoleHill.SourceLayerPath");
-            uint geometryDataCrc = geometry.DataCRC(0u);
-
-            resolvedSourceObjectType.GetProperty("ObjectId")!.SetValue(resolvedSourceObject, sourceObjectId);
-            resolvedSourceObjectType.GetProperty("LayerPath")!.SetValue(resolvedSourceObject, sourceLayerPath);
-            resolvedSourceObjectType.GetProperty("Geometry")!.SetValue(resolvedSourceObject, geometry);
-            resolvedSourceObjectType.GetProperty("LocalBoundingBox")!.SetValue(resolvedSourceObject, geometry.GetBoundingBox(true));
-            resolvedSourceObjectType.GetProperty("WorldBoundingBox")!.SetValue(resolvedSourceObject, geometry.GetBoundingBox(true));
-            resolvedSourceObjectType.GetProperty("SourceTransform")!.SetValue(resolvedSourceObject, Transform.Identity);
-            resolvedSourceObjectType.GetProperty("HasSourceTransform")!.SetValue(resolvedSourceObject, false);
-            resolvedSourceObjectType.GetProperty("GeometryDataCrc")!.SetValue(resolvedSourceObject, geometryDataCrc);
-
-            sourceObjects.Add(resolvedSourceObject);
-        }
-
-        return sourceObjects;
-    }
-
-    private static void PopulateSnapshotSourceSets(Assembly pluginAssembly, object snapshot, object terrain, IReadOnlyList<object> resolvedSourceObjects)
-    {
-        object sourceObjectsDictionary = GetPropertyValue<object>(snapshot, "SourceObjects");
-        object sourceFingerprintsDictionary = GetPropertyValue<object>(snapshot, "SourceFingerprints");
-        MethodInfo addSourceObjectsMethod = sourceObjectsDictionary.GetType().GetMethod("Add")
-            ?? throw new MissingMethodException(sourceObjectsDictionary.GetType().FullName, "Add");
-        MethodInfo addSourceFingerprintsMethod = sourceFingerprintsDictionary.GetType().GetMethod("Add")
-            ?? throw new MissingMethodException(sourceFingerprintsDictionary.GetType().FullName, "Add");
-
-        Type resolvedSourceObjectType = GetRequiredType(pluginAssembly, "MoleHill.Rhino.Services.ResolvedSourceObject");
-        Type resolvedSourceObjectListType = typeof(List<>).MakeGenericType(resolvedSourceObjectType);
-
-        MethodInfo enumerateSourceSetsMethod = terrain.GetType().GetMethod("EnumerateSourceSets")
-            ?? throw new MissingMethodException(terrain.GetType().FullName, "EnumerateSourceSets");
-        var seenSourceSets = new HashSet<object>(ReferenceEqualityComparer.Instance);
-
-        foreach (object sourceSet in EnumerateObjects(enumerateSourceSetsMethod.Invoke(terrain, null)!))
-        {
-            if (!seenSourceSets.Add(sourceSet))
-                continue;
-
-            HashSet<Guid> objectIds = EnumerateObjects(GetPropertyValue<object>(sourceSet, "ObjectIds"))
-                .Select(static item => (Guid)item)
-                .Where(static id => id != Guid.Empty)
-                .ToHashSet();
-            HashSet<string> layerPaths = EnumerateObjects(GetPropertyValue<object>(sourceSet, "LayerPaths"))
-                .Select(static item => (string)item)
-                .Where(static path => !string.IsNullOrWhiteSpace(path))
-                .ToHashSet(StringComparer.OrdinalIgnoreCase);
-
-            object resolvedObjectsForSet = Activator.CreateInstance(resolvedSourceObjectListType)
-                ?? throw new InvalidOperationException($"Could not create {resolvedSourceObjectListType.FullName}.");
-            MethodInfo addResolvedObjectMethod = resolvedSourceObjectListType.GetMethod("Add")
-                ?? throw new MissingMethodException(resolvedSourceObjectListType.FullName, "Add");
-
-            foreach (object resolvedSourceObject in resolvedSourceObjects)
-            {
-                Guid objectId = GetPropertyValue<Guid>(resolvedSourceObject, "ObjectId");
-                string? layerPath = GetPropertyValue<string?>(resolvedSourceObject, "LayerPath");
-                bool matchesObject = objectIds.Count > 0 && objectIds.Contains(objectId);
-                bool matchesLayer = layerPaths.Count > 0 && layerPath != null && layerPaths.Contains(layerPath);
-                if (!matchesObject && !matchesLayer)
-                    continue;
-
-                addResolvedObjectMethod.Invoke(resolvedObjectsForSet, new[] { resolvedSourceObject });
-            }
-
-            addSourceObjectsMethod.Invoke(sourceObjectsDictionary, new[] { sourceSet, resolvedObjectsForSet });
-            addSourceFingerprintsMethod.Invoke(sourceFingerprintsDictionary, new object[] { sourceSet, 0UL });
-        }
-    }
-
-    private static IEnumerable<object> EnumerateObjects(object enumerable)
-    {
-        foreach (object? item in (System.Collections.IEnumerable)enumerable)
-        {
-            if (item != null)
-                yield return item;
-        }
-    }
-
-    private static T GetPropertyValue<T>(object instance, string propertyName)
-    {
-        PropertyInfo property = instance.GetType().GetProperty(propertyName, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
-            ?? throw new MissingMemberException(instance.GetType().FullName, propertyName);
-        object? value = property.GetValue(instance);
-        return value is T typedValue
-            ? typedValue
-            : throw new InvalidOperationException($"Property {instance.GetType().FullName}.{propertyName} did not contain a {typeof(T).FullName}.");
-    }
-
-    private static Type GetRequiredType(Assembly assembly, string fullName)
-    {
-        return assembly.GetType(fullName, throwOnError: true, ignoreCase: false)
-            ?? throw new InvalidOperationException($"Could not load {fullName}.");
     }
 
     private static string ExtractCaseArchive(string zipPath)
@@ -397,24 +220,17 @@ internal static class Program
 
     private static void RegisterAssemblyResolver(string pluginDirectory)
     {
-        var searchDirectories = new[]
-        {
-            pluginDirectory,
-            RhinoNetCoreDirectory,
-            RhinoSystemDirectory
-        };
-
+        var searchDirectories = new[] { pluginDirectory, RhinoNetCoreDirectory, RhinoSystemDirectory };
         AssemblyLoadContext.Default.Resolving += (_, assemblyName) =>
         {
             foreach (string searchDirectory in searchDirectories)
             {
-                string dllPath = Path.Combine(searchDirectory, assemblyName.Name + ".dll");
-                if (File.Exists(dllPath))
-                    return AssemblyLoadContext.Default.LoadFromAssemblyPath(dllPath);
-
-                string rhpPath = Path.Combine(searchDirectory, assemblyName.Name + ".rhp");
-                if (File.Exists(rhpPath))
-                    return AssemblyLoadContext.Default.LoadFromAssemblyPath(rhpPath);
+                foreach (string extension in new[] { ".dll", ".rhp" })
+                {
+                    string path = Path.Combine(searchDirectory, assemblyName.Name + extension);
+                    if (File.Exists(path))
+                        return AssemblyLoadContext.Default.LoadFromAssemblyPath(path);
+                }
             }
 
             return null;
@@ -431,14 +247,5 @@ internal static class Program
             return;
 
         Environment.SetEnvironmentVariable("PATH", directory + Path.PathSeparator + current);
-    }
-
-    private sealed class ReferenceEqualityComparer : IEqualityComparer<object>
-    {
-        public static ReferenceEqualityComparer Instance { get; } = new();
-
-        public new bool Equals(object? x, object? y) => ReferenceEquals(x, y);
-
-        public int GetHashCode(object obj) => RuntimeHelpers.GetHashCode(obj);
     }
 }

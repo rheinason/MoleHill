@@ -261,10 +261,11 @@ internal sealed partial class TerrainBuildService
         if (merged.DuplicatesRemoved > 0)
             build.Diagnostics.Add($"{merged.DuplicatesRemoved} duplicate points merged during triangulation.");
 
+        (double[] tinXy, double[] tinZ, int[] tinSegments) = RepairTinInputTopology(merged, inputTolerance, build, modifier.Label, shouldCancel);
         if (TryBuildValidatedTinMesh(
-            merged.XyCoords,
-            merged.ZValues,
-            merged.Segments,
+            tinXy,
+            tinZ,
+            tinSegments,
             boundaryPolylines,
             inputTolerance,
             modifier.CreateBoundaryPeelSettings(),
@@ -520,10 +521,11 @@ internal sealed partial class TerrainBuildService
         if (merged.DuplicatesRemoved > 0)
             build.Diagnostics.Add($"{merged.DuplicatesRemoved} duplicate points merged during add geometry.");
 
+        (double[] tinXy, double[] tinZ, int[] tinSegments) = RepairTinInputTopology(merged, inputTolerance, build, modifier.Label, shouldCancel);
         if (TryBuildValidatedTinMesh(
-            merged.XyCoords,
-            merged.ZValues,
-            merged.Segments,
+            tinXy,
+            tinZ,
+            tinSegments,
             boundaryPolylines,
             inputTolerance,
             modifier.CreateBoundaryPeelSettings(),
@@ -778,6 +780,46 @@ internal sealed partial class TerrainBuildService
         return true;
     }
 
+    private const int CleanupMaxVertexCount = 120_000;
+    private const int CleanupMaxSegmentCount = 180_000;
+
+    /// <summary>
+    /// The repairs <see cref="TinInputCleaner"/> makes without removing any data — degenerate and duplicate
+    /// segments, tiny spikes, and crossings split at one shared vertex — run before every triangulation, not
+    /// only after a failure. Left to the triangulator, a crossing becomes a Steiner point that can land a
+    /// fraction of a millimetre from an existing vertex, and every such pair is a sliver that later local
+    /// insertions (Add Geometry, walls, grading) must cut through. Collinear collapse is deliberately not
+    /// run here: breaklines are stationed to their neighbours on purpose, and the persisted constraints
+    /// record those stations, so removing them would bring back fans and constraint/mesh mismatches.
+    /// </summary>
+    private static (double[] Xy, double[] Z, int[] Segments) RepairTinInputTopology(
+        PointCloudProcessor.MergedData merged,
+        double inputTolerance,
+        TerrainBuildResult build,
+        string label,
+        Func<bool>? shouldCancel)
+    {
+        ThrowIfCancellationRequested(shouldCancel);
+        if (merged.SegmentCount == 0 || merged.VertexCount > CleanupMaxVertexCount || merged.SegmentCount > CleanupMaxSegmentCount)
+            return (merged.XyCoords, merged.ZValues, merged.Segments);
+
+        TinInputCleaner.CleanupResult repaired = TinInputCleaner.Clean(merged, inputTolerance, collapseCollinearVertices: false);
+        ThrowIfCancellationRequested(shouldCancel);
+        if (repaired.IntersectionConflictsDetected > 0)
+        {
+            build.Diagnostics.Add(
+                $"{label}: {repaired.IntersectionConflictsDetected:N0} place(s) where breaklines or contours cross or overlap at " +
+                $"different elevations; the terrain can only take one height at each. Overlapping sources — two contour sets " +
+                "of the same ground, or a breakline drawn across contours at another height — are the usual cause.");
+        }
+
+        if (!repaired.HasChanges || repaired.VertexCount < 3)
+            return (merged.XyCoords, merged.ZValues, merged.Segments);
+
+        build.Diagnostics.Add($"{label}: input repaired before triangulation: {repaired.ToDiagnosticSummary()}.");
+        return (repaired.XyCoords, repaired.ZValues, repaired.Segments);
+    }
+
     private static bool ShouldAttemptTriangulationCleanupRetry(
         int vertexCount,
         int segmentCount,
@@ -786,7 +828,7 @@ internal sealed partial class TerrainBuildService
     {
         ThrowIfCancellationRequested(shouldCancel);
 
-        if (vertexCount > 120_000 || segmentCount > 180_000)
+        if (vertexCount > CleanupMaxVertexCount || segmentCount > CleanupMaxSegmentCount)
         {
             message = $"Automatic triangulation cleanup retry skipped for large input ({vertexCount:N0} verts, {segmentCount:N0} segments) to keep rebuilds responsive.";
             return false;

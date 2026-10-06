@@ -135,8 +135,9 @@ internal static class LawsonFlipper
         long key = EdgeKey(a, b);
         if (!edgeFaces.TryGetValue(key, out var pair))
             edgeFaces[key] = (face, -1);
-        else
+        else if (pair.A >= 0)
             edgeFaces[key] = pair.B < 0 ? (pair.A, face) : (-1, -1); // non-manifold: never flipped
+        // else already non-manifold: a fourth face must not revive it as (-1, face)
     }
 
     private static void ReplaceFace(Dictionary<long, (int A, int B)> edgeFaces, int a, int b, int from, int to)

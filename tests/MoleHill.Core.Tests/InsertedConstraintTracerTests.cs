@@ -102,6 +102,31 @@ public sealed class InsertedConstraintTracerTests
     }
 
     [Fact]
+    public void TraceAll_LineRunningOffTheTerrain_TracesThePieceInsideIt()
+    {
+        // Verandi Lendi: seven of seventeen curbs ran past the terrain edge, could not trace whole, and were
+        // persisted as drawn - outside part included.
+        (double[] vertices, int[] faces) = Grid(20, 10, 2.0);
+        var line = new SurfaceRemesher.ConstraintPolyline([-6.0, 7.3, 1.0, 46.0, 13.1, 1.0], 2, false, PreserveInputElevation: true);
+        Assert.True(TerrainDetailInserter.TryInsert(
+            vertices, vertices.Length / 3, faces, faces.Length / 3,
+            Array.Empty<double>(),
+            new[] { line },
+            Array.Empty<SurfaceRemesher.ConstraintPolyline>(),
+            Array.Empty<SurfaceRemesher.ConstraintPolyline>(),
+            Tolerance, Tolerance, 70.0,
+            out TerrainDetailInserter.Result? inserted, out string? error), error);
+
+        List<SurfaceRemesher.ConstraintPolyline> traced = InsertedConstraintTracer.TraceAll(
+            new[] { line }, inserted!.Vertices, inserted.VertexCount, inserted.Faces, inserted.FaceCount, Tolerance, out int tracedCount);
+
+        Assert.Equal(1, tracedCount);
+        SurfaceRemesher.ConstraintPolyline piece = Assert.Single(traced);
+        Assert.Equal(0.0, piece.Points[0], 6);
+        Assert.Equal(40.0, piece.Points[(piece.PointCount - 1) * 3], 6);
+    }
+
+    [Fact]
     public void TraceAll_LineNotInTheMesh_KeepsTheDrawnLine()
     {
         (double[] vertices, int[] faces) = Grid(10, 10, 2.0);

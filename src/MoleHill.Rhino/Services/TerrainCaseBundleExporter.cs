@@ -44,7 +44,9 @@ internal static class TerrainCaseBundleExporter
             sourceModelFileName = "sources.3dm";
             WriteSourceModel(
                 Path.Combine(caseDirectory, sourceModelFileName),
+                doc,
                 snapshot.ModelAbsoluteTolerance,
+                snapshot.ModelUnitSystem,
                 sourceObjects);
         }
 
@@ -87,6 +89,7 @@ internal static class TerrainCaseBundleExporter
             TerrainName = terrain.Name,
             LastBuildUtc = terrain.LastBuildUtc,
             ModelAbsoluteTolerance = snapshot.ModelAbsoluteTolerance,
+            ModelUnitSystem = snapshot.ModelUnitSystem.ToString(),
             BuildLogFile = Path.GetFileName(buildLogPath),
             TerrainDefinitionFile = Path.GetFileName(terrainJsonPath),
             CoreTestFile = coreTestExport?.FileName,
@@ -161,19 +164,35 @@ internal static class TerrainCaseBundleExporter
 
     private static void WriteSourceModel(
         string path,
+        RhinoDoc doc,
         double modelAbsoluteTolerance,
+        UnitSystem modelUnitSystem,
         IReadOnlyList<ResolvedSourceObject> sourceObjects)
     {
         var file = new File3dm();
+        // A new File3dm defaults to millimetres. Left unset, a metre model's coordinates were tagged mm, and
+        // importing the bundle scaled every source by 0.001.
+        file.Settings.ModelUnitSystem = modelUnitSystem;
         file.Settings.ModelAbsoluteTolerance = modelAbsoluteTolerance;
+        var definitionIds = new Dictionary<string, Guid>(StringComparer.OrdinalIgnoreCase);
 
         file.AllLayers.Add(new Layer { Name = "Inputs" });
         int layerIndex = file.AllLayers.Count - 1;
         foreach (ResolvedSourceObject sourceObject in sourceObjects)
         {
             GeometryBase geometry = sourceObject.Geometry.Duplicate();
-            if (sourceObject.HasSourceTransform)
+            if (geometry is InstanceReferenceGeometry)
+            {
+                // A block reference is only meaningful with its definition, which a new file does not have:
+                // copy the definition in and point the reference at the copy.
+                if (!TryCopyInstanceDefinition(file, doc, sourceObject.InstanceDefinitionName, definitionIds, out Guid definitionId))
+                    continue;
+                geometry = new InstanceReferenceGeometry(definitionId, sourceObject.SourceTransform);
+            }
+            else if (sourceObject.HasSourceTransform)
+            {
                 geometry.Transform(sourceObject.SourceTransform);
+            }
 
             var attributes = new ObjectAttributes
             {
@@ -193,6 +212,48 @@ internal static class TerrainCaseBundleExporter
 
         if (!file.Write(path, 8))
             throw new InvalidOperationException("Could not write the source geometry repro model.");
+    }
+
+    private static bool TryCopyInstanceDefinition(
+        File3dm file, RhinoDoc doc, string? name, Dictionary<string, Guid> copied, out Guid id)
+    {
+        id = Guid.Empty;
+        if (string.IsNullOrWhiteSpace(name))
+            return false;
+        if (copied.TryGetValue(name, out id))
+            return true;
+
+        InstanceDefinition? definition = doc.InstanceDefinitions.Find(name);
+        if (definition == null)
+            return false;
+
+        var geometry = new List<GeometryBase>();
+        var attributes = new List<ObjectAttributes>();
+        foreach (RhinoObject member in definition.GetObjects())
+        {
+            GeometryBase? memberGeometry = member.Geometry?.Duplicate();
+            if (memberGeometry == null)
+                continue;
+            if (memberGeometry is InstanceReferenceGeometry nested)
+            {
+                // Nested blocks are copied the same way, depth first.
+                InstanceDefinition? inner = doc.InstanceDefinitions.FindId(nested.ParentIdefId);
+                if (!TryCopyInstanceDefinition(file, doc, inner?.Name, copied, out Guid innerId))
+                    continue;
+                memberGeometry = new InstanceReferenceGeometry(innerId, nested.Xform);
+            }
+
+            geometry.Add(memberGeometry);
+            attributes.Add(new ObjectAttributes());
+        }
+
+        int index = file.AllInstanceDefinitions.Add(name, definition.Description ?? string.Empty, Point3d.Origin, geometry, attributes);
+        if (index < 0)
+            return false;
+
+        id = file.AllInstanceDefinitions.First(added => string.Equals(added.Name, name, StringComparison.Ordinal)).Id;
+        copied[name] = id;
+        return true;
     }
 
     private static void AddOutputMesh(
@@ -363,6 +424,8 @@ internal static class TerrainCaseBundleExporter
         public DateTimeOffset? LastBuildUtc { get; init; }
 
         public double ModelAbsoluteTolerance { get; init; }
+
+        public string? ModelUnitSystem { get; init; }
 
         public string TerrainDefinitionFile { get; init; } = string.Empty;
 

@@ -238,7 +238,7 @@ public class RetainingWallPinchCaseTests
                 if (Math.Abs(vertices[i] - rail.Points[a] - t * dx) > 1e-5 ||
                     Math.Abs(vertices[i + 1] - rail.Points[a + 1] - t * dy) > 1e-5) continue;
                 sampled++;
-                Assert.Equal(rail.Points[a + 2] + t * (rail.Points[b + 2] - rail.Points[a + 2]), vertices[i + 2], 5);
+                Assert.Equal(rail.Points[a + 2] + t * (rail.Points[b + 2] - rail.Points[a + 2]), vertices[i + 2], 1e-6);
             }
             // The left-hand rail is outside the supplied terrain and is intentionally clipped out.
             if (rail.Points[a] >= 0) Assert.True(sampled >= 2);
@@ -341,10 +341,12 @@ public class RetainingWallPinchCaseTests
 
     // Golden fingerprints of the copied wall case, captured from the linear-scan Sample() before the
     // reference faces were indexed. Indexing is a speed change only: every candidate must be identical.
+    // Vertex sums re-captured 2026-10-06 when edge splits began resolving exactly onto their edge: counts and
+    // face sums unchanged, a few coordinates moved by micrometres.
     [Theory]
-    [InlineData(0, 3685227935813L, 585032642L, 402, 775)]
-    [InlineData(1, 4100439794582L, 597149611L, 408, 779)]
-    [InlineData(2, 3234618735548L, 502700981L, 382, 731)]
+    [InlineData(0, 3685227933116L, 585032642L, 402, 775)]
+    [InlineData(1, 4100439791552L, 597149611L, 408, 779)]
+    [InlineData(2, 3234618732050L, 502700981L, 382, 731)]
     public void TryBuildWallPatchCandidate_CopiedWallCase_OutputUnchangedByIndexedSampling(
         int rings, long expectedVertexChecksum, long expectedFaceChecksum, int expectedVertexCount, int expectedFaceCount)
     {

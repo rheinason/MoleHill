@@ -142,6 +142,9 @@ internal static class RhinoGeometryConversions
     /// </summary>
     public static Mesh BuildMesh(double[] vertices, int vertexCount, int[] faces, int faceCount)
     {
+        // Normalization culls an exactly collinear face, and a cap culled from the middle of a terrain is a
+        // slit. Split it across its long edge first: the same surface, nothing left for the cull to open.
+        faces = MeshArrayNormalizer.SplitCollinearCaps(vertices, faces, faceCount, out faceCount, out _);
         if (!MeshArrayNormalizer.TryNormalize(
                 vertices, vertexCount, faces, faceCount,
                 out double[] normalized, out int normalizedVertexCount, out int[] normalizedFaces, out int normalizedFaceCount) ||

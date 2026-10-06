@@ -3,6 +3,11 @@
 Pad and path grading. **Invariant: grading output is always a watertight 2.5D mesh - never holes or
 spikes.** Pure, unit-tested. See `docs/architecture.md` for the tier cascade overview.
 
+`WallRailStationing` synchronizes paired wall rails for solid generation. Corresponding plan bends
+anchor the mapping; stations between them use plan length and interpolate each rail's own elevation.
+It retains authored vertices with unequal sampling counts and aligns closed-ring seams at bends,
+avoiding corner folds caused by matching whole-rail 3D length fractions.
+
 `BracketedVolumeSearch` implements the B7 bounded net cut/fill search: both endpoints are measured,
 an unbracketed target returns the nearer end, and bisection records every sample with distinct
 `Converged`, `NoBracket`, `IterationCap`, `NonMonotone`, and `GradingFallback` outcomes.
@@ -222,6 +227,15 @@ staying unresolved.
 - `GradedRegionAssembler.cs` - `SplitOutside`/`SplitConform` (terrain split) + `WeldGradedRegion`
   (identity weld of fills into terrain) + `AssembledMesh`.
 - `MeshAreaTopologySplitter.cs` / `MeshAreaSplitter.cs` - conforming terrain subdivision along loops.
+  Splits resolve per edge (`MeshEdgeSplitRegistry.cs`, `LocalPointIdentities.cs`, shared with the
+  constraint inserter), caps are split before and near-twin vertices fused after
+  (`NearVertexCollapser.cs`), so the result tiles the input exactly; see `docs/architecture.md`.
+- `MeshEdgeSplitRegistry.cs` - the split vertices of each mesh edge, shared by the two faces on it; a new
+  split lies exactly on its edge.
+- `LocalPointIdentities.cs` - what each local point of a face re-triangulation stands for (corner, edge
+  split, other).
+- `NearVertexCollapser.cs` - fuses vertices a re-triangulation created into a neighbour closer than
+  tolerance, by manifold-safe edge collapse; input vertices never move.
   Segment/triangle mapping uses one fixed-buffer three-edge pass instead of per-candidate lists and
   duplicate intersection calls; opt-in diagnostics split allocation by preparation, mapping, touched-face
   triangulation, and classification.
@@ -242,7 +256,11 @@ staying unresolved.
   closed line across its seam and backtracks out of dead ends.
 - `MeshConstraintTopologyInserter.LocalTriangulation.cs` - constraint insertion by re-triangulating the
   crossed faces and their vertex ring as one CDT, keeping every existing vertex and the patch boundary; the
-  fallback when face-by-face insertion disagrees with a neighbour about a shared edge.
+  fallback when face-by-face insertion disagrees with a neighbour about a shared edge. `TryInsert` now runs
+  it itself when its own result fails the self-check (plan area, edge multiplicity, single-use edges only
+  on the input border), and declines if it also fails — callers never receive a folded mesh. Face-by-face
+  splits resolve by identity (corner → own vertex, edge split → per-edge registry, exactly on the edge),
+  not by nearest XY; see `docs/architecture.md`.
 - `MeshConstraintTopologyInserter.cs` - local constraint insertion (terrain-preserving); intersection
   results are value types in its allocation-sensitive inner loops. Face geometry is a `readonly struct`
   built on demand for candidate faces only (never an object per terrain face), constraint-segment pairs

@@ -199,12 +199,33 @@ internal static class InsertedConstraintTracer
         SpatialHashGrid2D grid = SpatialHashGrid2D.Build(bounds);
         MeshVertexAdjacency adjacency = MeshVertexAdjacency.Build(new List<int>(faces.AsSpan(0, faceCount * 3).ToArray()), faceCount, vertexCount);
 
+        MeshAreaSplitter.AreaBoundary? outline = null;
+        bool outlineBuilt = false;
         foreach (SurfaceRemesher.ConstraintPolyline constraint in constraints)
         {
             SurfaceRemesher.ConstraintPolyline? tracedLine = Trace(constraint, vertices, vertexCount, grid, adjacency, tolerance);
             if (tracedLine is { } line)
             {
                 result.Add(line);
+                traced++;
+                continue;
+            }
+
+            // A line that runs off the terrain was only inserted where it lies over it, so the whole line
+            // cannot trace. Trace the pieces inside the terrain's outline instead: persisting the drawn line,
+            // outside part included, is what leaves zero-area caps in a later constrained rebuild.
+            if (!outlineBuilt)
+            {
+                outline = BuildOuterOutline(vertices, faces, faceCount);
+                outlineBuilt = true;
+            }
+
+            List<SurfaceRemesher.ConstraintPolyline>? pieces = outline == null
+                ? null
+                : TraceInsidePieces(constraint, outline, vertices, vertexCount, grid, adjacency, tolerance);
+            if (pieces != null)
+            {
+                result.AddRange(pieces);
                 traced++;
             }
             else
@@ -214,6 +235,71 @@ internal static class InsertedConstraintTracer
         }
 
         return result;
+    }
+
+    private static List<SurfaceRemesher.ConstraintPolyline>? TraceInsidePieces(
+        SurfaceRemesher.ConstraintPolyline constraint,
+        MeshAreaSplitter.AreaBoundary outline,
+        double[] vertices,
+        int vertexCount,
+        SpatialHashGrid2D grid,
+        MeshVertexAdjacency adjacency,
+        double tolerance)
+    {
+        List<Processing.RegionInputClipper.InputPolyline> clipped = Processing.RegionInputClipper.ClipPolylines(
+            [new Processing.RegionInputClipper.InputPolyline(constraint.Points, constraint.PointCount, constraint.IsClosed)],
+            [outline],
+            tolerance);
+        if (clipped.Count == 0)
+            return null;
+
+        var pieces = new List<SurfaceRemesher.ConstraintPolyline>(clipped.Count);
+        foreach (Processing.RegionInputClipper.InputPolyline piece in clipped)
+        {
+            var candidate = new SurfaceRemesher.ConstraintPolyline(piece.Points, piece.PointCount, piece.IsClosed, constraint.PreserveInputElevation);
+            if (Trace(candidate, vertices, vertexCount, grid, adjacency, tolerance) is not { } tracedPiece)
+                return null;
+            pieces.Add(tracedPiece);
+        }
+
+        return pieces;
+    }
+
+    /// <summary>The terrain's outer border (its largest boundary loop) as a plan polygon.</summary>
+    private static MeshAreaSplitter.AreaBoundary? BuildOuterOutline(double[] vertices, int[] faces, int faceCount)
+    {
+        if (!MeshBoundaryLoopBuilder.TryBuildBoundaryLoopsIndexed(faces, faceCount, out List<int[]> loops) || loops.Count == 0)
+            return null;
+
+        int[]? largest = null;
+        double largestArea = 0.0;
+        foreach (int[] loop in loops)
+        {
+            double area = 0.0;
+            for (int i = 0; i < loop.Length; i++)
+            {
+                int a = loop[i], b = loop[(i + 1) % loop.Length];
+                area += (vertices[a * 3] * vertices[(b * 3) + 1]) - (vertices[b * 3] * vertices[(a * 3) + 1]);
+            }
+
+            if (Math.Abs(area) > largestArea)
+            {
+                largestArea = Math.Abs(area);
+                largest = loop;
+            }
+        }
+
+        if (largest == null || largest.Length < 3)
+            return null;
+
+        var xy = new double[largest.Length * 2];
+        for (int i = 0; i < largest.Length; i++)
+        {
+            xy[i * 2] = vertices[largest[i] * 3];
+            xy[(i * 2) + 1] = vertices[(largest[i] * 3) + 1];
+        }
+
+        return new MeshAreaSplitter.AreaBoundary(xy, largest.Length);
     }
 
     private static double Sq(double value) => value * value;
