@@ -32,7 +32,7 @@ public class PackedEdgeKeyComparerGuardTests
     {
         // Cell key is pre-mixed by the caller ((cx * 73856093) ^ (cy * 19349663)), so the default hash
         // is not the collapsing one.
-        ["src/MoleHill.Rhino/Services/TerrainBuildService.Tin.cs"] = new[] { "used" },
+        ["src/MoleHill.Rhino/Services/Build/TerrainBuildService.Tin.cs"] = new[] { "used" },
     };
 
     private static readonly Regex Construction = new(
