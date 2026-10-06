@@ -679,7 +679,9 @@ internal static partial class MeshConstraintTopologyInserter
     {
         errorMessage = null;
 
-        var localPoints = new LocalPointBuilder(tolerance, protectCorners: false);
+        // Corners are protected: two closer than tolerance are still two mesh vertices, and merging them
+        // dropped the triangle on the edge between them - a slit the self-check then rejected.
+        var localPoints = new LocalPointBuilder(tolerance, protectCorners: true);
         var identities = new LocalPointIdentities();
         // Edge 0 runs A-B, edge 1 B-C, edge 2 C-A.
         int a = localPoints.Add(face.A, face.Az, 0b101);
@@ -728,6 +730,18 @@ internal static partial class MeshConstraintTopologyInserter
 
         AddEdgeChainSegments(edgePointLists, segments, segmentKeys);
 
+        // A face with no triangulable area - a cap, or corners merged within tolerance - has nothing to
+        // subdivide, and Triangle.NET fails every tier on it, which used to fail the whole insertion. Emit it
+        // unchanged: if a neighbour split one of its edges, the self-check sees the single-use edge and
+        // re-triangulates the neighbourhood as one piece.
+        if (!HasTriangulableArea(localPoints, tolerance))
+        {
+            globalFaces.Add(face.I0);
+            globalFaces.Add(face.I1);
+            globalFaces.Add(face.I2);
+            return true;
+        }
+
         TriangulationOutcome outcome = TriangulationHelper.Triangulate(localPoints.Xy, localPoints.Count, segments, 0, 0, convex: true, segmentSplitting: 0);
         if (outcome.Mesh == null || MeshConstraintTools.ConstraintsWereDropped(outcome.Flags))
         {
@@ -754,12 +768,7 @@ internal static partial class MeshConstraintTopologyInserter
             }
             else if (isLocal && identities.TryGetEdge(local, out int edgeIndex))
             {
-                (int start, int end) = edgeIndex switch
-                {
-                    0 => (face.I0, face.I1),
-                    1 => (face.I1, face.I2),
-                    _ => (face.I2, face.I0)
-                };
+                (int start, int end) = face.GetEdgeVertices(edgeIndex);
                 extractedToGlobal[i] = edgeSplits.Resolve(start, end, point.X, point.Y);
             }
             else
@@ -767,6 +776,11 @@ internal static partial class MeshConstraintTopologyInserter
                 extractedToGlobal[i] = pointLookup.Resolve(point, face.InterpolateZ(point));
             }
         }
+
+        // Triangle.NET emits counter-clockwise triangles. A face running clockwise in plan (a sliver leaning
+        // past vertical beside a wall, or a terrain wound downward) keeps its own winding, or its pieces run
+        // against the untouched neighbours and every shared edge is traversed twice in one direction.
+        bool clockwise = face.IsClockwise;
 
         for (int faceIndex = 0; faceIndex < extracted.FaceCount; faceIndex++)
         {
@@ -798,8 +812,8 @@ internal static partial class MeshConstraintTopologyInserter
                 continue;
 
             globalFaces.Add(g0);
-            globalFaces.Add(g1);
-            globalFaces.Add(g2);
+            globalFaces.Add(clockwise ? g2 : g1);
+            globalFaces.Add(clockwise ? g1 : g2);
         }
 
         return true;

@@ -229,9 +229,11 @@ staying unresolved.
 - `FaceCut/` - the face-cutting kernel the area splitter and the constraint inserter share
   (`FaceCutGeometry`, `FaceData`, `LocalPointBuilder`, `GlobalPointLookup` and the small value types):
   splitting a segment network at its own crossings, clipping a segment to a face, edge-point and piece
-  bookkeeping, per-edge split chains. The two engines were once copies; what still differs is policy and
-  is named, not copied: `EdgePointMerge` (the inserter merges same-edge points only), corner protection in
-  `LocalPointBuilder`, and the splitter's 8x conform snaps, which line insertion must never use.
+  bookkeeping, per-edge split chains. The two engines were once copies and had drifted: the inserter now
+  also keeps a clockwise face's winding, never merges two corners, and emits a face with no triangulable
+  area unchanged (`MeshConstraintInserterFaceCutParityTests`). What still differs is policy, named rather
+  than copied: `EdgePointMerge` (the inserter merges same-edge points only) and the splitter's 8x conform
+  snaps, which line insertion must never use.
 - `MeshAreaTopologySplitter.cs` / `MeshAreaSplitter.cs` - conforming terrain subdivision along loops.
   Splits resolve per edge (`MeshEdgeSplitRegistry.cs`, `LocalPointIdentities.cs`, shared with the
   constraint inserter), caps are split before and near-twin vertices fused after
