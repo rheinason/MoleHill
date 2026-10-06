@@ -681,19 +681,19 @@ public sealed partial class MoleHillPanel
     {
         var options = new[]
         {
-            (GetSlopeUnitKey(SlopeAnalyzer.SlopeUnit.Percent), "Percent"),
-            (GetSlopeUnitKey(SlopeAnalyzer.SlopeUnit.Promille), "Promille"),
-            (GetSlopeUnitKey(SlopeAnalyzer.SlopeUnit.Ratio), "Ratio"),
-            (GetSlopeUnitKey(SlopeAnalyzer.SlopeUnit.Degrees), "Degrees")
+            (AnalysisFormatting.GetSlopeUnitKey(SlopeAnalyzer.SlopeUnit.Percent), "Percent"),
+            (AnalysisFormatting.GetSlopeUnitKey(SlopeAnalyzer.SlopeUnit.Promille), "Promille"),
+            (AnalysisFormatting.GetSlopeUnitKey(SlopeAnalyzer.SlopeUnit.Ratio), "Ratio"),
+            (AnalysisFormatting.GetSlopeUnitKey(SlopeAnalyzer.SlopeUnit.Degrees), "Degrees")
         };
 
         return CreateDropDownEditor(
             "Units",
             options,
-            GetSlopeUnitKey(slope.Unit),
+            AnalysisFormatting.GetSlopeUnitKey(slope.Unit),
             value =>
             {
-                var nextUnit = ParseSlopeUnit(value);
+                var nextUnit = AnalysisFormatting.ParseSlopeUnit(value);
                 if (nextUnit == slope.Unit)
                     return;
 
@@ -713,10 +713,6 @@ public sealed partial class MoleHillPanel
             },
             "Show slope values as percent, promille, rise/run ratio, or degrees.");
     }
-
-    private static string GetSlopeUnitKey(SlopeAnalyzer.SlopeUnit unit) => AnalysisFormatting.GetSlopeUnitKey(unit);
-
-    private static SlopeAnalyzer.SlopeUnit ParseSlopeUnit(string key) => AnalysisFormatting.ParseSlopeUnit(key);
 
     private static string FormatSlopeSummaryValue(double percentValue, SlopeAnalyzer.SlopeUnit unit) =>
         AnalysisFormatting.FormatSlopeSummaryValue(percentValue, unit);

@@ -658,7 +658,7 @@ internal static class TerrainInputCommandService
         IReadOnlyList<Guid> replacedIds,
         IReadOnlyList<Guid> addedIds)
     {
-        DeleteObjects(doc, addedIds);
+        RhinoDocumentHelpers.DeleteObjects(doc, addedIds);
         var replaced = replacedIds.ToHashSet();
         foreach (TerrainInputGeometry original in originals)
         {
@@ -678,22 +678,12 @@ internal static class TerrainInputCommandService
         IReadOnlyList<Guid> replacedIds,
         IReadOnlyList<Guid> addedIds)
     {
-        DeleteObjects(doc, addedIds);
+        RhinoDocumentHelpers.DeleteObjects(doc, addedIds);
         var replaced = replacedIds.ToHashSet();
         foreach (var original in originals)
         {
             if (replaced.Contains(original.ObjectId))
                 doc.Objects.Replace(original.ObjectId, original.Curve);
-        }
-    }
-
-    private static void DeleteObjects(RhinoDoc doc, IEnumerable<Guid> objectIds)
-    {
-        foreach (Guid objectId in objectIds)
-        {
-            RhinoObject? obj = doc.Objects.FindId(objectId);
-            if (obj != null)
-                doc.Objects.Delete(obj, quiet: true, ignoreModes: true);
         }
     }
 

@@ -1,6 +1,7 @@
 // Grasshopper wrapper for a validated, Revit-neutral Toposolid preparation package.
 using Grasshopper.Kernel.Types;
 using GH_IO.Serialization;
+using MoleHill.Grasshopper.Utilities;
 using Rhino.Geometry;
 
 namespace MoleHill.Grasshopper.Types;
@@ -121,7 +122,7 @@ public sealed class ToposolidPreparationGoo : GH_Goo<ToposolidPreparationData>
                 reader.GetString("SubdivisionKey", subdivisionIndex),
                 subdivisionProfiles,
                 reader.GetString("SubdivisionFingerprint", subdivisionIndex)));
-            DisposeCurves(subdivisionProfiles);
+            GeometryDisposal.DisposeCurves(subdivisionProfiles);
         }
 
         var diagnostics = new List<string>();
@@ -143,8 +144,8 @@ public sealed class ToposolidPreparationGoo : GH_Goo<ToposolidPreparationData>
             reader.GetInt32("SourcePointCount"),
             reader.GetDouble("MaximumError"),
             diagnostics);
-        DisposeCurves(profiles);
-        DisposeCurves(breaklines);
+        GeometryDisposal.DisposeCurves(profiles);
+        GeometryDisposal.DisposeCurves(breaklines);
         return Value.IsValid;
     }
 
@@ -182,9 +183,4 @@ public sealed class ToposolidPreparationGoo : GH_Goo<ToposolidPreparationData>
         return curves;
     }
 
-    private static void DisposeCurves(IEnumerable<Curve> curves)
-    {
-        foreach (Curve curve in curves)
-            curve.Dispose();
-    }
 }

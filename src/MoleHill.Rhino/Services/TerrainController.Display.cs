@@ -649,7 +649,7 @@ internal sealed partial class TerrainController
     /// </summary>
     private bool TrySyncOwnedObjectLayer(RhinoDoc doc, Guid objectId, int newLayerIndex)
     {
-        string? newLayerPath = GetLayerPath(doc, newLayerIndex);
+        string? newLayerPath = RhinoDocumentHelpers.GetLayerPath(doc, newLayerIndex);
         if (string.IsNullOrWhiteSpace(newLayerPath))
             return false;
 

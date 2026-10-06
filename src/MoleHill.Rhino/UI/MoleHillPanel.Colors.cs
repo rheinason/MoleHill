@@ -124,8 +124,6 @@ public sealed partial class MoleHillPanel : Panel
         return $"#{color.R:X2}{color.G:X2}{color.B:X2}";
     }
 
-    private static int? ResolveLayerColorArgb(string? layerPath) => AnalysisFormatting.ResolveLayerColorArgb(layerPath);
-
     private static string DescribeTerrainColor(int argb)
     {
         var color = System.Drawing.Color.FromArgb(argb);

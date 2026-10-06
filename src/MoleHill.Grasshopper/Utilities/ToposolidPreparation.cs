@@ -190,7 +190,7 @@ internal static class ToposolidPreparation
             if (!edge.IsClosed || edge.Count < 4)
             {
                 messages.Add("Terrain contains an open or degenerate naked boundary.");
-                DisposeCurves(profiles);
+                GeometryDisposal.DisposeCurves(profiles);
                 return false;
             }
 
@@ -201,7 +201,7 @@ internal static class ToposolidPreparation
                 if (!criticalPoints.TryAdd(transformed, out string? criticalError))
                 {
                     messages.Add(criticalError!);
-                    DisposeCurves(profiles);
+                    GeometryDisposal.DisposeCurves(profiles);
                     return false;
                 }
 
@@ -213,7 +213,7 @@ internal static class ToposolidPreparation
             {
                 messages.Add($"Terrain profile is invalid: {profileError}");
                 profile.Dispose();
-                DisposeCurves(profiles);
+                GeometryDisposal.DisposeCurves(profiles);
                 return false;
             }
 
@@ -223,13 +223,13 @@ internal static class ToposolidPreparation
         if (!ValidateMutualProfileIntersections(profiles, outputTolerance, out string? outerIntersectionError))
         {
             messages.Add(outerIntersectionError!);
-            DisposeCurves(profiles);
+            GeometryDisposal.DisposeCurves(profiles);
             return false;
         }
         if (!ValidateSingleProfileDomain(profiles, outputTolerance, out string? domainError))
         {
             messages.Add(domainError!);
-            DisposeCurves(profiles);
+            GeometryDisposal.DisposeCurves(profiles);
             return false;
         }
 
@@ -286,9 +286,9 @@ internal static class ToposolidPreparation
 
             if (regionError != null)
             {
-                DisposeCurves(regionProfiles);
-                DisposeCurves(profiles);
-                DisposeCurves(transformedBreaklines);
+                GeometryDisposal.DisposeCurves(regionProfiles);
+                GeometryDisposal.DisposeCurves(profiles);
+                GeometryDisposal.DisposeCurves(transformedBreaklines);
                 messages.Add($"Subdivision '{region.Name}' is invalid: {regionError}");
                 return false;
             }
@@ -298,13 +298,13 @@ internal static class ToposolidPreparation
                 region.Key,
                 regionProfiles,
                 ComputeFingerprint(regionProfiles, Array.Empty<Point3d>(), outputTolerance, terrain.MetersPerModelUnit)));
-            DisposeCurves(regionProfiles);
+            GeometryDisposal.DisposeCurves(regionProfiles);
         }
 
         if (criticalPoints.Points.Count > options.MaximumPointCount)
         {
-            DisposeCurves(profiles);
-            DisposeCurves(transformedBreaklines);
+            GeometryDisposal.DisposeCurves(profiles);
+            GeometryDisposal.DisposeCurves(transformedBreaklines);
             messages.Add(
                 $"{criticalPoints.Points.Count:N0} boundary/breakline-critical points exceed the {options.MaximumPointCount:N0}-point budget. " +
                 "Increase the budget or simplify the source constraints.");
@@ -322,8 +322,8 @@ internal static class ToposolidPreparation
                 out ToposolidPointReducer.ReductionResult? reduction,
                 out string? samplingError))
         {
-            DisposeCurves(profiles);
-            DisposeCurves(transformedBreaklines);
+            GeometryDisposal.DisposeCurves(profiles);
+            GeometryDisposal.DisposeCurves(transformedBreaklines);
             messages.Add(samplingError ?? "Could not create the bounded elevation-point set.");
             return false;
         }
@@ -361,8 +361,8 @@ internal static class ToposolidPreparation
             sourceHeightfield.Points.Count,
             maximumError,
             messages.Concat(terrain.Diagnostics));
-        DisposeCurves(profiles);
-        DisposeCurves(transformedBreaklines);
+        GeometryDisposal.DisposeCurves(profiles);
+        GeometryDisposal.DisposeCurves(transformedBreaklines);
         return true;
     }
 
@@ -657,9 +657,4 @@ internal static class ToposolidPreparation
         return best ?? string.Join(",", tokens);
     }
 
-    private static void DisposeCurves(IEnumerable<Curve> curves)
-    {
-        foreach (Curve curve in curves)
-            curve.Dispose();
-    }
 }

@@ -119,7 +119,7 @@ internal sealed partial class TerrainController
 
         return doc.Objects
             .GetSelectedObjects(false, false)
-            .Select(obj => GetLayerPath(doc, obj.Attributes.LayerIndex))
+            .Select(obj => RhinoDocumentHelpers.GetLayerPath(doc, obj.Attributes.LayerIndex))
             .Where(path => !string.IsNullOrWhiteSpace(path))
             .Select(path => path!)
             .Distinct(StringComparer.OrdinalIgnoreCase)

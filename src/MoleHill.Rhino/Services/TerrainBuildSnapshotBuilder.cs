@@ -237,7 +237,7 @@ internal static class TerrainBuildSnapshotBuilder
         return new ResolvedSourceObject
         {
             ObjectId = obj.Id,
-            LayerPath = GetLayerPath(doc, obj.Attributes.LayerIndex),
+            LayerPath = RhinoDocumentHelpers.GetLayerPath(doc, obj.Attributes.LayerIndex),
             InstanceDefinitionName = instanceDefinitionName,
             Geometry = geometry,
             LocalBoundingBox = localBoundingBox,
@@ -307,14 +307,6 @@ internal static class TerrainBuildSnapshotBuilder
             corners[index].Transform(transform);
 
         return new BoundingBox(corners);
-    }
-
-    private static string? GetLayerPath(RhinoDoc doc, int layerIndex)
-    {
-        if (layerIndex < 0 || layerIndex >= doc.Layers.Count)
-            return null;
-
-        return doc.Layers[layerIndex].FullPath;
     }
 
     private static ulong ComputeSourceSetFingerprint(SourceReferenceSet sourceSet, IReadOnlyList<ResolvedSourceObject> objects)

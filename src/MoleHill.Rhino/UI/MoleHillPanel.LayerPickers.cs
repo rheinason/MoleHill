@@ -67,7 +67,7 @@ public sealed partial class MoleHillPanel
             }, "Remove this watched layer.");
             selectedStack.Items.Add(new StackLayoutItem(
                 CreateLayerPickerRow(
-                    GetLeafLayerName(path),
+                    AnalysisFormatting.GetLeafLayerName(path),
                     rhinoLayer != null ? ToEtoColor(rhinoLayer.Color) : Color.FromArgb(80, 80, 80),
                     highlighted: false,
                     trailingControl: removeButton),
@@ -367,6 +367,4 @@ public sealed partial class MoleHillPanel
     {
         public string Dot => "●";
     }
-
-    private static string GetLeafLayerName(string layerPath) => AnalysisFormatting.GetLeafLayerName(layerPath);
 }

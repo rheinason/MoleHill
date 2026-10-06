@@ -231,7 +231,7 @@ internal sealed class CurveProfileControl : Drawable
             return;
 
         double station = _hoverStation.Value;
-        int index = NearestSampleIndex(analysis.Samples, station);
+        int index = CurveReviewAnalyzer.NearestSampleIndex(analysis.Samples, station);
         float x = XAt(station, analysis.PlanLength);
         float y = YAt(analysis.Samples[index].Point.Z, minimumZ, maximumZ);
         g.DrawLine(UiTheme.MutedText, x, Top, x, Top + PlotHeight);
@@ -309,24 +309,6 @@ internal sealed class CurveProfileControl : Drawable
         point.X >= Left && point.X <= Left + PlotWidth && point.Y >= Top && point.Y <= Top + PlotHeight;
 
     private static Color ToEto(System.Drawing.Color color) => Color.FromArgb(color.R, color.G, color.B);
-
-    private static int NearestSampleIndex(IReadOnlyList<CurveReviewSample> samples, double station)
-    {
-        int low = 0;
-        int high = samples.Count - 1;
-        while (low < high)
-        {
-            int middle = (low + high) / 2;
-            if (samples[middle].Station < station)
-                low = middle + 1;
-            else
-                high = middle;
-        }
-
-        return low > 0 && Math.Abs(samples[low - 1].Station - station) <= Math.Abs(samples[low].Station - station)
-            ? low - 1
-            : low;
-    }
 
     private void DrawCentered(Graphics g, string text, Color color)
     {

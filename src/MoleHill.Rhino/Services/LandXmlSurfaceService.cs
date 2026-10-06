@@ -67,7 +67,7 @@ internal static class LandXmlSurfaceService
             {
                 foreach (TerrainDefinition terrain in createdTerrains)
                     TerrainController.Instance.DeleteTerrain(doc, terrain.TerrainId);
-                DeleteObjects(doc, createdObjectIds);
+                RhinoDocumentHelpers.DeleteObjects(doc, createdObjectIds);
             }
             doc.EndUndoRecord(undoRecord);
         }
@@ -150,13 +150,4 @@ internal static class LandXmlSurfaceService
         return result;
     }
 
-    private static void DeleteObjects(RhinoDoc doc, IEnumerable<Guid> objectIds)
-    {
-        foreach (Guid id in objectIds)
-        {
-            global::Rhino.DocObjects.RhinoObject? obj = doc.Objects.FindId(id);
-            if (obj != null)
-                doc.Objects.Delete(obj, quiet: true, ignoreModes: true);
-        }
-    }
 }

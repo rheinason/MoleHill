@@ -45,7 +45,7 @@ internal static class CommandScriptRunner
         RhinoObject? lockedLayerObject = objects.FirstOrDefault(obj => IsLayerOrParentLocked(doc, obj.Attributes.LayerIndex));
         if (lockedLayerObject != null)
         {
-            string layerName = GetLayerPath(doc, lockedLayerObject.Attributes.LayerIndex) ?? "(unknown layer)";
+            string layerName = RhinoDocumentHelpers.GetLayerPath(doc, lockedLayerObject.Attributes.LayerIndex) ?? "(unknown layer)";
             error = $"Cannot transform object {lockedLayerObject.Id} because layer '{layerName}' is locked. Unlock the layer and retry.";
             return false;
         }
@@ -155,13 +155,6 @@ internal static class CommandScriptRunner
         }
 
         return -1;
-    }
-
-    private static string? GetLayerPath(RhinoDoc doc, int layerIndex)
-    {
-        return layerIndex >= 0 && layerIndex < doc.Layers.Count
-            ? doc.Layers[layerIndex].FullPath
-            : null;
     }
 
     private readonly record struct TransformedObject(Guid OriginalId, Guid CurrentId, bool WasLocked);

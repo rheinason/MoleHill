@@ -1,6 +1,7 @@
 using Eto.Drawing;
 using Eto.Forms;
 using MoleHill.Rhino.Model;
+using MoleHill.Rhino.Registry;
 using MoleHill.Shared;
 using Rhino;
 using Rhino.UI;
@@ -110,7 +111,7 @@ public sealed partial class MoleHillPanel
 
                         selected.Zones.Add(new CollageZoneDefinition
                         {
-                            Name = GetLeafLayerName(layerPath),
+                            Name = AnalysisFormatting.GetLeafLayerName(layerPath),
                             Boundaries = new SourceReferenceSet
                             {
                                 LayerPaths = new List<string> { layerPath }
@@ -146,7 +147,7 @@ public sealed partial class MoleHillPanel
 
                         selected.Zones.Add(new CollageZoneDefinition
                         {
-                            Name = GetLeafLayerName(layerPath),
+                            Name = AnalysisFormatting.GetLeafLayerName(layerPath),
                             Boundaries = new SourceReferenceSet
                             {
                                 LayerPaths = new List<string> { layerPath }
@@ -399,7 +400,7 @@ public sealed partial class MoleHillPanel
             return ToEtoColor(System.Drawing.Color.FromArgb(zone.ColorArgb));
 
         string? layerPath = zone.Boundaries.LayerPaths.FirstOrDefault(path => !string.IsNullOrWhiteSpace(path));
-        int argb = ResolveLayerColorArgb(layerPath) ?? unchecked((int)0xFFB4B4B4);
+        int argb = AnalysisFormatting.ResolveLayerColorArgb(layerPath) ?? unchecked((int)0xFFB4B4B4);
         return ToEtoColor(System.Drawing.Color.FromArgb(argb));
     }
 
@@ -448,7 +449,7 @@ public sealed partial class MoleHillPanel
         {
             int initialArgb = zone.UseColorOverride
                 ? zone.ColorArgb
-                : ResolveLayerColorArgb(zone.Boundaries.LayerPaths.FirstOrDefault(path => !string.IsNullOrWhiteSpace(path))) ?? unchecked((int)0xFF808080);
+                : AnalysisFormatting.ResolveLayerColorArgb(zone.Boundaries.LayerPaths.FirstOrDefault(path => !string.IsNullOrWhiteSpace(path))) ?? unchecked((int)0xFF808080);
             var colorDialog = new ColorDialog { Color = ToEtoColor(System.Drawing.Color.FromArgb(initialArgb)) };
             if (colorDialog.ShowDialog(RhinoEtoApp.MainWindowForDocument(doc)) != DialogResult.Ok)
                 return;
@@ -522,7 +523,7 @@ public sealed partial class MoleHillPanel
         var parts = new List<string>();
         string? layerPath = zone.Boundaries.LayerPaths.FirstOrDefault(path => !string.IsNullOrWhiteSpace(path));
         if (!string.IsNullOrWhiteSpace(layerPath))
-            parts.Add(GetLeafLayerName(layerPath));
+            parts.Add(AnalysisFormatting.GetLeafLayerName(layerPath));
 
         parts.Add(zone.UseInputElevationForPriority ? "Elevation priority" : "Stack order");
         parts.Add($"{CountReferences(zone.Boundaries)} refs");

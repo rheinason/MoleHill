@@ -294,7 +294,7 @@ internal sealed class CurveReviewConduit : DisplayConduit
                 _ => EventDotColor
             };
             e.Display.DrawPoint(LiftAnnotation(analysis, item.Point), PointStyle.RoundControlPoint, Scale(EventPointSize), color);
-            int index = NearestSampleIndex(analysis.Samples, item.Station);
+            int index = CurveReviewAnalyzer.NearestSampleIndex(analysis.Samples, item.Station);
             Vector3d tangent = index < analysis.Samples.Count - 1
                 ? analysis.Samples[index + 1].Point - item.Point
                 : item.Point - analysis.Samples[Math.Max(0, index - 1)].Point;
@@ -353,24 +353,6 @@ internal sealed class CurveReviewConduit : DisplayConduit
 
         labelPoint = Point3d.Unset;
         return false;
-    }
-
-    private static int NearestSampleIndex(IReadOnlyList<CurveReviewSample> samples, double station)
-    {
-        int low = 0;
-        int high = samples.Count - 1;
-        while (low < high)
-        {
-            int middle = (low + high) / 2;
-            if (samples[middle].Station < station)
-                low = middle + 1;
-            else
-                high = middle;
-        }
-
-        return low > 0 && Math.Abs(samples[low - 1].Station - station) <= Math.Abs(samples[low].Station - station)
-            ? low - 1
-            : low;
     }
 
     private static Vector3d RunTangent(CurveReviewRun run) => run.Path.Length > 1

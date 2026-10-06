@@ -627,7 +627,7 @@ internal static class CurveReviewAnalyzer
         }
     }
 
-    private static int NearestSampleIndex(IReadOnlyList<CurveReviewSample> samples, double station)
+    internal static int NearestSampleIndex(IReadOnlyList<CurveReviewSample> samples, double station)
     {
         int low = 0;
         int high = samples.Count - 1;

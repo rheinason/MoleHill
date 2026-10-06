@@ -15,7 +15,7 @@ internal sealed partial class TerrainController
             return;
 
         CompletePendingObjectReplacement(e.TheObject.Document, e.ObjectId);
-        ScheduleRelevantTerrains(e.TheObject.Document, e.ObjectId, GetLayerPath(e.TheObject.Document, e.TheObject.Attributes.LayerIndex));
+        ScheduleRelevantTerrains(e.TheObject.Document, e.ObjectId, RhinoDocumentHelpers.GetLayerPath(e.TheObject.Document, e.TheObject.Attributes.LayerIndex));
     }
 
     private void OnDeleteRhinoObject(object? sender, RhinoObjectEventArgs e)
@@ -23,7 +23,7 @@ internal sealed partial class TerrainController
         if (_suppressDocEvents > 0 || e.TheObject == null)
             return;
 
-        ScheduleRelevantTerrains(e.TheObject.Document, e.ObjectId, GetLayerPath(e.TheObject.Document, e.TheObject.Attributes.LayerIndex));
+        ScheduleRelevantTerrains(e.TheObject.Document, e.ObjectId, RhinoDocumentHelpers.GetLayerPath(e.TheObject.Document, e.TheObject.Attributes.LayerIndex));
         ScheduleSourceReferencePrune(e.TheObject.Document);
     }
 
@@ -32,10 +32,10 @@ internal sealed partial class TerrainController
         if (_suppressDocEvents > 0 || e.OldRhinoObject == null)
             return;
 
-        string? oldLayerPath = GetLayerPath(e.Document, e.OldRhinoObject.Attributes.LayerIndex);
+        string? oldLayerPath = RhinoDocumentHelpers.GetLayerPath(e.Document, e.OldRhinoObject.Attributes.LayerIndex);
         string? newLayerPath = e.NewRhinoObject == null
             ? null
-            : GetLayerPath(e.Document, e.NewRhinoObject.Attributes.LayerIndex);
+            : RhinoDocumentHelpers.GetLayerPath(e.Document, e.NewRhinoObject.Attributes.LayerIndex);
 
         ScheduleRelevantTerrains(e.Document, e.OldRhinoObject.Id, oldLayerPath, newLayerPath);
         // Rhino has not assigned the replacement object's id yet. ReplaceRhinoObject is followed
@@ -53,7 +53,7 @@ internal sealed partial class TerrainController
             return;
 
         CompletePendingObjectReplacement(e.TheObject.Document, e.ObjectId);
-        ScheduleRelevantTerrains(e.TheObject.Document, e.ObjectId, GetLayerPath(e.TheObject.Document, e.TheObject.Attributes.LayerIndex));
+        ScheduleRelevantTerrains(e.TheObject.Document, e.ObjectId, RhinoDocumentHelpers.GetLayerPath(e.TheObject.Document, e.TheObject.Attributes.LayerIndex));
         ScheduleSourceReferencePrune(e.TheObject.Document);
     }
 
@@ -79,7 +79,7 @@ internal sealed partial class TerrainController
         AdjustPlacementTransformsForUserTransform(doc, transformedObjectIds, e.Transform);
 
         foreach (var obj in e.Objects.Where(item => item != null))
-            ScheduleRelevantTerrains(doc, obj.Id, GetLayerPath(doc, obj.Attributes.LayerIndex));
+            ScheduleRelevantTerrains(doc, obj.Id, RhinoDocumentHelpers.GetLayerPath(doc, obj.Attributes.LayerIndex));
     }
 
     private void OnSelectObjects(object? sender, RhinoObjectSelectionEventArgs e)
@@ -111,8 +111,8 @@ internal sealed partial class TerrainController
         if (TrySyncOwnedObjectLayer(e.Document, e.RhinoObject.Id, e.NewAttributes.LayerIndex))
             return;
 
-        string? oldLayerPath = GetLayerPath(e.Document, e.OldAttributes.LayerIndex);
-        string? newLayerPath = GetLayerPath(e.Document, e.NewAttributes.LayerIndex);
+        string? oldLayerPath = RhinoDocumentHelpers.GetLayerPath(e.Document, e.OldAttributes.LayerIndex);
+        string? newLayerPath = RhinoDocumentHelpers.GetLayerPath(e.Document, e.NewAttributes.LayerIndex);
         if (string.Equals(oldLayerPath, newLayerPath, StringComparison.OrdinalIgnoreCase))
             return;
 
@@ -578,14 +578,6 @@ internal sealed partial class TerrainController
             else
                 MarkUnbuiltEdits(doc, terrain.TerrainId);
         }
-    }
-
-    private static string? GetLayerPath(RhinoDoc doc, int layerIndex)
-    {
-        if (layerIndex < 0 || layerIndex >= doc.Layers.Count)
-            return null;
-
-        return doc.Layers[layerIndex].FullPath;
     }
 
     private IReadOnlyList<Guid> GetSelectedObjectIds(RhinoDoc doc, ObjectType objectFilter)
