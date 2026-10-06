@@ -46,6 +46,9 @@ unrewritten history).
 
 ## Open
 
+- **2026-10 refactoring sweep:** prioritized recommendations (forked face-cut engine, mesh value
+  type, geometry kernel, registry completion, Services layout) are in
+  [refactoring-recommendations-2026-10.md](refactoring-recommendations-2026-10.md).
 - **Catchment and ponding previews** re-run the full solvers on the UI thread with no cancellation.
 - **Grasshopper snapshot component** copies and hashes the whole mesh on every Rhino `StateChanged`.
 - **106 file-index entries** belong to files with no header comment; add one when you next touch a file.
