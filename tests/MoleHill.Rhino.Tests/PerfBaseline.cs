@@ -14,6 +14,9 @@ public sealed class PerfEnvironment
     public string CoreAssembly { get; set; } = string.Empty;
     public bool CoreOptimized { get; set; }
     public bool TestsOptimized { get; set; }
+
+    /// <summary>False on a result measured before <see cref="HostedPowerThrottling"/> existed, or where the opt-out failed.</summary>
+    public bool PowerThrottlingDisabled { get; set; }
     public string Timestamp { get; set; } = string.Empty;
 }
 

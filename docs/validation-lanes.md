@@ -74,6 +74,8 @@ process (see "Known broken" below). So this lane runs them **inside** a disposab
    `MoleHill.Core` and `MoleHill.Interop` beside it. The slot has already loaded the plug-in's **Debug**
    Core, and a plain `Assembly.LoadFrom` binds to that silently (the 25% trap below).
    `HostedPerformanceLane` records the Core it actually ran against, and refuses to measure unoptimized code.
+   It also takes the slot out of Windows power throttling first (`HostedPowerThrottling`) and refuses
+   to measure if that fails (see "Uniformly twice as slow" below).
 4. `HostedPerformanceLane.Start` runs on a background thread and returns at once. A `run_csharp` script
    runs on Rhino's UI thread, and holding it would stall the process being measured. The driver polls
    for the result file.
@@ -116,6 +118,14 @@ faster must print "Finished meshes identical to the baseline", and one that does
 that allocated two large arrays per mesh normalization added 40 ms to the unchanged Ponding analysis,
 consistently across all five samples. Its full collections were landing inside that stage. Renting the
 buffers removed it. Look at the sample spread first: a tight spread is systematic.
+
+**Uniformly twice as slow is power throttling, not a busy machine.** A spawned slot is visible but never
+the foreground window. Windows therefore throttles it as background work (EcoQoS), and on a hybrid CPU
+its threads move to the efficiency cores. On 2026-10-07 an idle i7-13700K failed on 43 metrics, every
+one 1.8–2.2× slower, including stages no change had touched. Opting the same slot out of throttling
+brought that down to 4. The lane now opts out per process before it measures, and every result records
+`PowerThrottlingDisabled`. A result or baseline where that is `false` (including any recorded before the
+field existed) may have been measured on the efficiency cores. The park-stress and wall probes opt out too.
 
 This lane measures **worker time only**. Debounce, the marshal back to the UI thread, display
 publication and redraw happen outside `TerrainBuildService` and need `mhLatencyTrace`

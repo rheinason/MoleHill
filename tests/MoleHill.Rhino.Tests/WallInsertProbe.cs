@@ -16,7 +16,7 @@ public static class WallInsertProbe
         string[] parts = request.Split('|');
         string outputPath = parts[0];
         int edits = parts.Length > 1 ? int.Parse(parts[1], System.Globalization.CultureInfo.InvariantCulture) : 8;
-        var lines = new List<string>();
+        var lines = new List<string> { $"Power throttling disabled: {HostedPowerThrottling.OptOut()}" };
         try
         {
             CheckFillMesh(lines.Add);

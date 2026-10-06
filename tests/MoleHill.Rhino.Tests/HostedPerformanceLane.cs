@@ -91,6 +91,13 @@ public static class HostedPerformanceLane
 
     public static PerfRunResult Run(Request request, Action<string> progress)
     {
+        if (!HostedPowerThrottling.OptOut())
+        {
+            throw new InvalidOperationException(
+                "Refusing to measure under Windows power throttling: the slot is not the foreground window, so its " +
+                "threads would run on efficiency cores and every metric would read about twice as slow.");
+        }
+
         PerfEnvironment environment = CaptureEnvironment(request.Commit);
         if (!environment.CoreOptimized || !environment.TestsOptimized)
         {
@@ -195,6 +202,7 @@ public static class HostedPerformanceLane
             CoreAssembly = RepositoryRelative(core.Location),
             CoreOptimized = IsOptimized(core),
             TestsOptimized = IsOptimized(tests),
+            PowerThrottlingDisabled = HostedPowerThrottling.IsOptedOut,
             Timestamp = DateTimeOffset.Now.ToString("o")
         };
     }

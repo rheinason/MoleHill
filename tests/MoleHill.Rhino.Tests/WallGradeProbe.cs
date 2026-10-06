@@ -96,6 +96,7 @@ public static class WallGradeProbe
     {
         Request request = JsonSerializer.Deserialize<Request>(File.ReadAllText(requestPath), PerfRunResult.JsonOptions)
             ?? throw new InvalidOperationException($"Could not read the request at {requestPath}.");
+        HostedPowerThrottling.OptOut();
         var thread = new Thread(() => RunToFile(request)) { IsBackground = true, Name = "MoleHill wall grade probe" };
         thread.Start();
     }
