@@ -842,6 +842,18 @@ public static partial class PadGrader
                 graded[i * 3 + 2] = inputZ[sourceId];
         }
 
+        // The fill was triangulated in plan before it had heights; now pick the flatter diagonal wherever
+        // one is free (see FillSlopeFlipper). Segments - the boundary and the footprint - never move, so the
+        // interior/hull split below is unaffected.
+        HashSet<long> constrainedInputEdges = IndexedMeshTools.CreateEdgeKeySet(segments.Count);
+        foreach ((int a, int b) in segments)
+            constrainedInputEdges.Add(IndexedMeshTools.GetEdgeKey(a, b));
+        FillSlopeFlipper.Run(graded, extracted.Faces, extracted.FaceCount, (u, v) =>
+        {
+            int su = extracted.SourceIds[u], sv = extracted.SourceIds[v];
+            return su >= 0 && sv >= 0 && constrainedInputEdges.Contains(IndexedMeshTools.GetEdgeKey(su, sv));
+        });
+
         // Keep only the fill interior bounded by the conformed loop. Triangle.NET fills the convex
         // hull, so on a concave or merged boundary it spans faces past the loop (into concavities and
         // the hull skirt); those overlap the kept terrain and weld non-manifold. A centroid-in-polygon

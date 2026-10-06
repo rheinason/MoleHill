@@ -234,6 +234,8 @@ staying unresolved.
   split lies exactly on its edge.
 - `LocalPointIdentities.cs` - what each local point of a face re-triangulation stands for (corner, edge
   split, other).
+- `FillSlopeFlipper.cs` - flips free interior edges of a graded hole fill to the flatter diagonal once
+  heights are assigned (Grade Path and Grade Pad explicit fills).
 - `NearVertexCollapser.cs` - fuses vertices a re-triangulation created into a neighbour closer than
   tolerance, by manifold-safe edge collapse; input vertices never move.
   Segment/triangle mapping uses one fixed-buffer three-edge pass instead of per-candidate lists and

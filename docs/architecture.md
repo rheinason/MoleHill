@@ -908,6 +908,14 @@ starts drawing its annotations — the correct reading of a flag that only ever 
   Hide silently did nothing. The split already conforms every face to one side, so classification is exact
   (tolerance 0), as the splitter's own is. The topology gate stays. Zones now report a non-manifold split as a
   build diagnostic instead of publishing it silently.
+- **Hole fills pick the flatter diagonal once they have heights.** Grade Path and Grade Pad triangulate a
+  hole fill in plan (constrained Delaunay over boundary, road or footprint edges and batter seeds) before
+  any height exists. At a concave turn of the daylight loop that closes the turn with an ear of three
+  boundary points pinned to the terrain, and across a terrain crease such a thin ear read as a 71.6 degree
+  spike with no edge steeper than 34 (the tight-bend copied case). `FillSlopeFlipper` then flips any free
+  interior edge whose strictly convex quad gets at least a degree flatter; constrained edges never move,
+  so welding is unaffected. The spike had been hidden by the old splitter: its fold forced the CDT
+  re-conform, which re-triangulated the terrain the batter daylights onto.
 - **Mesh hand-off never culls a cap into a slit.** Normalization culls an exactly collinear face; a cap culled
   from the middle of a terrain leaves its short edges and the long edge across from it each used once.
   `RhinoGeometryConversions.BuildMesh` splits exact caps across their long edge first (found as a 0.3 m slit

@@ -948,6 +948,17 @@ public static partial class PathGrader
                 graded[i * 3 + 2] = pinZ;
         }
 
+        // The fill was triangulated in plan before it had heights; now that it has them, pick the flatter
+        // diagonal wherever one is free. Boundary, road edges and end caps stay exactly where they are.
+        HashSet<long> constrainedInputEdges = IndexedMeshTools.CreateEdgeKeySet(segments.Count);
+        foreach ((int a, int b) in segments)
+            constrainedInputEdges.Add(IndexedMeshTools.GetEdgeKey(a, b));
+        FillSlopeFlipper.Run(graded, extracted.Faces, extracted.FaceCount, (u, v) =>
+        {
+            int su = extracted.SourceIds[u], sv = extracted.SourceIds[v];
+            return su >= 0 && sv >= 0 && constrainedInputEdges.Contains(IndexedMeshTools.GetEdgeKey(su, sv));
+        });
+
         // Identity weld map: a fill vertex sourced from a boundary input point reproduces terrain
         // vertex inputToTerrain[sourceId]; everything else is the fill's own interior (-1).
         var boundaryTerrainIndex = new int[vc];
