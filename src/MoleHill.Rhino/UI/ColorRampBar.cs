@@ -381,26 +381,4 @@ internal sealed class ColorRampBar : Drawable
 
         return best;
     }
-
-    /// <summary>Round tick values inside a range: five or so, on a 1/2/5/10 step. Shared with the card's
-    /// tick row, which is why it lives here rather than in the panel.</summary>
-    public static IReadOnlyList<double> BuildTicks(AnalysisRange range)
-    {
-        AnalysisRange safe = range.EnsureNonDegenerate();
-        double step = AnalysisRange.NiceStep(safe.Span / 4.0);
-        var ticks = new List<double>();
-        double first = Math.Ceiling(safe.Low / step) * step;
-        for (double value = first; value <= safe.High + (step * 1e-6); value += step)
-        {
-            // -0 prints as "-0"; fold it onto zero.
-            ticks.Add(Math.Abs(value) < step * 1e-9 ? 0.0 : value);
-            if (ticks.Count > 12)
-                break;
-        }
-
-        if (ticks.Count == 0)
-            ticks.Add(safe.Low);
-
-        return ticks;
-    }
 }

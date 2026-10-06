@@ -271,6 +271,7 @@ internal sealed partial class TerrainController
             runtimeCache.DisplayState.ActiveAnalysisLabel = null;
             runtimeCache.DisplayState.ActiveAnalysisRange = null;
             runtimeCache.DisplayState.ActiveAnalysisDistribution = null;
+            RefreshLegends(doc, terrain, runtimeCache.DisplayState);
             terrain.LastAnalysisResults.Clear();
             return;
         }
@@ -288,6 +289,7 @@ internal sealed partial class TerrainController
             runtimeCache.DisplayState.ActiveAnalysisLabel = null;
             runtimeCache.DisplayState.ActiveAnalysisRange = null;
             runtimeCache.DisplayState.ActiveAnalysisDistribution = null;
+            RefreshLegends(doc, terrain, runtimeCache.DisplayState);
             return;
         }
 
@@ -298,6 +300,44 @@ internal sealed partial class TerrainController
             referenceTerrainId => GetFinalTerrainMesh(doc, referenceTerrainId));
         terrain.LastAnalysisResults = TerrainRuntimeCacheCloner.CloneAnalyses(runtimeCache.DisplayState.AnalysisResults);
         StampActiveAnalysisRange(terrain, runtimeCache.DisplayState);
+        RefreshLegends(doc, terrain, runtimeCache.DisplayState);
+    }
+
+    /// <summary>
+    /// Redraws every Legend annotation from the colouring just applied. Legends are not built with the
+    /// terrain: a ramp edit recolours without a rebuild, and a key drawn by the build would go stale on
+    /// the first stop dragged. Regenerating here — after the range is stamped, from the same range and
+    /// palette — keeps the key describing the colours on screen, and bake takes it from the same display
+    /// state. With no colouring (a preview publication, an interim mesh, colours hidden) the legends are
+    /// removed rather than left describing a colouring that is no longer shown.
+    /// </summary>
+    private static void RefreshLegends(RhinoDoc doc, TerrainDefinition terrain, TerrainDisplayState displayState)
+    {
+        displayState.AuxiliaryObjects.RemoveAll(item => item.Role == LayerRole.Legend);
+
+        List<LegendAnnotationDefinition> legends = terrain.Annotations
+            .OfType<LegendAnnotationDefinition>()
+            .Where(item => item.IsEnabled)
+            .ToList();
+        if (legends.Count == 0 || displayState.TerrainMesh == null)
+            return;
+
+        LayerRoleTable layerRoles = LayerRoleService.GetTable(doc, terrain);
+        AnnotationStyleSnapshot? style = null;
+        BoundingBox bounds = displayState.TerrainMesh.GetBoundingBox(true);
+        foreach (LegendAnnotationDefinition legend in legends)
+        {
+            TerrainLegendContent? content = TerrainLegendBuilder.ResolveContent(
+                terrain, displayState, doc.ModelUnitSystem, legend, out _);
+            if (content == null)
+                continue;
+
+            // Always the style's height: a legend has no size of its own (see LegendAnnotationDefinition).
+            double textHeight = (style ??= AnnotationStyleService.Capture(
+                doc, LayerRoleService.ResolveAnnotationStyleName(doc, terrain))).TextHeight;
+            displayState.AuxiliaryObjects.AddRange(
+                TerrainLegendBuilder.Build(legend, content, bounds, textHeight, layerRoles));
+        }
     }
 
     /// <summary>

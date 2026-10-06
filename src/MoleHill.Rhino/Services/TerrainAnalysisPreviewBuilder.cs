@@ -42,7 +42,7 @@ internal static class TerrainAnalysisPreviewBuilder
             return;
         }
 
-        AnalysisDefinition? activeAnalysis = terrain.Analyses.FirstOrDefault(analysis => analysis.IsEnabled && SupportsTerrainPreview(analysis));
+        AnalysisDefinition? activeAnalysis = FindColoringAnalysis(terrain);
         if (activeAnalysis == null)
         {
             state.PreviewTerrainMesh = state.TerrainMesh;
@@ -376,6 +376,14 @@ internal static class TerrainAnalysisPreviewBuilder
         byte[] colors = GradientComplianceEvaluator.BuildFaceColors(evaluation, analysis.Rules);
         return BuildFaceColorMesh(vertices, faces, faceCount, colors, alpha);
     }
+
+    /// <summary>
+    /// The analysis the terrain is coloured by: the first enabled one that colours the mesh. The preview
+    /// shows one colouring at a time, and the Legend annotation keys whichever this returns, so the two
+    /// resolve it in one place.
+    /// </summary>
+    internal static AnalysisDefinition? FindColoringAnalysis(TerrainDefinition terrain) =>
+        terrain.Analyses.FirstOrDefault(analysis => analysis.IsEnabled && SupportsTerrainPreview(analysis));
 
     internal static bool SupportsTerrainPreview(AnalysisDefinition analysis)
     {

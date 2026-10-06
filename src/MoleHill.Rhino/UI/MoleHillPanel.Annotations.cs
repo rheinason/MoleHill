@@ -33,6 +33,7 @@ public sealed partial class MoleHillPanel
 
         AppendBespokeAnnotationRowsBefore(layout, terrain, annotation);
         TryBuildSchemaAnnotationBody(layout, terrain, annotation);
+        AppendAnnotationTextSizeRows(layout, terrain, annotation);
         AppendBespokeAnnotationRowsAfter(layout, terrain, annotation, summary);
         Control? diagnosticsRow = CreateRuntimeDiagnosticsRow(
             terrain,
@@ -113,6 +114,37 @@ public sealed partial class MoleHillPanel
                         "Rebuild required",
                         "Rebuild the terrain to draw the report table.",
                         minHeight: 42));
+                break;
+            }
+
+            case LegendAnnotationDefinition legend:
+            {
+                layout.AddRow(CreateInsertionOriginEditor(
+                    terrain,
+                    legend.Id,
+                    legend.HasInsertionPlane,
+                    legend.InsertionOriginX,
+                    legend.InsertionOriginY,
+                    legend.InsertionOriginZ,
+                    "Top-left corner of the drawn key. Auto places it beside the terrain, level with its foot.",
+                    "Pick the top-left corner where the key will be drawn.",
+                    "Clear the origin and let the key place itself beside the terrain.",
+                    (item, picked) =>
+                    {
+                        if (item is not LegendAnnotationDefinition key)
+                            return;
+
+                        key.InsertionOriginX = picked.X;
+                        key.InsertionOriginY = picked.Y;
+                        key.InsertionOriginZ = picked.Z;
+                        key.HasInsertionPlane = true;
+                    },
+                    item =>
+                    {
+                        if (item is LegendAnnotationDefinition key)
+                            key.HasInsertionPlane = false;
+                    },
+                    refreshOnly: true));
                 break;
             }
 
@@ -606,8 +638,19 @@ public sealed partial class MoleHillPanel
         string pickHelp,
         string autoHelp,
         Action<AnnotationDefinition, RhinoPoint3d> applyPick,
-        Action<AnnotationDefinition> applyAuto)
+        Action<AnnotationDefinition> applyAuto,
+        bool refreshOnly = false)
     {
+        // Something drawn with the preview (the legend) only needs redrawing where it is; anything the
+        // build lays out needs the build.
+        void Commit(Action<AnnotationDefinition> apply)
+        {
+            if (refreshOnly)
+                MutateAndRefreshAnnotation(terrain.TerrainId, annotationId, apply);
+            else
+                MutateAnnotation(terrain.TerrainId, annotationId, apply, scheduleRebuild: true);
+        }
+
         string text = hasOrigin
             ? $"({originX:F2}, {originY:F2}, {originZ:F2})"
             : "(auto: placed beside the terrain)";
@@ -633,13 +676,13 @@ public sealed partial class MoleHillPanel
                 return;
 
             RhinoPoint3d picked = gp.Point();
-            MutateAnnotation(terrain.TerrainId, annotationId, item => applyPick(item, picked), scheduleRebuild: true);
+            Commit(item => applyPick(item, picked));
             RefreshUi();
         }, pickHelp);
 
         var resetButton = MakeInlineButton("Auto", (_, _) =>
         {
-            MutateAnnotation(terrain.TerrainId, annotationId, applyAuto, scheduleRebuild: true);
+            Commit(applyAuto);
             RefreshUi();
         }, autoHelp);
 
@@ -902,6 +945,10 @@ public sealed partial class MoleHillPanel
             ReportTableAnnotationDefinition => summary != null
                 ? $"{summary.ReportTableCount} tables | {summary.ReportRowCount} rows"
                 : "measured quantities",
+            LegendAnnotationDefinition => TerrainAnalysisPreviewBuilder.FindColoringAnalysis(terrain) is { } coloring
+                && TerrainLegendBuilder.DescribeUnavailable(terrain) == null
+                    ? $"keys {coloring.Label}"
+                    : "nothing to key",
             _ => string.Empty
         };
     }

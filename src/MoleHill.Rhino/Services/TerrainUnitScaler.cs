@@ -229,6 +229,12 @@ internal static class TerrainUnitScaler
                 reportTable.InsertionOriginZ *= lengthScale;
                 reportTable.TextHeight *= lengthScale;
                 break;
+            case LegendAnnotationDefinition legend:
+                // Its sizes are multiples of the style's text height, so only the insertion point is a length.
+                legend.InsertionOriginX *= lengthScale;
+                legend.InsertionOriginY *= lengthScale;
+                legend.InsertionOriginZ *= lengthScale;
+                break;
         }
     }
 

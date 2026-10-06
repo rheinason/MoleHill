@@ -1,3 +1,4 @@
+using System.Globalization;
 using MoleHill.Core.Analysis;
 using MoleHill.Rhino.Model;
 using Rhino;
@@ -137,4 +138,18 @@ internal static class AnalysisFormatting
     /// </summary>
     public static string GetRoleColorText(TerrainDefinition terrain, LayerRole role) =>
         $"By Layer ({GetLeafLayerName(GetRoleLayerPath(terrain, role))})";
+
+    /// <summary>
+    /// How an analysis's values are written on its ramp. Slope carries a unit the user chose; cut/fill
+    /// wants an explicit sign so a legend reads "-2.50 / +2.50" rather than making you infer which end is
+    /// which. Shared by the card's tick row and the drawn Legend annotation, so the two print the same
+    /// numbers.
+    /// </summary>
+    public static Func<double, string> GetValueFormatter(AnalysisDefinition analysis) => analysis switch
+    {
+        SlopeAnalysisDefinition slope => value => SlopeInput.FormatWithUnit(
+            SlopeAnalyzer.ConvertUnitToRatio(value, slope.Unit), slope.Unit),
+        CutFillAnalysisDefinition => value => value.ToString("+0.00;-0.00;0.00", CultureInfo.CurrentCulture),
+        _ => value => value.ToString("F2", CultureInfo.CurrentCulture)
+    };
 }

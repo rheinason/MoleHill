@@ -84,6 +84,24 @@ internal static class AnnotationStyleService
         };
     }
 
+    /// <summary>
+    /// The document's annotation styles a terrain can use, by name: its own, not ones referenced from a
+    /// linked file or deleted. Sorted, with the MoleHill default first so it is always offered even before
+    /// the first build creates it.
+    /// </summary>
+    public static IReadOnlyList<string> ListStyleNames(RhinoDoc doc)
+    {
+        ArgumentNullException.ThrowIfNull(doc);
+        var names = doc.DimStyles
+            .Where(style => style != null && !style.IsDeleted && !style.IsReference && !string.IsNullOrWhiteSpace(style.Name))
+            .Select(style => style.Name)
+            .Where(name => !string.Equals(name, DefaultStyleName, StringComparison.OrdinalIgnoreCase))
+            .OrderBy(name => name, StringComparer.CurrentCultureIgnoreCase)
+            .ToList();
+        names.Insert(0, DefaultStyleName);
+        return names;
+    }
+
     /// <summary>The model-space height of one line of text drawn in this style.</summary>
     public static double GetEffectiveTextHeight(DimensionStyle style)
     {

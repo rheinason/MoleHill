@@ -108,7 +108,9 @@ layer table, dimension styles, and layouts can act on. See `docs/architecture.md
   named style on the document thread into an `AnnotationStyleSnapshot` on the build snapshot (the
   background build has no document access), creating it if absent so preview and bake match from the first
   build. Generated text binds to the style instead of carrying a hardcoded height; marker block instances
-  scale from the style's effective text height (`TextHeight * DimensionScale`).
+  scale from the style's effective text height (`TextHeight * DimensionScale`). `ListStyleNames` feeds the
+  Annotations tab's style picker; `LayerRoleService.ResolveAnnotationStyleName`/`SetAnnotationStyle` read
+  and write the Annotation role's style on the document's template copy.
 - `HatchPatternService.cs` - the same boundary for hatch patterns, whose indices are document-scoped.
   Creates Rhino's built-in patterns on demand, reuses a user-authored pattern of the same name untouched,
   and degrades an unresolvable pattern to Solid so a fill never silently disappears.
@@ -265,6 +267,10 @@ layer table, dimension styles, and layouts can act on. See `docs/architecture.md
   Column widths are estimated from the longest cell (`CharacterWidthRatio`) because measuring glyphs needs
   a font and a device, and the build has no document thread; everything is sized in multiples of the text
   height so the table rescales with the annotation style.
+- `TerrainLegendBuilder.cs` - the Legend annotation: resolves what the terrain is coloured by into a
+  `Core.Analysis.AnalysisLegend` (or a reason there is nothing to key) and lays it out as vertex-coloured
+  swatch meshes, outlines and text on the `Legend` role. Run from `TerrainController.RefreshLegends` with
+  the preview colouring, never by the build, so a ramp edit redraws it without a rebuild.
 - `TerrainBuildService.Report.cs` - the stage that drives them, after scatter and uncached. See
   `docs/architecture.md` → "Rhino: quantity reporting" for why it cannot run with the other annotations.
 - `DocumentCommandService.RunExportTerrainReport` - `mhExportTerrainReport`, the CSV writer, UTF-8 with a

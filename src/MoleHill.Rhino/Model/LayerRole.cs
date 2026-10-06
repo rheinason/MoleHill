@@ -55,6 +55,9 @@ public enum LayerRole
     /// <summary>The drawn quantity-summary table: its rules and its text.</summary>
     ReportTable,
 
+    /// <summary>The drawn key to the analysis colouring the terrain: its swatches, outlines and text.</summary>
+    Legend,
+
     Labels,
 
     /// <summary>Marker block instances.</summary>

@@ -64,6 +64,11 @@ Terrain analysis math. Pure, unit-tested.
   PalettePreset` stores one — so add freely but never rename, and `Resolve` falls back to the default
   rather than throwing on a key from a newer build. User-saved ramps live Rhino-side in
   `Services/ColorRampPresetStore`.
+- `AnalysisLegend.cs` — `AnalysisLegendBuilder`, the key to a coloured analysis independent of drawing:
+  a gradient strip with `AnalysisRange.BuildTicks` ticks, or swatches for Stepped bands, Constant
+  thresholds and categories. Built through `AnalysisColorMapper` from the same range and palette the mesh
+  uses; end swatches are labelled open because values past the range take the end colours. The Rhino
+  Legend annotation draws it.
 - `AnalysisColorMapper.cs` — shared smooth-gradient, stepped-band and constant classification used by Rhino
   elevation, slope, cut/fill, and sculpt previews. `ResolveBands` divides a range into flat-coloured
   bands that tile it exactly (the last absorbs the remainder); a band's colour is the palette sampled at

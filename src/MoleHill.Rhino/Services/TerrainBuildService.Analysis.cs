@@ -233,6 +233,12 @@ internal sealed partial class TerrainBuildService
         foreach (var annotation in terrain.Annotations)
         {
             ThrowIfCancellationRequested(shouldCancel);
+
+            // A legend keys the preview colouring, which recolours without a rebuild; it is drawn with
+            // that colouring (TerrainController.RefreshLegends), never here, so it gets no stage either.
+            if (annotation is LegendAnnotationDefinition)
+                continue;
+
             AnnotationDefinition current = annotation;
             RunStage(current, "Annotation", "annotation", () => current switch
             {

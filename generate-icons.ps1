@@ -1031,6 +1031,24 @@ New-Icon "$rhinoDir\AnReportTable.png" {
     $cell.Dispose()
 } -size 16
 
+# AnLegend - a key: three coloured swatches stacked beside their label lines
+New-Icon "$rhinoDir\AnLegend.png" {
+    param($g)
+    $hi = New-Object System.Drawing.SolidBrush((Argb 211 47 47))
+    $mid = New-Object System.Drawing.SolidBrush((Argb 249 168 37))
+    $lo = New-Object System.Drawing.SolidBrush((Argb 67 160 71))
+    $g.FillRectangle($hi, 1, 1, 5, 4)
+    $g.FillRectangle($mid, 1, 6, 5, 4)
+    $g.FillRectangle($lo, 1, 11, 5, 4)
+    $hi.Dispose(); $mid.Dispose(); $lo.Dispose()
+    $ink = New-Object System.Drawing.Pen((Argb 69 39 160), 1)
+    $g.DrawRectangle($ink, 1, 1, 5, 14)
+    $g.DrawLine($ink, 8, 3, 14, 3)
+    $g.DrawLine($ink, 8, 8, 13, 8)
+    $g.DrawLine($ink, 8, 13, 15, 13)
+    $ink.Dispose()
+} -size 16
+
 # AnContour - three nested contour rings
 New-Icon "$rhinoDir\AnContour.png" {
     param($g)

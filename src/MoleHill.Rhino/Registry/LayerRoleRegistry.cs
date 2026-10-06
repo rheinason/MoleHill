@@ -186,6 +186,14 @@ internal static class LayerRoleRegistry
                 ColorArgb: Black, PrintColorArgb: Black, PlotWeight: 0.13, PreviewWidthPx: 1),
             LayerRoleFacets.Line | LayerRoleFacets.Text),
 
+        // The legend is drawing too, on its own branch for the same reason. Its swatches carry the
+        // analysis's colours in the mesh itself, so only the outlines and text follow the layer.
+        new(LayerRole.Legend, "legend", "Legend", LayerRole.Annotation, "::Legend",
+            null,
+            new LayerAppearanceDefaults(
+                ColorArgb: Black, PrintColorArgb: Black, PlotWeight: 0.13, PreviewWidthPx: 1),
+            LayerRoleFacets.Line | LayerRoleFacets.Text | LayerRoleFacets.Mesh),
+
         // ── Sections ─────────────────────────────────────────────────────────
         // The proposed terrain is the subject of the drawing: the heaviest line on it, and black.
         new(LayerRole.Sections, "sections", "Sections", LayerRole.Annotation, "::Sections",

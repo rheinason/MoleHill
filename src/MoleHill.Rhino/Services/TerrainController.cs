@@ -78,6 +78,7 @@ internal sealed partial class TerrainController
         RhinoDoc.SelectObjects += OnSelectObjects;
         RhinoDoc.ModifyObjectAttributes += OnModifyObjectAttributes;
         RhinoDoc.LayerTableEvent += OnLayerTableEvent;
+        RhinoDoc.DimensionStyleTableEvent += OnDimensionStyleTableEvent;
         RhinoDoc.UnitsChangedWithScaling += OnUnitsChangedWithScaling;
         RhinoDoc.DocumentPropertiesChanged += OnDocumentPropertiesChanged;
         RhinoDoc.CloseDocument += OnCloseDocument;
@@ -99,6 +100,7 @@ internal sealed partial class TerrainController
         RhinoDoc.SelectObjects -= OnSelectObjects;
         RhinoDoc.ModifyObjectAttributes -= OnModifyObjectAttributes;
         RhinoDoc.LayerTableEvent -= OnLayerTableEvent;
+        RhinoDoc.DimensionStyleTableEvent -= OnDimensionStyleTableEvent;
         RhinoDoc.UnitsChangedWithScaling -= OnUnitsChangedWithScaling;
         RhinoDoc.DocumentPropertiesChanged -= OnDocumentPropertiesChanged;
         RhinoDoc.CloseDocument -= OnCloseDocument;

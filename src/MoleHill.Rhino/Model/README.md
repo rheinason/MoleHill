@@ -26,6 +26,10 @@ data (no Rhino API beyond geometry refs). `TerrainSerializer` (in `Services/`) r
   beside the terrain). It carries its own slope `Unit` because that unit is part of the drawing; the CSV
   export follows the per-user `SlopeUnitPreference` instead. It measures nothing — every figure comes from
   the other stages, which is why its build runs last.
+- `LegendAnnotationDefinition.cs` — the drawn key to the analysis colouring the terrain. No analysis
+  picker (it keys whatever colours the terrain), no text height (it follows the annotation style), sizes
+  as multiples of the text height, an insertion origin (unset places it beside the terrain, level with its
+  foot). Never read by the build: it is drawn with the preview colouring.
 - `CutFillAnalysisDefinition.cs` — the signed delta, as colour *and* optionally as drawn lines
   (`ShowDeltaContours` + `DeltaContourInterval`, `ShowBalanceLine`, each with an optional explicit colour
   that falls back to its role's layer). `DrawsDeltaOutput` is the one question the build and the

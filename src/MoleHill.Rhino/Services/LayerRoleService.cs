@@ -1,4 +1,5 @@
 using MoleHill.Rhino.Model;
+using MoleHill.Rhino.Registry;
 using Rhino;
 
 namespace MoleHill.Rhino.Services;
@@ -198,6 +199,57 @@ internal static class LayerRoleService
 
         TemplateWriter(templates);
         LayerTemplateDocumentStore.Embed(doc, embedded, LayerRoleTable.Build(embedded).Fingerprint, makeActive: true);
+        Invalidate(doc);
+        return true;
+    }
+
+    /// <summary>
+    /// The annotation style a terrain's generated text binds to: the Annotation role's, which every text
+    /// role inherits. Shared by the build snapshot, bake and the panel, so the style the panel names is
+    /// the one the text actually uses.
+    /// </summary>
+    public static string ResolveAnnotationStyleName(RhinoDoc doc, TerrainDefinition terrain) =>
+        AnnotationStyleService.ResolveStyleName(
+            GetTable(doc, terrain).Appearance(LayerRole.Annotation).AnnotationStyleName
+                ?? terrain.LegacyAnnotationStyleName);
+
+    /// <summary>
+    /// Points the terrain's generated text at another annotation style by editing the document's copy of
+    /// its layer template — where the style already lives, so the template editor and the panel cannot
+    /// disagree. Every terrain routed through the same template follows, which is the point of a
+    /// template. The machine-local template is left alone; the panel shows the document copy as modified.
+    /// </summary>
+    /// <returns>False when the document has no template to edit.</returns>
+    public static bool SetAnnotationStyle(RhinoDoc doc, TerrainDefinition terrain, string styleName)
+    {
+        EmbedLocalTemplateIfMissing(doc);
+        EmbeddedLayerTemplateState? state = LayerTemplateDocumentStore.Load(doc);
+        LayerTemplateDefinition? current = LayerTemplateDocumentStore.Find(state, terrain.LayerTemplateName);
+        if (state == null || current == null)
+            return false;
+
+        EmbeddedLayerTemplate? wrapper = state.Templates.FirstOrDefault(item => ReferenceEquals(item.Template, current));
+        LayerTemplateDefinition edited = current.Copy();
+        string roleId = LayerRoleRegistry.For(LayerRole.Annotation).Id;
+        LayerTemplateEntry? entry = edited.Entries.FirstOrDefault(item =>
+            item.Roles.Any(role => string.Equals(role, roleId, StringComparison.OrdinalIgnoreCase)));
+        if (entry == null)
+        {
+            entry = new LayerTemplateEntry
+            {
+                Path = LayerRoleRegistry.DefaultPath(LayerRole.Annotation),
+                Roles = new List<string> { roleId }
+            };
+            edited.Entries.Add(entry);
+        }
+
+        entry.AnnotationStyleName = string.IsNullOrWhiteSpace(styleName) ? null : styleName.Trim();
+        bool active = string.Equals(state.ActiveName, edited.Name, StringComparison.OrdinalIgnoreCase);
+        LayerTemplateDocumentStore.Embed(
+            doc,
+            edited,
+            wrapper?.LocalFingerprintWhenEmbedded ?? LayerRoleTable.Build(current).Fingerprint,
+            makeActive: active);
         Invalidate(doc);
         return true;
     }

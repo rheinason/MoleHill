@@ -48,6 +48,11 @@ Escape closes the popup from either the search box or the grid.
   Simplify likewise uses ordinary schema rows: its Mode choice reveals Maximum Deviation, Target
   Vertices, or Retain Percentage, and its collapsed summary shows the active request. Measured
   reduction/error details stay in build diagnostics rather than document state.
+- `MoleHillPanel.AnnotationStyle.cs` - the Annotations tab's Text Style row (the style the terrain's text
+  binds to, its height and font, a picker that edits the document's template copy, and Edit… into Rhino's
+  Document Properties) and each annotation card's Text Size row. There is no control to set a fixed text
+  height: bake stamps the style and resets the size, so it would preview and bake differently. Legacy
+  fixed-height cards say so and offer Follow Style.
 - `ColorRampControl.cs`, `ColorRampBar.cs`, `ScrubField.cs`, and `MoleHillPanel.ColorRamp.cs` - the
   colour-ramp card, declared by `ParameterDescriptor<AnalysisDefinition>.ColorRamp()` and rendered for Slope,
   Elevation and Cut/Fill. It replaced three separate things: the "Coloring & intervals" group, the

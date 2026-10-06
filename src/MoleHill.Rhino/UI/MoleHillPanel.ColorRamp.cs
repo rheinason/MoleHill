@@ -2,6 +2,7 @@ using System.Globalization;
 using Eto.Forms;
 using MoleHill.Core.Analysis;
 using MoleHill.Rhino.Model;
+using MoleHill.Rhino.Registry;
 using MoleHill.Rhino.Services;
 
 namespace MoleHill.Rhino.UI;
@@ -49,7 +50,7 @@ public sealed partial class MoleHillPanel
             Shape = shape,
             Histogram = summary?.DistributionBins,
             HasData = summary?.DisplayRangeLow is not null && summary.DisplayRangeHigh is not null,
-            FormatValue = ResolveAnalysisValueFormatter(analysis),
+            FormatValue = AnalysisFormatting.GetValueFormatter(analysis),
             ParseValue = ResolveAnalysisValueParser(analysis),
             Expanded = _expandedColorRamps.Contains(analysisId),
             SelectedIndex = _selectedColorRampStops.TryGetValue(analysisId, out int selected) ? selected : 0,
@@ -82,18 +83,6 @@ public sealed partial class MoleHillPanel
 
         return new ColorRampControl(options);
     }
-
-    /// <summary>
-    /// How this analysis's values are written. Slope carries a unit the user chose; cut/fill wants an
-    /// explicit sign so a legend reads "-2.50 / +2.50" rather than making you infer which end is which.
-    /// </summary>
-    private static Func<double, string> ResolveAnalysisValueFormatter(AnalysisDefinition analysis) => analysis switch
-    {
-        SlopeAnalysisDefinition slope => value => SlopeInput.FormatWithUnit(
-            SlopeAnalyzer.ConvertUnitToRatio(value, slope.Unit), slope.Unit),
-        CutFillAnalysisDefinition => value => value.ToString("+0.00;-0.00;0.00", CultureInfo.CurrentCulture),
-        _ => value => value.ToString("F2", CultureInfo.CurrentCulture)
-    };
 
     private static Func<string?, double?> ResolveAnalysisValueParser(AnalysisDefinition analysis)
     {

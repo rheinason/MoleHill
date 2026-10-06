@@ -217,7 +217,7 @@ internal sealed class ColorRampControl : Panel
     /// </summary>
     private Control BuildTickRow()
     {
-        var ticks = ColorRampBar.BuildTicks(_range);
+        var ticks = AnalysisRange.BuildTicks(_range);
         var font = SystemFonts.Default(SystemFonts.Default().Size - 1.5f);
 
         var row = new Drawable

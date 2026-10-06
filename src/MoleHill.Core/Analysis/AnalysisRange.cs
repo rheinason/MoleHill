@@ -178,6 +178,31 @@ public readonly record struct AnalysisRange(double Low, double High, bool IsAuto
     }
 
     /// <summary>
+    /// Round tick values inside a range: five or so, on a 1/2/5/10 step. The card's tick row and the drawn
+    /// Legend annotation both label their ramp from this, so a value printed on the sheet is a value the
+    /// panel also shows.
+    /// </summary>
+    public static IReadOnlyList<double> BuildTicks(AnalysisRange range)
+    {
+        AnalysisRange safe = range.EnsureNonDegenerate();
+        double step = NiceStep(safe.Span / 4.0);
+        var ticks = new List<double>();
+        double first = Math.Ceiling(safe.Low / step) * step;
+        for (double value = first; value <= safe.High + (step * 1e-6); value += step)
+        {
+            // -0 prints as "-0"; fold it onto zero.
+            ticks.Add(Math.Abs(value) < step * 1e-9 ? 0.0 : value);
+            if (ticks.Count > 12)
+                break;
+        }
+
+        if (ticks.Count == 0)
+            ticks.Add(safe.Low);
+
+        return ticks;
+    }
+
+    /// <summary>
     /// A fixed-bin weighted histogram, used to take percentiles without sorting or retaining the values.
     /// Callers that stream (a per-face loop that does not keep a slope array) build it in two cheap passes;
     /// callers that already hold the values use <see cref="Build"/>.

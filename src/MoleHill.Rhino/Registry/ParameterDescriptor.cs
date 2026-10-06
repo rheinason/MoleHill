@@ -351,7 +351,8 @@ internal sealed class ParameterDescriptor<TDefinition>
         string? help = null,
         bool incrementalCommit = false,
         bool rebuildAfterCommit = false,
-        Func<TDefinition, bool>? visibleWhen = null) =>
+        Func<TDefinition, bool>? visibleWhen = null,
+        bool refreshOnly = false) =>
         new()
         {
             Kind = ParameterKind.Bool,
@@ -360,6 +361,7 @@ internal sealed class ParameterDescriptor<TDefinition>
             GetBool = get,
             SetBool = set,
             Help = help,
+            RefreshOnly = refreshOnly,
             IncrementalCommit = incrementalCommit,
             RebuildAfterCommit = rebuildAfterCommit,
             VisibleWhen = visibleWhen,
@@ -402,7 +404,8 @@ internal sealed class ParameterDescriptor<TDefinition>
         Func<TerrainDefinition, TDefinition, int?>? fallbackColor = null,
         Func<TerrainDefinition, TDefinition, string>? defaultText = null,
         bool incrementalCommit = false,
-        Func<TDefinition, bool>? visibleWhen = null) =>
+        Func<TDefinition, bool>? visibleWhen = null,
+        bool refreshOnly = false) =>
         new()
         {
             Kind = ParameterKind.Color,
@@ -413,6 +416,7 @@ internal sealed class ParameterDescriptor<TDefinition>
             FallbackColor = fallbackColor,
             ColorDefaultTextFor = defaultText,
             Help = help,
+            RefreshOnly = refreshOnly,
             IncrementalCommit = incrementalCommit,
             VisibleWhen = visibleWhen,
         };
@@ -442,7 +446,8 @@ internal sealed class ParameterDescriptor<TDefinition>
         Action<TDefinition, string?> set,
         string? help = null,
         bool trim = true,
-        Func<TDefinition, bool>? visibleWhen = null) =>
+        Func<TDefinition, bool>? visibleWhen = null,
+        bool refreshOnly = false) =>
         new()
         {
             Kind = ParameterKind.Text,
@@ -452,6 +457,7 @@ internal sealed class ParameterDescriptor<TDefinition>
             SetText = set,
             TrimText = trim,
             Help = help,
+            RefreshOnly = refreshOnly,
             VisibleWhen = visibleWhen,
         };
 

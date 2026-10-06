@@ -740,3 +740,81 @@ internal sealed class ReportTableAnnotationDescriptor : AnnotationTypeDescriptor
     public override string? DescribeBasis(TerrainDefinition terrain, AnnotationDefinition annotation) =>
         "Figures come from the last build, in model units. mhExportTerrainReport writes the same report as CSV.";
 }
+
+/// <summary>
+/// A key to the analysis colouring the terrain, drawn into the model — the plan's legend, as a live
+/// annotation.
+///
+/// It has no analysis picker: it keys whatever colours the terrain, because that is the only colouring on
+/// the drawing. Every row commits refresh-only — the legend is drawn with the preview colouring, not by
+/// the build, so changing how it looks never re-runs the terrain.
+/// </summary>
+internal sealed class LegendAnnotationDescriptor : AnnotationTypeDescriptor
+{
+    private static readonly IReadOnlyList<(string Key, string Label)> LayoutOptions = new[]
+    {
+        ("vertical", "Vertical"),
+        ("horizontal", "Horizontal"),
+    };
+
+    public override string Kind => "legend";
+    public override Type DefinitionType => typeof(LegendAnnotationDefinition);
+    public override string TypeLabel => "Legend";
+    public override string MenuLabel => "Legend";
+    public override string IconLabel => "LG";
+    public override string? IconName => "AnLegend";
+    public override int AccentArgb => unchecked((int)0xFF5E35B1);
+    public override string Subtitle => "Key to the colours on the terrain";
+    public override int SortOrder => 11;
+    public override AnnotationDefinition Create() => new LegendAnnotationDefinition();
+
+    public override IReadOnlyList<AnnotationParam> Parameters { get; } = new[]
+    {
+        AnnotationParam.Text(
+            "Title", "Title",
+            a => ((LegendAnnotationDefinition)a).Title,
+            (a, v) => ((LegendAnnotationDefinition)a).Title = v ?? string.Empty,
+            "Heading drawn above the key. Leave empty to use the analysis's name and unit.",
+            refreshOnly: true),
+        AnnotationParam.Choice(
+            "Layout", "Layout", LayoutOptions,
+            a => ((LegendAnnotationDefinition)a).Horizontal ? "horizontal" : "vertical",
+            (a, v) => ((LegendAnnotationDefinition)a).Horizontal = v == "horizontal",
+            "Vertical stacks the key with the highest values at the top; horizontal runs it left to right, " +
+            "for a key along the foot of a sheet.",
+            refreshOnly: true),
+        AnnotationParam.Number(
+            "SwatchSize", "Swatch Size",
+            a => ((LegendAnnotationDefinition)a).SwatchSize,
+            (a, v) => ((LegendAnnotationDefinition)a).SwatchSize = Math.Max(0.5, v),
+            "Size of each swatch, and the width of a gradient strip, as a multiple of the text height — so " +
+            "the key stays proportioned when the annotation style is rescaled.",
+            min: 0.5, decimalPlaces: 2, refreshOnly: true),
+        AnnotationParam.Number(
+            "GradientLength", "Strip Length",
+            a => ((LegendAnnotationDefinition)a).GradientLength,
+            (a, v) => ((LegendAnnotationDefinition)a).GradientLength = Math.Max(2.0, v),
+            "Length of a gradient strip, as a multiple of the text height. Stepped and threshold " +
+            "colourings draw one swatch per band instead.",
+            min: 2.0, decimalPlaces: 1, refreshOnly: true),
+        AnnotationParam.Color(
+            "ColorArgb", "Color",
+            a => ((LegendAnnotationDefinition)a).ColorArgb,
+            (a, v) => ((LegendAnnotationDefinition)a).ColorArgb = v,
+            "Override colour for the text and outlines. Unset draws them in the Legend layer's colour; the " +
+            "swatches always show the analysis's own colours.",
+            refreshOnly: true),
+    };
+
+    public override string? DescribeBlocker(TerrainDefinition terrain, AnnotationDefinition annotation) =>
+        Services.TerrainLegendBuilder.DescribeUnavailable(terrain);
+
+    public override string? DescribeBasis(TerrainDefinition terrain, AnnotationDefinition annotation)
+    {
+        AnalysisDefinition? coloring = Services.TerrainAnalysisPreviewBuilder.FindColoringAnalysis(terrain);
+        return coloring == null
+            ? null
+            : $"Keys “{coloring.Label}”, the analysis colouring the terrain, and follows its colour card: " +
+              "edit the ramp there and the key redraws.";
+    }
+}

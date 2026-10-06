@@ -134,6 +134,34 @@ internal sealed partial class TerrainController
             e.NewState?.FullPath);
     }
 
+    /// <summary>
+    /// An annotation style was edited in Rhino. Generated text is sized from the style's effective height
+    /// when the build snapshot is taken, so without this an edit in Rhino's Annotation Styles editor only
+    /// showed up on the next unrelated rebuild — the main reason the style felt invisible. Terrains whose
+    /// text binds to the edited style rebuild; any table change refreshes the panel, which lists the
+    /// styles and shows the one in use.
+    /// </summary>
+    private void OnDimensionStyleTableEvent(object? sender, DimStyleTableEventArgs e)
+    {
+        if (_suppressDocEvents > 0 || e.Document == null)
+            return;
+
+        if (e.EventType is DimStyleTableEventType.Modified or DimStyleTableEventType.Deleted
+            or DimStyleTableEventType.Undeleted)
+        {
+            var names = new[] { e.OldState?.Name, e.NewState?.Name }
+                .Where(name => !string.IsNullOrWhiteSpace(name))
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            foreach (TerrainDefinition terrain in GetState(e.Document).Terrains)
+            {
+                if (names.Contains(LayerRoleService.ResolveAnnotationStyleName(e.Document, terrain)))
+                    ScheduleRebuild(e.Document, terrain.TerrainId);
+            }
+        }
+
+        RaiseStateChanged();
+    }
+
     private void OnCloseDocument(object? sender, DocumentEventArgs e)
     {
         ClearDocumentState(e.Document.RuntimeSerialNumber);

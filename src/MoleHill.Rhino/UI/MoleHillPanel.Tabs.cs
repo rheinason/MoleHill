@@ -522,6 +522,7 @@ public sealed partial class MoleHillPanel : Panel
             return;
 
         _annotationStack.Items.Add(new StackLayoutItem(BuildAnnotationToolbar(terrain), HorizontalAlignment.Stretch));
+        _annotationStack.Items.Add(new StackLayoutItem(BuildAnnotationStyleRow(terrain), HorizontalAlignment.Stretch));
 
         var annotationItems = terrain.Annotations;
         if (annotationItems.Count == 0)

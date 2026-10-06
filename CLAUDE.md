@@ -170,6 +170,11 @@ When Triangle.NET inserts Steiner points, their Z must be interpolated. Check in
   and pass those. `MeshAreaTopologySplitter.Split` validates the pair and returns a diagnosis rather
   than throwing, but that is a backstop, not a licence. No site in `TerrainBuildService.*` or
   `TerrainAnalysisPreviewBuilder` pairs the old way any more — keep it that way.
+- **The Legend annotation is drawn with the preview colouring, never by the build.** It keys whatever
+  colours the terrain (`TerrainAnalysisPreviewBuilder.FindColoringAnalysis`), and ramp edits recolour
+  without a rebuild, so `TerrainController.RefreshLegends` regenerates it inside `UpdateRuntimePreview`
+  from the range just stamped. Its card rows are refresh-only; the annotation stage skips it. See
+  `docs/architecture.md` → "Rhino: quantity reporting".
 - **Z-aware dedup**: breakline-to-breakline vertex merge requires XY AND Z proximity — preserves parallel retaining walls at different elevations
 - **PadGrader helpers**: `FindNearVertex`, `InterpolateZ`, `PointInPolygon`, `DistToPolygon` are `public`; inner classes `SpatialHash` and `FaceGrid` are `internal` (accessible within the assembly)
 - **Daylight line**: detected as zero-crossing of `newZ - origZ` across edges
