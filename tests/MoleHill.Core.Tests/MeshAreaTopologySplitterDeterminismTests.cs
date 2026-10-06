@@ -23,16 +23,7 @@ public class MeshAreaTopologySplitterDeterminismTests
             verts[v * 3 + 2] = i * 0.13 + j * 0.07;
         }
 
-        var f = new List<int>(side * side * 6);
-        for (int j = 0; j < side; j++)
-        for (int i = 0; i < side; i++)
-        {
-            int v0 = j * (side + 1) + i, v1 = v0 + 1, v2 = v0 + side + 1, v3 = v2 + 1;
-            f.Add(v0); f.Add(v1); f.Add(v3);
-            f.Add(v0); f.Add(v3); f.Add(v2);
-        }
-
-        faces = f.ToArray();
+        faces = TestMeshes.GridFaces(side + 1, side + 1);
     }
 
     /// <summary>A many-lobed star, so boundary segments cross a large number of faces at many angles.</summary>

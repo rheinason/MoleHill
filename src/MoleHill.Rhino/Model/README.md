@@ -41,7 +41,7 @@ data (no Rhino API beyond geometry refs). `TerrainSerializer` (in `Services/`) r
   `ShowField`) or a result the build writes back (the stair's `Computed*`). Stage fingerprints leave these
   out, so changing one re-runs nothing. Every new property is a build input unless it is marked;
   `StructuralEditCacheTests` fails on an unmarked `Computed*` property.
-- **Modifiers** — polymorphism is registry-driven (`Services/TerrainJsonTypeResolver` reads each
+- **Modifiers** — polymorphism is registry-driven (`Services/Persistence/TerrainJsonTypeResolver` reads each
   descriptor's `Kind`), **not** `[JsonDerivedType]` attributes. `ModifierDefinition` →
   `GeometryInputModifierDefinition`
   (`TriangulateModifierDefinition`, `AddGeometryModifierDefinition`; carry `TinMesh/Points/Breaklines/
@@ -107,7 +107,7 @@ scaffolding that does not care which family it is handling (the build stage runn
 written once. Do not reach for it when the meaning of the content matters.
 
 **To add a modifier/object/marker/analysis/annotation type:** create the subtype here (no `[JsonDerivedType]`
-— JSON polymorphism for all five families is registry-driven via `Services/TerrainJsonTypeResolver`), then
+— JSON polymorphism for all five families is registry-driven via `Services/Persistence/TerrainJsonTypeResolver`), then
 add the matching descriptor in `Registry/` (see `Registry/README.md`). The descriptor supplies the JSON
 discriminator, factory, menu entry, and card chrome. Modifiers also get their build step + schema card from
 the descriptor; objects/markers/analyses/annotations still have bespoke card bodies (and both analyses and

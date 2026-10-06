@@ -356,25 +356,8 @@ public class SurfaceSimplifierTests
 
     private static void BuildGrid(int size, Func<double, double, double> elevation, out double[] vertices, out int[] faces)
     {
-        int row = size + 1;
-        vertices = new double[row * row * 3];
-        for (int y = 0; y <= size; y++)
-        for (int x = 0; x <= size; x++)
-        {
-            int vertex = y * row + x;
-            vertices[vertex * 3] = x;
-            vertices[vertex * 3 + 1] = y;
-            vertices[vertex * 3 + 2] = elevation(x, y);
-        }
-        faces = new int[size * size * 6];
-        int next = 0;
-        for (int y = 0; y < size; y++)
-        for (int x = 0; x < size; x++)
-        {
-            int a = y * row + x, b = a + 1, d = a + row, c = d + 1;
-            faces[next++] = a; faces[next++] = b; faces[next++] = c;
-            faces[next++] = a; faces[next++] = c; faces[next++] = d;
-        }
+        vertices = TestMeshes.GridVertices(size + 1, size + 1, 1.0, elevation);
+        faces = TestMeshes.GridFaces(size + 1, size + 1);
     }
 
     private static void BuildGridWithHole(int size, int holeMin, int holeMax, out double[] vertices, out int[] faces)

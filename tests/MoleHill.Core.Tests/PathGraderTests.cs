@@ -1065,44 +1065,12 @@ public class PathGraderTests
 
     private static double[] BuildGridVertices(int size, double spacing)
     {
-        var vertices = new double[size * size * 3];
-        int index = 0;
-        for (int y = 0; y < size; y++)
-        {
-            for (int x = 0; x < size; x++)
-            {
-                vertices[index++] = x * spacing;
-                vertices[index++] = y * spacing;
-                vertices[index++] = 0.0;
-            }
-        }
-
-        return vertices;
+        return TestMeshes.GridVertices(size, size, spacing);
     }
 
     private static int[] BuildGridFaces(int size)
     {
-        var faces = new int[(size - 1) * (size - 1) * 6];
-        int index = 0;
-        for (int y = 0; y < size - 1; y++)
-        {
-            for (int x = 0; x < size - 1; x++)
-            {
-                int v0 = (y * size) + x;
-                int v1 = v0 + 1;
-                int v2 = v0 + size;
-                int v3 = v2 + 1;
-
-                faces[index++] = v0;
-                faces[index++] = v1;
-                faces[index++] = v3;
-                faces[index++] = v0;
-                faces[index++] = v3;
-                faces[index++] = v2;
-            }
-        }
-
-        return faces;
+        return TestMeshes.GridFaces(size, size);
     }
 
     private static int GetGridVertexIndex(int size, int x, int y)

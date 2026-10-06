@@ -36,34 +36,7 @@ public class MeshAreaSplitCancellationTests
 
     private static void BuildGrid(int side, out double[] vertices, out int vertexCount, out int[] faces, out int faceCount)
     {
-        vertexCount = side * side;
-        vertices = new double[vertexCount * 3];
-        for (int j = 0; j < side; j++)
-        {
-            for (int i = 0; i < side; i++)
-            {
-                int v = (j * side) + i;
-                vertices[v * 3] = i;
-                vertices[(v * 3) + 1] = j;
-                vertices[(v * 3) + 2] = Math.Sin(i * 0.05) * 2.0;
-            }
-        }
-
-        faceCount = (side - 1) * (side - 1) * 2;
-        faces = new int[faceCount * 3];
-        int f = 0;
-        for (int j = 0; j < side - 1; j++)
-        {
-            for (int i = 0; i < side - 1; i++)
-            {
-                int v00 = (j * side) + i;
-                int v10 = v00 + 1;
-                int v01 = v00 + side;
-                int v11 = v01 + 1;
-                faces[f++] = v00; faces[f++] = v10; faces[f++] = v11;
-                faces[f++] = v00; faces[f++] = v11; faces[f++] = v01;
-            }
-        }
+        TestMeshes.Grid(side, static (x, y) => Math.Sin(x * 0.05) * 2.0, out vertices, out vertexCount, out faces, out faceCount);
     }
 
     /// <summary>A dense ring of boundary vertices, so boundary preparation and mapping both do work.</summary>

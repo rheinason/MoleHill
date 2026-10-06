@@ -79,16 +79,6 @@ public class IsotropicRemesherFlipBenchmarkTests(ITestOutputHelper output)
             }
         }
 
-        faces = new int[n * n * 6];
-        int f = 0;
-        for (int j = 0; j < n; j++)
-        {
-            for (int i = 0; i < n; i++)
-            {
-                int v00 = (j * (n + 1)) + i;
-                faces[f++] = v00; faces[f++] = v00 + 1; faces[f++] = v00 + n + 2;
-                faces[f++] = v00; faces[f++] = v00 + n + 2; faces[f++] = v00 + n + 1;
-            }
-        }
+        faces = TestMeshes.GridFaces(n + 1, n + 1);
     }
 }

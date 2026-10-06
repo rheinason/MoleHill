@@ -151,28 +151,11 @@ public class SurfaceSimplifierBenchmarkTests(ITestOutputHelper output)
     private static void BuildGrid(int gridSize, out double[] vertices, out int[] faces)
     {
         int row = gridSize + 1;
-        vertices = new double[row * row * 3];
-        for (int y = 0; y <= gridSize; y++)
-        for (int x = 0; x <= gridSize; x++)
-        {
-            int vertex = (y * row) + x;
-            vertices[vertex * 3] = x;
-            vertices[vertex * 3 + 1] = y;
-            vertices[vertex * 3 + 2] =
-                Math.Sin(x * 0.025) + Math.Cos(y * 0.021) + (Math.Sin((x + y) * 0.017) * 0.35);
-        }
-
-        faces = new int[gridSize * gridSize * 6];
-        int next = 0;
-        for (int y = 0; y < gridSize; y++)
-        for (int x = 0; x < gridSize; x++)
-        {
-            int a = (y * row) + x;
-            int b = a + 1;
-            int d = a + row;
-            int c = d + 1;
-            faces[next++] = a; faces[next++] = b; faces[next++] = c;
-            faces[next++] = a; faces[next++] = c; faces[next++] = d;
-        }
+        vertices = TestMeshes.GridVertices(
+            row,
+            row,
+            1.0,
+            static (x, y) => Math.Sin(x * 0.025) + Math.Cos(y * 0.021) + (Math.Sin((x + y) * 0.017) * 0.35));
+        faces = TestMeshes.GridFaces(row, row);
     }
 }

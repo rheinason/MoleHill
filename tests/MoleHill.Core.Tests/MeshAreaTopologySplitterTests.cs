@@ -333,46 +333,12 @@ public class MeshAreaTopologySplitterTests
 
     private static double[] CreateGridVertices(int xCount, int yCount, double spacing)
     {
-        var result = new double[xCount * yCount * 3];
-        int index = 0;
-        for (int y = 0; y < yCount; y++)
-        {
-            for (int x = 0; x < xCount; x++)
-            {
-                double px = x * spacing;
-                double py = y * spacing;
-                result[index++] = px;
-                result[index++] = py;
-                result[index++] = px + py;
-            }
-        }
-
-        return result;
+        return TestMeshes.GridVertices(xCount, yCount, spacing, static (x, y) => x + y);
     }
 
     private static int[] CreateGridFaces(int xCount, int yCount)
     {
-        var faces = new List<int>();
-        for (int y = 0; y < yCount - 1; y++)
-        {
-            for (int x = 0; x < xCount - 1; x++)
-            {
-                int v00 = (y * xCount) + x;
-                int v10 = v00 + 1;
-                int v01 = v00 + xCount;
-                int v11 = v01 + 1;
-
-                faces.Add(v00);
-                faces.Add(v10);
-                faces.Add(v11);
-
-                faces.Add(v00);
-                faces.Add(v11);
-                faces.Add(v01);
-            }
-        }
-
-        return faces.ToArray();
+        return TestMeshes.GridFaces(xCount, yCount);
     }
 
     private static (double X, double Y) GetFaceCentroid(MeshAreaSplitter.SplitResult result, int faceIndex)

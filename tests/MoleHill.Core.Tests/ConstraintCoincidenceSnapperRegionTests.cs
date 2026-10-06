@@ -16,35 +16,7 @@ public class ConstraintCoincidenceSnapperRegionTests
 
     private static void BuildGrid(out double[] vertices, out int vertexCount, out int[] faces, out int faceCount)
     {
-        int side = Divisions + 1;
-        vertexCount = side * side;
-        vertices = new double[vertexCount * 3];
-        for (int y = 0; y <= Divisions; y++)
-        {
-            for (int x = 0; x <= Divisions; x++)
-            {
-                int i = (y * side) + x;
-                vertices[i * 3] = x;
-                vertices[i * 3 + 1] = y;
-                vertices[i * 3 + 2] = 0.0;
-            }
-        }
-
-        faceCount = Divisions * Divisions * 2;
-        faces = new int[faceCount * 3];
-        int f = 0;
-        for (int y = 0; y < Divisions; y++)
-        {
-            for (int x = 0; x < Divisions; x++)
-            {
-                int a = (y * side) + x;
-                int b = a + 1;
-                int c = a + side;
-                int d = c + 1;
-                faces[f++] = a; faces[f++] = b; faces[f++] = d;
-                faces[f++] = a; faces[f++] = d; faces[f++] = c;
-            }
-        }
+        TestMeshes.Grid(Divisions + 1, null, out vertices, out vertexCount, out faces, out faceCount);
     }
 
     private static ConstraintPolyline Polyline(params double[] xyz) =>
