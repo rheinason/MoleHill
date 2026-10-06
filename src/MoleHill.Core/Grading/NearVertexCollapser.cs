@@ -24,13 +24,6 @@ internal static class NearVertexCollapser
         if (firstNewVertex >= vertexCount || faceCount == 0)
             return 0;
 
-        var vertexFaces = new List<int>?[vertexCount];
-        for (int f = 0; f < faceCount; f++)
-        {
-            for (int k = 0; k < 3; k++)
-                (vertexFaces[faces[(f * 3) + k]] ??= new List<int>(6)).Add(f);
-        }
-
         double toleranceSquared = tolerance * tolerance;
         var candidates = new List<(double LengthSquared, int From, int To)>();
         for (int f = 0; f < faceCount; f++)
@@ -54,14 +47,43 @@ internal static class NearVertexCollapser
             }
         }
 
+        if (candidates.Count == 0)
+            return 0;
+
+        // Face lists only for the vertices a collapse can read: the ends of candidate edges and the faces
+        // around them. Building them for every vertex cost more than the whole split on a large terrain.
+        var involved = new HashSet<int>();
+        foreach ((_, int from, int to) in candidates)
+        {
+            involved.Add(from);
+            involved.Add(to);
+        }
+
+        var vertexFaces = new Dictionary<int, List<int>>(involved.Count);
+        for (int f = 0; f < faceCount; f++)
+        {
+            for (int k = 0; k < 3; k++)
+            {
+                int vertex = faces[(f * 3) + k];
+                if (!involved.Contains(vertex))
+                    continue;
+                if (!vertexFaces.TryGetValue(vertex, out List<int>? list))
+                    vertexFaces[vertex] = list = new List<int>(6);
+                list.Add(f);
+            }
+        }
+
         candidates.Sort((x, y) => x.LengthSquared.CompareTo(y.LengthSquared));
         var removedFace = new bool[faceCount];
         var gone = new bool[vertexCount];
         int collapsed = 0;
         foreach ((_, int from, int to) in candidates)
         {
-            if (gone[from] || gone[to] || vertexFaces[from] is not { } fromFaces || vertexFaces[to] is not { } toFaces)
+            if (gone[from] || gone[to] || !vertexFaces.TryGetValue(from, out List<int>? fromFaces) ||
+                !vertexFaces.TryGetValue(to, out List<int>? toFaces))
+            {
                 continue;
+            }
             if (TryCollapse(vertices, faces, fromFaces, toFaces, removedFace, from, to))
             {
                 gone[from] = true;

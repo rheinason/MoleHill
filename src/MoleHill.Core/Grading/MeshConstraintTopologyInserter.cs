@@ -486,7 +486,9 @@ internal static partial class MeshConstraintTopologyInserter
         inconsistency = null;
         int faceCount = faces.Count / 3;
         double emittedArea = 0.0;
-        var nearTouched = new HashSet<int>();
+        // Flat marks, not a hash set: every face of the terrain is tested against them, twice.
+        var nearTouched = new bool[vertices.Count / 3];
+        int nearTouchedCount = 0;
         foreach ((int start, int end) in touchedFaceRanges)
         {
             for (int f = start; f < end; f++)
@@ -496,9 +498,14 @@ internal static partial class MeshConstraintTopologyInserter
                 emittedArea += Math.Abs(Cross(
                     vertices[b * 3] - ax, vertices[(b * 3) + 1] - ay,
                     vertices[c * 3] - ax, vertices[(c * 3) + 1] - ay));
-                nearTouched.Add(a);
-                nearTouched.Add(b);
-                nearTouched.Add(c);
+                foreach (int x in (ReadOnlySpan<int>)[a, b, c])
+                {
+                    if (!nearTouched[x])
+                    {
+                        nearTouched[x] = true;
+                        nearTouchedCount++;
+                    }
+                }
             }
         }
 
@@ -508,11 +515,11 @@ internal static partial class MeshConstraintTopologyInserter
             return false;
         }
 
-        Dictionary<long, int> edgeUses = IndexedMeshTools.CreateEdgeKeyMap<int>(nearTouched.Count * 6);
+        Dictionary<long, int> edgeUses = IndexedMeshTools.CreateEdgeKeyMap<int>(nearTouchedCount * 6);
         for (int f = 0; f < faceCount; f++)
         {
             int a = faces[f * 3], b = faces[(f * 3) + 1], c = faces[(f * 3) + 2];
-            if (!nearTouched.Contains(a) && !nearTouched.Contains(b) && !nearTouched.Contains(c))
+            if (!nearTouched[a] && !nearTouched[b] && !nearTouched[c])
                 continue;
 
             for (int k = 0; k < 3; k++)
@@ -532,11 +539,11 @@ internal static partial class MeshConstraintTopologyInserter
 
         // Input border edges around the change. Every face on a vertex of the change is visited, so an edge
         // with such an endpoint has its full use count in both maps.
-        Dictionary<long, int> inputUses = IndexedMeshTools.CreateEdgeKeyMap<int>(nearTouched.Count * 6);
+        Dictionary<long, int> inputUses = IndexedMeshTools.CreateEdgeKeyMap<int>(nearTouchedCount * 6);
         for (int f = 0; f < inputFaceCount; f++)
         {
             int a = inputFaces[f * 3], b = inputFaces[(f * 3) + 1], c = inputFaces[(f * 3) + 2];
-            if (!nearTouched.Contains(a) && !nearTouched.Contains(b) && !nearTouched.Contains(c))
+            if (!nearTouched[a] && !nearTouched[b] && !nearTouched[c])
                 continue;
 
             for (int k = 0; k < 3; k++)
@@ -552,7 +559,7 @@ internal static partial class MeshConstraintTopologyInserter
                 continue;
 
             int u = (int)(key >> 32), w = (int)(key & 0xffffffff);
-            if (!nearTouched.Contains(u) && !nearTouched.Contains(w))
+            if (!nearTouched[u] && !nearTouched[w])
                 continue;
 
             if (!IsOnInputBorder(u, w, inputUses, edgeSplits))

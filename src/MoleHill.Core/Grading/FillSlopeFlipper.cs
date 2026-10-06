@@ -13,12 +13,19 @@ namespace MoleHill.Core.Grading;
 /// a terrain crease those heights make a thin face read as a spike (71.6 degrees at a tight Grade Path bend,
 /// with no edge steeper than 34). Choosing the other diagonal of such a quad is free: the fill is welded to
 /// the terrain only along its boundary, and constrained edges never move. An edge is flipped only when its
-/// quad is strictly convex in plan, so no face inverts, and only when the steeper of its two faces gets at
-/// least <see cref="MinimumGainDegrees"/> flatter.
+/// quad is strictly convex in plan, so no face inverts, only when one of its faces is at least
+/// <see cref="SteepDegrees"/> steep, and only when the steeper of the two gets at least
+/// <see cref="MinimumGainDegrees"/> flatter.
 /// </remarks>
 internal static class FillSlopeFlipper
 {
     internal const double MinimumGainDegrees = 1.0;
+
+    /// <summary>
+    /// Only edges of faces at least this steep are considered. Ordinary batter (33 degrees by default) keeps
+    /// its plan triangulation; a crease spike is far steeper.
+    /// </summary>
+    internal const double SteepDegrees = 40.0;
     private const int MaxPasses = 8;
 
     /// <summary>Returns the number of flips. <paramref name="faces"/> is rewritten in place, keeping winding.</summary>
@@ -28,12 +35,32 @@ internal static class FillSlopeFlipper
         for (int pass = 0; pass < MaxPasses; pass++)
         {
             int flipsThisPass = 0;
-            var edgeFaces = IndexedMeshTools.CreateEdgeKeyMap<(int A, int B)>(faceCount * 2);
+
+            // Only an edge of a steep face can be worth flipping. Index just those edges, then find their
+            // other face in one pass: a fill spans its whole convex hull, and mapping every edge of it on
+            // every pass cost a Grade Pad more than its whole topology stage.
+            HashSet<long> wanted = IndexedMeshTools.CreateEdgeKeySet(64);
+            for (int f = 0; f < faceCount; f++)
+            {
+                int a0 = faces[f * 3], b0 = faces[(f * 3) + 1], c0 = faces[(f * 3) + 2];
+                if (Slope(xyz, a0, b0, c0) < SteepDegrees)
+                    continue;
+                wanted.Add(IndexedMeshTools.GetEdgeKey(a0, b0));
+                wanted.Add(IndexedMeshTools.GetEdgeKey(b0, c0));
+                wanted.Add(IndexedMeshTools.GetEdgeKey(c0, a0));
+            }
+
+            if (wanted.Count == 0)
+                break;
+
+            var edgeFaces = IndexedMeshTools.CreateEdgeKeyMap<(int A, int B)>(wanted.Count);
             for (int f = 0; f < faceCount; f++)
             {
                 for (int k = 0; k < 3; k++)
                 {
                     long key = IndexedMeshTools.GetEdgeKey(faces[(f * 3) + k], faces[(f * 3) + ((k + 1) % 3)]);
+                    if (!wanted.Contains(key))
+                        continue;
                     edgeFaces[key] = edgeFaces.TryGetValue(key, out var pair) ? (pair.A, pair.B < 0 ? f : -2) : (f, -1);
                 }
             }

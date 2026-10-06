@@ -234,17 +234,33 @@ public static class MeshArrayNormalizer
     {
         outputFaceCount = faceCount;
         capsResolved = 0;
-        bool any = false;
-        for (int t = 0; t < faceCount && !any; t++)
-            any = IsCap(vertices, faces[t * 3], faces[t * 3 + 1], faces[t * 3 + 2], maxApexDistance);
-        if (!any)
-            return faces;
-
-        var work = new List<int>(faces.AsSpan(0, faceCount * 3).ToArray());
-        var removed = new List<bool>(new bool[faceCount]);
-        var edgeFaces = IndexedMeshTools.CreateEdgeKeyMap<List<int>>(faceCount * 2);
+        int vertexCount = vertices.Length / 3;
+        bool[]? capVertex = null;
         for (int t = 0; t < faceCount; t++)
         {
+            int a0 = faces[t * 3], b0 = faces[t * 3 + 1], c0 = faces[t * 3 + 2];
+            if (!IsCap(vertices, a0, b0, c0, maxApexDistance))
+                continue;
+            capVertex ??= new bool[vertexCount];
+            capVertex[a0] = capVertex[b0] = capVertex[c0] = true;
+        }
+
+        if (capVertex == null)
+            return faces;
+
+        // Only faces sharing a vertex with a cap can take part: a split rewrites the face across a cap's long
+        // edge (both ends are cap vertices) and every face it creates holds the cap's middle corner, so any
+        // later cap has a long edge with an indexed end. Indexing just those keeps a pass local on a terrain
+        // of hundreds of thousands of faces.
+        var work = new List<int>(faces.AsSpan(0, faceCount * 3).ToArray());
+        var removed = new List<bool>(new bool[faceCount]);
+        var candidates = new List<int>();
+        var edgeFaces = IndexedMeshTools.CreateEdgeKeyMap<List<int>>(64);
+        for (int t = 0; t < faceCount; t++)
+        {
+            if (!capVertex[work[t * 3]] && !capVertex[work[t * 3 + 1]] && !capVertex[work[t * 3 + 2]])
+                continue;
+            candidates.Add(t);
             for (int k = 0; k < 3; k++)
                 AddEdgeFace(edgeFaces, work[t * 3 + k], work[t * 3 + ((k + 1) % 3)], t);
         }
@@ -255,9 +271,10 @@ public static class MeshArrayNormalizer
         for (int pass = 0; pass < MaxPasses; pass++)
         {
             int resolvedThisPass = 0;
-            int faceTotal = work.Count / 3;
-            for (int cap = 0; cap < faceTotal; cap++)
+            int candidateCount = candidates.Count;
+            for (int ci = 0; ci < candidateCount; ci++)
             {
+                int cap = candidates[ci];
                 if (removed[cap])
                     continue;
 
@@ -267,7 +284,9 @@ public static class MeshArrayNormalizer
 
                 long longEdge = IndexedMeshTools.GetEdgeKey(p, q);
                 int across = -1, acrossCount = 0;
-                foreach (int f in edgeFaces[longEdge])
+                if (!edgeFaces.TryGetValue(longEdge, out List<int>? onLongEdge))
+                    continue;
+                foreach (int f in onLongEdge)
                 {
                     if (f != cap && !removed[f])
                     {
@@ -318,6 +337,7 @@ public static class MeshArrayNormalizer
                 work.Add(v);
                 work.Add(s);
                 removed.Add(false);
+                candidates.Add(added);
                 edgeFaces[longEdge].Remove(n);
                 edgeFaces[IndexedMeshTools.GetEdgeKey(v, s)].Remove(n);
                 AddEdgeFace(edgeFaces, u, r, n);
@@ -339,7 +359,7 @@ public static class MeshArrayNormalizer
         // mirror - the same corners wound the other way. The pair covers nothing and doubles every edge it
         // touches, so both go.
         var byCorners = new Dictionary<(int, int, int), int>();
-        for (int t = 0; t < work.Count / 3; t++)
+        foreach (int t in candidates)
         {
             if (removed[t])
                 continue;
