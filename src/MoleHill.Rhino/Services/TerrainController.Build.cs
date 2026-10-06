@@ -297,6 +297,9 @@ internal sealed partial class TerrainController
         if (!ConfirmLongRunningBuild(doc, terrain, GetRuntimeCache(doc.RuntimeSerialNumber, terrain.TerrainId), rebuildState, mode, buildVersion))
             return;
 
+        if (mode == TerrainBuildMode.Final)
+            ClearUnbuiltEdits(doc.RuntimeSerialNumber, terrain.TerrainId);
+
         while (rebuildState.ProgressUpdates.TryDequeue(out _))
         {
         }
@@ -444,6 +447,9 @@ internal sealed partial class TerrainController
             return false;
         }
 
+        if (mode == TerrainBuildMode.Final)
+            ClearUnbuiltEdits(doc.RuntimeSerialNumber, terrain.TerrainId);
+
         terrain.LastBuildMessage = mode == TerrainBuildMode.Preview
             ? $"Previewing terrain #{buildVersion:N0}..."
             : $"Building terrain #{buildVersion:N0}...";
@@ -549,6 +555,7 @@ internal sealed partial class TerrainController
                 reportProgress,
                 latency,
                 publishInterimGeometry);
+            build.ReferencedTerrainFingerprints = new Dictionary<Guid, ulong>(snapshot.ReferencedTerrainFingerprints);
             timer.Stop();
             latency?.Mark(TerrainLatencyPhase.WorkerEnd, "ok");
             return new BackgroundBuildResult(
@@ -753,6 +760,7 @@ internal sealed partial class TerrainController
             ulong finalMeshFingerprint = TerrainBuildService.ComputeMeshFingerprintForDiagnostics(build.PrimaryMesh);
             sectionReferenceMeshChanged = finalMeshFingerprint != runtimeCache.LastFinalMeshFingerprint;
             runtimeCache.LastFinalMeshFingerprint = finalMeshFingerprint;
+            runtimeCache.ReferencedTerrainFingerprints = build.ReferencedTerrainFingerprints;
         }
         displayTimer.Stop();
         latency.Mark(TerrainLatencyPhase.DisplayEnd);
@@ -808,6 +816,7 @@ internal sealed partial class TerrainController
             commandElapsed += saveTimer.Elapsed + redrawTimer.Elapsed;
             if (sectionReferenceMeshChanged)
                 ScheduleTerrainDependents(doc, state, terrain.TerrainId);
+            RebuildTerrainsWaitingOn(doc, terrain.TerrainId);
         }
         else
         {
@@ -844,7 +853,10 @@ internal sealed partial class TerrainController
         latency.Mark(TerrainLatencyPhase.Closed, "applied");
         WriteBuildFinished(terrain, result.Mode, result.Version, commandElapsed);
         string? cardResults = TryComputeCardResultSignature(doc, terrain);
-        bool cardsUnchanged = !firstFinal && cardResults != null && cardResults == runtimeCache.LastCardResultSignature;
+        // A terrain other terrains compare against changes what *their* cards say (see
+        // GetReferenceTerrainStatus), and the visible card may be one of those, so it always refreshes.
+        bool cardsUnchanged = !firstFinal && cardResults != null && cardResults == runtimeCache.LastCardResultSignature
+            && !IsComparedAgainst(GetState(doc), terrain.TerrainId);
         runtimeCache.LastCardResultSignature = cardResults;
         if (cardsUnchanged)
             RaiseStatusChanged();

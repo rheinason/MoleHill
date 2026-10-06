@@ -87,6 +87,13 @@ internal sealed class TerrainRuntimeCache
     public ulong LastFinalMeshFingerprint { get; set; }
 
     /// <summary>
+    /// What the last applied final build compared against: each referenced terrain's final-mesh
+    /// fingerprint as that build saw it. Null until a final build lands. Compared with the referenced
+    /// terrain's current <see cref="LastFinalMeshFingerprint"/> to say "compared against an older version".
+    /// </summary>
+    public IReadOnlyDictionary<Guid, ulong>? ReferencedTerrainFingerprints { get; set; }
+
+    /// <summary>
     /// On a worker copy, the stage meshes it was handed by the main cache. They stay the main cache's,
     /// so <see cref="DiscardOwnedMeshOutputs"/> must never dispose them. Null on the main cache.
     /// </summary>
@@ -228,6 +235,7 @@ internal sealed class TerrainRuntimeCache
         LastCardResultSignature = null;
         PeakDependentOutputsDuration = null;
         LastFinalMeshFingerprint = 0;
+        ReferencedTerrainFingerprints = null;
         TinEngine.InvalidateCache();
         return meshOutputs;
     }

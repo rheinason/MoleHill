@@ -150,7 +150,8 @@ layer table, dimension styles, and layouts can act on. See `docs/architecture.md
   snapshot, dependent terrains), `.Output` (output sync + bake + untrack + attributes + owned-object
   lifecycle), `.Events` (Rhino doc events, idle, source sync), `.Display` (display state, placement
   sync, visibility/lock, materials), `.Contours` (contour fast paths), `.Diagnostics`, `.Sculpt`,
-  `.Grasshopper` and `.Interop`. The root file keeps only shared fields, lifecycle and the read API; a
+  `.Grasshopper`, `.Interop` and `.ReferenceStatus` (whether a terrain compared against can be, and the
+  card's rebuild-then-rebuild-me link; the pure decision is `ReferenceTerrainStatus.cs`). The root file keeps only shared fields, lifecycle and the read API; a
   new concern is a new partial. User-authored changes use Rhino's
   native Undo/Redo stack: the controller stores serialized before-state snapshots, joins an existing
   command record when one is active, and coalesces live panel gestures into one record. Undo restoration

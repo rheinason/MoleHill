@@ -69,6 +69,13 @@ internal sealed class TerrainBuildSnapshot
 
     public Dictionary<Guid, TerrainSectionReferenceSnapshot> SectionTerrains { get; } = new();
 
+    /// <summary>
+    /// Every other terrain this terrain compares against, with that terrain's final-mesh fingerprint at
+    /// snapshot time — 0 when it had none, which is exactly the case <see cref="SectionTerrains"/> cannot
+    /// record, since it holds only the terrains that had a mesh to copy.
+    /// </summary>
+    public Dictionary<Guid, ulong> ReferencedTerrainFingerprints { get; } = new();
+
     public void DisposeSectionTerrainMeshes()
     {
         foreach (TerrainSectionReferenceSnapshot reference in SectionTerrains.Values)

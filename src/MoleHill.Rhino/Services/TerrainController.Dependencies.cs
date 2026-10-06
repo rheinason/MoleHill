@@ -47,8 +47,14 @@ internal sealed partial class TerrainController
             .Where(id => id != Guid.Empty && id != terrain.TerrainId)
             .Distinct();
 
+        var fingerprints = new Dictionary<Guid, ulong>();
         foreach (Guid terrainId in referencedIds)
         {
+            fingerprints[terrainId] = HasCompletedFinalTerrainMesh(doc, terrainId) &&
+                _runtimeCaches.TryGetValue((doc.RuntimeSerialNumber, terrainId), out TerrainRuntimeCache? referencedCache)
+                    ? referencedCache.LastFinalMeshFingerprint
+                    : 0UL;
+
             TerrainDefinition? referencedTerrain = state.Terrains.FirstOrDefault(item => item.TerrainId == terrainId);
             if (referencedTerrain == null ||
                 !_runtimeCaches.TryGetValue((doc.RuntimeSerialNumber, terrainId), out TerrainRuntimeCache? runtimeCache) ||
@@ -66,8 +72,22 @@ internal sealed partial class TerrainController
             });
         }
 
-        return TerrainBuildSnapshotBuilder.Create(doc, terrain, references);
+        TerrainBuildSnapshot snapshot = TerrainBuildSnapshotBuilder.Create(doc, terrain, references);
+        foreach ((Guid terrainId, ulong fingerprint) in fingerprints)
+            snapshot.ReferencedTerrainFingerprints[terrainId] = fingerprint;
+        return snapshot;
     }
+
+    /// <summary>True when an enabled cut/fill, earthworks or section card on another terrain compares
+    /// against this one.</summary>
+    private static bool IsComparedAgainst(DocumentState state, Guid terrainId) =>
+        state.Terrains.Any(other => other.TerrainId != terrainId && (
+            other.Annotations
+                .OfType<TerrainSectionAnnotationDefinitionBase>()
+                .Any(section => section.IsEnabled && section.ComparisonTerrainIds.Contains(terrainId))
+            || other.Analyses
+                .OfType<ReferenceComparisonAnalysisDefinition>()
+                .Any(analysis => analysis.IsEnabled && analysis.ReferenceTerrainId == terrainId)));
 
     private void ScheduleTerrainDependents(RhinoDoc doc, DocumentState state, Guid referencedTerrainId)
     {

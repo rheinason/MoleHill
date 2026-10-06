@@ -424,20 +424,45 @@ public sealed partial class MoleHillPanel
             RhinoObjectType.Curve,
             doc => _controller.GetSelectedLayerPaths(doc),
             sourceHelp));
-        layout.AddRow(CreateTerrainSectionTerrainEditor(terrain, annotation));
         layout.AddRow(CreateCheckEditor(
             "Cut / Fill",
             annotation.ShowCutFillRegions,
             value => MutateSection(item => item.ShowCutFillRegions = value),
-            "Shade cut and fill between this terrain and the reference below."));
+            "Shade cut and fill between this terrain and the ground it is compared to below."));
+
+        // The same comparison rows, in the same order, as the Cut/Fill and Earthworks cards: a terrain
+        // to compare to, then Rhino geometry that takes precedence over it.
+        layout.AddRow(CreateCompareTerrainEditor(
+            terrain,
+            annotation.CutFillReferenceTerrainId,
+            id => MutateSection(item => SetSectionCompareTerrain(item, id)),
+            "Another terrain to draw on this section as existing ground, and to shade cut and fill against. " +
+            "None shades against this terrain's own initial triangulation — the ground before any modifier moved it."));
+        if (annotation.CutFillReferenceTerrainId is { } compareId)
+        {
+            if (annotation.CutFillReference.HasReferences)
+            {
+                layout.AddRow(CreateNoteRow(
+                    "Drawn, but not used for cut/fill: the “Compare To” objects below take precedence."));
+            }
+            else if (CreateCompareTerrainStatusRow(
+                         terrain,
+                         compareId,
+                         "its profile and the cut/fill shading are left off this section") is { } status)
+            {
+                layout.AddRow(status);
+            }
+        }
+
         layout.AddRow(CreateSourceEditor(
-            "C/F Reference",
+            "Compare To",
             annotation.CutFillReference,
             apply => MutateSection(item => apply(item.CutFillReference)),
             RhinoObjectType.Mesh | RhinoObjectType.Brep | RhinoObjectType.Extrusion,
             doc => _controller.GetSelectedLayerPaths(doc),
-            "Existing ground for cut/fill shading: a survey mesh or surface, sliced along the same section " +
-            "line. Leave empty to compare against this terrain's own initial triangulation instead."));
+            "Existing ground as Rhino geometry — a survey mesh or surface — sliced along the same section " +
+            "line. Takes precedence over Compare To Terrain for cut/fill."));
+        AddSectionAlsoDrawRows(layout, terrain, annotation);
 
         // No hatch pattern, scale or angle rows: cut and fill appearance comes from the
         // SectionsCutFillCut/Fill layer roles (edited in the layer template), so preview and bake
@@ -446,7 +471,27 @@ public sealed partial class MoleHillPanel
         layout.AddRow(CreateInsertionOriginEditor(terrain, annotation));
     }
 
-    private Control CreateTerrainSectionTerrainEditor(
+    /// <summary>
+    /// The compared terrain is drawn as well as compared against, so the dropdown owns that profile: the
+    /// previous choice's profile goes with it, and the new one joins the drawn terrains (the cut/fill
+    /// reference must be one of them — see <c>TerrainSerializer</c>).
+    /// </summary>
+    private static void SetSectionCompareTerrain(TerrainSectionAnnotationDefinitionBase section, Guid? terrainId)
+    {
+        if (section.CutFillReferenceTerrainId is { } previous)
+            section.ComparisonTerrainIds.RemoveAll(id => id == previous);
+
+        section.CutFillReferenceTerrainId = terrainId;
+        if (terrainId is { } added && !section.ComparisonTerrainIds.Contains(added))
+            section.ComparisonTerrainIds.Add(added);
+    }
+
+    /// <summary>
+    /// Further terrains to draw on the section as profiles, without comparing against them. Shown only
+    /// when there is another terrain to offer; most sections compare one proposed surface to one existing.
+    /// </summary>
+    private void AddSectionAlsoDrawRows(
+        DynamicLayout layout,
         TerrainDefinition owner,
         TerrainSectionAnnotationDefinitionBase annotation)
     {
@@ -454,135 +499,64 @@ public sealed partial class MoleHillPanel
         IReadOnlyList<TerrainDefinition> terrains = doc == null
             ? Array.Empty<TerrainDefinition>()
             : _controller.GetTerrains(doc);
-        var selectedIds = annotation.ComparisonTerrainIds.ToHashSet();
+        Guid? compareId = annotation.CutFillReferenceTerrainId;
+        var others = terrains
+            .Where(item => item.TerrainId != owner.TerrainId && item.TerrainId != compareId)
+            .ToList();
+        var drawn = annotation.ComparisonTerrainIds.Where(id => id != compareId).Distinct().ToList();
+        if (others.Count == 0 && drawn.Count == 0)
+            return;
+
+        const string help = "Other terrains to draw on this section as profiles, in their own colours, without " +
+            "comparing against them.";
         var list = new StackLayout
         {
             Orientation = Orientation.Vertical,
-            Spacing = 4,
+            Spacing = UiMetrics.SpaceXSmall,
             HorizontalContentAlignment = HorizontalAlignment.Stretch
         };
-
-        list.Items.Add(CreateTerrainSectionChoiceRow(owner.TerrainId, owner, isOwner: true, isSelected: true, isAvailable: true, annotation));
-        foreach (TerrainDefinition terrain in terrains.Where(item => item.TerrainId != owner.TerrainId))
-            list.Items.Add(CreateTerrainSectionChoiceRow(
-                owner.TerrainId,
-                terrain,
-                isOwner: false,
-                isSelected: selectedIds.Contains(terrain.TerrainId),
-                isAvailable: doc != null && _controller.HasCompletedFinalTerrainMesh(doc, terrain.TerrainId),
-                annotation));
-
-        foreach (Guid missingId in annotation.ComparisonTerrainIds.Where(id => terrains.All(t => t.TerrainId != id)))
+        foreach (TerrainDefinition other in others)
         {
-            list.Items.Add(new Label
-            {
-                Text = $"Unavailable terrain ({missingId})",
-                TextColor = UiTheme.WarningText,
-                Wrap = WrapMode.Word
-            });
-        }
-
-        var referenceOptions = new List<(Guid? Id, string Label)> { (null, "None") };
-        referenceOptions.AddRange(terrains
-            .Where(item => item.TerrainId != owner.TerrainId && selectedIds.Contains(item.TerrainId))
-            .Select(item => ((Guid?)item.TerrainId, item.Name)));
-        var referenceDropDown = new DropDown { Width = UiMetrics.DropDown, Enabled = referenceOptions.Count > 1 };
-        foreach (var option in referenceOptions)
-            referenceDropDown.Items.Add(new ListItem { Text = option.Label });
-        int selectedReferenceIndex = referenceOptions.FindIndex(
-            option => option.Id == annotation.CutFillReferenceTerrainId);
-        referenceDropDown.SelectedIndex = Math.Max(0, selectedReferenceIndex);
-        ApplyHelp(referenceDropDown, "Terrain treated as existing ground for cut/fill shading.");
-        referenceDropDown.SelectedIndexChanged += (_, _) =>
-        {
-            if (_isRefreshing)
-                return;
-            int index = referenceDropDown.SelectedIndex;
-            if (index < 0 || index >= referenceOptions.Count)
-                return;
-            MutateAnnotation(owner.TerrainId, annotation.Id, item =>
-            {
-                if (item is TerrainSectionAnnotationDefinitionBase section)
-                    section.CutFillReferenceTerrainId = referenceOptions[index].Id;
-            }, scheduleRebuild: true);
-            RefreshUi();
-        };
-
-        list.Items.Add(new StackLayout
-        {
-            Orientation = Orientation.Horizontal,
-            Spacing = 6,
-            VerticalContentAlignment = VerticalAlignment.Center,
-            Items =
-            {
-                new Label { Text = "Reference", TextColor = UiTheme.MutedText },
-                referenceDropDown
-            }
-        });
-
-        const string help = "Terrains drawn in this section. The owning terrain is always proposed; select other terrains for comparison.";
-        return new PropertyRow(CreateHelpLabel("Terrains", help, 0), list, expandWidget: true);
-    }
-
-    private Control CreateTerrainSectionChoiceRow(
-        Guid ownerTerrainId,
-        TerrainDefinition terrain,
-        bool isOwner,
-        bool isSelected,
-        bool isAvailable,
-        TerrainSectionAnnotationDefinitionBase annotation)
-    {
-        var check = new CheckBox
-        {
-            Text = isOwner
-                ? $"{terrain.Name} (Proposed)"
-                : isAvailable ? terrain.Name : $"{terrain.Name} (awaiting final build)",
-            Checked = isSelected,
-            Enabled = !isOwner,
-            TextColor = isAvailable || isOwner ? UiTheme.PrimaryText : UiTheme.WarningText
-        };
-        var swatch = new Panel
-        {
-            Size = new Size(12, 12),
-            BackgroundColor = ToEtoColor(System.Drawing.Color.FromArgb(
-                isOwner && annotation.ColorArgb.HasValue ? annotation.ColorArgb.Value : terrain.TerrainColorArgb))
-        };
-
-        if (!isOwner)
-        {
+            Guid otherId = other.TerrainId;
+            var check = new CheckBox { Text = other.Name, Checked = drawn.Contains(otherId) };
+            ApplyHelp(check, help);
             check.CheckedChanged += (_, _) =>
             {
                 if (_isRefreshing)
                     return;
+
                 bool selected = check.Checked == true;
-                MutateAnnotation(
-                    ownerTerrainId,
-                    annotation.Id,
-                    item =>
-                    {
-                        if (item is not TerrainSectionAnnotationDefinitionBase section)
-                            return;
-                        if (selected && !section.ComparisonTerrainIds.Contains(terrain.TerrainId))
-                            section.ComparisonTerrainIds.Add(terrain.TerrainId);
-                        else if (!selected)
-                        {
-                            section.ComparisonTerrainIds.RemoveAll(id => id == terrain.TerrainId);
-                            if (section.CutFillReferenceTerrainId == terrain.TerrainId)
-                                section.CutFillReferenceTerrainId = null;
-                        }
-                    },
-                    scheduleRebuild: true);
+                MutateAnnotation(owner.TerrainId, annotation.Id, item =>
+                {
+                    if (item is not TerrainSectionAnnotationDefinitionBase section)
+                        return;
+
+                    section.ComparisonTerrainIds.RemoveAll(id => id == otherId);
+                    if (selected)
+                        section.ComparisonTerrainIds.Add(otherId);
+                }, scheduleRebuild: true);
                 RefreshUi();
             };
+            var swatch = new Panel
+            {
+                Size = new Size(12, 12),
+                BackgroundColor = ToEtoColor(System.Drawing.Color.FromArgb(other.TerrainColorArgb))
+            };
+            list.Items.Add(new StackLayout
+            {
+                Orientation = Orientation.Horizontal,
+                Spacing = UiMetrics.SpaceSmall,
+                VerticalContentAlignment = VerticalAlignment.Center,
+                Items = { swatch, check }
+            });
         }
 
-        return new StackLayout
+        layout.AddRow(new PropertyRow(CreateHelpLabel("Also Draw", help, 0), list, expandWidget: true));
+        foreach (Guid drawnId in drawn)
         {
-            Orientation = Orientation.Horizontal,
-            Spacing = 6,
-            VerticalContentAlignment = VerticalAlignment.Center,
-            Items = { swatch, check }
-        };
+            if (CreateCompareTerrainStatusRow(owner, drawnId, "its profile is left off this section") is { } status)
+                layout.AddRow(status);
+        }
     }
 
     private Control CreateInsertionOriginEditor(

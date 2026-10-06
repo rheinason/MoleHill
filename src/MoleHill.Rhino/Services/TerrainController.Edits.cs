@@ -186,6 +186,8 @@ internal sealed partial class TerrainController
         Save(doc, state, raiseStateChanged: !shouldScheduleRebuild);
         if (shouldScheduleRebuild)
             ScheduleRebuild(doc, terrain.TerrainId);
+        else
+            MarkUnbuiltEdits(doc, terrain.TerrainId);
     }
 
     public void MutateTerrain(
@@ -225,6 +227,9 @@ internal sealed partial class TerrainController
                 QueuePendingDocumentSave(doc.RuntimeSerialNumber, LiveEditSaveDebounceMs);
             else
                 Save(doc, state, raiseStateChanged: !shouldScheduleRebuild && !suppressImmediateUiRefresh);
+
+            if (scheduleRebuild && !terrain.LiveUpdateEnabled)
+                MarkUnbuiltEdits(doc, terrain.TerrainId);
 
             if (shouldScheduleRebuild)
                 ScheduleRebuild(doc, terrain.TerrainId, notify: !suppressImmediateUiRefresh);

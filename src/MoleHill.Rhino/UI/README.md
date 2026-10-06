@@ -48,6 +48,11 @@ Escape closes the popup from either the search box or the grid.
   Simplify likewise uses ordinary schema rows: its Mode choice reveals Maximum Deviation, Target
   Vertices, or Retain Percentage, and its collapsed summary shows the active request. Measured
   reduction/error details stay in build diagnostics rather than document state.
+- `MoleHillPanel.CompareTerrain.cs` - the comparison rows shared by Cut/Fill, Earthworks and the section
+  cards: the "Compare To Terrain" dropdown and a status row that says when the chosen terrain is
+  building, unbuilt, empty, edited without a rebuild, or newer than this terrain's results, with a button
+  that runs the rebuild without switching terrains. Sections add an "Also Draw" list for profiles drawn
+  without comparing.
 - `MoleHillPanel.AnnotationStyle.cs` - the Annotations tab's Text Style row (the style the terrain's text
   binds to, its height and font, a picker that edits the document's template copy, and Edit… into Rhino's
   Document Properties) and each annotation card's Text Size row. There is no control to set a fixed text

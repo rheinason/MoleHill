@@ -526,9 +526,6 @@ internal sealed partial class TerrainController
         var state = GetState(doc);
         foreach (var terrain in state.Terrains)
         {
-            if (!terrain.LiveUpdateEnabled)
-                continue;
-
             if (terrain.OutputObjectIds.Contains(objectId) ||
                 terrain.ZoneObjectIds.Contains(objectId) ||
                 terrain.AuxiliaryObjectIds.Contains(objectId) ||
@@ -542,10 +539,20 @@ internal sealed partial class TerrainController
                 .Where(path => !string.IsNullOrWhiteSpace(path))
                 .Any(path => terrain.EnumerateSourceSets().Any(source => source.LayerPaths.Contains(path!, StringComparer.OrdinalIgnoreCase)));
 
+            if (!objectMatch && !layerMatch)
+                continue;
+
+            // With Live Update off nothing rebuilds, but a terrain comparing against this one must be
+            // able to say its surface is out of date.
+            if (!terrain.LiveUpdateEnabled)
+            {
+                MarkUnbuiltEdits(doc, terrain.TerrainId);
+                continue;
+            }
+
             // An object a card lists by id was edited: its definition is unchanged, so only the status
             // moves until the build lands. A layer source can gain or lose objects, so it refreshes in full.
-            if (objectMatch || layerMatch)
-                ScheduleRebuild(doc, terrain.TerrainId, statusOnly: !layerMatch);
+            ScheduleRebuild(doc, terrain.TerrainId, statusOnly: !layerMatch);
         }
     }
 
@@ -561,13 +568,15 @@ internal sealed partial class TerrainController
         var state = GetState(doc);
         foreach (var terrain in state.Terrains)
         {
-            if (!terrain.LiveUpdateEnabled)
-                continue;
-
             bool layerMatch = relevantLayerPaths
                 .Any(path => terrain.EnumerateSourceSets().Any(source => source.LayerPaths.Contains(path!, StringComparer.OrdinalIgnoreCase)));
-            if (layerMatch)
+            if (!layerMatch)
+                continue;
+
+            if (terrain.LiveUpdateEnabled)
                 ScheduleRebuild(doc, terrain.TerrainId);
+            else
+                MarkUnbuiltEdits(doc, terrain.TerrainId);
         }
     }
 

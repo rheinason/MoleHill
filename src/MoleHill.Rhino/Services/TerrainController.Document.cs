@@ -84,6 +84,9 @@ internal sealed partial class TerrainController
         _terrainUndoRecords.RemoveWhere(item => item.docSerial == docSerial);
         _pendingSourceReferencePrunes.Remove(docSerial);
         _pendingObjectReplacements.Remove(docSerial);
+        _unbuiltEdits.RemoveWhere(item => item.DocSerial == docSerial);
+        foreach (var key in _rebuildWhenReady.Keys.Where(key => key.DocSerial == docSerial).ToList())
+            _rebuildWhenReady.Remove(key);
         ClearRuntimeCaches(docSerial);
         ClearRebuildStates(docSerial);
         RemovePendingDocumentSave(docSerial);

@@ -48,6 +48,14 @@ internal sealed class TerrainBuildResult
 
     public List<GeneratedRhinoObject> MarkerObjects { get; } = new();
 
+    /// <summary>
+    /// The final-mesh fingerprint of every other terrain this build compared against, as it was when the
+    /// build was snapshotted (0 when that terrain had no finished mesh). Lets a card tell that the terrain
+    /// it compares to has changed since these results were computed. See
+    /// <see cref="TerrainBuildSnapshot.ReferencedTerrainFingerprints"/>.
+    /// </summary>
+    public IReadOnlyDictionary<Guid, ulong> ReferencedTerrainFingerprints { get; set; } = new Dictionary<Guid, ulong>();
+
     public List<GeneratedRhinoObject> ScatterObjects { get; } = new();
 
     public List<TerrainObjectPlacementGroup> ObjectPlacements { get; } = new();

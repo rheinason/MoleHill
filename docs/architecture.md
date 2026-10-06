@@ -956,6 +956,27 @@ starts drawing its annotations — the correct reading of a flag that only ever 
   same `TerrainBuildSnapshot.SectionTerrains` cache sections use (a referenced terrain's last completed
   final mesh, captured on the document thread), so referencing a terrain still requires it to have finished
   a final build at least once — but never requires baking it to Rhino geometry first.
+- **A comparison against another terrain says when that terrain cannot be compared against.** When the
+  chosen terrain has no finished mesh the build still falls back to this terrain's base triangulation (cut/
+  fill, earthworks) or leaves its profile off (sections) — and used to do so in silence, so the card showed
+  plausible figures against the wrong ground. `TerrainController.GetReferenceTerrainStatus` now gathers the
+  facts and `ReferenceTerrainStatusRules.Classify` names the first thing wrong: the terrain is building,
+  was never built, built empty, was edited with Live Update off (`_unbuiltEdits`, set wherever a rebuild is
+  skipped because Live Update is off and cleared when a final build snapshots), or has changed since this
+  terrain last compared against it. The last needs history: each final build records every referenced
+  terrain's `LastFinalMeshFingerprint` as its snapshot saw it (`TerrainBuildSnapshot.ReferencedTerrainFingerprints`
+  → `TerrainRuntimeCache.ReferencedTerrainFingerprints`, 0 for "had no surface"). The card's status row
+  carries the fix: **Rebuild {terrain}** runs `RebuildReferenceTerrain`, which rebuilds the other terrain
+  and then this one (`_rebuildWhenReady`) whatever either's Live Update setting — the automatic follow-up,
+  `ScheduleTerrainDependents`, only covers live terrains. A terrain compared against always raises a full
+  panel refresh when its build lands, because the visible card may be one comparing against it.
+- **One comparison UI.** Cut/Fill, Earthworks and the three section cards share
+  `MoleHillPanel.CompareTerrain.cs`: a "Compare To Terrain" dropdown (None = this terrain's base
+  triangulation), its status row, then the "Compare To" geometry row that takes precedence over it. On a
+  section the compared terrain is also drawn, so the dropdown owns that profile (`SetSectionCompareTerrain`
+  keeps `CutFillReferenceTerrainId` inside `ComparisonTerrainIds`); further profiles, drawn without
+  comparing, are an "Also Draw" list shown only when another terrain exists. This replaced a checklist that
+  showed the owning terrain as a disabled "(Proposed)" row beside a separate Reference dropdown.
 - **A section cut plane is nudged off mesh vertices.** `Intersection.MeshPlane` drops whole spans when the
   plane passes exactly through vertices, returning the profile as disjoint runs where the mesh is
   continuous. Grading makes that the normal case, not a freak one: batter re-triangulation lands vertices
