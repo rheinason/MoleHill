@@ -1,3 +1,4 @@
+using MoleHill.Core.Geometry;
 using MoleHill.Core.Grading;
 
 namespace MoleHill.Core.Sculpting;
@@ -86,7 +87,7 @@ public sealed class SculptConstraintMask
         // A point outside the bounding box is outside the polygon; skip the ray cast for it.
         if (region.IsPolygon &&
             region.DistanceOutsideBounds(x, y) <= 0.0 &&
-            GradingGeometry2D.PointInPolygon(x, y, region.XyVertices, region.VertexCount))
+            Geometry2D.PointInPolygon(x, y, region.XyVertices, region.VertexCount))
         {
             return 0.0;
         }

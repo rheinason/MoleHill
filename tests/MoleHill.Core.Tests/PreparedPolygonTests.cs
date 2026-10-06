@@ -1,3 +1,4 @@
+using MoleHill.Core.Geometry;
 using MoleHill.Core.Grading;
 using Xunit;
 
@@ -6,7 +7,7 @@ namespace MoleHill.Core.Tests;
 /// <summary>
 /// <see cref="PreparedPolygon"/> must answer exactly what the linear crossing and distance walks
 /// answer — it is only allowed to skip work, never to change a verdict. The oracle here is
-/// <see cref="GradingGeometry2D"/> itself, sampled densely at edges, vertices and large coordinates.
+/// <see cref="Geometry2D"/> itself, sampled densely at edges, vertices and large coordinates.
 /// </summary>
 public class PreparedPolygonTests
 {
@@ -24,7 +25,7 @@ public class PreparedPolygonTests
             double x = (random.NextDouble() * 30.0) - 15.0;
             double y = (random.NextDouble() * 30.0) - 15.0;
 
-            Assert.Equal(GradingGeometry2D.PointInPolygon(x, y, loop, vertexCount), prepared.Contains(x, y));
+            Assert.Equal(Geometry2D.PointInPolygon(x, y, loop, vertexCount), prepared.Contains(x, y));
         }
     }
 
@@ -63,7 +64,7 @@ public class PreparedPolygonTests
             double x = 1_000_000.0 + (random.NextDouble() * 30.0) - 15.0;
             double y = -2_000_000.0 + (random.NextDouble() * 30.0) - 15.0;
 
-            Assert.Equal(GradingGeometry2D.PointInPolygon(x, y, loop, 300), prepared.Contains(x, y));
+            Assert.Equal(Geometry2D.PointInPolygon(x, y, loop, 300), prepared.Contains(x, y));
         }
     }
 
@@ -97,7 +98,7 @@ public class PreparedPolygonTests
                 double x = (random.NextDouble() * 40.0) - 20.0;
                 double y = (random.NextDouble() * 40.0) - 20.0;
 
-                bool expected = GradingGeometry2D.DistanceToPolygon(x, y, loop, vertexCount) <= margin;
+                bool expected = Geometry2D.DistanceToPolygon(x, y, loop, vertexCount) <= margin;
                 Assert.Equal(expected, prepared.IsWithin(x, y, margin));
             }
         }
@@ -142,7 +143,7 @@ public class PreparedPolygonTests
 
     private static void AssertSame(double[] loop, int vertexCount, PreparedPolygon prepared, double x, double y)
     {
-        Assert.Equal(GradingGeometry2D.PointInPolygon(x, y, loop, vertexCount), prepared.Contains(x, y));
+        Assert.Equal(Geometry2D.PointInPolygon(x, y, loop, vertexCount), prepared.Contains(x, y));
     }
 
     private static PreparedPolygon Require(double[] loop)

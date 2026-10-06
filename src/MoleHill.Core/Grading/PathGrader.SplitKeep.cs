@@ -1,3 +1,4 @@
+using MoleHill.Core.Geometry;
 using System.Diagnostics;
 using MoleHill.Core.Engine;
 
@@ -261,12 +262,12 @@ public static partial class PathGrader
             loop[dst * 2 + 1] = corridor.RightXyz[src * 3 + 1];
         }
 
-        if (!GradingGeometry2D.ClosedPolylineSelfIntersects(loop, loop.Length / 2))
+        if (!Geometry2D.ClosedPolylineSelfIntersects(loop, loop.Length / 2))
             return loop;
 
         if (ClipperGeometry.TryUnionClosedLoops(new[] { loop }, tolerance, out List<double[]> cleaned) &&
             ClipperGeometry.TryPickLargestLoop(cleaned, out double[] envelope) &&
-            !GradingGeometry2D.ClosedPolylineSelfIntersects(envelope, envelope.Length / 2))
+            !Geometry2D.ClosedPolylineSelfIntersects(envelope, envelope.Length / 2))
         {
             return envelope;
         }

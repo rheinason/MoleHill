@@ -1,7 +1,120 @@
-namespace MoleHill.Core.Grading;
+﻿namespace MoleHill.Core.Geometry;
 
-internal static class GradingGeometry2D
+/// <summary>
+/// The 2D (plan) geometry primitives every part of Core shares. A private copy of one of these in another
+/// file is a bug waiting to drift (<c>Geometry2DGuardTests</c> fails on new ones). Where two predicates
+/// differ in meaning they carry different names: <see cref="SegmentsCrossStrictly"/> rejects a touch,
+/// <see cref="SegmentsTouch"/> accepts one; <see cref="ParameterOnSegment"/> is unclamped,
+/// <see cref="ParameterOnSegmentClamped"/> is not.
+/// </summary>
+internal static class Geometry2D
 {
+    /// <summary>The z component of the cross product of two plan vectors.</summary>
+    public static double Cross(double ax, double ay, double bx, double by) => (ax * by) - (ay * bx);
+
+    /// <summary>
+    /// Twice the signed area of triangle a-b-c: positive when c lies left of a->b (counter-clockwise).
+    /// </summary>
+    public static double Orient(double ax, double ay, double bx, double by, double cx, double cy) =>
+        ((bx - ax) * (cy - ay)) - ((by - ay) * (cx - ax));
+
+    /// <summary>Unclamped linear interpolation.</summary>
+    public static double Lerp(double a, double b, double t) => a + ((b - a) * t);
+
+    public static double DistanceSquared(double ax, double ay, double bx, double by)
+    {
+        double dx = ax - bx;
+        double dy = ay - by;
+        return (dx * dx) + (dy * dy);
+    }
+
+    /// <summary>Squared 3D distance between vertices <paramref name="a"/> and <paramref name="b"/> of a flat XYZ array.</summary>
+    public static double DistanceSquared3(double[] vertices, int a, int b)
+    {
+        double dx = vertices[a * 3] - vertices[b * 3];
+        double dy = vertices[(a * 3) + 1] - vertices[(b * 3) + 1];
+        double dz = vertices[(a * 3) + 2] - vertices[(b * 3) + 2];
+        return (dx * dx) + (dy * dy) + (dz * dz);
+    }
+
+    /// <inheritdoc cref="DistanceSquared3(double[], int, int)"/>
+    public static double DistanceSquared3(List<double> vertices, int a, int b)
+    {
+        double dx = vertices[a * 3] - vertices[b * 3];
+        double dy = vertices[(a * 3) + 1] - vertices[(b * 3) + 1];
+        double dz = vertices[(a * 3) + 2] - vertices[(b * 3) + 2];
+        return (dx * dx) + (dy * dy) + (dz * dz);
+    }
+
+    /// <summary>Parameter of the projection of p on the line through a-b (unclamped); 0 for a degenerate segment.</summary>
+    public static double ParameterOnSegment(double ax, double ay, double bx, double by, double px, double py)
+    {
+        double dx = bx - ax;
+        double dy = by - ay;
+        double lengthSquared = (dx * dx) + (dy * dy);
+        if (lengthSquared <= 1e-20)
+            return 0.0;
+
+        return (((px - ax) * dx) + ((py - ay) * dy)) / lengthSquared;
+    }
+
+    /// <summary><see cref="ParameterOnSegment"/> clamped to [0, 1].</summary>
+    public static double ParameterOnSegmentClamped(double ax, double ay, double bx, double by, double px, double py)
+    {
+        double dx = bx - ax;
+        double dy = by - ay;
+        double lengthSquared = (dx * dx) + (dy * dy);
+        if (lengthSquared <= 1e-20)
+            return 0.0;
+
+        return Math.Clamp((((px - ax) * dx) + ((py - ay) * dy)) / lengthSquared, 0.0, 1.0);
+    }
+
+    /// <summary>Signed area of a closed XY loop of <paramref name="count"/> vertices; positive counter-clockwise.</summary>
+    public static double SignedArea(double[] xy, int count)
+    {
+        double sum = 0.0;
+        for (int i = 0; i < count; i++)
+        {
+            int next = (i + 1) % count;
+            sum += (xy[i * 2] * xy[(next * 2) + 1]) - (xy[next * 2] * xy[(i * 2) + 1]);
+        }
+
+        return sum * 0.5;
+    }
+
+    /// <summary>True when p lies in the axis-aligned box of a-b, grown by <paramref name="epsilon"/>.</summary>
+    public static bool InSegmentBox(double ax, double ay, double bx, double by, double px, double py, double epsilon = 1e-12) =>
+        px >= Math.Min(ax, bx) - epsilon &&
+        px <= Math.Max(ax, bx) + epsilon &&
+        py >= Math.Min(ay, by) - epsilon &&
+        py <= Math.Max(ay, by) + epsilon;
+
+    /// <summary>
+    /// True when segments a-b and c-d cross or touch: a proper crossing, or an end of one lying on the other
+    /// (orientation within 1e-12 and inside its box). Collinear overlaps count.
+    /// </summary>
+    public static bool SegmentsTouch(
+        double ax, double ay, double bx, double by,
+        double cx, double cy, double dx, double dy)
+    {
+        double o1 = Orient(ax, ay, bx, by, cx, cy);
+        double o2 = Orient(ax, ay, bx, by, dx, dy);
+        double o3 = Orient(cx, cy, dx, dy, ax, ay);
+        double o4 = Orient(cx, cy, dx, dy, bx, by);
+
+        if (((o1 > 0.0 && o2 < 0.0) || (o1 < 0.0 && o2 > 0.0)) &&
+            ((o3 > 0.0 && o4 < 0.0) || (o3 < 0.0 && o4 > 0.0)))
+        {
+            return true;
+        }
+
+        return (Math.Abs(o1) <= 1e-12 && InSegmentBox(ax, ay, bx, by, cx, cy)) ||
+               (Math.Abs(o2) <= 1e-12 && InSegmentBox(ax, ay, bx, by, dx, dy)) ||
+               (Math.Abs(o3) <= 1e-12 && InSegmentBox(cx, cy, dx, dy, ax, ay)) ||
+               (Math.Abs(o4) <= 1e-12 && InSegmentBox(cx, cy, dx, dy, bx, by));
+    }
+
     public static bool PointInPolygon(double px, double py, double[] polyXy, int polyVertCount)
     {
         bool inside = false;
@@ -48,7 +161,7 @@ internal static class GradingGeometry2D
             for (int j = 0; j < bCount; j++)
             {
                 int bj = (j + 1) % bCount;
-                if (SegmentsIntersect(
+                if (SegmentsCrossStrictly(
                         aXy[i * 2], aXy[i * 2 + 1], aXy[ai * 2], aXy[ai * 2 + 1],
                         bXy[j * 2], bXy[j * 2 + 1], bXy[bj * 2], bXy[bj * 2 + 1]))
                 {
@@ -72,7 +185,7 @@ internal static class GradingGeometry2D
                 if (i == j || i == jNext || iNext == j || iNext == jNext)
                     continue;
 
-                if (SegmentsIntersect(
+                if (SegmentsCrossStrictly(
                         xy[i * 2], xy[i * 2 + 1], xy[iNext * 2], xy[iNext * 2 + 1],
                         xy[j * 2], xy[j * 2 + 1], xy[jNext * 2], xy[jNext * 2 + 1]))
                 {
@@ -84,14 +197,18 @@ internal static class GradingGeometry2D
         return false;
     }
 
-    public static bool SegmentsIntersect(
+    /// <summary>
+    /// True only for a proper crossing: each segment's ends lie strictly on opposite sides of the other.
+    /// A touch, a shared endpoint or a collinear overlap is not a crossing.
+    /// </summary>
+    public static bool SegmentsCrossStrictly(
         double ax, double ay, double bx, double by,
         double cx, double cy, double dx, double dy)
     {
-        double o1 = Cross(ax, ay, bx, by, cx, cy);
-        double o2 = Cross(ax, ay, bx, by, dx, dy);
-        double o3 = Cross(cx, cy, dx, dy, ax, ay);
-        double o4 = Cross(cx, cy, dx, dy, bx, by);
+        double o1 = Orient(ax, ay, bx, by, cx, cy);
+        double o2 = Orient(ax, ay, bx, by, dx, dy);
+        double o3 = Orient(cx, cy, dx, dy, ax, ay);
+        double o4 = Orient(cx, cy, dx, dy, bx, by);
 
         if (((o1 > 0.0 && o2 < 0.0) || (o1 < 0.0 && o2 > 0.0)) &&
             ((o3 > 0.0 && o4 < 0.0) || (o3 < 0.0 && o4 > 0.0)))
@@ -101,9 +218,6 @@ internal static class GradingGeometry2D
 
         return false;
     }
-
-    private static double Cross(double ax, double ay, double bx, double by, double px, double py) =>
-        ((bx - ax) * (py - ay)) - ((by - ay) * (px - ax));
 
     /// <summary>
     /// A point strictly inside the given simple polygon (flat XY pairs). The vertex average is used
@@ -148,7 +262,7 @@ internal static class GradingGeometry2D
         double cx = xy[n * 2], cy = xy[n * 2 + 1];
 
         // Degenerate ear (duplicate/collinear corner): keep the average as the least-bad answer.
-        if (Math.Abs(Cross(ax, ay, bx, by, cx, cy)) <= 1e-12)
+        if (Math.Abs(Orient(ax, ay, bx, by, cx, cy)) <= 1e-12)
             return (avgX, avgY);
 
         // Deepest other vertex intruding into the ear triangle, depth measured from line a-c toward
@@ -167,7 +281,7 @@ internal static class GradingGeometry2D
             if (!PointInTriangleInclusive(qx, qy, ax, ay, bx, by, cx, cy))
                 continue;
 
-            double depth = Math.Abs(Cross(ax, ay, cx, cy, qx, qy));
+            double depth = Math.Abs(Orient(ax, ay, cx, cy, qx, qy));
             if (deepest < 0 || depth > deepestDepth)
             {
                 deepest = i;
@@ -181,13 +295,14 @@ internal static class GradingGeometry2D
         return ((bx + xy[deepest * 2]) * 0.5, (by + xy[(deepest * 2) + 1]) * 0.5);
     }
 
-    private static bool PointInTriangleInclusive(
+    /// <summary>True when p lies in triangle a-b-c or on its boundary (orientation tolerance 1e-12), either winding.</summary>
+    public static bool PointInTriangleInclusive(
         double px, double py, double ax, double ay, double bx, double by, double cx, double cy)
     {
         const double tolerance = 1e-12;
-        double o1 = Cross(ax, ay, bx, by, px, py);
-        double o2 = Cross(bx, by, cx, cy, px, py);
-        double o3 = Cross(cx, cy, ax, ay, px, py);
+        double o1 = Orient(ax, ay, bx, by, px, py);
+        double o2 = Orient(bx, by, cx, cy, px, py);
+        double o3 = Orient(cx, cy, ax, ay, px, py);
         bool hasNegative = o1 < -tolerance || o2 < -tolerance || o3 < -tolerance;
         bool hasPositive = o1 > tolerance || o2 > tolerance || o3 > tolerance;
         return !(hasNegative && hasPositive);

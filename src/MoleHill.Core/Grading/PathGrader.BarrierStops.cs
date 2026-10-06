@@ -1,3 +1,4 @@
+using MoleHill.Core.Geometry;
 using MoleHill.Core.Engine;
 
 namespace MoleHill.Core.Grading;
@@ -132,7 +133,7 @@ public static partial class PathGrader
                     continue;
 
                 PointAt(xy, z, cumulative, (bounds[k].S + bounds[k + 1].S) * 0.5, out double mx, out double my, out _);
-                if (closedBarriers.Any(ring => GradingGeometry2D.PointInPolygon(mx, my, ring, ring.Length / 2)))
+                if (closedBarriers.Any(ring => Geometry2D.PointInPolygon(mx, my, ring, ring.Length / 2)))
                 {
                     piecesLeftToConstraints++;
                     continue;

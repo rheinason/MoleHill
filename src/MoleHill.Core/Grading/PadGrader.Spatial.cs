@@ -1,3 +1,5 @@
+using MoleHill.Core.Geometry;
+
 namespace MoleHill.Core.Grading;
 
 public static partial class PadGrader
@@ -22,26 +24,26 @@ public static partial class PadGrader
 
     public static bool PointInPolygon(double px, double py, double[] polyXy, int polyVertCount)
     {
-        return GradingGeometry2D.PointInPolygon(px, py, polyXy, polyVertCount);
+        return Geometry2D.PointInPolygon(px, py, polyXy, polyVertCount);
     }
 
     public static double DistToPolygon(double px, double py, double[] polyXy, int polyVertCount)
     {
-        return GradingGeometry2D.DistanceToPolygon(px, py, polyXy, polyVertCount);
+        return Geometry2D.DistanceToPolygon(px, py, polyXy, polyVertCount);
     }
 
     public static (double X, double Y) PolygonInteriorPoint(double[] polyXy, int polyVertCount)
     {
-        return GradingGeometry2D.PolygonInteriorPoint(polyXy, polyVertCount);
+        return Geometry2D.PolygonInteriorPoint(polyXy, polyVertCount);
     }
 
     public static int FindNearVertex(List<double> xyList, double px, double py, double tolerance)
     {
-        return GradingGeometry2D.FindNearVertex(xyList, px, py, tolerance);
+        return Geometry2D.FindNearVertex(xyList, px, py, tolerance);
     }
 
     public static double InterpolateZ(double[] vertices, int[] faces, int faceCount, double px, double py)
     {
-        return GradingGeometry2D.InterpolateZ(vertices, faces, faceCount, px, py);
+        return Geometry2D.InterpolateZ(vertices, faces, faceCount, px, py);
     }
 }

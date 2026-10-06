@@ -1,3 +1,5 @@
+using MoleHill.Core.Geometry;
+
 namespace MoleHill.Core.Grading;
 
 /// <summary>
@@ -5,8 +7,8 @@ namespace MoleHill.Core.Grading;
 /// </summary>
 /// <remarks>
 /// <para>
-/// The answers are identical to <see cref="GradingGeometry2D.PointInPolygon"/> and
-/// <see cref="GradingGeometry2D.DistanceToPolygon"/>; only the work to reach them changes. Both of
+/// The answers are identical to <see cref="Geometry2D.PointInPolygon"/> and
+/// <see cref="Geometry2D.DistanceToPolygon"/>; only the work to reach them changes. Both of
 /// those walk every edge for every query, so filtering 1M input points against a detailed boundary, or
 /// classifying every face centroid against a clipped loop, costs points x edges.
 /// </para>
@@ -142,17 +144,17 @@ public sealed class PreparedPolygon
         return prepared;
     }
 
-    /// <summary>Same result as <see cref="GradingGeometry2D.PointInPolygon"/>.</summary>
+    /// <summary>Same result as <see cref="Geometry2D.PointInPolygon"/>.</summary>
     public bool Contains(double x, double y)
     {
         if (!_boundsUsable)
-            return GradingGeometry2D.PointInPolygon(x, y, _xy, _vertexCount);
+            return Geometry2D.PointInPolygon(x, y, _xy, _vertexCount);
 
         if (x < MinX || x > MaxX || y < MinY || y > MaxY)
             return false;
 
         if (_bucketStart == null || _bucketEdges == null)
-            return GradingGeometry2D.PointInPolygon(x, y, _xy, _vertexCount);
+            return Geometry2D.PointInPolygon(x, y, _xy, _vertexCount);
 
         int bucket = BucketOf(y);
         bool inside = false;
@@ -173,7 +175,7 @@ public sealed class PreparedPolygon
 
     /// <summary>
     /// True when the point is within <paramref name="margin"/> of the loop's boundary. Equivalent to
-    /// <c>GradingGeometry2D.DistanceToPolygon(...) &lt;= margin</c>, without measuring edges that the
+    /// <c>Geometry2D.DistanceToPolygon(...) &lt;= margin</c>, without measuring edges that the
     /// loop bounds already place further away.
     /// </summary>
     public bool IsWithin(double x, double y, double margin)
@@ -197,7 +199,7 @@ public sealed class PreparedPolygon
             return double.PositiveInfinity;
         }
 
-        return GradingGeometry2D.DistanceToPolygon(x, y, _xy, _vertexCount);
+        return Geometry2D.DistanceToPolygon(x, y, _xy, _vertexCount);
     }
 
     private int BucketOf(double y)

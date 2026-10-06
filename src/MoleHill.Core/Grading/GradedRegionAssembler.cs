@@ -1,5 +1,7 @@
 ﻿using MoleHill.Core.Engine;
 
+using MoleHill.Core.Geometry;
+
 namespace MoleHill.Core.Grading;
 
 /// <summary>
@@ -984,7 +986,7 @@ internal static class GradedRegionAssembler
         bool fullyInside = true;
         for (int i = 0; i < count; i++)
         {
-            if (!GradingGeometry2D.PointInPolygon(loopXy[i * 2], loopXy[i * 2 + 1], terrainOutline, outlineCount))
+            if (!Geometry2D.PointInPolygon(loopXy[i * 2], loopXy[i * 2 + 1], terrainOutline, outlineCount))
             {
                 fullyInside = false;
                 break;

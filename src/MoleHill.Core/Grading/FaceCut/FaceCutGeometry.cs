@@ -1,4 +1,5 @@
 using MoleHill.Core.Engine;
+using MoleHill.Core.Geometry;
 
 namespace MoleHill.Core.Grading;
 
@@ -619,7 +620,7 @@ internal static class FaceCutGeometry
     public static Point2D Lerp(Point2D start, Point2D end, double t) =>
         new(start.X + ((end.X - start.X) * t), start.Y + ((end.Y - start.Y) * t));
 
-    public static double Cross(double ax, double ay, double bx, double by) => (ax * by) - (ay * bx);
+    public static double Cross(double ax, double ay, double bx, double by) => Geometry2D.Cross(ax, ay, bx, by);
 
     public static double DistanceSquared(Point2D a, Point2D b)
     {

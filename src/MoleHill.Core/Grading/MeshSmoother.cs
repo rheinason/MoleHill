@@ -1,3 +1,4 @@
+using MoleHill.Core.Geometry;
 using MoleHill.Core.Engine;
 
 namespace MoleHill.Core.Grading;
@@ -309,7 +310,7 @@ public static class MeshSmoother
                 continue;
 
             var boundary = boundaries[boundaryIndexHit];
-            if (GradingGeometry2D.PointInPolygon(px, py, boundary.xyVerts, boundary.vertCount))
+            if (Geometry2D.PointInPolygon(px, py, boundary.xyVerts, boundary.vertCount))
                 bestMatch = boundaryIndexHit;
         }
 
@@ -335,7 +336,7 @@ public static class MeshSmoother
                 continue;
 
             var boundary = boundaries[boundaryIndexHit];
-            if (GradingGeometry2D.PointInPolygon(px, py, boundary.xyVerts, boundary.vertCount))
+            if (Geometry2D.PointInPolygon(px, py, boundary.xyVerts, boundary.vertCount))
                 return true;
         }
 

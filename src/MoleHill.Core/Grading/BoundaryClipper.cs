@@ -1,3 +1,5 @@
+using MoleHill.Core.Geometry;
+
 namespace MoleHill.Core.Grading;
 
 internal readonly record struct ClippedSegment(
@@ -25,8 +27,8 @@ internal static class BoundaryClipper
         if (!hasBoundaryLoop)
             return true;
 
-        return GradingGeometry2D.PointInPolygon(x, y, boundaryLoop, boundaryVertexCount)
-            || GradingGeometry2D.DistanceToPolygon(x, y, boundaryLoop, boundaryVertexCount) <= tolerance;
+        return Geometry2D.PointInPolygon(x, y, boundaryLoop, boundaryVertexCount)
+            || Geometry2D.DistanceToPolygon(x, y, boundaryLoop, boundaryVertexCount) <= tolerance;
     }
 
     public static bool IsPolylineInsideBoundary(
@@ -41,7 +43,7 @@ internal static class BoundaryClipper
         if (!hasBoundaryLoop || vertexCount <= 0)
             return true;
 
-        if (!GradingGeometry2D.AllPointsInsideOrOnBoundary(xyVertices, vertexCount, boundaryLoop, boundaryVertexCount, tolerance))
+        if (!Geometry2D.AllPointsInsideOrOnBoundary(xyVertices, vertexCount, boundaryLoop, boundaryVertexCount, tolerance))
             return false;
 
         int segmentCount = isClosed ? vertexCount : vertexCount - 1;

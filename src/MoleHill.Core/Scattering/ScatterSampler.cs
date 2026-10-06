@@ -1,3 +1,4 @@
+using MoleHill.Core.Geometry;
 using MoleHill.Core.Grading;
 using MoleHill.Core.Engine;
 
@@ -100,7 +101,7 @@ public static class ScatterSampler
                     continue;
 
                 double[] loop = loops[i];
-                if (GradingGeometry2D.PointInPolygon(x, y, loop, loop.Length / 2))
+                if (Geometry2D.PointInPolygon(x, y, loop, loop.Length / 2))
                     return true;
             }
 

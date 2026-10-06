@@ -1,3 +1,4 @@
+using MoleHill.Core.Geometry;
 using MoleHill.Core.Engine;
 using MoleHill.Core.Grading;
 using Xunit;
@@ -86,7 +87,7 @@ public class MeshAreaSplitterScaleTests
             double y = (points[i].Y + points[i].Y + points[i].Y) / 3;
             int expected = -1;
             for (int area = 0; area < areas.Length; area++)
-                if (GradingGeometry2D.PointInPolygon(x, y, areas[area].XyVertices, areas[area].VertexCount))
+                if (Geometry2D.PointInPolygon(x, y, areas[area].XyVertices, areas[area].VertexCount))
                     expected = area;
             Assert.Equal(expected, result!.FaceAreaIndex[i]);
         }

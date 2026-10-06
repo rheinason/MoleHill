@@ -1,4 +1,5 @@
 ﻿using System.Diagnostics;
+using MoleHill.Core.Geometry;
 using System.Text;
 using MoleHill.Core.Grading;
 using TriangleNet.Meshing;
@@ -2095,7 +2096,7 @@ public static class SurfaceRemesher
         double x,
         double y)
     {
-        return faceGrid?.InterpolateZ(x, y) ?? GradingGeometry2D.InterpolateZ(originalVertices, originalFaces, faceCount, x, y);
+        return faceGrid?.InterpolateZ(x, y) ?? Geometry2D.InterpolateZ(originalVertices, originalFaces, faceCount, x, y);
     }
 
     private static double GetProtectedEdgeLength(Options options)

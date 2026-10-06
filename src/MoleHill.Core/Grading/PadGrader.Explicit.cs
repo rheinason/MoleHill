@@ -1,5 +1,7 @@
 ﻿using MoleHill.Core.Engine;
 
+using MoleHill.Core.Geometry;
+
 namespace MoleHill.Core.Grading;
 
 public static partial class PadGrader
@@ -444,7 +446,7 @@ public static partial class PadGrader
             if (higherWins)
                 continue;
 
-            double meshZ = GradingGeometry2D.InterpolateZ(vertices, faces, faceCount, rx, ry);
+            double meshZ = Geometry2D.InterpolateZ(vertices, faces, faceCount, rx, ry);
             if (Math.Abs(meshZ - ownerZ) > zTolerance)
                 return false;
         }
@@ -1096,7 +1098,7 @@ public static partial class PadGrader
         {
             for (int j = i + 1; j < n; j++)
             {
-                if (GradingGeometry2D.PolygonsOverlap(builds[i].DaylightXy, builds[j].DaylightXy))
+                if (Geometry2D.PolygonsOverlap(builds[i].DaylightXy, builds[j].DaylightXy))
                     parent[Find(i)] = Find(j);
             }
         }

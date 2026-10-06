@@ -1,4 +1,5 @@
 ﻿using System.Text;
+using MoleHill.Core.Geometry;
 using MoleHill.Core.Engine;
 using MoleHill.Core.Grading;
 using MoleHill.Rhino.Model;
@@ -450,13 +451,13 @@ internal sealed class TerrainRuntimeCache
 
         for (int i = 0; i < leftVertexCount; i++)
         {
-            if (GradingGeometry2D.PointInPolygon(leftLoop[i * 2], leftLoop[i * 2 + 1], rightLoop, rightVertexCount))
+            if (Geometry2D.PointInPolygon(leftLoop[i * 2], leftLoop[i * 2 + 1], rightLoop, rightVertexCount))
                 return true;
         }
 
         for (int i = 0; i < rightVertexCount; i++)
         {
-            if (GradingGeometry2D.PointInPolygon(rightLoop[i * 2], rightLoop[i * 2 + 1], leftLoop, leftVertexCount))
+            if (Geometry2D.PointInPolygon(rightLoop[i * 2], rightLoop[i * 2 + 1], leftLoop, leftVertexCount))
                 return true;
         }
 

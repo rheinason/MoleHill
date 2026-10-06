@@ -1,3 +1,4 @@
+using MoleHill.Core.Geometry;
 using MoleHill.Core.Engine;
 
 namespace MoleHill.Core.Grading;
@@ -140,7 +141,7 @@ public static partial class PathGrader
         {
             for (int j = i + 1; j < daylightLoopsXy.Count; j++)
             {
-                if (GradingGeometry2D.PolygonsOverlap(daylightLoopsXy[i], daylightLoopsXy[j]))
+                if (Geometry2D.PolygonsOverlap(daylightLoopsXy[i], daylightLoopsXy[j]))
                 {
                     errorMessage = "Grade Path corridors interact; deferring to topology rebuild.";
                     return null;
@@ -435,11 +436,11 @@ public static partial class PathGrader
             // clipping some rays short but not others). Resolve any self-overlap into the clean outer
             // envelope with a Clipper union instead of deferring to the fallback. Batter seeds that end
             // up outside this envelope are filtered out later in BuildCorridorHoleFill.
-            if (GradingGeometry2D.ClosedPolylineSelfIntersects(daylightPolyXy, daylightPolyXy.Length / 2))
+            if (Geometry2D.ClosedPolylineSelfIntersects(daylightPolyXy, daylightPolyXy.Length / 2))
             {
                 if (!ClipperGeometry.TryUnionClosedLoops(new[] { daylightPolyXy }, tolerance, out List<double[]> cleanedLoops) ||
                     !ClipperGeometry.TryPickLargestLoop(cleanedLoops, out double[] envelope) ||
-                    GradingGeometry2D.ClosedPolylineSelfIntersects(envelope, envelope.Length / 2))
+                    Geometry2D.ClosedPolylineSelfIntersects(envelope, envelope.Length / 2))
                 {
                     if (railLoopXy == null)
                     {
@@ -681,7 +682,7 @@ public static partial class PathGrader
 
         for (int c = 0; c < corridorLoops.Count; c++)
         {
-            if (GradingGeometry2D.PointInPolygon(cx, cy, corridorLoops[c], corridorLoops[c].Length / 2))
+            if (Geometry2D.PointInPolygon(cx, cy, corridorLoops[c], corridorLoops[c].Length / 2))
                 return c;
         }
 
@@ -884,7 +885,7 @@ public static partial class PathGrader
             {
                 double sx = seeds[i * 3];
                 double sy = seeds[i * 3 + 1];
-                if (GradingGeometry2D.PointInPolygon(sx, sy, boundaryXy, boundaryCount))
+                if (Geometry2D.PointInPolygon(sx, sy, boundaryXy, boundaryCount))
                     AddSeedPoint(sx, sy);
             }
 
@@ -903,7 +904,7 @@ public static partial class PathGrader
                 double tMax = 0.0;
                 for (double t = 1.0; t >= 0.15; t -= 0.1)
                 {
-                    if (GradingGeometry2D.PointInPolygon(station.FootX + (dx * t), station.FootY + (dy * t), boundaryXy, boundaryCount))
+                    if (Geometry2D.PointInPolygon(station.FootX + (dx * t), station.FootY + (dy * t), boundaryXy, boundaryCount))
                     {
                         tMax = t;
                         break;

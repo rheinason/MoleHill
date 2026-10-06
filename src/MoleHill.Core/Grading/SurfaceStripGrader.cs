@@ -1,3 +1,4 @@
+using MoleHill.Core.Geometry;
 using System.Diagnostics;
 using MoleHill.Core.Engine;
 
@@ -387,7 +388,7 @@ public static class SurfaceStripGrader
                     continue;
             }
 
-            if (GradingGeometry2D.PointInPolygon(px, py, surface.FootprintXy, surface.FootprintVertexCount))
+            if (Geometry2D.PointInPolygon(px, py, surface.FootprintXy, surface.FootprintVertexCount))
             {
                 newZ[i] = surface.EvaluateZ(px, py);
                 continue;

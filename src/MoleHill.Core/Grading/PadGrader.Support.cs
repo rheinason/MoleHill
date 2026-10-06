@@ -1,3 +1,5 @@
+using MoleHill.Core.Geometry;
+
 namespace MoleHill.Core.Grading;
 
 public static partial class PadGrader
@@ -9,7 +11,7 @@ public static partial class PadGrader
 
     internal static bool AllPointsInsideOrOnBoundary(double[] xy, int vertexCount, double[] boundaryLoop, int boundaryVertexCount, double tolerance)
     {
-        return GradingGeometry2D.AllPointsInsideOrOnBoundary(xy, vertexCount, boundaryLoop, boundaryVertexCount, tolerance);
+        return Geometry2D.AllPointsInsideOrOnBoundary(xy, vertexCount, boundaryLoop, boundaryVertexCount, tolerance);
     }
 
     private static bool TryIntersectLines(
