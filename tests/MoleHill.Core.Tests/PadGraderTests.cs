@@ -1014,40 +1014,12 @@ public class PadGraderTests
 
     private static double[] BuildGridVertices(int size, double spacing)
     {
-        var vertices = new double[size * size * 3];
-        int index = 0;
-        for (int y = 0; y < size; y++)
-        {
-            for (int x = 0; x < size; x++)
-            {
-                vertices[index * 3] = x * spacing;
-                vertices[index * 3 + 1] = y * spacing;
-                vertices[index * 3 + 2] = 0.0;
-                index++;
-            }
-        }
-
-        return vertices;
+        return TestMeshes.GridVertices(size, size, spacing);
     }
 
     private static double[] BuildSlopedGridVertices(int size, double spacing, double xSlope, double ySlope = 0.0)
     {
-        var vertices = new double[size * size * 3];
-        int index = 0;
-        for (int y = 0; y < size; y++)
-        {
-            for (int x = 0; x < size; x++)
-            {
-                double worldX = x * spacing;
-                double worldY = y * spacing;
-                vertices[index * 3] = worldX;
-                vertices[index * 3 + 1] = worldY;
-                vertices[index * 3 + 2] = (worldX * xSlope) + (worldY * ySlope);
-                index++;
-            }
-        }
-
-        return vertices;
+        return TestMeshes.GridVertices(size, size, spacing, (x, y) => (x * xSlope) + (y * ySlope));
     }
 
     private static double[] BuildRotatedRectangle(double centerX, double centerY, double width, double height, double angleDeg)
@@ -1192,27 +1164,7 @@ public class PadGraderTests
 
     private static int[] BuildGridFaces(int size)
     {
-        var faces = new List<int>((size - 1) * (size - 1) * 6);
-        for (int y = 0; y < size - 1; y++)
-        {
-            for (int x = 0; x < size - 1; x++)
-            {
-                int a = y * size + x;
-                int b = a + 1;
-                int c = a + size;
-                int d = c + 1;
-
-                faces.Add(a);
-                faces.Add(b);
-                faces.Add(d);
-
-                faces.Add(a);
-                faces.Add(d);
-                faces.Add(c);
-            }
-        }
-
-        return faces.ToArray();
+        return TestMeshes.GridFaces(size, size);
     }
 
     private static int[] BuildSquareFaces()

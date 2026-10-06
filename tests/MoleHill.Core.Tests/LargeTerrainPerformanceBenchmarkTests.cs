@@ -472,41 +472,6 @@ public class LargeTerrainPerformanceBenchmarkTests(ITestOutputHelper output)
 
     private static void BuildRegularGrid(int gridSize, out double[] vertices, out int vertexCount, out int[] faces, out int faceCount)
     {
-        vertexCount = (gridSize + 1) * (gridSize + 1);
-        vertices = new double[vertexCount * 3];
-        for (int y = 0; y <= gridSize; y++)
-        {
-            for (int x = 0; x <= gridSize; x++)
-            {
-                int index = (y * (gridSize + 1)) + x;
-                vertices[index * 3] = x;
-                vertices[index * 3 + 1] = y;
-                vertices[index * 3 + 2] = Math.Sin(x * 0.03) + Math.Cos(y * 0.04);
-            }
-        }
-
-        faceCount = gridSize * gridSize * 2;
-        faces = new int[faceCount * 3];
-        int face = 0;
-        for (int y = 0; y < gridSize; y++)
-        {
-            for (int x = 0; x < gridSize; x++)
-            {
-                int v00 = (y * (gridSize + 1)) + x;
-                int v10 = v00 + 1;
-                int v01 = v00 + gridSize + 1;
-                int v11 = v01 + 1;
-
-                faces[face * 3] = v00;
-                faces[face * 3 + 1] = v10;
-                faces[face * 3 + 2] = v11;
-                face++;
-
-                faces[face * 3] = v00;
-                faces[face * 3 + 1] = v11;
-                faces[face * 3 + 2] = v01;
-                face++;
-            }
-        }
+        TestMeshes.Grid(gridSize + 1, static (x, y) => Math.Sin(x * 0.03) + Math.Cos(y * 0.04), out vertices, out vertexCount, out faces, out faceCount);
     }
 }

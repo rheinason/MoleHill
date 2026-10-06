@@ -60,35 +60,7 @@ public class PadGraderCreateConstraintsBenchmarkTests(ITestOutputHelper output)
 
     private static void BuildGrid(int divisions, out double[] vertices, out int vertexCount, out int[] faces, out int faceCount)
     {
-        int stride = divisions + 1;
-        vertexCount = stride * stride;
-        vertices = new double[vertexCount * 3];
-        for (int y = 0; y <= divisions; y++)
-        {
-            for (int x = 0; x <= divisions; x++)
-            {
-                int i = (y * stride) + x;
-                vertices[i * 3] = x;
-                vertices[i * 3 + 1] = y;
-                // A gentle slope, so the pad actually cuts and fills rather than sitting on a plane.
-                vertices[i * 3 + 2] = (x * 0.04) + (y * 0.02);
-            }
-        }
-
-        faceCount = divisions * divisions * 2;
-        faces = new int[faceCount * 3];
-        int f = 0;
-        for (int y = 0; y < divisions; y++)
-        {
-            for (int x = 0; x < divisions; x++)
-            {
-                int a = (y * stride) + x;
-                int b = a + 1;
-                int c = a + stride;
-                int d = c + 1;
-                faces[f++] = a; faces[f++] = b; faces[f++] = d;
-                faces[f++] = a; faces[f++] = d; faces[f++] = c;
-            }
-        }
+        // A gentle slope, so the pad actually cuts and fills rather than sitting on a plane.
+        TestMeshes.Grid(divisions + 1, static (x, y) => (x * 0.04) + (y * 0.02), out vertices, out vertexCount, out faces, out faceCount);
     }
 }
