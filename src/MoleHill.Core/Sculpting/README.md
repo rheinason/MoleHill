@@ -2,7 +2,7 @@
 
 The 2.5D sculpting engine behind the Rhino **Sculpt** modifier — Blender-style brushes that edit
 terrain Z. Pure math (no Rhino), unit-tested. The interactive session/UI lives in
-`MoleHill.Rhino/Services/SculptSessionController.cs`; the build-stage replay in
+`MoleHill.Rhino/Services/Sculpt/SculptSessionController.cs`; the build-stage replay in
 `TerrainBuildService.Sculpt.cs`.
 
 **The durable contract is the displacement field, not the mesh.** Brushes edit working-mesh vertex Z

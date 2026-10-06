@@ -63,7 +63,7 @@ Terrain analysis math. Pure, unit-tested.
   sampling code — a linear ramp over a compass would otherwise put a hard seam at due north. The keys are a persistence contract — `AnalysisDefinition.
   PalettePreset` stores one — so add freely but never rename, and `Resolve` falls back to the default
   rather than throwing on a key from a newer build. User-saved ramps live Rhino-side in
-  `Services/ColorRampPresetStore`.
+  `Services/Persistence/ColorRampPresetStore`.
 - `AnalysisLegend.cs` — `AnalysisLegendBuilder`, the key to a coloured analysis independent of drawing:
   a gradient strip with `AnalysisRange.BuildTicks` ticks, or swatches for Stepped bands, Constant
   thresholds and categories. Built through `AnalysisColorMapper` from the same range and palette the mesh

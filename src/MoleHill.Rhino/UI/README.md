@@ -164,7 +164,7 @@ low-priority actions into overflow while remaining pinned to the available clien
 - `SculptToolbarForm.cs` - the floating sculpt mini-toolbar: borderless, non-activating, Topmost,
   pinned over the active viewport corner while a sculpt session runs (brush buttons, radius/strength
   sliders, falloff, Done). Only edits session prefs; returns focus to Rhino after every interaction so
-  viewport shortcuts keep working. Owned by `Services/SculptSessionController`.
+  viewport shortcuts keep working. Owned by `Services/Sculpt/SculptSessionController`.
 - `PanelIcons.cs` - 16x16 panel tab/badge icon loader. `PanelButtonIcons.cs` - theme-aware vector line
   icons on one optical canvas for universal compact actions. Named workflow actions stay as text, while
   icon-only actions always use a standard hit box and tooltip. Card headers expose duplicate/delete as
@@ -175,8 +175,8 @@ interaction or visualization Eto cannot express cleanly, such as ramps, scrub fi
 handles. Dialogs and the floating sculpt toolbar have not yet been migrated to the panel design system.
 
 Tabs: Modifiers, Objects, Zones, Analysis, Annotation. There is no Markers tab: markers are still built
-from persisted definitions (`Services/TerrainBuildService.Objects.cs`) so older documents keep rendering
+from persisted definitions (`Services/Build/TerrainBuildService.Objects.cs`) so older documents keep rendering
 them, but spot elevation and slope labels are authored as annotations now, and the unreachable marker card
-builder was deleted. The panel talks to `Services/TerrainController`;
+builder was deleted. The panel talks to `Services/Controller/TerrainController`;
 it holds no terrain logic. No automated UI tests (needs the Rhino runtime) - verify UI changes by compile
 and a Rhino smoke load.

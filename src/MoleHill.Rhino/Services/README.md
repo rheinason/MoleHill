@@ -3,6 +3,26 @@
 The Rhino-side engine: builds terrain from the saved definition, manages document state, previews, and
 bakes. Rhino API lives here; reusable math is in `MoleHill.Core`. See `docs/architecture.md`.
 
+## Folder layout
+Every file keeps `namespace MoleHill.Rhino.Services;` — the sub-folders are organisation only, so moving
+a file between them is a pure rename. The test project links the folder as source (`Services\**\*.cs`,
+minus the Rhino-UI/native files listed in its `Exclude`), so a new file is picked up automatically and a
+file that needs Rhino's runtime must be added to that `Exclude` at its new path.
+
+| Folder | Holds |
+|---|---|
+| `Build/` | `TerrainBuildService.*` stage partials, build snapshots and fingerprints, stage keys, tolerance/heuristics, the runtime cache, case recorders/exporters and `LargeTinDiagnostic` |
+| `Controller/` | `TerrainController.*` partials and the policies around it (debounce, superseded builds, interim publish, slow-build warning), undo snapshots, latency tracing, the Grasshopper bridge, reference-terrain resolution |
+| `Display/` | The display conduit, presentation/render meshes, colours, preview view, runtime overlay, scatter block preview, analysis preview builder, drainage preview cache |
+| `Output/` | Layer roles/templates/creation/routing, annotation styles, hatch patterns, generated-object model, block catalog and templates, per-terrain layer rename/cleanup, content visibility |
+| `Annotation/` | Annotation, legend, report and section builders, section layout/profile comparison, zone analysis and gradient-compliance evaluation |
+| `Persistence/` | Terrain JSON serializer, document store/identity/ownership, unit scaling, colour-ramp and field-code stores |
+| `Import/` | GeoTIFF and raster georeferencing, DEM sampling, LandXML, survey import geometry/placement/naming, project-base plane, document north |
+| `CurveReview/` | The curve-review conduit, form, rules, labeller and analysis |
+| `Sculpt/` | The sculpt session controller and its field codec, mask builder, live contours, normal patcher, colouriser and zone follower |
+| `Commands/` | `*CommandService` / `*CommandAlgorithms` backing the `mh*` commands, script runner, option cache, toolbar installer |
+| (root) | Shared utilities: `RhinoGeometryConversions`, `RhinoSourceResolver`, `TerrainMeshProjection`, `ModelUnits`, `ModelUnitGuard`, `SlopeUnitPreference`, `ReferenceEqualityComparer`, `ResolvedSourceObject`, `TerrainRegionState` |
+
 ## Build pipeline
 - Isotropic Remesh embeds the card's own constraints before refinement; insertion failure skips remeshing.
 - `TerrainPresentationMesh` provides a wall-seam shading copy for preview, RDK rendering and bake while

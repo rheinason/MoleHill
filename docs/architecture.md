@@ -489,7 +489,7 @@ fully pinned inside and feathers back to full sculpt influence outside. Live dab
 stroke rasterization, and build replay share the same mask. Raw field samples remain stored beneath
 protected areas, so adding/removing a constraint is non-destructive and feathering is applied once.
 
-The interactive session (`Services/SculptSessionController`) runs a long-lived `GetPoint` loop
+The interactive session (`Services/Sculpt/SculptSessionController`) runs a long-lived `GetPoint` loop
 (mouse-up = stroke end; inside a get, Rhino's own Ctrl+Z accelerator is blocked, so stroke-undo is
 safe) painting dabs on a working copy of the sculpt stage's cached output
 (`Core/Sculpting/SculptBrushEngine`); no pipeline runs mid-stroke. At stroke end the delta rasterizes
@@ -764,7 +764,7 @@ test above, because both are easy to reintroduce badly:
   keeps a plain linear sample from putting a hard seam at due north; `Constant` mode then turns its eight
   stops into eight crisp sectors. A face flatter than the card's threshold is flagged and drawn neutral,
   never given a bearing — otherwise a graded pad reads as a hillside.
-- **North is the document's.** `Services/DocumentNorth` reads `doc.Lights.Sun.North`, the angle
+- **North is the document's.** `Services/Import/DocumentNorth` reads `doc.Lights.Sun.North`, the angle
   `mhSetSunNorth` writes, so the aspect map and the sun agree. It lives outside the definition, which
   means the serialized definition fingerprint cannot see it: `ComputeAnalysisFingerprint` adds it
   explicitly for an aspect analysis, or rotating north would leave cached bearings on screen.
@@ -804,7 +804,7 @@ Two more things about it:
 categorical like catchments: pass or walk (green), ramp (blue, allowed), over a Report limit (amber) or
 over a Warn limit (red). Level areas have one limit in every direction, while routes split slope into
 running and cross against the route's direction, and a level area's verdict wins where the two overlap. A verdict is not
-a position on a continuum, so the card has no ramp. `Services/GradientComplianceEvaluator` is shared by the
+a position on a continuum, so the card has no ramp. `Services/Annotation/GradientComplianceEvaluator` is shared by the
 build stage and the preview so the colours and the card's figures cannot disagree. Two decisions are worth
 keeping:
 
@@ -1105,7 +1105,7 @@ starts drawing its annotations — the correct reading of a flag that only ever 
   preset verbatim" — which is what every pre-ramp-editor document says, so those keep drawing unchanged.
   `AnalysisDefinition.ResolveRamp()` is the single resolver, and the preview builder, the sculpt
   colorizer and the card all go through it. User-saved ramps are per-user, not per-document
-  (`Services/ColorRampPresetStore`, beside the layer templates): a ramp tuned for one site is usually the
+  (`Services/Persistence/ColorRampPresetStore`, beside the layer templates): a ramp tuned for one site is usually the
   one you want on the next, and one saved inside a .3dm would be invisible everywhere else.
 - **Slope summaries** use `SlopeAnalyzer.Summarize`, which honours the analysis's auto-fit flag exactly as
   the preview does. With explicit bounds it stays the allocation-free summary it was; auto-fit collects a
@@ -1145,7 +1145,7 @@ The deliverable form of what a build measured: a CSV file, and the same figures 
 cell: rounding is a presentation decision that is the same decision in a spreadsheet and on a drawing,
 and `1250.00 m²` is a string no spreadsheet can sum while a bare `1250` says nothing.
 
-`Services/TerrainReportBuilder` assembles one from a terrain and the summaries of its last build
+`Services/Annotation/TerrainReportBuilder` assembles one from a terrain and the summaries of its last build
 (`ZoneAnalysisSummary` per zone, `TerrainAnalysisSummary` per analysis), in **model units**, with slope
 in the requested slope unit. It is the single place a figure is rounded and labelled, and both outputs
 read it, so they cannot disagree:
@@ -1203,7 +1203,7 @@ editor, exactly as with `mhDrapeCurve`. Importing a file whose tree already exis
 **replace** what the earlier import made (found by a `MoleHill.SurveyImport` user string on each object)
 or **add** a new tree beside it (`Survey 2`). A revised survey is therefore a re-import, not a
 reassignment. `mhEditFieldCodes` is the table editor, and the right-click variant of the same toolbar
-button. `Services/SurveyLayerNaming` is the pure naming logic; every layer on the code table is a path
+button. `Services/Import/SurveyLayerNaming` is the pure naming logic; every layer on the code table is a path
 *relative to* the survey's layer (table version 2 strips the old `MoleHill::Inputs::` prefix on load).
 
 Core (`Interop/`) does all of it except the geometry. `SurveyPointFileReader` maps columns; then
@@ -1356,7 +1356,7 @@ layers. Nothing in the pipeline hardcodes or plumbs a layer path.
   thickness is derived from print width, so there is one number per role rather than one for the screen
   and another for the page. The deliberate exceptions are `TerrainDefinition.PreviewLineWeight` (labelled
   display-only) and linetypes, which the display pipeline cannot draw.
-- **Appearance is seeded once.** `Services/LayerCreationService` is the only place layers are created, and
+- **Appearance is seeded once.** `Services/Output/LayerCreationService` is the only place layers are created, and
   it styles the leaf only, leaving existing layers alone — so Layers-panel edits and per-detail overrides
   survive rebuilds. `mhApplyLayerTemplate` is create-only; re-stamping is the separate, confirming
   `mhResetLayerStyles`.
@@ -1368,7 +1368,7 @@ layers. Nothing in the pipeline hardcodes or plumbs a layer path.
   drawn on separate layers.
 
 Schema 30 carries a pre-role document across by synthesizing a template of its own from whatever it had
-customised (`Services/LayerRoutingMigration`), rather than retargeting anything. A document that used the
+customised (`Services/Output/LayerRoutingMigration`), rather than retargeting anything. A document that used the
 defaults gets none. Bindings are per role and the old data was per card, so two cards of the same kind on
 different layers cannot both keep theirs: the first wins and the rest are reported.
 
@@ -2063,7 +2063,7 @@ the evaluation the previous sample started, and any evaluation that did survive 
 unpublished - so the terrain showed nothing at all until input stopped, however cheap the build was.
 That was the blocking constraint the interactive plan names as Step 2.
 
-[`TerrainSupersededBuildPolicy`](../src/MoleHill.Rhino/Services/TerrainSupersededBuildPolicy.cs) splits
+[`TerrainSupersededBuildPolicy`](../src/MoleHill.Rhino/Services/Controller/TerrainSupersededBuildPolicy.cs) splits
 them:
 
 - **Finish, don't cancel, when the build is cheap.** The threshold is
@@ -2294,7 +2294,7 @@ reading the original. It is deliberately not disposed - a conduit may be mid-dra
 replaced, and the displaced-mesh machinery covers build-owned meshes, not this one. See
 [build-result-ownership.md](build-result-ownership.md).
 
-[`TerrainInterimPublishPolicy`](../src/MoleHill.Rhino/Services/TerrainInterimPublishPolicy.cs) gates it on
+[`TerrainInterimPublishPolicy`](../src/MoleHill.Rhino/Services/Controller/TerrainInterimPublishPolicy.cs) gates it on
 the **peak** dependent-output cost seen for that terrain, not the last one. Keying on the last build was
 wrong in a way that showed up immediately in live testing: one rebuild whose analyses all hit the stage
 cache measures ~3 ms and would switch early publication off again right before the next expensive edit.
@@ -2308,7 +2308,7 @@ until 6,606 ms. On the small fixture the policy declines, which is correct - its
 Two structural facts behind the small-terrain numbers:
 
 - **The debounce was a flat 500 ms on every edit**, which put a floor under edit-to-visible that no
-  build optimization could lift. [`TerrainDebouncePolicy`](../src/MoleHill.Rhino/Services/TerrainDebouncePolicy.cs)
+  build optimization could lift. [`TerrainDebouncePolicy`](../src/MoleHill.Rhino/Services/Controller/TerrainDebouncePolicy.cs)
   is now **leading-edge**: a delay exists only while input is still arriving. The first edit after a
   quiet period waits nothing; further edits are rate-limited to one dispatch per interval, and the
   interval is the previous build's worker duration clamped to [60, 500] ms. The floor sits above a
@@ -2379,7 +2379,7 @@ edit-to-visible trace on every rail edit. Three costs sat around a build whose g
 
 - **A modal warning before every edit.** The slow-build warning asked before each rebuild of any terrain
   over 250,000 vertices *or* 100,000 faces carrying an expensive card, although this one's last rebuild
-  had taken 0.07 s. [`TerrainSlowBuildWarningPolicy`](../src/MoleHill.Rhino/Services/TerrainSlowBuildWarningPolicy.cs)
+  had taken 0.07 s. [`TerrainSlowBuildWarningPolicy`](../src/MoleHill.Rhino/Services/Controller/TerrainSlowBuildWarningPolicy.cs)
   now trusts a measured duration (warn from 5 s final, 1.5 s preview) and falls back to size only before
   the first build, at 1,000,000 faces.
 - **Full panel refreshes on the UI thread, in front of the next result.** Rebuilding the visible tab
@@ -2391,7 +2391,7 @@ edit-to-visible trace on every rail edit. Three costs sat around a build whose g
   - `Save` suppresses document events around its string writes; the caller already decides whether to
     refresh.
   - A completed build refreshes the cards only when something they show changed.
-    [`TerrainCardResultSignature`](../src/MoleHill.Rhino/Services/TerrainCardResultSignature.cs)
+    [`TerrainCardResultSignature`](../src/MoleHill.Rhino/Services/Build/TerrainCardResultSignature.cs)
     fingerprints those results (analysis and zone summaries, In-situ Stair's computed fields, diagnostic
     counts per card, mesh quality warnings), and the controller compares it with the one stored at the
     last applied build (`TerrainRuntimeCache.LastCardResultSignature`), not with the display state

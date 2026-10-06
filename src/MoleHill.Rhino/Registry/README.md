@@ -22,7 +22,7 @@ There are four parallel families, each with a `*TypeDescriptor` base + reflectio
   derives from, so the two cannot disagree. Analyses evaluate the terrain, annotations describe it — see
   `docs/architecture.md` → "Analysis vs annotation".
 
-All five feed `Services/TerrainJsonTypeResolver`, which builds JSON polymorphism for every family from
+All five feed `Services/Persistence/TerrainJsonTypeResolver`, which builds JSON polymorphism for every family from
 its registry — there are **no `[JsonDerivedType]` lists** on the definition bases anymore. Discriminator
 strings come from each descriptor's `Kind` and must stay stable so saved `.3dm` files load.
 
@@ -41,7 +41,7 @@ strings come from each descriptor's `Kind` and must stay stable so saved `.3dm` 
 - **Factory** — `TerrainController.CreateModifier` → `Registry.CreateModifier`.
 - **Panel** — add-menu, icon, subtitle, label all read the descriptor (`MoleHillPanel`).
 - **Build** — `TerrainBuildService.Build` dispatches `descriptor.RunBuildStage(ctx)` instead of a switch;
-  each descriptor forwards to a `TerrainBuildService.RunXStage` shim (see `Services/*.ModifierStages.cs`).
+  each descriptor forwards to a `TerrainBuildService.RunXStage` shim (see `Services/Build/*.ModifierStages.cs`).
   `ModifierBuildContext.cs` carries the per-stage mesh/fingerprint in/out.
 - **Card** — `Parameters` (an ordered `ParameterDescriptor<ModifierDefinition>` list) is turned into Eto editor rows by
   `MoleHillPanel.Schema.cs`. The same schema is the contract for future **Grasshopper-component**
@@ -150,7 +150,7 @@ Other pieces in this folder:
 1. Add `Model/<Name>ModifierDefinition.cs` (no `[JsonDerivedType]` — the resolver registers it from the
    descriptor's `Kind`).
 2. Add `<Name>ModifierDescriptor.cs` here: set `Kind`/metadata, `Create`, a `RunXStage` shim in
-   `Services/TerrainBuildService.ModifierStages.cs`, and a `Parameters` schema.
+   `Services/Build/TerrainBuildService.ModifierStages.cs`, and a `Parameters` schema.
 3. That's it — serialization, menu, factory, build dispatch, and card all pick it up via reflection.
 
 `SimplifyModifierDescriptor` is the mode-dependent example: its ordinary Choice row reveals either a
@@ -158,7 +158,7 @@ model-length deviation, unitless integer vertex cap, or percentage row, dispatch
 `RunSimplifyStage`, and relies on the generic card and JSON paths without bespoke UI.
 
 ## Serialization
-`Services/TerrainJsonTypeResolver` builds `ModifierDefinition` JSON polymorphism from this registry
+`Services/Persistence/TerrainJsonTypeResolver` builds `ModifierDefinition` JSON polymorphism from this registry
 (descriptor `Kind` = discriminator) plus two deserialize-only legacy shims (`mesh-areas`,
 `mesh-collage`). It's wired into `TerrainSerializer.SharedOptions`, used by every whole-terrain
 (de)serialization site (save/load + the clone paths). Keep each `Kind` stable — it's the on-disk
