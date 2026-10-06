@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using MoleHill.Core.Engine;
 using MoleHill.Core.Grading;
 using MoleHill.Core.Processing;
 using MoleHill.Rhino.Model;
@@ -101,6 +102,12 @@ internal sealed partial class TerrainBuildService
 
         if (!string.IsNullOrWhiteSpace(splitWarning))
             build.Diagnostics.Add(splitWarning);
+
+        // Hide and Show validate the same split and refuse a damaged one; zones are drawing, so publish, but
+        // say so. A fold here was invisible at viewing scale and only surfaced when Hide rejected the curve.
+        int nonManifold = MeshTopologyValidator.AnalyzeBoundaryGraph(result.Faces, result.FaceCount).NonManifoldEdgeCount;
+        if (nonManifold > 0)
+            build.Diagnostics.Add($"Zones: the terrain split has {nonManifold:N0} non-manifold edge(s); zone meshes may overlap at their seams.");
 
         var zoneOutputCounts = new Dictionary<Guid, int>();
         var zoneMeshes = new Dictionary<Guid, List<RhinoMesh>>();

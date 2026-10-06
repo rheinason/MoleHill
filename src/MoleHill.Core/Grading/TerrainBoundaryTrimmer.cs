@@ -100,9 +100,13 @@ public static class TerrainBoundaryTrimmer
             return defaults;
         }
 
+        // The split already conformed the mesh to every boundary, so each face lies wholly on one side: own it
+        // strictly, as the splitter does. Classifying with the boundary tolerance treated outside faces whose
+        // centroid came within it as inside - on RiR Master 002, ten whole triangles beyond a Hide curve,
+        // which broke the trimmed border into open chains, so the trim was rejected and Hide did nothing.
         MeshAreaSplitter.SplitResult classified = MeshAreaSplitter.Classify(
             split.Vertices, split.VertexCount, split.Faces, split.FaceCount,
-            areas.ToArray(), tolerance, out _)!;
+            areas.ToArray(), 0.0, out _)!;
         var result = new bool[split.FaceCount];
         for (int i = 0; i < result.Length; i++)
             result[i] = classified.FaceAreaIndex[i] >= 0;

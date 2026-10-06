@@ -891,6 +891,12 @@ starts drawing its annotations — the correct reading of a flag that only ever 
   mesh manifold, flips nothing and moves no input vertex. Result on the case: 0 non-manifold edges, 0
   interior slits, plan area exact. Grade Path's `GradedRegionAssembler` now accepts the detail-preserving
   split where it used to reject it and fall back to its CDT re-conform.
+- **Outer/Hide/Show own faces strictly after the split.** `TerrainBoundaryTrimmer` classified the conformed
+  faces with the boundary tolerance, so an outside triangle whose centroid fell within 12.5 mm of a Hide curve
+  was removed too; on RiR Master 002 that broke the hole's border into open chains, the trim was rejected and
+  Hide silently did nothing. The split already conforms every face to one side, so classification is exact
+  (tolerance 0), as the splitter's own is. The topology gate stays. Zones now report a non-manifold split as a
+  build diagnostic instead of publishing it silently.
 - **Mesh hand-off never culls a cap into a slit.** Normalization culls an exactly collinear face; a cap culled
   from the middle of a terrain leaves its short edges and the long edge across from it each used once.
   `RhinoGeometryConversions.BuildMesh` splits exact caps across their long edge first (found as a 0.3 m slit

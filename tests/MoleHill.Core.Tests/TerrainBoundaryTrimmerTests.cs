@@ -1,3 +1,4 @@
+using MoleHill.Core.Engine;
 using MoleHill.Core.Grading;
 using Xunit;
 
@@ -72,6 +73,47 @@ public class TerrainBoundaryTrimmerTests
         Assert.Null(error);
         Assert.Equal(0, result.FaceCount);
         Assert.Equal(0, result.VertexCount);
+    }
+
+    [Fact]
+    public void Trim_HideOnFineMesh_RemovesExactlyTheHiddenArea()
+    {
+        // RiR Master 002: Hide classified the conformed faces with the 12.5 mm boundary tolerance, so whole
+        // outside triangles whose centroid fell within it were removed too. On a 20 mm grid that is every
+        // outside triangle touching the hole: the hole grows and its border no longer follows the curve.
+        const int n = 50;
+        const double cell = 0.02;
+        var vertices = new List<double>();
+        for (int y = 0; y <= n; y++)
+            for (int x = 0; x <= n; x++)
+                vertices.AddRange([x * cell, y * cell, 0.0]);
+        var faces = new List<int>();
+        for (int y = 0; y < n; y++)
+        {
+            for (int x = 0; x < n; x++)
+            {
+                int a = (y * (n + 1)) + x, b = a + 1, c = a + n + 2, d = a + n + 1;
+                faces.AddRange([a, b, c, a, c, d]);
+            }
+        }
+
+        TerrainBoundaryTrimmer.Result? result = TerrainBoundaryTrimmer.Trim(
+            vertices.ToArray(), vertices.Count / 3, faces.ToArray(), faces.Count / 3,
+            null, new[] { Boundary(0.3, 0.3, 0.7, 0.7) }, Array.Empty<MeshAreaSplitter.AreaBoundary>(),
+            0.0125, out string? error);
+
+        Assert.NotNull(result);
+        Assert.Null(error);
+        double area = 0.0;
+        for (int t = 0; t < result!.FaceCount; t++)
+        {
+            int a = result.Faces[t * 3], b = result.Faces[(t * 3) + 1], c = result.Faces[(t * 3) + 2];
+            double[] v = result.Vertices;
+            area += Math.Abs(((v[b * 3] - v[a * 3]) * (v[(c * 3) + 1] - v[(a * 3) + 1])) - ((v[(b * 3) + 1] - v[(a * 3) + 1]) * (v[c * 3] - v[a * 3]))) * 0.5;
+        }
+
+        Assert.Equal(1.0 - 0.16, area, 9);
+        Assert.Equal(2, MeshTopologyValidator.AnalyzeBoundaryGraph(result.Faces, result.FaceCount).BoundaryComponentCount);
     }
 
     private static MeshAreaSplitter.AreaBoundary Boundary(double minX, double minY, double maxX, double maxY) =>
