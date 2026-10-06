@@ -7,6 +7,32 @@ namespace MoleHill.Core.Tests;
 public class MeshTopologyValidatorTests
 {
     [Fact]
+    public void AnalyzeBoundaryGraph_DenseRandomFaces_MatchesSparseSortedReference()
+    {
+        var random = new Random(3859);
+        for (int run = 0; run < 400; run++)
+        {
+            int faceCount = random.Next(1, 200);
+            var dense = new int[faceCount * 3];
+            var sparse = new int[dense.Length];
+            for (int i = 0; i < dense.Length; i++)
+            {
+                dense[i] = random.Next(Math.Min(32, dense.Length));
+                sparse[i] = dense[i] * 100_000 + 10_000;
+            }
+            // Sparse ids force the original global edge sort, preserving the reference algorithm.
+            var denseTopology = MeshTopologyValidator.AnalyzeBoundaryTopology(dense, faceCount);
+            var sparseTopology = MeshTopologyValidator.AnalyzeBoundaryTopology(sparse, faceCount);
+            Assert.Equal(sparseTopology.Analysis, denseTopology.Analysis);
+            Assert.Equal(sparseTopology.TryGetBoundaryLoops(out var sparseLoops),
+                denseTopology.TryGetBoundaryLoops(out var denseLoops));
+            Assert.Equal(sparseLoops.Count, denseLoops.Count);
+            for (int loop = 0; loop < denseLoops.Count; loop++)
+                Assert.Equal(sparseLoops[loop].Select(index => (index - 10_000) / 100_000), denseLoops[loop]);
+        }
+    }
+
+    [Fact]
     public void AnalyzeBoundaryGraph_ClosedMesh_PreservesNoBoundaryOpenChainSpecialCase()
     {
         int[] faces =

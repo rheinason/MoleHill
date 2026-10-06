@@ -1,3 +1,5 @@
+using System.Buffers;
+
 namespace MoleHill.Core.Engine;
 
 /// <summary>
@@ -21,9 +23,31 @@ namespace MoleHill.Core.Engine;
 /// </remarks>
 public static class MeshArrayNormalizer
 {
+    // Scratch can be reused between stages, but must not keep a large terrain's working set alive
+    // through a full collection and make the next, smaller build pay for it.
+    private static class ScratchPool<T>
+    {
+        private static readonly object Gate = new();
+        private static readonly WeakReference<ArrayPool<T>> Pool = new(ArrayPool<T>.Create(512 * 1024, 1));
+
+        public static ArrayPool<T> Get()
+        {
+            lock (Gate)
+            {
+                if (Pool.TryGetTarget(out ArrayPool<T>? pool))
+                    return pool;
+                pool = ArrayPool<T>.Create(512 * 1024, 1);
+                Pool.SetTarget(pool);
+                return pool;
+            }
+        }
+    }
+
     /// <summary>
     /// Normalizes a triangle mesh. Returns false when face windings are inconsistent (Rhino's
     /// <c>UnifyNormals</c> would reorient faces) or an index is out of range; the outputs are then undefined.
+    /// Inputs are never modified. Unchanged vertex and face arrays may be shared with the outputs;
+    /// callers that mutate either afterwards must make their own copy.
     /// </summary>
     public static bool TryNormalize(
         double[] vertices,
@@ -47,10 +71,11 @@ public static class MeshArrayNormalizer
         // 1. Combine identical (float) positions.
         double[] v = vertices;
         int vc = vertexCount;
-        int[] f = new int[faceCount * 3];
-        Array.Copy(faces, f, faceCount * 3);
+        int[] f = faces;
+        bool ownsFaces = false;
         if (HasFloatDuplicates(vertices, vertexCount))
         {
+            EnsureOwnedFaces(ref f, faceCount, ref ownsFaces);
             var order = new int[vertexCount];
             for (int i = 0; i < vertexCount; i++)
                 order[i] = i;
@@ -86,41 +111,56 @@ public static class MeshArrayNormalizer
                 s = e;
             }
 
-            for (int i = 0; i < f.Length; i++)
+            for (int i = 0; i < faceCount * 3; i++)
                 f[i] = map[f[i]];
             v = merged.ToArray();
             vc = groups;
         }
 
         // 2. Cull unused.
-        (v, vc) = CullUnused(v, vc, f, f.Length / 3);
+        (v, vc) = CullUnused(v, vc, ref f, faceCount, ref ownsFaces);
 
         // 3. Cull degenerate faces.
-        var kept = new List<int>(f.Length);
-        for (int t = 0; t < f.Length / 3; t++)
+        // Copy only when normalization changes faces, then compact that owned copy in place.
+        // An unchanged topology can share its input array, as unchanged vertices already do.
+        int kept = 0;
+        for (int t = 0; t < faceCount; t++)
         {
             int a = f[t * 3], b = f[t * 3 + 1], c = f[t * 3 + 2];
             if (a == b || b == c || c == a)
+            {
+                EnsureOwnedFaces(ref f, faceCount, ref ownsFaces);
                 continue;
+            }
             double ux = v[b * 3] - v[a * 3], uy = v[b * 3 + 1] - v[a * 3 + 1], uz = v[b * 3 + 2] - v[a * 3 + 2];
             double wx = v[c * 3] - v[a * 3], wy = v[c * 3 + 1] - v[a * 3 + 1], wz = v[c * 3 + 2] - v[a * 3 + 2];
             double nx = (uy * wz) - (uz * wy), ny = (uz * wx) - (ux * wz), nz = (ux * wy) - (uy * wx);
             if (nx == 0.0 && ny == 0.0 && nz == 0.0)
+            {
+                EnsureOwnedFaces(ref f, faceCount, ref ownsFaces);
                 continue;
-            kept.Add(a);
-            kept.Add(b);
-            kept.Add(c);
+            }
+            if (ownsFaces)
+            {
+                f[kept] = a;
+                f[kept + 1] = b;
+                f[kept + 2] = c;
+            }
+            kept += 3;
         }
 
-        f = kept.ToArray();
-        int fc = f.Length / 3;
+        if (ownsFaces && kept != f.Length)
+            Array.Resize(ref f, kept);
+        int fc = kept / 3;
 
         // 4. Consistent winding, or Rhino decides.
         if (!HasConsistentWinding(f, fc))
             return false;
 
         // 5. Compact.
-        (v, vc) = CullUnused(v, vc, f, fc);
+        (v, vc) = CullUnused(v, vc, ref f, fc, ref ownsFaces);
+        if (f.Length != fc * 3)
+            EnsureOwnedFaces(ref f, fc, ref ownsFaces);
         outputVertices = v;
         outputVertexCount = vc;
         outputFaces = f;
@@ -162,40 +202,75 @@ public static class MeshArrayNormalizer
     internal static bool HasFloatDuplicates(double[] v, int vertexCount)
     {
         const int Partitions = 64;
-        var hashes = new ulong[vertexCount];
-        Parallel.For(0, (vertexCount + 65535) / 65536, block =>
+        ArrayPool<ulong> hashPool = ScratchPool<ulong>.Get();
+        ArrayPool<int> indexPool = ScratchPool<int>.Get();
+        ulong[] hashes = hashPool.Rent(vertexCount);
+        int[] members = indexPool.Rent(vertexCount);
+        try
         {
-            int end = Math.Min(vertexCount, (block + 1) * 65536);
-            for (int i = block * 65536; i < end; i++)
-                hashes[i] = PositionHash(v, i);
-        });
-
-        var start = new int[Partitions + 1];
-        foreach (ulong h in hashes)
-            start[(int)(h >> 58) + 1]++;
-        for (int p = 0; p < Partitions; p++)
-            start[p + 1] += start[p];
-        var fill = (int[])start.Clone();
-        var members = new int[vertexCount];
-        for (int i = 0; i < vertexCount; i++)
-            members[fill[(int)(hashes[i] >> 58)]++] = i;
-
-        int found = 0;
-        Parallel.For(0, Partitions, (p, state) =>
-        {
-            var seen = new HashSet<(float, float, float)>(start[p + 1] - start[p]);
-            for (int k = start[p]; k < start[p + 1]; k++)
+            Parallel.For(0, (vertexCount + 65535) / 65536, block =>
             {
-                int i = members[k];
-                if (!seen.Add(((float)v[i * 3], (float)v[i * 3 + 1], (float)v[i * 3 + 2])))
-                {
-                    Interlocked.Exchange(ref found, 1);
-                    state.Stop();
+                int end = Math.Min(vertexCount, (block + 1) * 65536);
+                for (int i = block * 65536; i < end; i++)
+                    hashes[i] = PositionHash(v, i);
+            });
+
+            var start = new int[Partitions + 1];
+            for (int i = 0; i < vertexCount; i++)
+                start[(int)(hashes[i] >> 58) + 1]++;
+            for (int p = 0; p < Partitions; p++)
+                start[p + 1] += start[p];
+            var fill = (int[])start.Clone();
+            for (int i = 0; i < vertexCount; i++)
+                members[fill[(int)(hashes[i] >> 58)]++] = i;
+
+            int found = 0;
+            Parallel.For(0, Partitions, (p, state) =>
+            {
+                int count = start[p + 1] - start[p];
+                if (count < 2)
                     return;
+                int capacity = 4;
+                while (capacity < (long)count * 2)
+                    capacity = checked(capacity * 2);
+                // Store vertex indices, not a second copy of every position. At <= 50% occupancy,
+                // linear probing stays short, and renting the table avoids 64 hash-set allocations.
+                int[] seen = indexPool.Rent(capacity);
+                Array.Clear(seen, 0, capacity);
+                try
+                {
+                    for (int k = start[p]; k < start[p + 1]; k++)
+                    {
+                        int i = members[k];
+                        int slot = (int)(hashes[i] & (uint)(capacity - 1));
+                        while (seen[slot] != 0)
+                        {
+                            int other = seen[slot] - 1;
+                            if (((float)v[i * 3]).Equals((float)v[other * 3]) &&
+                                ((float)v[i * 3 + 1]).Equals((float)v[other * 3 + 1]) &&
+                                ((float)v[i * 3 + 2]).Equals((float)v[other * 3 + 2]))
+                            {
+                                Interlocked.Exchange(ref found, 1);
+                                state.Stop();
+                                return;
+                            }
+                            slot = (slot + 1) & (capacity - 1);
+                        }
+                        seen[slot] = i + 1;
+                    }
                 }
-            }
-        });
-        return found != 0;
+                finally
+                {
+                    indexPool.Return(seen);
+                }
+            });
+            return found != 0;
+        }
+        finally
+        {
+            hashPool.Return(hashes);
+            indexPool.Return(members);
+        }
     }
 
     private static ulong PositionHash(double[] v, int i)
@@ -210,37 +285,71 @@ public static class MeshArrayNormalizer
     }
 
     /// <summary>Drops unreferenced vertices, keeping order, and renumbers <paramref name="f"/> in place.</summary>
-    private static (double[] V, int Count) CullUnused(double[] v, int vc, int[] f, int fc)
+    private static (double[] V, int Count) CullUnused(double[] v, int vc, ref int[] f, int fc, ref bool ownsFaces)
     {
-        var used = new bool[vc];
-        for (int i = 0; i < fc * 3; i++)
-            used[f[i]] = true;
-        int count = 0;
-        var map = new int[vc];
-        for (int i = 0; i < vc; i++)
-            map[i] = used[i] ? count++ : -1;
-        if (count == vc)
+        ArrayPool<bool> usePool = ScratchPool<bool>.Get();
+        bool[] used = usePool.Rent(vc);
+        Array.Clear(used, 0, vc);
+        try
         {
-            if (v.Length == vc * 3)
-                return (v, vc);
-            var trimmed = new double[vc * 3];
-            Array.Copy(v, trimmed, vc * 3);
-            return (trimmed, vc);
-        }
+            for (int i = 0; i < fc * 3; i++)
+                used[f[i]] = true;
+            int count = 0;
+            for (int i = 0; i < vc; i++)
+            {
+                if (used[i])
+                    count++;
+            }
+            if (count == vc)
+            {
+                if (v.Length == vc * 3)
+                    return (v, vc);
+                var trimmed = new double[vc * 3];
+                Array.Copy(v, trimmed, vc * 3);
+                return (trimmed, vc);
+            }
 
-        var result = new double[count * 3];
-        for (int i = 0; i < vc; i++)
+            ArrayPool<int> indexPool = ScratchPool<int>.Get();
+            int[] map = indexPool.Rent(vc);
+            try
+            {
+                int next = 0;
+                for (int i = 0; i < vc; i++)
+                    map[i] = used[i] ? next++ : -1;
+                var result = new double[count * 3];
+                for (int i = 0; i < vc; i++)
+                {
+                    if (map[i] < 0)
+                        continue;
+                    result[map[i] * 3] = v[i * 3];
+                    result[map[i] * 3 + 1] = v[i * 3 + 1];
+                    result[map[i] * 3 + 2] = v[i * 3 + 2];
+                }
+
+                EnsureOwnedFaces(ref f, fc, ref ownsFaces);
+                for (int i = 0; i < fc * 3; i++)
+                    f[i] = map[f[i]];
+                return (result, count);
+            }
+            finally
+            {
+                indexPool.Return(map);
+            }
+        }
+        finally
         {
-            if (map[i] < 0)
-                continue;
-            result[map[i] * 3] = v[i * 3];
-            result[map[i] * 3 + 1] = v[i * 3 + 1];
-            result[map[i] * 3 + 2] = v[i * 3 + 2];
+            usePool.Return(used);
         }
+    }
 
-        for (int i = 0; i < fc * 3; i++)
-            f[i] = map[f[i]];
-        return (result, count);
+    private static void EnsureOwnedFaces(ref int[] faces, int faceCount, ref bool ownsFaces)
+    {
+        if (ownsFaces)
+            return;
+        var copy = new int[faceCount * 3];
+        Array.Copy(faces, copy, copy.Length);
+        faces = copy;
+        ownsFaces = true;
     }
 
     /// <summary>True when no directed edge occurs twice (the condition under which UnifyNormals flips nothing).</summary>
@@ -251,39 +360,51 @@ public static class MeshArrayNormalizer
         int vertexCount = 0;
         for (int i = 0; i < fc * 3; i++)
             vertexCount = Math.Max(vertexCount, f[i] + 1);
-        var start = new int[vertexCount + 1];
-        for (int i = 0; i < fc * 3; i++)
-            start[f[i] + 1]++;
-        for (int i = 0; i < vertexCount; i++)
-            start[i + 1] += start[i];
-        var fill = (int[])start.Clone();
-        var targets = new int[fc * 3];
-        for (int t = 0; t < fc; t++)
+        ArrayPool<int> indexPool = ScratchPool<int>.Get();
+        int[] start = indexPool.Rent(vertexCount + 1);
+        int[] fill = indexPool.Rent(vertexCount + 1);
+        int[] targets = indexPool.Rent(fc * 3);
+        Array.Clear(start, 0, vertexCount + 1);
+        try
         {
-            for (int k = 0; k < 3; k++)
-                targets[fill[f[t * 3 + k]]++] = f[t * 3 + ((k + 1) % 3)];
-        }
-
-        int repeated = 0;
-        Parallel.For(0, (vertexCount + 16383) / 16384, (block, state) =>
-        {
-            int end = Math.Min(vertexCount, (block + 1) * 16384);
-            for (int a = block * 16384; a < end; a++)
+            for (int i = 0; i < fc * 3; i++)
+                start[f[i] + 1]++;
+            for (int i = 0; i < vertexCount; i++)
+                start[i + 1] += start[i];
+            Array.Copy(start, fill, vertexCount + 1);
+            for (int t = 0; t < fc; t++)
             {
-                for (int p = start[a]; p < start[a + 1]; p++)
+                for (int k = 0; k < 3; k++)
+                    targets[fill[f[t * 3 + k]]++] = f[t * 3 + ((k + 1) % 3)];
+            }
+
+            int repeated = 0;
+            Parallel.For(0, (vertexCount + 16383) / 16384, (block, state) =>
+            {
+                int end = Math.Min(vertexCount, (block + 1) * 16384);
+                for (int a = block * 16384; a < end; a++)
                 {
-                    for (int q = p + 1; q < start[a + 1]; q++)
+                    for (int p = start[a]; p < start[a + 1]; p++)
                     {
-                        if (targets[p] == targets[q])
+                        for (int q = p + 1; q < start[a + 1]; q++)
                         {
-                            Interlocked.Exchange(ref repeated, 1);
-                            state.Stop();
-                            return;
+                            if (targets[p] == targets[q])
+                            {
+                                Interlocked.Exchange(ref repeated, 1);
+                                state.Stop();
+                                return;
+                            }
                         }
                     }
                 }
-            }
-        });
-        return repeated == 0;
+            });
+            return repeated == 0;
+        }
+        finally
+        {
+            indexPool.Return(start);
+            indexPool.Return(fill);
+            indexPool.Return(targets);
+        }
     }
 }

@@ -683,8 +683,11 @@ in original face order. Grade Path builds one bounds grid for resampled paths wi
 segments, limits closest-segment queries to the path's maximum influence distance, and evaluates
 candidates in original segment order; shorter paths retain the lower-overhead linear loop.
 
-Watertightness gates and boundary-loop extraction share `MeshTopologyValidator`'s flat sorted-edge
-analysis. Edge run lengths identify naked/non-manifold edges; boundary ids are compressed before flat
+Watertightness gates and boundary-loop extraction share `MeshTopologyValidator`'s flat edge-run
+analysis. Dense terrain edges are bucketed by their lower vertex id and sorted only within each bucket,
+using integer targets instead of a global array of packed long keys. Sparse ids retain the global sort,
+and both paths emit the same ordered boundary keys. Edge run lengths identify naked/non-manifold edges;
+boundary ids are compressed before flat
 offset/neighbor adjacency is built, so sparse source ids do not cause dense max-id arrays. Grade Path
 split-keep reuses the conformed analysis when applying Z. This generic primitive does not replace the
 TIN production path's faster Triangle.NET-native adjacency.
@@ -1873,6 +1876,18 @@ the zones spent half a second each in Rhino's normalization, because the managed
   Rhino path; the remaining fix is in Remesh.
 Zone meshes are now built by `BuildMesh` (managed where it can be), and zone surface areas are summed from the
 arrays rather than Rhino's AreaMassProperties (200 ms of centroid and moments nobody read).
+
+**Unchanged topology is shared; changed faces are copied and compacted in place.** Like unchanged
+vertices, unchanged faces may alias the input. Stage/cache topology is immutable after publication;
+other callers must copy before mutating either array. The normalizer never rewrites the caller's faces.
+The former unconditional face copy, face-sized list and `ToArray` copy
+allocated three redundant large arrays even when every face survived. Full garbage collections during
+normalization were charged to Grade Pad's output mesh in the 1.3.1-beta hosted run.
+Duplicate-position hashes and memberships, vertex-use/remap buffers, duplicate tables and winding
+adjacency rent scratch, returned in `finally` after parallel workers finish. Pools have weak roots so
+a full collection can reclaim their idle working sets. Each pool keeps at most one buffer per size
+bucket up to 524,288 elements (2 MB for indices); larger requests still work but are not retained. Only the
+active range is read, count buffers are cleared, and source and published arrays are never pooled.
 
 ### Interactive scale: what a warm edit costs as the terrain grows
 

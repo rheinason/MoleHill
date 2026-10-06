@@ -1,6 +1,6 @@
 namespace MoleHill.Core.Engine;
 
-// Sorted-edge boundary analysis with compressed sparse-safe vertex adjacency.
+// Boundary analysis with per-vertex edge runs and compressed sparse-safe vertex adjacency.
 public static class MeshTopologyValidator
 {
     public readonly record struct BoundaryGraphAnalysis(
@@ -39,19 +39,8 @@ public static class MeshTopologyValidator
 
         internal static FlatBoundaryTopology Build(int[] faces, int faceCount)
         {
-            long[] sortedEdgeKeys = BuildSortedEdgeKeys(faces, faceCount);
-            int boundaryEdgeCount = 0;
-            int nonManifoldEdgeCount = 0;
-            int index = 0;
-            while (index < sortedEdgeKeys.Length)
-            {
-                int runLength = CountRun(sortedEdgeKeys, index);
-                if (runLength == 1)
-                    boundaryEdgeCount++;
-                else if (runLength > 2)
-                    nonManifoldEdgeCount++;
-                index += runLength;
-            }
+            long[] boundaryKeys = BuildBoundaryEdgeKeys(faces, faceCount, out int nonManifoldEdgeCount);
+            int boundaryEdgeCount = boundaryKeys.Length;
 
             if (boundaryEdgeCount == 0)
             {
@@ -65,17 +54,6 @@ public static class MeshTopologyValidator
                     Array.Empty<int>(),
                     new[] { 0 },
                     Array.Empty<int>());
-            }
-
-            var boundaryKeys = new long[boundaryEdgeCount];
-            int nextBoundary = 0;
-            index = 0;
-            while (index < sortedEdgeKeys.Length)
-            {
-                int runLength = CountRun(sortedEdgeKeys, index);
-                if (runLength == 1)
-                    boundaryKeys[nextBoundary++] = sortedEdgeKeys[index];
-                index += runLength;
             }
 
             var boundaryVertices = new int[boundaryEdgeCount * 2];
@@ -311,6 +289,80 @@ public static class MeshTopologyValidator
 
         Array.Sort(sortedEdgeKeys);
         return sortedEdgeKeys;
+    }
+
+    private static long[] BuildBoundaryEdgeKeys(int[] faces, int faceCount, out int nonManifoldEdgeCount)
+    {
+        nonManifoldEdgeCount = 0;
+        if (faceCount <= 0)
+            return Array.Empty<long>();
+        int edgeCount = checked(faceCount * 3);
+        int maxStart = 0;
+        bool dense = true;
+        for (int face = 0; face < faceCount; face++)
+        {
+            for (int corner = 0; corner < 3; corner++)
+            {
+                int start = Math.Min(faces[face * 3 + corner], faces[face * 3 + (corner + 1) % 3]);
+                if (start < 0 || start > edgeCount / 2)
+                    dense = false;
+                maxStart = Math.Max(maxStart, start);
+            }
+        }
+
+        // Sparse source ids must not determine an allocation size. Keep the original sorted-key
+        // path for those; ordinary terrain indices use half-sized targets and tiny local sorts.
+        if (!dense)
+        {
+            long[] sorted = BuildSortedEdgeKeys(faces, faceCount);
+            var boundary = new List<long>();
+            for (int index = 0; index < sorted.Length;)
+            {
+                int run = CountRun(sorted, index);
+                if (run == 1)
+                    boundary.Add(sorted[index]);
+                else if (run > 2)
+                    nonManifoldEdgeCount++;
+                index += run;
+            }
+            return boundary.ToArray();
+        }
+
+        var offsets = new int[maxStart + 2];
+        for (int face = 0; face < faceCount; face++)
+            for (int corner = 0; corner < 3; corner++)
+                offsets[Math.Min(faces[face * 3 + corner], faces[face * 3 + (corner + 1) % 3]) + 1]++;
+        for (int vertex = 0; vertex <= maxStart; vertex++)
+            offsets[vertex + 1] += offsets[vertex];
+        var fill = (int[])offsets.Clone();
+        var targets = new int[edgeCount];
+        for (int face = 0; face < faceCount; face++)
+        {
+            for (int corner = 0; corner < 3; corner++)
+            {
+                int a = faces[face * 3 + corner], b = faces[face * 3 + (corner + 1) % 3];
+                targets[fill[Math.Min(a, b)]++] = Math.Max(a, b);
+            }
+        }
+
+        var boundaryKeys = new List<long>();
+        for (int vertex = 0; vertex <= maxStart; vertex++)
+        {
+            int end = offsets[vertex + 1];
+            Array.Sort(targets, offsets[vertex], end - offsets[vertex]);
+            for (int index = offsets[vertex]; index < end;)
+            {
+                int next = index + 1;
+                while (next < end && targets[next] == targets[index])
+                    next++;
+                if (next - index == 1)
+                    boundaryKeys.Add(IndexedMeshTools.GetEdgeKey(vertex, targets[index]));
+                else if (next - index > 2)
+                    nonManifoldEdgeCount++;
+                index = next;
+            }
+        }
+        return boundaryKeys.ToArray();
     }
 
     private static int CountRun(long[] sortedValues, int start)

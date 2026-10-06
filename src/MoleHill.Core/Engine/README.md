@@ -21,6 +21,10 @@ Key files:
   re-sort, unused and degenerate culls, winding check) reproduced on flat arrays. The Rhino host builds
   stage meshes through it and hands on the exact arrays Rhino would have produced. Verified against
   RhinoCommon by `NormalizeEquivalenceProbe`; see `docs/architecture.md`, "Stage meshes without Rhino's normalization".
+  Unchanged topology shares its input arrays; callers must treat them as immutable or copy before editing.
+  Changed faces compact an owned copy in place. Source arrays and earlier published outputs remain untouched.
+  Duplicate checks, culling and winding rent scratch and return it after parallel workers finish.
+  Pools have weak roots and keep one buffer per bucket up to 524,288 elements; larger rentals are discarded.
 - `ShadingSeamSplitter.cs` - finds wall shading seams (wall face against non-wall, or a sharp mitre
   between walls) on flat arrays and gives each side of a seam vertex its own copy and normal (the
   unweighted mean of its unit face normals, as Rhino computes one). Used by the Rhino host's
@@ -118,9 +122,11 @@ Key files:
 - `FlipEdgeIndex.cs` — the isotropic remesh's per-sweep edge → faces index, a counting sort over
   half-edges that visits edges in exactly the order the edge dictionary it replaced enumerated them, so
   the flip phase makes identical flips (architecture.md, "Remesh flip phase").
-- `MeshTopologyValidator.cs` — low-allocation sorted-edge boundary analysis (non-manifold edges, open
+- `MeshTopologyValidator.cs` — low-allocation edge-run boundary analysis (non-manifold edges, open
   chains, loop count) and compressed flat adjacency for ordered boundary extraction. Storage scales
   with edge/boundary counts rather than maximum vertex id; it is the watertight gate used everywhere.
+  Dense indices use integer targets bucketed by the lower endpoint and local sorts; sparse ids retain
+  the global packed-key sort. Both paths preserve boundary-key and loop ordering.
 - `MeshConstraintTools.cs`, `TriangleBoundaryCuller.cs`, `BoundaryTrianglePeelSettings.cs`,
 - `FaceAdjacency.cs` — face-to-face adjacency across shared edges, as a flat `faceCount * 3` array with
   -1 for a naked edge. Shared by `WaterflowTracer` and `DrainageBasinAnalyzer` deliberately: both walk
