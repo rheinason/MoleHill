@@ -1,4 +1,5 @@
 using MoleHill.Core.Engine;
+using static MoleHill.Core.Grading.FaceCutGeometry;
 
 namespace MoleHill.Core.Grading;
 
@@ -91,7 +92,7 @@ internal static partial class MeshConstraintTopologyInserter
         }
         patch = patchSet.OrderBy(i => i).ToArray();
         var boundary = edgeOwners.Values.Where(o => o.Count(v => patchSet.Contains(v.Face)) == 1).ToArray();
-        var points = new LocalPointBuilder(tolerance);
+        var points = new LocalPointBuilder(tolerance, protectCorners: false);
         var segments = new List<(int a, int b)>();
         var keys = new HashSet<long>(IndexedMeshTools.EdgeKeyComparer.Instance);
         // Sample runs once per patch vertex, so index the reference faces rather than scanning them all.

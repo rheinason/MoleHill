@@ -1,5 +1,6 @@
 ﻿using System.Diagnostics;
 using MoleHill.Core.Engine;
+using static MoleHill.Core.Grading.FaceCutGeometry;
 
 namespace MoleHill.Core.Grading;
 
@@ -70,294 +71,6 @@ internal static class MeshAreaTopologySplitter
     [ThreadStatic]
     internal static Predicate<int>? ForceRetriangulationFailureForTesting;
 
-    private readonly record struct Point2D(double X, double Y);
-    private readonly record struct BoundarySegment(Point2D Start, Point2D End);
-    private readonly record struct SegmentPiece(Point2D Start, Point2D End);
-    private readonly record struct EdgePoint(int EdgeIndex, Point2D Point);
-
-    // Constructed on demand, without retaining a heap object for every terrain face.
-    // Passed by `in` to avoid copying the geometry at helper call sites.
-    private readonly struct FaceData
-    {
-        public required int I0 { get; init; }
-        public required int I1 { get; init; }
-        public required int I2 { get; init; }
-        public required Point2D A { get; init; }
-        public required Point2D B { get; init; }
-        public required Point2D C { get; init; }
-        public required double Az { get; init; }
-        public required double Bz { get; init; }
-        public required double Cz { get; init; }
-        public required Bounds2D Bounds { get; init; }
-
-        public Point2D GetVertex(int index) => index switch
-        {
-            0 => A,
-            1 => B,
-            _ => C
-        };
-
-        public Point2D GetEdgeStart(int edgeIndex) => edgeIndex switch
-        {
-            0 => A,
-            1 => B,
-            _ => C
-        };
-
-        public Point2D GetEdgeEnd(int edgeIndex) => edgeIndex switch
-        {
-            0 => B,
-            1 => C,
-            _ => A
-        };
-
-        public bool IsNearVertex(Point2D point, double tolerance)
-        {
-            double tolSq = tolerance * tolerance;
-            return DistanceSquared(point, A) <= tolSq ||
-                   DistanceSquared(point, B) <= tolSq ||
-                   DistanceSquared(point, C) <= tolSq;
-        }
-
-        public bool ContainsPoint(Point2D point, double tolerance)
-        {
-            double x0 = A.X;
-            double y0 = A.Y;
-            double x1 = B.X;
-            double y1 = B.Y;
-            double x2 = C.X;
-            double y2 = C.Y;
-            double denom = ((y1 - y2) * (x0 - x2)) + ((x2 - x1) * (y0 - y2));
-            if (Math.Abs(denom) <= 1e-16)
-                return false;
-
-            double w0 = (((y1 - y2) * (point.X - x2)) + ((x2 - x1) * (point.Y - y2))) / denom;
-            double w1 = (((y2 - y0) * (point.X - x2)) + ((x0 - x2) * (point.Y - y2))) / denom;
-            double w2 = 1.0 - w0 - w1;
-            const double barycentricTolerance = 1e-8;
-            return w0 >= -barycentricTolerance &&
-                   w1 >= -barycentricTolerance &&
-                   w2 >= -barycentricTolerance;
-        }
-
-        public double InterpolateZ(Point2D point)
-        {
-            double x0 = A.X;
-            double y0 = A.Y;
-            double x1 = B.X;
-            double y1 = B.Y;
-            double x2 = C.X;
-            double y2 = C.Y;
-            double denom = ((y1 - y2) * (x0 - x2)) + ((x2 - x1) * (y0 - y2));
-            if (Math.Abs(denom) <= 1e-16)
-                return Az;
-
-            double w0 = (((y1 - y2) * (point.X - x2)) + ((x2 - x1) * (point.Y - y2))) / denom;
-            double w1 = (((y2 - y0) * (point.X - x2)) + ((x0 - x2) * (point.Y - y2))) / denom;
-            double w2 = 1.0 - w0 - w1;
-            return (w0 * Az) + (w1 * Bz) + (w2 * Cz);
-        }
-
-        public int GetEdgeIndex(Point2D point, double tolerance)
-        {
-            for (int edgeIndex = 0; edgeIndex < 3; edgeIndex++)
-            {
-                if (PointOnSegment(point, GetEdgeStart(edgeIndex), GetEdgeEnd(edgeIndex), tolerance))
-                    return edgeIndex;
-            }
-
-            return -1;
-        }
-    }
-
-    private sealed class FaceCutData
-    {
-        public List<SegmentPiece> InternalSegments { get; } = new();
-        public List<EdgePoint> EdgePoints { get; } = new();
-
-        public bool HasData => InternalSegments.Count > 0 || EdgePoints.Count > 0;
-    }
-
-    private sealed class LocalPointBuilder
-    {
-        private readonly double _toleranceSquared;
-
-        public LocalPointBuilder(double tolerance)
-        {
-            _toleranceSquared = tolerance * tolerance;
-        }
-
-        public List<double> Xy { get; } = new();
-        public List<double> Z { get; } = new();
-
-        /// <summary>Bit mask of the face edges each point lies on (a corner lies on two), or 0.</summary>
-        private readonly List<int> _edges = new();
-
-        public int Count => Z.Count;
-
-        /// <summary>
-        /// Adds a point, or returns an existing one within tolerance. A point on a face edge
-        /// (<paramref name="edgeMask"/>) never merges into a point lying only on other edges: in a sliver an
-        /// edge passes within tolerance of the far corner or the next edge, and one point cannot lie on both.
-        /// </summary>
-        public int Add(Point2D point, double z, int edgeMask = 0)
-        {
-            int best = -1;
-            if (IsCornerMask(edgeMask))
-                return Append(point, z, edgeMask);
-
-            double bestDistance = double.MaxValue;
-            for (int i = 0; i < Z.Count; i++)
-            {
-                if (edgeMask != 0 && _edges[i] != 0 && (_edges[i] & edgeMask) == 0)
-                    continue;
-
-                double dx = Xy[i * 2] - point.X;
-                double dy = Xy[i * 2 + 1] - point.Y;
-                double distance = (dx * dx) + (dy * dy);
-                if (distance <= _toleranceSquared && distance < bestDistance)
-                {
-                    best = i;
-                    bestDistance = distance;
-                    if (edgeMask == 0)
-                        break; // untagged points keep the first match
-                }
-            }
-
-            if (best >= 0)
-            {
-                if (_edges[best] == 0)
-                    _edges[best] = edgeMask;
-                return best;
-            }
-
-            return Append(point, z, edgeMask);
-        }
-
-        // A face's corners are distinct mesh vertices: never merged with each other, even when a short edge
-        // between two of them is under tolerance. Merging them dropped the triangle on that edge - a hole.
-        private static bool IsCornerMask(int edgeMask) => edgeMask is 0b011 or 0b101 or 0b110;
-
-        private int Append(Point2D point, double z, int edgeMask)
-        {
-            int index = Z.Count;
-            Xy.Add(point.X);
-            Xy.Add(point.Y);
-            Z.Add(z);
-            _edges.Add(edgeMask);
-            return index;
-        }
-
-        public Point2D GetPoint(int index) => new(Xy[index * 2], Xy[index * 2 + 1]);
-
-        public double GetZ(int index) => Z[index];
-
-        public int Find(Point2D point)
-        {
-            for (int i = 0; i < Z.Count; i++)
-            {
-                double dx = Xy[i * 2] - point.X;
-                double dy = Xy[i * 2 + 1] - point.Y;
-                if ((dx * dx) + (dy * dy) <= _toleranceSquared)
-                    return i;
-            }
-
-            return -1;
-        }
-    }
-
-    private sealed class GlobalPointLookup
-    {
-        private readonly List<double> _vertices;
-        private readonly double _toleranceSquared;
-        private readonly double _inverseCellSize;
-        private readonly Dictionary<long, (int Head, int Tail)> _cells = new(IndexedMeshTools.CellKeyComparer.Instance);
-        private readonly List<int> _next;
-
-        public GlobalPointLookup(List<double> vertices, double tolerance)
-        {
-            _vertices = vertices;
-            double resolvedTolerance = Math.Max(tolerance, 1e-9);
-            _toleranceSquared = resolvedTolerance * resolvedTolerance;
-            _inverseCellSize = 1.0 / resolvedTolerance;
-
-            int vertexCount = vertices.Count / 3;
-            _next = new List<int>(vertexCount);
-            for (int i = 0; i < vertexCount; i++)
-                Register(i, vertices[i * 3], vertices[i * 3 + 1]);
-        }
-
-        public int Resolve(Point2D point, double z)
-        {
-            if (TryFind(point, out int existing))
-                return existing;
-
-            return Append(point.X, point.Y, z);
-        }
-
-        /// <summary>Adds a vertex exactly where given, without merging, and registers it for later lookups.</summary>
-        public int Append(double x, double y, double z)
-        {
-            int index = _vertices.Count / 3;
-            _vertices.Add(x);
-            _vertices.Add(y);
-            _vertices.Add(z);
-            Register(index, x, y);
-            return index;
-        }
-
-        private bool TryFind(Point2D point, out int index)
-        {
-            long cellX = ToCell(point.X);
-            long cellY = ToCell(point.Y);
-            double bestDistanceSquared = double.MaxValue;
-            int bestIndex = -1;
-
-            for (long dx = -1; dx <= 1; dx++)
-            {
-                for (long dy = -1; dy <= 1; dy++)
-                {
-                    if (!_cells.TryGetValue(PackKey(cellX + dx, cellY + dy), out var cell))
-                        continue;
-
-                    for (int candidate = cell.Head; candidate >= 0; candidate = _next[candidate])
-                    {
-                        double vx = _vertices[candidate * 3];
-                        double vy = _vertices[candidate * 3 + 1];
-                        double deltaX = vx - point.X;
-                        double deltaY = vy - point.Y;
-                        double distanceSquared = (deltaX * deltaX) + (deltaY * deltaY);
-                        if (distanceSquared > _toleranceSquared || distanceSquared >= bestDistanceSquared)
-                            continue;
-
-                        bestDistanceSquared = distanceSquared;
-                        bestIndex = candidate;
-                    }
-                }
-            }
-
-            index = bestIndex;
-            return bestIndex >= 0;
-        }
-
-        private void Register(int index, double x, double y)
-        {
-            long key = PackKey(ToCell(x), ToCell(y));
-            // Append in original vertex order: nearest-point ties must resolve exactly as
-            // they did with per-cell lists, including duplicate XY vertices at different Z.
-            _next.Add(-1);
-            if (_cells.TryGetValue(key, out var cell))
-            {
-                _next[cell.Tail] = index;
-                _cells[key] = (cell.Head, index);
-            }
-            else
-                _cells[key] = (index, index);
-        }
-
-        private long ToCell(double value) => (long)Math.Floor(value * _inverseCellSize);
-    }
-
     // Output grows only as faces are emitted, without doubling a terrain-sized backing array.
     // Chunks are flattened once into the exact-sized array required by SplitResult.
     private sealed class FaceBuffer
@@ -388,22 +101,6 @@ internal static class MeshAreaTopologySplitter
             }
             return result;
         }
-    }
-
-    private enum SegmentIntersectionKind
-    {
-        None,
-        Point,
-        Overlap
-    }
-
-    private readonly struct SegmentIntersection
-    {
-        public required SegmentIntersectionKind Kind { get; init; }
-        public required double T0 { get; init; }
-        public required double T1 { get; init; }
-        public required Point2D P0 { get; init; }
-        public required Point2D P1 { get; init; }
     }
 
     public static MeshAreaSplitter.SplitResult? Split(
@@ -766,42 +463,16 @@ internal static class MeshAreaTopologySplitter
 
         public int Count { get; }
 
-        public FaceData Get(int faceIndex)
-        {
-            int i0 = _faces[faceIndex * 3];
-            int i1 = _faces[faceIndex * 3 + 1];
-            int i2 = _faces[faceIndex * 3 + 2];
-            var a = new Point2D(_vertices[i0 * 3], _vertices[i0 * 3 + 1]);
-            var b = new Point2D(_vertices[i1 * 3], _vertices[i1 * 3 + 1]);
-            var c = new Point2D(_vertices[i2 * 3], _vertices[i2 * 3 + 1]);
-
-            return new FaceData
-            {
-                I0 = i0,
-                I1 = i1,
-                I2 = i2,
-                A = a,
-                B = b,
-                C = c,
-                Az = _vertices[i0 * 3 + 2],
-                Bz = _vertices[i1 * 3 + 2],
-                Cz = _vertices[i2 * 3 + 2],
-                Bounds = new Bounds2D(
-                    Math.Min(a.X, Math.Min(b.X, c.X)),
-                    Math.Max(a.X, Math.Max(b.X, c.X)),
-                    Math.Min(a.Y, Math.Min(b.Y, c.Y)),
-                    Math.Max(a.Y, Math.Max(b.Y, c.Y)))
-            };
-        }
+        public FaceData Get(int faceIndex) => new(_vertices, _faces, faceIndex);
     }
 
-    private static List<BoundarySegment> BuildBoundarySegments(
+    private static List<CutSegment> BuildBoundarySegments(
         MeshAreaSplitter.AreaBoundary[] areas,
         double tolerance,
         CancellationProbe? cancellation = null)
     {
         CancellationProbe probe = cancellation ?? CancellationProbe.None;
-        var sourceSegments = new List<BoundarySegment>();
+        var sourceSegments = new List<CutSegment>();
         for (int areaIndex = 0; areaIndex < areas.Length; areaIndex++)
         {
             probe.ThrowIfCancelledOften();
@@ -814,104 +485,11 @@ internal static class MeshAreaTopologySplitter
                 if (DistanceSquared(start, end) <= tolerance * tolerance)
                     continue;
 
-                sourceSegments.Add(new BoundarySegment(start, end));
+                sourceSegments.Add(new CutSegment(start, end));
             }
         }
 
-        if (sourceSegments.Count == 0)
-            return sourceSegments;
-
-        var splitParameters = new List<double>[sourceSegments.Count];
-        var segmentBounds = new Bounds2D[sourceSegments.Count];
-        for (int i = 0; i < sourceSegments.Count; i++)
-        {
-            splitParameters[i] = new List<double>(4) { 0.0, 1.0 };
-            var segment = sourceSegments[i];
-            segmentBounds[i] = new Bounds2D(
-                Math.Min(segment.Start.X, segment.End.X),
-                Math.Max(segment.Start.X, segment.End.X),
-                Math.Min(segment.Start.Y, segment.End.Y),
-                Math.Max(segment.Start.Y, segment.End.Y));
-        }
-
-        // Boundary-vs-boundary intersections are found through a spatial index, not an all-pairs sweep.
-        // Zone boundaries come straight from GIS/CAD polygons and routinely carry tens of thousands of
-        // vertices; the n^2 sweep this replaces did ~1.6e9 bbox tests on a 56k-vertex cadastral layer.
-        // Every other hot loop in this file is already indexed this way.
-        var pairGrid = SpatialHashGrid2D.Build(segmentBounds, valid: null, probe);
-        var pairScratch = new SpatialHashGrid2D.QueryScratch(sourceSegments.Count);
-        var pairCandidates = new List<int>(16);
-
-        for (int i = 0; i < sourceSegments.Count; i++)
-        {
-            probe.ThrowIfCancelledOften();
-            pairGrid.GatherCandidates(segmentBounds[i], pairCandidates, pairScratch);
-            // Sorted so each unordered pair is still visited exactly once, in the same ascending order
-            // the all-pairs sweep used - split parameters accumulate identically.
-            pairCandidates.Sort();
-
-            foreach (int j in pairCandidates)
-            {
-                if (j <= i)
-                    continue;
-
-                if (!segmentBounds[i].Intersects(segmentBounds[j]))
-                    continue;
-
-                var intersection = IntersectSegments(sourceSegments[i].Start, sourceSegments[i].End, sourceSegments[j].Start, sourceSegments[j].End, tolerance);
-                if (intersection.Kind == SegmentIntersectionKind.None)
-                    continue;
-
-                AddSplitParameter(splitParameters[i], intersection.T0);
-                AddSplitParameter(splitParameters[i], intersection.T1);
-
-                var reverse = IntersectSegments(sourceSegments[j].Start, sourceSegments[j].End, sourceSegments[i].Start, sourceSegments[i].End, tolerance);
-                AddSplitParameter(splitParameters[j], reverse.T0);
-                AddSplitParameter(splitParameters[j], reverse.T1);
-            }
-        }
-
-        var dedupedSegments = new List<BoundarySegment>();
-        double inverseTolerance = 1.0 / tolerance;
-        var seen = new HashSet<(long, long, long, long)>();
-
-        for (int segmentIndex = 0; segmentIndex < sourceSegments.Count; segmentIndex++)
-        {
-            var parameters = splitParameters[segmentIndex];
-            parameters.Sort();
-
-            int uniqueCount = 0;
-            for (int i = 0; i < parameters.Count; i++)
-            {
-                double value = Math.Clamp(parameters[i], 0.0, 1.0);
-                if (uniqueCount > 0 && Math.Abs(value - parameters[uniqueCount - 1]) <= 1e-9)
-                    continue;
-
-                parameters[uniqueCount++] = value;
-            }
-
-            var source = sourceSegments[segmentIndex];
-            for (int i = 0; i < uniqueCount - 1; i++)
-            {
-                double t0 = parameters[i];
-                double t1 = parameters[i + 1];
-                if (t1 - t0 <= 1e-9)
-                    continue;
-
-                Point2D start = Lerp(source.Start, source.End, t0);
-                Point2D end = Lerp(source.Start, source.End, t1);
-                if (DistanceSquared(start, end) <= tolerance * tolerance)
-                    continue;
-
-                var key = CreateSegmentKey(start, end, inverseTolerance);
-                if (!seen.Add(key))
-                    continue;
-
-                dedupedSegments.Add(new BoundarySegment(start, end));
-            }
-        }
-
-        return dedupedSegments;
+        return SplitAtMutualIntersections(sourceSegments, tolerance, probe);
     }
 
     /// <summary>
@@ -926,7 +504,7 @@ internal static class MeshAreaTopologySplitter
     /// </summary>
     private static FaceCutData[] MapBoundarySegmentsToFaces(
         FaceSource faceData,
-        List<BoundarySegment> boundarySegments,
+        List<CutSegment> boundarySegments,
         double tolerance,
         CancellationProbe? cancellation = null)
     {
@@ -936,7 +514,7 @@ internal static class MeshAreaTopologySplitter
         for (int i = 0; i < boundarySegments.Count; i++)
         {
             probe.ThrowIfCancelledOften();
-            BoundarySegment segment = boundarySegments[i];
+            CutSegment segment = boundarySegments[i];
             segmentBounds[i] = new Bounds2D(
                 Math.Min(segment.Start.X, segment.End.X) - tolerance,
                 Math.Max(segment.Start.X, segment.End.X) + tolerance,
@@ -985,11 +563,12 @@ internal static class MeshAreaTopologySplitter
                 if (!faceBounds.Intersects(queryBounds))
                     continue;
 
-                BoundarySegment segment = boundarySegments[segmentIndex];
+                CutSegment segment = boundarySegments[segmentIndex];
                 AnalyzeSegmentAgainstFace(
                     face,
                     segment,
                     tolerance,
+                    EdgePointMerge.SameEdgeOrSharedCorner,
                     state.EdgePointBuffer,
                     out int edgePointCount,
                     state.ParameterBuffer,
@@ -1000,7 +579,7 @@ internal static class MeshAreaTopologySplitter
 
                 FaceCutData cuts = result[faceIndex] ??= new FaceCutData();
                 for (int edgePointIndex = 0; edgePointIndex < edgePointCount; edgePointIndex++)
-                    AddUniqueEdgePoint(cuts.EdgePoints, state.EdgePointBuffer[edgePointIndex], face, tolerance);
+                    AddUniqueEdgePoint(cuts.EdgePoints, state.EdgePointBuffer[edgePointIndex], face, tolerance, EdgePointMerge.SameEdgeOrSharedCorner);
 
                 for (int clippedPieceIndex = 0; clippedPieceIndex < clippedPieceCount; clippedPieceIndex++)
                 {
@@ -1021,13 +600,13 @@ internal static class MeshAreaTopologySplitter
                     int edgeIndex = GetPieceEdgeIndex(face, clippedPiece, tolerance);
                     if (edgeIndex >= 0)
                     {
-                        AddUniqueEdgePoint(cuts.EdgePoints, new EdgePoint(edgeIndex, clippedPiece.Start), face, tolerance);
-                        AddUniqueEdgePoint(cuts.EdgePoints, new EdgePoint(edgeIndex, clippedPiece.End), face, tolerance);
+                        AddUniqueEdgePoint(cuts.EdgePoints, new EdgePoint(edgeIndex, clippedPiece.Start), face, tolerance, EdgePointMerge.SameEdgeOrSharedCorner);
+                        AddUniqueEdgePoint(cuts.EdgePoints, new EdgePoint(edgeIndex, clippedPiece.End), face, tolerance, EdgePointMerge.SameEdgeOrSharedCorner);
                         continue;
                     }
 
                     AddUniqueSegment(cuts.InternalSegments, clippedPiece, tolerance);
-                    AddPieceEndpointEdgePoints(cuts.EdgePoints, face, clippedPiece, tolerance);
+                    AddPieceEndpointEdgePoints(cuts.EdgePoints, face, clippedPiece, tolerance, EdgePointMerge.SameEdgeOrSharedCorner);
                 }
             }
 
@@ -1061,7 +640,7 @@ internal static class MeshAreaTopologySplitter
         errorMessage = null;
 
         FaceData self = face; // the corner/edge resolver below cannot capture an in parameter
-        var localPoints = new LocalPointBuilder(tolerance);
+        var localPoints = new LocalPointBuilder(tolerance, protectCorners: true);
         var identities = new LocalPointIdentities();
         // Edge 0 runs A-B, edge 1 B-C, edge 2 C-A.
         int a = localPoints.Add(face.A, face.Az, 0b101);
@@ -1081,16 +660,7 @@ internal static class MeshAreaTopologySplitter
         // boundary moves negligibly.
         double cornerSnapTolSq = (tolerance * ConformSnapToleranceFactor) * (tolerance * ConformSnapToleranceFactor);
 
-        var edgePointLists = new List<(double Parameter, int LocalIndex)>[3];
-        for (int edgeIndex = 0; edgeIndex < 3; edgeIndex++)
-            edgePointLists[edgeIndex] = new List<(double Parameter, int LocalIndex)>(4);
-
-        edgePointLists[0].Add((0.0, a));
-        edgePointLists[0].Add((1.0, b));
-        edgePointLists[1].Add((0.0, b));
-        edgePointLists[1].Add((1.0, c));
-        edgePointLists[2].Add((0.0, c));
-        edgePointLists[2].Add((1.0, a));
+        List<(double Parameter, int LocalIndex)>[] edgePointLists = CreateEdgeChains(a, b, c);
 
         // Seed edge subdivision points from the shared-edge registry rather than this face's own
         // detected points. The registry is the union of both adjacent faces' cut points on each
@@ -1138,37 +708,7 @@ internal static class MeshAreaTopologySplitter
             }
         }
 
-        var edgePointCounts = new int[3];
-        for (int edgeIndex = 0; edgeIndex < 3; edgeIndex++)
-        {
-            var points = edgePointLists[edgeIndex];
-            points.Sort((left, right) => left.Parameter.CompareTo(right.Parameter));
-
-            int writeIndex = 0;
-            for (int i = 0; i < points.Count; i++)
-            {
-                var current = points[i];
-                if (writeIndex > 0)
-                {
-                    var previous = points[writeIndex - 1];
-                    if (current.LocalIndex == previous.LocalIndex || Math.Abs(current.Parameter - previous.Parameter) <= 1e-9)
-                        continue;
-                }
-
-                points[writeIndex++] = current;
-            }
-
-            edgePointCounts[edgeIndex] = writeIndex;
-            for (int i = 0; i < writeIndex - 1; i++)
-            {
-                int start = points[i].LocalIndex;
-                int end = points[i + 1].LocalIndex;
-                if (start == end)
-                    continue;
-
-                MeshConstraintTools.TryAddSegment(segments, segmentKeys, start, end);
-            }
-        }
+        int[] edgePointCounts = AddEdgeChainSegments(edgePointLists, segments, segmentKeys);
 
         // A face whose local point set cannot form a triangle - a sliver whose corners merge inside the
         // merge tolerance, or a set that is entirely collinear - has no meaningful subdivision to
@@ -1212,7 +752,7 @@ internal static class MeshAreaTopologySplitter
         // past vertical beside a wall) must keep its own winding, or its pieces run against the neighbours'
         // and every shared edge is traversed twice in one direction: 65 such edges on a 566k-face terrain,
         // which the hand-off normalization then "fixed" by flipping overlapping faces.
-        bool clockwise = Cross(face.B.X - face.A.X, face.B.Y - face.A.Y, face.C.X - face.A.X, face.C.Y - face.A.Y) < 0.0;
+        bool clockwise = face.IsClockwise;
 
         for (int faceIndex = 0; faceIndex < extracted.FaceCount; faceIndex++)
         {
@@ -1319,425 +859,6 @@ internal static class MeshAreaTopologySplitter
         }
     }
 
-    private static void AnalyzeSegmentAgainstFace(
-        in FaceData face,
-        BoundarySegment segment,
-        double tolerance,
-        EdgePoint[] edgePoints,
-        out int edgePointCount,
-        double[] parameters,
-        SegmentPiece[] clippedPieces,
-        out int clippedPieceCount)
-    {
-        edgePointCount = 0;
-        clippedPieceCount = 0;
-        int parameterCount = 0;
-        bool startInside = face.ContainsPoint(segment.Start, tolerance);
-        bool endInside = face.ContainsPoint(segment.End, tolerance);
-
-        if (startInside)
-            parameters[parameterCount++] = 0.0;
-        if (endInside)
-            parameters[parameterCount++] = 1.0;
-
-        for (int edgeIndex = 0; edgeIndex < 3; edgeIndex++)
-        {
-            SegmentIntersection intersection = IntersectSegments(
-                segment.Start,
-                segment.End,
-                face.GetEdgeStart(edgeIndex),
-                face.GetEdgeEnd(edgeIndex),
-                tolerance);
-            if (intersection.Kind == SegmentIntersectionKind.None)
-                continue;
-
-            AddScratchEdgeTouchPoint(
-                edgePoints,
-                ref edgePointCount,
-                face,
-                edgeIndex,
-                intersection.P0,
-                tolerance);
-            if (intersection.Kind == SegmentIntersectionKind.Overlap)
-            {
-                AddScratchEdgeTouchPoint(
-                    edgePoints,
-                    ref edgePointCount,
-                    face,
-                    edgeIndex,
-                    intersection.P1,
-                    tolerance);
-            }
-
-            parameters[parameterCount++] = intersection.T0;
-            parameters[parameterCount++] = intersection.T1;
-        }
-
-        if (startInside)
-        {
-            int edgeIndex = face.GetEdgeIndex(segment.Start, tolerance);
-            if (edgeIndex >= 0)
-            {
-                AddScratchEdgeTouchPoint(
-                    edgePoints,
-                    ref edgePointCount,
-                    face,
-                    edgeIndex,
-                    segment.Start,
-                    tolerance);
-            }
-        }
-
-        if (endInside)
-        {
-            int edgeIndex = face.GetEdgeIndex(segment.End, tolerance);
-            if (edgeIndex >= 0)
-            {
-                AddScratchEdgeTouchPoint(
-                    edgePoints,
-                    ref edgePointCount,
-                    face,
-                    edgeIndex,
-                    segment.End,
-                    tolerance);
-            }
-        }
-
-        if (parameterCount == 0)
-            return;
-
-        for (int index = 1; index < parameterCount; index++)
-        {
-            double value = parameters[index];
-            int writeIndex = index;
-            while (writeIndex > 0 && parameters[writeIndex - 1] > value)
-            {
-                parameters[writeIndex] = parameters[writeIndex - 1];
-                writeIndex--;
-            }
-
-            parameters[writeIndex] = value;
-        }
-
-        int uniqueCount = 0;
-        for (int index = 0; index < parameterCount; index++)
-        {
-            double value = Math.Clamp(parameters[index], 0.0, 1.0);
-            if (uniqueCount > 0 && Math.Abs(value - parameters[uniqueCount - 1]) <= 1e-9)
-                continue;
-
-            parameters[uniqueCount++] = value;
-        }
-
-        for (int index = 0; index < uniqueCount - 1; index++)
-        {
-            double t0 = parameters[index];
-            double t1 = parameters[index + 1];
-            if (t1 - t0 <= 1e-9)
-                continue;
-
-            double midpointT = (t0 + t1) * 0.5;
-            var midpoint = Lerp(segment.Start, segment.End, midpointT);
-            if (!face.ContainsPoint(midpoint, tolerance))
-                continue;
-
-            var start = SnapPointToTriangle(face, Lerp(segment.Start, segment.End, t0), tolerance);
-            var end = SnapPointToTriangle(face, Lerp(segment.Start, segment.End, t1), tolerance);
-            if (DistanceSquared(start, end) <= tolerance * tolerance)
-                continue;
-
-            clippedPieces[clippedPieceCount++] = new SegmentPiece(start, end);
-        }
-    }
-
-    private static void AddScratchEdgeTouchPoint(
-        EdgePoint[] destination,
-        ref int count,
-        in FaceData face,
-        int edgeIndex,
-        Point2D point,
-        double tolerance)
-    {
-        Point2D snapped = SnapPointToEdge(
-            face.GetEdgeStart(edgeIndex),
-            face.GetEdgeEnd(edgeIndex),
-            point);
-        if (face.IsNearVertex(snapped, tolerance))
-            return;
-
-        var candidate = new EdgePoint(edgeIndex, snapped);
-        double toleranceSquared = tolerance * tolerance;
-        double vertexToleranceSquared = 4.0 * toleranceSquared;
-        for (int index = 0; index < count; index++)
-        {
-            EdgePoint existing = destination[index];
-            if (DistanceSquared(existing.Point, candidate.Point) > toleranceSquared)
-                continue;
-
-            if (existing.EdgeIndex == candidate.EdgeIndex)
-                return;
-
-            for (int vertexIndex = 0; vertexIndex < 3; vertexIndex++)
-            {
-                Point2D vertex = face.GetVertex(vertexIndex);
-                if (DistanceSquared(existing.Point, vertex) <= vertexToleranceSquared &&
-                    DistanceSquared(candidate.Point, vertex) <= vertexToleranceSquared)
-                {
-                    return;
-                }
-            }
-        }
-
-        destination[count++] = candidate;
-    }
-
-    private static int GetPieceEdgeIndex(in FaceData face, SegmentPiece piece, double tolerance)
-    {
-        int startEdge = face.GetEdgeIndex(piece.Start, tolerance);
-        int endEdge = face.GetEdgeIndex(piece.End, tolerance);
-        if (startEdge < 0 || startEdge != endEdge)
-            return -1;
-
-        var midpoint = new Point2D((piece.Start.X + piece.End.X) * 0.5, (piece.Start.Y + piece.End.Y) * 0.5);
-        return face.GetEdgeIndex(midpoint, tolerance) == startEdge
-            ? startEdge
-            : -1;
-    }
-
-    private static void AddPieceEndpointEdgePoints(List<EdgePoint> edgePoints, FaceData face, SegmentPiece piece, double tolerance)
-    {
-        int startEdge = face.GetEdgeIndex(piece.Start, tolerance);
-        if (startEdge >= 0)
-            AddUniqueEdgePoint(edgePoints, new EdgePoint(startEdge, piece.Start), face, tolerance);
-
-        int endEdge = face.GetEdgeIndex(piece.End, tolerance);
-        if (endEdge >= 0)
-            AddUniqueEdgePoint(edgePoints, new EdgePoint(endEdge, piece.End), face, tolerance);
-    }
-
-    private static void AddUniqueEdgePoint(List<EdgePoint> destination, EdgePoint candidate, FaceData face, double tolerance)
-    {
-        double toleranceSquared = tolerance * tolerance;
-        double vertexToleranceSquared = 4.0 * toleranceSquared;
-        for (int i = 0; i < destination.Count; i++)
-        {
-            var existing = destination[i];
-            if (DistanceSquared(existing.Point, candidate.Point) > toleranceSquared)
-                continue;
-
-            if (existing.EdgeIndex == candidate.EdgeIndex)
-                return;
-
-            for (int vertexIndex = 0; vertexIndex < 3; vertexIndex++)
-            {
-                var vertex = face.GetVertex(vertexIndex);
-                if (DistanceSquared(existing.Point, vertex) <= vertexToleranceSquared &&
-                    DistanceSquared(candidate.Point, vertex) <= vertexToleranceSquared)
-                {
-                    return;
-                }
-            }
-        }
-
-        destination.Add(candidate);
-    }
-
-    private static void AddUniqueSegment(List<SegmentPiece> destination, SegmentPiece candidate, double tolerance)
-    {
-        double toleranceSquared = tolerance * tolerance;
-        for (int i = 0; i < destination.Count; i++)
-        {
-            var existing = destination[i];
-            bool sameDirection = DistanceSquared(existing.Start, candidate.Start) <= toleranceSquared &&
-                                 DistanceSquared(existing.End, candidate.End) <= toleranceSquared;
-            bool reverseDirection = DistanceSquared(existing.Start, candidate.End) <= toleranceSquared &&
-                                    DistanceSquared(existing.End, candidate.Start) <= toleranceSquared;
-            if (sameDirection || reverseDirection)
-                return;
-        }
-
-        destination.Add(candidate);
-    }
-
-    private static SegmentIntersection IntersectSegments(Point2D a0, Point2D a1, Point2D b0, Point2D b1, double tolerance)
-    {
-        double rx = a1.X - a0.X;
-        double ry = a1.Y - a0.Y;
-        double sx = b1.X - b0.X;
-        double sy = b1.Y - b0.Y;
-        double rxs = Cross(rx, ry, sx, sy);
-        double qpx = b0.X - a0.X;
-        double qpy = b0.Y - a0.Y;
-        double qpxr = Cross(qpx, qpy, rx, ry);
-
-        if (Math.Abs(rxs) <= tolerance && Math.Abs(qpxr) <= tolerance)
-        {
-            double t0 = ParameterOnSegment(a0, a1, b0);
-            double t1 = ParameterOnSegment(a0, a1, b1);
-            double minT = Math.Max(0.0, Math.Min(t0, t1));
-            double maxT = Math.Min(1.0, Math.Max(t0, t1));
-            if (maxT < 0.0 || minT > 1.0)
-            {
-                return new SegmentIntersection
-                {
-                    Kind = SegmentIntersectionKind.None,
-                    T0 = 0.0,
-                    T1 = 0.0,
-                    P0 = a0,
-                    P1 = a0
-                };
-            }
-
-            var start = Lerp(a0, a1, minT);
-            var end = Lerp(a0, a1, maxT);
-            if (DistanceSquared(start, end) <= tolerance * tolerance)
-            {
-                return new SegmentIntersection
-                {
-                    Kind = SegmentIntersectionKind.Point,
-                    T0 = minT,
-                    T1 = minT,
-                    P0 = start,
-                    P1 = start
-                };
-            }
-
-            return new SegmentIntersection
-            {
-                Kind = SegmentIntersectionKind.Overlap,
-                T0 = minT,
-                T1 = maxT,
-                P0 = start,
-                P1 = end
-            };
-        }
-
-        if (Math.Abs(rxs) <= tolerance)
-        {
-            return new SegmentIntersection
-            {
-                Kind = SegmentIntersectionKind.None,
-                T0 = 0.0,
-                T1 = 0.0,
-                P0 = a0,
-                P1 = a0
-            };
-        }
-
-        double t = Cross(qpx, qpy, sx, sy) / rxs;
-        double u = Cross(qpx, qpy, rx, ry) / rxs;
-        if (t < -1e-9 || t > 1.0 + 1e-9 || u < -1e-9 || u > 1.0 + 1e-9)
-        {
-            return new SegmentIntersection
-            {
-                Kind = SegmentIntersectionKind.None,
-                T0 = 0.0,
-                T1 = 0.0,
-                P0 = a0,
-                P1 = a0
-            };
-        }
-
-        var intersectionPoint = Lerp(a0, a1, Math.Clamp(t, 0.0, 1.0));
-        return new SegmentIntersection
-        {
-            Kind = SegmentIntersectionKind.Point,
-            T0 = Math.Clamp(t, 0.0, 1.0),
-            T1 = Math.Clamp(t, 0.0, 1.0),
-            P0 = intersectionPoint,
-            P1 = intersectionPoint
-        };
-    }
-
-    private static void AddSplitParameter(List<double> parameters, double value)
-    {
-        value = Math.Clamp(value, 0.0, 1.0);
-        for (int i = 0; i < parameters.Count; i++)
-        {
-            if (Math.Abs(parameters[i] - value) <= 1e-9)
-                return;
-        }
-
-        parameters.Add(value);
-    }
-
-    private static (long, long, long, long) CreateSegmentKey(Point2D start, Point2D end, double inverseTolerance)
-    {
-        long x0 = (long)Math.Round(start.X * inverseTolerance);
-        long y0 = (long)Math.Round(start.Y * inverseTolerance);
-        long x1 = (long)Math.Round(end.X * inverseTolerance);
-        long y1 = (long)Math.Round(end.Y * inverseTolerance);
-        bool keepOrder = x0 < x1 || (x0 == x1 && y0 <= y1);
-        return keepOrder
-            ? (x0, y0, x1, y1)
-            : (x1, y1, x0, y0);
-    }
-
-    private static Point2D SnapPointToTriangle(in FaceData face, Point2D point, double tolerance)
-    {
-        if (DistanceSquared(point, face.A) <= tolerance * tolerance)
-            return face.A;
-        if (DistanceSquared(point, face.B) <= tolerance * tolerance)
-            return face.B;
-        if (DistanceSquared(point, face.C) <= tolerance * tolerance)
-            return face.C;
-
-        int edgeIndex = face.GetEdgeIndex(point, tolerance);
-        return edgeIndex < 0
-            ? point
-            : SnapPointToEdge(face.GetEdgeStart(edgeIndex), face.GetEdgeEnd(edgeIndex), point);
-    }
-
-    private static Point2D SnapPointToEdge(Point2D edgeStart, Point2D edgeEnd, Point2D point)
-    {
-        double t = ParameterOnEdge(edgeStart, edgeEnd, point);
-        return Lerp(edgeStart, edgeEnd, t);
-    }
-
-    /// <summary>
-    /// True when the local point set spans a real area, i.e. some three points form a triangle above
-    /// the degeneracy epsilon. Runs in O(n): the point farthest from the first one fixes the dominant
-    /// direction, so if any point lies off that line the set is not collinear.
-    /// </summary>
-    private static bool HasTriangulableArea(LocalPointBuilder points, double tolerance)
-    {
-        if (points.Count < 3)
-            return false;
-
-        Point2D origin = points.GetPoint(0);
-        int farthest = -1;
-        double farthestDistance = 0.0;
-        for (int i = 1; i < points.Count; i++)
-        {
-            double distance = DistanceSquared(origin, points.GetPoint(i));
-            if (distance > farthestDistance)
-            {
-                farthestDistance = distance;
-                farthest = i;
-            }
-        }
-
-        if (farthest < 0 || farthestDistance <= 0.0)
-            return false;
-
-        Point2D axis = points.GetPoint(farthest);
-        double areaEpsilon = tolerance * tolerance * 1e-3;
-        for (int i = 1; i < points.Count; i++)
-        {
-            if (i == farthest)
-                continue;
-
-            Point2D candidate = points.GetPoint(i);
-            double cross = Math.Abs(
-                ((axis.X - origin.X) * (candidate.Y - origin.Y)) -
-                ((axis.Y - origin.Y) * (candidate.X - origin.X)));
-            if (cross > areaEpsilon)
-                return true;
-        }
-
-        return false;
-    }
-
     /// <summary>Snaps a cut point that lands very close to a triangle CORNER onto that corner, so both
     /// faces sharing the corner place it at the identical global vertex instead of two hair-apart
     /// points that would emit overlapping slivers (a non-manifold edge).</summary>
@@ -1789,60 +910,4 @@ internal static class MeshAreaTopologySplitter
 
         return best;
     }
-
-    private static double ParameterOnSegment(Point2D start, Point2D end, Point2D point)
-    {
-        double dx = end.X - start.X;
-        double dy = end.Y - start.Y;
-        double lengthSquared = (dx * dx) + (dy * dy);
-        if (lengthSquared <= 1e-20)
-            return 0.0;
-
-        return (((point.X - start.X) * dx) + ((point.Y - start.Y) * dy)) / lengthSquared;
-    }
-
-    private static double ParameterOnEdge(Point2D start, Point2D end, Point2D point)
-    {
-        double dx = end.X - start.X;
-        double dy = end.Y - start.Y;
-        double lengthSquared = (dx * dx) + (dy * dy);
-        if (lengthSquared <= 1e-20)
-            return 0.0;
-
-        return Math.Clamp((((point.X - start.X) * dx) + ((point.Y - start.Y) * dy)) / lengthSquared, 0.0, 1.0);
-    }
-
-    private static bool PointOnSegment(Point2D point, Point2D start, Point2D end, double tolerance)
-    {
-        double dx = end.X - start.X;
-        double dy = end.Y - start.Y;
-        double lengthSquared = (dx * dx) + (dy * dy);
-        if (lengthSquared <= 1e-20)
-            return DistanceSquared(point, start) <= tolerance * tolerance;
-
-        double t = (((point.X - start.X) * dx) + ((point.Y - start.Y) * dy)) / lengthSquared;
-        if (t < -tolerance || t > 1.0 + tolerance)
-            return false;
-
-        var projected = new Point2D(start.X + (dx * Math.Clamp(t, 0.0, 1.0)), start.Y + (dy * Math.Clamp(t, 0.0, 1.0)));
-        return DistanceSquared(projected, point) <= tolerance * tolerance;
-    }
-
-    private static Point2D Lerp(Point2D start, Point2D end, double t)
-    {
-        return new Point2D(
-            start.X + ((end.X - start.X) * t),
-            start.Y + ((end.Y - start.Y) * t));
-    }
-
-    private static double Cross(double ax, double ay, double bx, double by) => (ax * by) - (ay * bx);
-
-    private static double DistanceSquared(Point2D a, Point2D b)
-    {
-        double dx = a.X - b.X;
-        double dy = a.Y - b.Y;
-        return (dx * dx) + (dy * dy);
-    }
-
-    private static long PackKey(long cellX, long cellY) => (cellX * 0x100000001L) ^ (cellY * 0x27d4eb2dL);
 }

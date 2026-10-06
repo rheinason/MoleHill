@@ -1,4 +1,5 @@
 using MoleHill.Core.Engine;
+using static MoleHill.Core.Grading.FaceCutGeometry;
 
 namespace MoleHill.Core.Grading;
 

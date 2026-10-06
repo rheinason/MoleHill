@@ -1,4 +1,5 @@
 using MoleHill.Core.Engine;
+using static MoleHill.Core.Grading.FaceCutGeometry;
 
 namespace MoleHill.Core.Grading;
 
@@ -45,7 +46,7 @@ internal static partial class MeshConstraintTopologyInserter
         errorMessage = null;
 
         double resolvedTolerance = Math.Max(tolerance, 1e-9);
-        List<ConstraintSegment> segments = BuildConstraintSegments(constraints, resolvedTolerance);
+        List<CutSegment> segments = BuildConstraintSegments(constraints, resolvedTolerance);
         if (segments.Count == 0 || faceCount == 0)
         {
             errorMessage = "Local triangulation has no constraint segments to insert.";
@@ -186,7 +187,7 @@ internal static partial class MeshConstraintTopologyInserter
         foreach (long key in boundaryEdges)
             AddSegment(globalToLocal[(int)(key >> 32)], globalToLocal[(int)(key & 0xFFFFFFFFL)]);
 
-        foreach (ConstraintSegment source in segments)
+        foreach (CutSegment source in segments)
         {
             var intervals = new List<(double Start, double End)>();
             foreach (int f in patch)
