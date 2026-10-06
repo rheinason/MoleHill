@@ -106,6 +106,15 @@ ids.
 
 The wall solid uses shared rail stations and four continuous side bands:
 
+Nearby corners with agreeing incoming/outgoing plan directions are matched in both directions and
+used as ordered anchors. Between anchors, stations use the union of each rail's vertex plan-length
+fractions. Each rail retains its own Z, so a steep grade cannot shift the corresponding corner along
+the other rail. Extra collinear height vertices are retained without becoming corner anchors. Closed
+rings move the station seam to a matching corner. A vertical step (two rail vertices at one plan position)
+gets a span of a thousandth of its rise, so both step vertices keep their own station instead of one being
+dropped and the step becoming a ramp. This runs inside the solid builder; curves do not
+need to be exploded and terrain breakline inputs are unchanged.
+
 - each station spans the two rail XY positions
 - vertical range is `min(toeZ, topZ)` to `max(toeZ, topZ)`
 - open walls get start/end caps

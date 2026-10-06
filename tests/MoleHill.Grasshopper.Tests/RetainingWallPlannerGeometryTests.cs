@@ -160,6 +160,22 @@ public class RetainingWallPlannerGeometryTests
         Assert.True(brep!.IsSolid);
     }
 
+    // 3D Model 2028: joined rails whose corner climbs steeply on one rail only. Stationing by 3D length put
+    // the steep rail's corner opposite a point partway along the other rail's leg, folding the wall.
+    [RhinoNativeFact]
+    public void BrepBuilder_JoinedCornersWithDifferentGrades_BuildsWatertightSolid()
+    {
+        Brep? brep = RetainingWallBrepBuilder.Build(
+            new[] { new Point3d(0, 0, 0), new Point3d(10, 0, 0), new Point3d(10, 10, 0) },
+            new[] { new Point3d(0, 1, 1), new Point3d(9, 1, 20), new Point3d(9, 10, 2) },
+            .005);
+
+        Assert.NotNull(brep);
+        Assert.True(brep!.IsValid);
+        Assert.True(brep.IsSolid);
+        Assert.All(brep.Edges, edge => Assert.NotEqual(EdgeAdjacency.Naked, edge.Valence));
+    }
+
     // Regression for the copied Terrain 1 retaining wall: two dense, steeply-climbing rails with
     // unequal point counts and a narrow (~0.25) footprint. The old per-segment box builder produced
     // hundreds of faces that JoinBreps fragmented into an invalid, non-solid Brep, so the wall solid

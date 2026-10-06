@@ -123,6 +123,13 @@ new surface if assignment fails. CRS reprojection remains out of scope.
 
 ## Two hosts, one core
 
+Wall solids synchronize rails through Core's `WallRailStationing`: nearby matching plan bends anchor
+the correspondence, with plan-length interpolation between them and every authored vertex retained.
+Rail Z is sampled independently. Normalizing whole-rail 3D lengths mismatched corners on graded,
+winding walls (the copied `3D Model 2028` case), folding the solid even though each input rail was valid.
+Closed rings put their shared station seam on corresponding bends. The shared Brep builder uses these
+stations for both its continuous loft bands and its mesh fallback; input curves stay joined.
+
 Graded retaining-wall insertion tries a quality patch first. `MeshConstraintTopologyInserter.WallQuality.cs`
 expands a patch ring by ring until the stitched result clears a 5-degree floor, verifying achieved
 quality, plan-area conservation, a single closed perimeter and no discarded input vertex before it

@@ -1,3 +1,4 @@
+using MoleHill.Core.Grading;
 using Rhino.Geometry;
 
 namespace MoleHill.Shared;
@@ -23,8 +24,8 @@ internal static class RetainingWallBrepBuilder
 
     // Build the wall solid as four CONTINUOUS lofted side surfaces (front, back, bottom, top) plus two
     // end caps, rather than one small box per rail segment. The two input rails are resampled onto a
-    // common set of stations — the union of both rails' vertex arc-length fractions — so every input
-    // corner is preserved and the four longitudinal rails all share the same station count. Because the
+    // common set of plan stations, anchored at matching bends, so every input corner is preserved
+    // opposite its partner and the four longitudinal rails all share the same station count. Because the
     // side surfaces are lofted from those shared rail polylines, their edges match exactly and JoinBreps
     // welds them into a single watertight solid. The previous per-segment approach produced hundreds of
     // faces that JoinBreps could not re-weld once the rails were dense, unequal in count, or steep,
@@ -71,23 +72,16 @@ internal static class RetainingWallBrepBuilder
         return BuildMeshFallback(rails, isClosed);
     }
 
-    // Sample both rails at the union of their vertex stations, then split each station into the four
+    // Synchronize corresponding plan bends before sampling between them, then split into the four
     // longitudinal rails: front/back are the toe/top XY columns, bottom/top are the low/high Z of that
     // station (so the wall face height is the elevation difference between the two rails, as before).
     private static RailSet? BuildRails(Point3d[] toePts, Point3d[] topPts, bool isClosed, double tolerance)
     {
-        double[] toeCum = BuildCumLen(toePts, isClosed);
-        double[] topCum = BuildCumLen(topPts, isClosed);
-        double toeLen = toeCum[^1];
-        double topLen = topCum[^1];
-        if (toeLen <= 1e-12 || topLen <= 1e-12)
+        WallRailStationing.Result stations = WallRailStationing.Synchronize(
+            Flatten(toePts), Flatten(topPts), isClosed, tolerance);
+        int count = stations.First.Length / 3;
+        if (count < 2)
             return null;
-
-        List<double> fractions = MergeStationFractions(toeCum, toeLen, topCum, topLen, isClosed);
-        if (fractions.Count < 2)
-            return null;
-
-        int count = fractions.Count;
         var frontBottom = new Point3d[count];
         var frontTop = new Point3d[count];
         var backBottom = new Point3d[count];
@@ -95,8 +89,8 @@ internal static class RetainingWallBrepBuilder
 
         for (int i = 0; i < count; i++)
         {
-            Point3d toe = PointAtFraction(toePts, toeCum, toeLen, isClosed, fractions[i]);
-            Point3d top = PointAtFraction(topPts, topCum, topLen, isClosed, fractions[i]);
+            Point3d toe = new(stations.First[i * 3], stations.First[i * 3 + 1], stations.First[i * 3 + 2]);
+            Point3d top = new(stations.Second[i * 3], stations.Second[i * 3 + 1], stations.Second[i * 3 + 2]);
             double low = Math.Min(toe.Z, top.Z);
             double high = Math.Max(toe.Z, top.Z);
             frontBottom[i] = new Point3d(toe.X, toe.Y, low);
@@ -108,43 +102,16 @@ internal static class RetainingWallBrepBuilder
         return new RailSet(frontBottom, frontTop, backBottom, backTop);
     }
 
-    // Union of both rails' normalized vertex fractions, deduplicated. Open walls always include the two
-    // ends (0 and 1); closed walls drop the wrap-around duplicate at 1 so the loft can close cleanly.
-    private static List<double> MergeStationFractions(
-        double[] toeCum,
-        double toeLen,
-        double[] topCum,
-        double topLen,
-        bool isClosed)
+    private static double[] Flatten(Point3d[] points)
     {
-        var set = new SortedSet<double>();
-        AddVertexFractions(set, toeCum, toeLen, isClosed);
-        AddVertexFractions(set, topCum, topLen, isClosed);
-        if (!isClosed)
+        var result = new double[points.Length * 3];
+        for (int i = 0; i < points.Length; i++)
         {
-            set.Add(0.0);
-            set.Add(1.0);
+            result[i * 3] = points[i].X;
+            result[i * 3 + 1] = points[i].Y;
+            result[i * 3 + 2] = points[i].Z;
         }
-
-        const double stationGap = 1e-7;
-        var fractions = new List<double>(set.Count);
-        foreach (double fraction in set)
-        {
-            if (isClosed && fraction >= 1.0 - stationGap)
-                continue;
-            if (fractions.Count == 0 || fraction - fractions[^1] > stationGap)
-                fractions.Add(fraction);
-        }
-
-        return fractions;
-    }
-
-    private static void AddVertexFractions(SortedSet<double> set, double[] cum, double length, bool isClosed)
-    {
-        // For closed rails cum has one extra (wrap) entry; the vertices are cum[0..n-1].
-        int vertexCount = isClosed ? cum.Length - 1 : cum.Length;
-        for (int i = 0; i < vertexCount; i++)
-            set.Add(cum[i] / length);
+        return result;
     }
 
     private static void AddLoft(List<Brep> faces, Point3d[] railA, Point3d[] railB, bool isClosed)
@@ -252,47 +219,4 @@ internal static class RetainingWallBrepBuilder
         return IsCompleteSolid(fallback) ? fallback : null;
     }
 
-    // Cumulative arc length per vertex. For a closed rail an extra trailing entry carries the length of
-    // the wrap-around segment, so cum[^1] is the full ring length.
-    private static double[] BuildCumLen(Point3d[] points, bool isClosed)
-    {
-        int extra = isClosed ? 1 : 0;
-        var cum = new double[points.Length + extra];
-        for (int i = 1; i < points.Length; i++)
-            cum[i] = cum[i - 1] + points[i - 1].DistanceTo(points[i]);
-
-        if (isClosed)
-            cum[^1] = cum[points.Length - 1] + points[^1].DistanceTo(points[0]);
-
-        return cum;
-    }
-
-    private static Point3d PointAtFraction(Point3d[] points, double[] cum, double length, bool isClosed, double fraction)
-    {
-        if (points.Length == 1)
-            return points[0];
-
-        double along = Math.Clamp(fraction, 0.0, 1.0) * length;
-        int segments = isClosed ? points.Length : points.Length - 1;
-        for (int i = 0; i < segments; i++)
-        {
-            double s0 = cum[i];
-            double s1 = cum[i + 1];
-            if (along > s1 && i < segments - 1)
-                continue;
-
-            int next = (i + 1) % points.Length;
-            double span = s1 - s0;
-            double t = span <= 1e-12 ? 0.0 : (along - s0) / span;
-            t = Math.Clamp(t, 0.0, 1.0);
-            Point3d p0 = points[i];
-            Point3d p1 = points[next];
-            return new Point3d(
-                p0.X + ((p1.X - p0.X) * t),
-                p0.Y + ((p1.Y - p0.Y) * t),
-                p0.Z + ((p1.Z - p0.Z) * t));
-        }
-
-        return points[isClosed ? 0 : points.Length - 1];
-    }
 }

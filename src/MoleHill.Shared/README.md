@@ -18,6 +18,7 @@ Key files:
   unfinished one.
 - `ModelUnitContext.cs` - the single model-unit boundary for both hosts.
 - `RetainingWallPlannerCore.cs`, `RetainingWallGradePlanner.cs`, `RetainingWallBrepBuilder.cs` -
-  retaining-wall planning and solids.
+  retaining-wall planning and solids. The solid builder calls Core's `WallRailStationing` to match
+  plan corners before lofting, keeping joined rails usable even with different longitudinal grades.
 - `InSituStairReferenceBuilder.cs`, `AdaptivePolylineBuilder.cs` - stair references and adaptive
   polyline sampling.
