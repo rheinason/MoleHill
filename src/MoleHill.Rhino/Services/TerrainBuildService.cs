@@ -273,10 +273,16 @@ internal sealed partial class TerrainBuildService
     }
 
     /// <summary>
-    /// Warns when the terrain lies so far from the world origin that single-precision rounding — every
-    /// stage hands its mesh on as a Rhino mesh — approaches the model tolerance. Raised per build from the
-    /// finished terrain's extent, outside every stage cache, so a cache hit can neither drop nor repeat it.
+    /// Warns when the terrain lies so far from the world origin that single-precision rounding - every stage
+    /// hands its mesh on as a Rhino mesh - approaches the tolerance the build itself works at. Raised per build
+    /// from the finished terrain's extent, outside every stage cache, so a cache hit can neither drop nor
+    /// repeat it.
     /// </summary>
+    /// <remarks>
+    /// Measured against the tightest working tolerance of the cards present, not the document's model
+    /// tolerance: the build snaps and merges at its own tolerances (derived from the terrain detail size), and
+    /// a model tolerance of a fraction of a millimetre warned on an ordinary site 156 m from the origin.
+    /// </remarks>
     private static void AddFarFromOriginWarning(TerrainBuildSnapshot snapshot, TerrainBuildResult build)
     {
         RhinoMesh? mesh = build.PrimaryMesh ?? build.BaseMesh;
@@ -287,7 +293,7 @@ internal sealed partial class TerrainBuildService
         double magnitude = Math.Max(
             Math.Max(Math.Abs(box.Min.X), Math.Abs(box.Max.X)),
             Math.Max(Math.Abs(box.Min.Y), Math.Abs(box.Max.Y)));
-        double tolerance = snapshot.ModelAbsoluteTolerance;
+        (double tolerance, string limitedBy) = WorkingTolerance(snapshot);
         if (!CoordinatePrecision.IsTooFarFromOrigin(magnitude, tolerance))
             return;
 
@@ -295,25 +301,46 @@ internal sealed partial class TerrainBuildService
         string problem =
             $"The terrain is {units.FormatLength(magnitude, "N0")} from the world origin, where coordinates round to " +
             $"about {units.FormatLength(CoordinatePrecision.RoundingStep(magnitude), "G2")} between build stages " +
-            $"(model tolerance {units.FormatLength(tolerance, "G3")}). Expect slivers, merged points and failed wall or grading " +
-            "insertions. ";
+            $"({limitedBy} works at {units.FormatLength(tolerance, "G3")}). Expect slivers, merged points and failed " +
+            "wall or grading insertions. ";
 
-        // Moving the project only helps when the site would fit once centred. A site wider than the tolerance
-        // allows is too wide wherever it sits - a 4 km park at 1 mm starts at the origin and still warned -
-        // and then the useful advice is the tolerance that would fit it.
+        // Moving the project only helps when the site would fit once centred. A site wider than that is too
+        // wide wherever it sits, and then the honest advice is that this tolerance cannot hold it.
         double centred = CoordinatePrecision.CentredMagnitude(box.Min.X, box.Max.X, box.Min.Y, box.Max.Y);
         string advice = CoordinatePrecision.IsTooFarFromOrigin(centred, tolerance)
             ? $"The site itself is too wide for that tolerance: even centred on the origin it reaches " +
-              $"{units.FormatLength(centred, "N0")}. A model tolerance of {units.FormatLength(CoordinatePrecision.ToleranceFor(centred), "G2")} " +
-              "or coarser would fit it" +
-              (CoordinatePrecision.IsTooFarFromOrigin(magnitude, CoordinatePrecision.ToleranceFor(centred))
-                  ? ", once the project is also moved to the origin with mhOrientToOrigin."
-                  : ".")
+              $"{units.FormatLength(centred, "N0")}, where the rounding needs a tolerance of " +
+              $"{units.FormatLength(CoordinatePrecision.ToleranceFor(centred), "G2")} or coarser."
             : "Run mhOrientToOrigin to move the project to the origin; the saved georeference restores " +
               "real-world coordinates on export.";
         string message = problem + advice;
         build.Diagnostics.Add("[Warning] " + message);
         build.StructuredDiagnostics.Add(GradingDiagnostic.Warning("terrain.far_from_origin", message, "Build"));
+    }
+
+    /// <summary>The tightest tolerance any enabled card of this terrain snaps or merges at, and which card.</summary>
+    private static (double Tolerance, string LimitedBy) WorkingTolerance(TerrainBuildSnapshot snapshot)
+    {
+        TerrainTolerancePolicy.Profile profile = GetToleranceProfile(snapshot, snapshot.Terrain);
+        (double Tolerance, string LimitedBy) tightest = (
+            Math.Min(profile.InputMergeTolerance, profile.RemeshConstraintTolerance), "the terrain");
+        foreach (ModifierDefinition modifier in snapshot.Terrain.Modifiers)
+        {
+            if (!modifier.IsEnabled)
+                continue;
+
+            (double Tolerance, string LimitedBy)? card = modifier switch
+            {
+                GradePathModifierDefinition or GradeLineModifierDefinition => (profile.GradePathTolerance, "Grade Path"),
+                GradePadModifierDefinition => (profile.GradePadTolerance, "Grade Pad"),
+                RetainingWallModifierDefinition wall => (profile.RetainingWallTolerance(wall.MaxWallWidth), "Retaining Wall"),
+                _ => null
+            };
+            if (card is { } value && value.Tolerance < tightest.Tolerance)
+                tightest = value;
+        }
+
+        return tightest;
     }
 
     private static void ReportInertModifier(TerrainBuildResult build, ModifierDefinition modifier, string reason)

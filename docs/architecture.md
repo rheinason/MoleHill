@@ -672,9 +672,13 @@ that rebuild took 11 s on every edit, opened the terrain and was discarded.
 ### Far-from-origin advice
 
 `AddFarFromOriginWarning` (`TerrainBuildService.cs`) warns once float32 rounding (the Rhino mesh vertex
-type) approaches the model tolerance. Its advice depends on the site's size. When the site would fit once
-centred, it points to `mhOrientToOrigin`. When even the centred site is too wide (a 4 km park at 1 mm,
-already at the origin), moving it does not help. The warning then names the tolerance that would fit
+type) reaches a tenth of the tightest tolerance the build works at: the terrain's merge/remesh tolerance and
+those of its enabled Grade Path/Line, Grade Pad and Retaining Wall cards (`WorkingTolerance`), all derived
+from the detail size. It is not the document's model tolerance, which the build never snaps at - a 0.16 mm
+model tolerance warned on a site 156 m from the origin. At the default 0.25 m detail size that is about
+4 km from the origin, or 1.7 km with a Grade Path (capped at 2 mm). Its advice depends on the site's size.
+When the site would fit once centred, it points to `mhOrientToOrigin`; when even the centred site is too
+wide, moving it does not help, and the warning names the tolerance that would fit
 (`CoordinatePrecision.CentredMagnitude` / `ToleranceFor`).
 
 Grading search work is spatialized without changing deterministic tie order. `TerrainFaceGrid`
