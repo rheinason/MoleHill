@@ -687,8 +687,7 @@ Watertightness gates and boundary-loop extraction share `MeshTopologyValidator`'
 analysis. Dense terrain edges are bucketed by their lower vertex id and sorted only within each bucket,
 using integer targets instead of a global array of packed long keys. Sparse ids retain the global sort,
 and both paths emit the same ordered boundary keys. Edge run lengths identify naked/non-manifold edges;
-boundary ids are compressed before flat
-offset/neighbor adjacency is built, so sparse source ids do not cause dense max-id arrays. Grade Path
+boundary ids are compressed before flat offset/neighbor adjacency is built, so sparse source ids do not cause dense max-id arrays. Grade Path
 split-keep reuses the conformed analysis when applying Z. This generic primitive does not replace the
 TIN production path's faster Triangle.NET-native adjacency.
 
@@ -1883,11 +1882,21 @@ other callers must copy before mutating either array. The normalizer never rewri
 The former unconditional face copy, face-sized list and `ToArray` copy
 allocated three redundant large arrays even when every face survived. Full garbage collections during
 normalization were charged to Grade Pad's output mesh in the 1.3.1-beta hosted run.
-Duplicate-position hashes and memberships, vertex-use/remap buffers, duplicate tables and winding
-adjacency rent scratch, returned in `finally` after parallel workers finish. Pools have weak roots so
-a full collection can reclaim their idle working sets. Each pool keeps at most one buffer per size
-bucket up to 524,288 elements (2 MB for indices); larger requests still work but are not retained. Only the
-active range is read, count buffers are cleared, and source and published arrays are never pooled.
+Duplicate-position hashes and memberships, vertex-use/remap buffers, the duplicate tables (all 64
+partitions carved from one buffer) and winding adjacency come from a **strongly held** scratch cache:
+four slots per element type, smallest free buffer that fits, a miss allocating an eighth of headroom,
+nothing over 8M elements retained. Only the active range is read, count buffers are cleared, and source
+and published arrays are never cached.
+
+**Why strongly held: a large-object allocation waits for a running background collection.** The cold
+build's Grade Pad Output Mesh is 6 ms, but took 35 ms on half the cold samples, so its baseline median
+swung between 7 and 37 ms with no change to the stage. A probe showed each slow call had a gen2 collection
+inside it with a GC *pause* of 0.5 ms. The rest was the stage's own large-object allocations, which wait
+for the background collection to finish. The first version of this cache held its pool weakly, so every
+full collection, including the one the lane forces between samples, emptied it. Each call then allocated
+about 3.4 MB of scratch afresh, at exactly the moment that cost most. Held strongly, the stage allocates
+only its 1.4 MB result, and 9 of 10 cold calls stay at 6 ms (cold Grade Pad 100 to 75 ms). The cost is
+retained scratch of a few times the largest terrain normalized: a few MB here, tens of MB at 1.6M faces.
 
 ### Interactive scale: what a warm edit costs as the terrain grows
 

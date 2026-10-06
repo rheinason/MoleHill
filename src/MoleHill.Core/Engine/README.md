@@ -23,8 +23,10 @@ Key files:
   RhinoCommon by `NormalizeEquivalenceProbe`; see `docs/architecture.md`, "Stage meshes without Rhino's normalization".
   Unchanged topology shares its input arrays; callers must treat them as immutable or copy before editing.
   Changed faces compact an owned copy in place. Source arrays and earlier published outputs remain untouched.
-  Duplicate checks, culling and winding rent scratch and return it after parallel workers finish.
-  Pools have weak roots and keep one buffer per bucket up to 524,288 elements; larger rentals are discarded.
+  Duplicate checks, culling and winding take scratch from a strongly held cache (four slots per element
+  type, nothing over 8M elements kept) and return it after parallel workers finish. A weakly held pool
+  emptied at every full collection, and the large-object allocations that replaced it waited on background
+  collections (architecture.md, "Why strongly held").
 - `ShadingSeamSplitter.cs` - finds wall shading seams (wall face against non-wall, or a sharp mitre
   between walls) on flat arrays and gives each side of a seam vertex its own copy and normal (the
   unweighted mean of its unit face normals, as Rhino computes one). Used by the Rhino host's

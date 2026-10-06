@@ -1,5 +1,3 @@
-using System.Buffers;
-
 namespace MoleHill.Core.Engine;
 
 /// <summary>
@@ -23,22 +21,73 @@ namespace MoleHill.Core.Engine;
 /// </remarks>
 public static class MeshArrayNormalizer
 {
-    // Scratch can be reused between stages, but must not keep a large terrain's working set alive
-    // through a full collection and make the next, smaller build pay for it.
-    private static class ScratchPool<T>
+    /// <summary>
+    /// Scratch kept between calls, strongly held. Every buffer here is a large-object-heap array at terrain
+    /// scale, and a large-object allocation made while a background collection runs waits for it: measured
+    /// as a 6 ms Grade Pad Output Mesh taking 35 ms on half the cold builds, with a GC pause of 0.5 ms. A
+    /// weakly held pool emptied at every full collection, so it allocated afresh exactly when that cost.
+    /// </summary>
+    /// <remarks>
+    /// A few slots per element type (at most three buffers are out at once), each the smallest free buffer
+    /// that fits; a miss allocates with an eighth of headroom so an edit that adds a few vertices reuses it.
+    /// Buffers over <see cref="MaxRetainedLength"/> elements are not kept: below that, the most this holds
+    /// is a few times the largest terrain normalized so far, tens of MB at 1.6M faces.
+    /// </remarks>
+    private static class Scratch<T>
     {
-        private static readonly object Gate = new();
-        private static readonly WeakReference<ArrayPool<T>> Pool = new(ArrayPool<T>.Create(512 * 1024, 1));
+        private const int Slots = 4;
+        private const int MaxRetainedLength = 1 << 23;
+        private static readonly T[]?[] Free = new T[]?[Slots];
 
-        public static ArrayPool<T> Get()
+        public static T[] Rent(int length)
         {
-            lock (Gate)
+            if (length == 0)
+                return Array.Empty<T>();
+            lock (Free)
             {
-                if (Pool.TryGetTarget(out ArrayPool<T>? pool))
-                    return pool;
-                pool = ArrayPool<T>.Create(512 * 1024, 1);
-                Pool.SetTarget(pool);
-                return pool;
+                int best = -1;
+                for (int i = 0; i < Slots; i++)
+                {
+                    if (Free[i] is { } candidate && candidate.Length >= length &&
+                        (best < 0 || candidate.Length < Free[best]!.Length))
+                    {
+                        best = i;
+                    }
+                }
+
+                if (best >= 0)
+                {
+                    T[] array = Free[best]!;
+                    Free[best] = null;
+                    return array;
+                }
+            }
+
+            return new T[Math.Min(Array.MaxLength, (long)length + (length >> 3))];
+        }
+
+        public static void Return(T[] array)
+        {
+            if (array.Length == 0 || array.Length > MaxRetainedLength)
+                return;
+            lock (Free)
+            {
+                // An empty slot, else the smallest buffer shorter than this one.
+                int target = -1;
+                for (int i = 0; i < Slots; i++)
+                {
+                    if (Free[i] == null)
+                    {
+                        target = i;
+                        break;
+                    }
+
+                    if (Free[i]!.Length < array.Length && (target < 0 || Free[i]!.Length < Free[target]!.Length))
+                        target = i;
+                }
+
+                if (target >= 0)
+                    Free[target] = array;
             }
         }
     }
@@ -202,10 +251,9 @@ public static class MeshArrayNormalizer
     internal static bool HasFloatDuplicates(double[] v, int vertexCount)
     {
         const int Partitions = 64;
-        ArrayPool<ulong> hashPool = ScratchPool<ulong>.Get();
-        ArrayPool<int> indexPool = ScratchPool<int>.Get();
-        ulong[] hashes = hashPool.Rent(vertexCount);
-        int[] members = indexPool.Rent(vertexCount);
+        ulong[] hashes = Scratch<ulong>.Rent(vertexCount);
+        int[] members = Scratch<int>.Rent(vertexCount);
+        int[]? tables = null;
         try
         {
             Parallel.For(0, (vertexCount + 65535) / 65536, block =>
@@ -224,52 +272,61 @@ public static class MeshArrayNormalizer
             for (int i = 0; i < vertexCount; i++)
                 members[fill[(int)(hashes[i] >> 58)]++] = i;
 
+            // One open-addressing table per partition, all carved from one buffer: a power of two at most
+            // half full, so linear probing stays short. Tables hold vertex indices, not positions.
+            var tableStart = new int[Partitions + 1];
+            for (int p = 0; p < Partitions; p++)
+            {
+                int count = start[p + 1] - start[p];
+                int capacity = 0;
+                if (count >= 2)
+                {
+                    capacity = 4;
+                    while (capacity < (long)count * 2)
+                        capacity = checked(capacity * 2);
+                }
+
+                tableStart[p + 1] = checked(tableStart[p] + capacity);
+            }
+
+            int[] slab = tables = Scratch<int>.Rent(tableStart[Partitions]);
             int found = 0;
             Parallel.For(0, Partitions, (p, state) =>
             {
-                int count = start[p + 1] - start[p];
-                if (count < 2)
+                int offset = tableStart[p];
+                int capacity = tableStart[p + 1] - offset;
+                if (capacity == 0)
                     return;
-                int capacity = 4;
-                while (capacity < (long)count * 2)
-                    capacity = checked(capacity * 2);
-                // Store vertex indices, not a second copy of every position. At <= 50% occupancy,
-                // linear probing stays short, and renting the table avoids 64 hash-set allocations.
-                int[] seen = indexPool.Rent(capacity);
-                Array.Clear(seen, 0, capacity);
-                try
+                Span<int> seen = slab.AsSpan(offset, capacity);
+                seen.Clear();
+                for (int k = start[p]; k < start[p + 1]; k++)
                 {
-                    for (int k = start[p]; k < start[p + 1]; k++)
+                    int i = members[k];
+                    int slot = (int)(hashes[i] & (uint)(capacity - 1));
+                    while (seen[slot] != 0)
                     {
-                        int i = members[k];
-                        int slot = (int)(hashes[i] & (uint)(capacity - 1));
-                        while (seen[slot] != 0)
+                        int other = seen[slot] - 1;
+                        if (((float)v[i * 3]).Equals((float)v[other * 3]) &&
+                            ((float)v[i * 3 + 1]).Equals((float)v[other * 3 + 1]) &&
+                            ((float)v[i * 3 + 2]).Equals((float)v[other * 3 + 2]))
                         {
-                            int other = seen[slot] - 1;
-                            if (((float)v[i * 3]).Equals((float)v[other * 3]) &&
-                                ((float)v[i * 3 + 1]).Equals((float)v[other * 3 + 1]) &&
-                                ((float)v[i * 3 + 2]).Equals((float)v[other * 3 + 2]))
-                            {
-                                Interlocked.Exchange(ref found, 1);
-                                state.Stop();
-                                return;
-                            }
-                            slot = (slot + 1) & (capacity - 1);
+                            Interlocked.Exchange(ref found, 1);
+                            state.Stop();
+                            return;
                         }
-                        seen[slot] = i + 1;
+                        slot = (slot + 1) & (capacity - 1);
                     }
-                }
-                finally
-                {
-                    indexPool.Return(seen);
+                    seen[slot] = i + 1;
                 }
             });
             return found != 0;
         }
         finally
         {
-            hashPool.Return(hashes);
-            indexPool.Return(members);
+            if (tables != null)
+                Scratch<int>.Return(tables);
+            Scratch<ulong>.Return(hashes);
+            Scratch<int>.Return(members);
         }
     }
 
@@ -287,8 +344,7 @@ public static class MeshArrayNormalizer
     /// <summary>Drops unreferenced vertices, keeping order, and renumbers <paramref name="f"/> in place.</summary>
     private static (double[] V, int Count) CullUnused(double[] v, int vc, ref int[] f, int fc, ref bool ownsFaces)
     {
-        ArrayPool<bool> usePool = ScratchPool<bool>.Get();
-        bool[] used = usePool.Rent(vc);
+        bool[] used = Scratch<bool>.Rent(vc);
         Array.Clear(used, 0, vc);
         try
         {
@@ -309,8 +365,7 @@ public static class MeshArrayNormalizer
                 return (trimmed, vc);
             }
 
-            ArrayPool<int> indexPool = ScratchPool<int>.Get();
-            int[] map = indexPool.Rent(vc);
+            int[] map = Scratch<int>.Rent(vc);
             try
             {
                 int next = 0;
@@ -333,12 +388,12 @@ public static class MeshArrayNormalizer
             }
             finally
             {
-                indexPool.Return(map);
+                Scratch<int>.Return(map);
             }
         }
         finally
         {
-            usePool.Return(used);
+            Scratch<bool>.Return(used);
         }
     }
 
@@ -360,10 +415,9 @@ public static class MeshArrayNormalizer
         int vertexCount = 0;
         for (int i = 0; i < fc * 3; i++)
             vertexCount = Math.Max(vertexCount, f[i] + 1);
-        ArrayPool<int> indexPool = ScratchPool<int>.Get();
-        int[] start = indexPool.Rent(vertexCount + 1);
-        int[] fill = indexPool.Rent(vertexCount + 1);
-        int[] targets = indexPool.Rent(fc * 3);
+        int[] start = Scratch<int>.Rent(vertexCount + 1);
+        int[] fill = Scratch<int>.Rent(vertexCount + 1);
+        int[] targets = Scratch<int>.Rent(fc * 3);
         Array.Clear(start, 0, vertexCount + 1);
         try
         {
@@ -402,9 +456,9 @@ public static class MeshArrayNormalizer
         }
         finally
         {
-            indexPool.Return(start);
-            indexPool.Return(fill);
-            indexPool.Return(targets);
+            Scratch<int>.Return(start);
+            Scratch<int>.Return(fill);
+            Scratch<int>.Return(targets);
         }
     }
 }
