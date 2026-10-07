@@ -20,4 +20,10 @@ public abstract class ReferenceComparisonAnalysisDefinition : AnalysisDefinition
         yield return Reference;
         yield return Boundary;
     }
+
+    public override void NormalizeAfterLoad()
+    {
+        Reference ??= new SourceReferenceSet();
+        Boundary ??= new SourceReferenceSet();
+    }
 }

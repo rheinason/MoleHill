@@ -59,4 +59,13 @@ public sealed class TriangulateModifierDefinition : GeometryInputModifierDefinit
 
         return contourVertexCount < AutoUnconstrainedContourVertexThreshold;
     }
+
+    public override void NormalizeAfterLoad()
+    {
+        base.NormalizeAfterLoad();
+        OuterBoundaries ??= new SourceReferenceSet();
+        HideBoundaries ??= new SourceReferenceSet();
+        ShowBoundaries ??= new SourceReferenceSet();
+        DataClipBoundaries ??= new SourceReferenceSet();
+    }
 }

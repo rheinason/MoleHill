@@ -1,3 +1,5 @@
+using MoleHill.Shared;
+
 namespace MoleHill.Rhino.Model;
 
 public sealed class ProjectedElevationLabelAnnotationDefinition : BlockAttributeAnnotationDefinition
@@ -6,5 +8,12 @@ public sealed class ProjectedElevationLabelAnnotationDefinition : BlockAttribute
     {
         Label = "Spot Heights (Points)";
         ValueFormat = "F2";
+    }
+
+    public override void NormalizeAfterLoad(ModelUnitContext unitContext, Guid ownerTerrainId)
+    {
+        base.NormalizeAfterLoad(unitContext, ownerTerrainId);
+        if (string.IsNullOrWhiteSpace(ValueFormat))
+            ValueFormat = "F2";
     }
 }

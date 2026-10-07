@@ -15,4 +15,12 @@ public abstract class ModifierDefinition
     public int SchemaVersion { get; set; } = 1;
 
     public abstract IEnumerable<SourceReferenceSet> EnumerateSourceSets();
+
+    /// <summary>
+    /// Load-time normalization for this definition's own fields (null-coalescing, clamps), run once after
+    /// deserialization and before the schema migrations. Not version-gated; the default does nothing.
+    /// </summary>
+    public virtual void NormalizeAfterLoad()
+    {
+    }
 }

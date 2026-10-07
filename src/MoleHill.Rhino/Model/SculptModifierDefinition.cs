@@ -56,6 +56,14 @@ public sealed class SculptModifierDefinition : ModifierDefinition
     {
         yield return Constraints;
     }
+
+    public override void NormalizeAfterLoad()
+    {
+        base.NormalizeAfterLoad();
+        Constraints ??= new SourceReferenceSet();
+        Tiles ??= new List<SculptTile>();
+        ConstraintFeather = Math.Max(0.0, ConstraintFeather);
+    }
 }
 
 /// <summary>One 64x64-sample tile of the sculpt displacement field at tile grid index (I, J).

@@ -177,4 +177,15 @@ public class TerrainSchemaMigrationTests
         Assert.False(Assert.IsType<SlopeAnalysisDefinition>(Assert.Single(terrain.Analyses)).AutoColorRange);
         Assert.Equal(TerrainDefinition.CurrentSchemaVersion, terrain.SchemaVersion);
     }
+
+    [Fact]
+    public void MigrationSteps_AreInVersionOrder_AndNeverPastTheCurrentSchema()
+    {
+        int[] versions = TerrainSchemaMigrations.Steps.Select(step => step.ToVersion).ToArray();
+
+        Assert.Equal(versions.OrderBy(v => v), versions);
+        Assert.All(versions, v => Assert.InRange(v, 1, TerrainDefinition.CurrentSchemaVersion));
+        Assert.All(TerrainSchemaMigrations.Steps, step => Assert.False(string.IsNullOrWhiteSpace(step.Description)));
+        Assert.All(TerrainSchemaMigrations.JsonSteps, step => Assert.False(string.IsNullOrWhiteSpace(step.Description)));
+    }
 }

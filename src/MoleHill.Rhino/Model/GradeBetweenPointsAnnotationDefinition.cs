@@ -1,3 +1,5 @@
+using MoleHill.Shared;
+
 namespace MoleHill.Rhino.Model;
 
 /// <summary>
@@ -15,5 +17,15 @@ public sealed class GradeBetweenPointsAnnotationDefinition : BlockAttributeAnnot
     {
         Label = "Grade Callout";
         ValueFormat = "F1";
+    }
+
+    public override void NormalizeAfterLoad(ModelUnitContext unitContext, Guid ownerTerrainId)
+    {
+        base.NormalizeAfterLoad(unitContext, ownerTerrainId);
+        TextHeight = TextHeight > 0.0
+            ? TextHeight
+            : unitContext.FromMeters(1.0);
+        if (string.IsNullOrWhiteSpace(ValueFormat))
+            ValueFormat = "F1";
     }
 }

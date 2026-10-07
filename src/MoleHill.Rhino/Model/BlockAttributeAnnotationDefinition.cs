@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using MoleHill.Shared;
 namespace MoleHill.Rhino.Model;
 
 public abstract class BlockAttributeAnnotationDefinition : AnnotationDefinition
@@ -28,5 +29,15 @@ public abstract class BlockAttributeAnnotationDefinition : AnnotationDefinition
     public override IEnumerable<SourceReferenceSet> EnumerateSourceSets()
     {
         yield return Sources;
+    }
+
+    public override void NormalizeAfterLoad(ModelUnitContext unitContext, Guid ownerTerrainId)
+    {
+        base.NormalizeAfterLoad(unitContext, ownerTerrainId);
+        Sources ??= new SourceReferenceSet();
+        BlockScale = Math.Max(0.01, BlockScale);
+        AttributePrefix ??= string.Empty;
+        AttributeSuffix ??= string.Empty;
+        ValueFormat ??= string.Empty;
     }
 }
