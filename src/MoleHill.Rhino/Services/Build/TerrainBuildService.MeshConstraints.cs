@@ -352,7 +352,7 @@ internal sealed partial class TerrainBuildService
             constraint.PreserveInputElevation);
     }
 
-    private static List<ConstraintPolyline> CreateConstraintPolylines(
+    internal static List<ConstraintPolyline> CreateConstraintPolylines(
         IReadOnlyList<Curve> curves,
         double tolerance,
         bool preserveInputElevation,
@@ -381,7 +381,7 @@ internal sealed partial class TerrainBuildService
         return result;
     }
 
-    private static List<ConstraintPolyline> CreateConstraintPolylines(
+    internal static List<ConstraintPolyline> CreateConstraintPolylines(
         IReadOnlyList<TerrainTriangulationInputBuilder.FlattenedPolyline> polylines,
         bool preserveInputElevation)
     {
@@ -405,7 +405,7 @@ internal sealed partial class TerrainBuildService
     /// Constraints from preprocessed points, keeping each source polyline's closed flag.
     /// <paramref name="processed"/> is aligned with <paramref name="sources"/>; a null entry was dropped.
     /// </summary>
-    private static List<ConstraintPolyline> CreateConstraintPolylines(
+    internal static List<ConstraintPolyline> CreateConstraintPolylines(
         IReadOnlyList<TerrainTriangulationInputBuilder.FlattenedPolyline> sources,
         IReadOnlyList<double[]?> processed,
         bool preserveInputElevation)

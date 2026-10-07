@@ -15,7 +15,7 @@ internal sealed class RetopoModifierDescriptor : ModifierTypeDescriptor
     public override int SortOrder => 4;
     public override string Subtitle => "Quads that follow the terrain's creases";
     public override ModifierDefinition Create(UnitSystem unitSystem) => new RetopoModifierDefinition();
-    public override void RunBuildStage(ModifierBuildContext context) => TerrainBuildService.RunRetopoStage(context);
+    public override void RunBuildStage(ModifierBuildContext context) => RetopoStage.Run(context);
 
     public override IReadOnlyList<ModifierParam> Parameters { get; } = new[]
     {
