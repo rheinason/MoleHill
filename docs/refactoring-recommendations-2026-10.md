@@ -11,21 +11,34 @@ referenced rather than restated.
 | # | Item | State |
 |---|---|---|
 | 1 | Face-cut kernel | **Done.** `Grading/FaceCut/`; the inserter also got the splitter's three repairs (clockwise winding, corner protection, degenerate faces), each with a test. |
-| 2 | `IndexedTriMesh` | **Started.** Type added; the count-less Rhino extraction is gone; the graders take it. Remaining: the other Core entry points (remeshers, splitter, analyzers). |
+| 2 | `IndexedTriMesh` | **Started.** Type added; the count-less Rhino extraction is gone; graders and GH extraction take it. Remaining: the other ~45 public Core entry points. |
 | 3 | `ConstraintPolyline` top-level | **Done.** |
 | 4 | `Geometry2D` kernel | **Done.** 35 private copies removed, `PadGrader.Spatial` wrappers retired, `Geometry2DGuardTests` stops new copies. GH/Shared copies remain (can't see Core internals). |
+| 5 | Spatial indexes | **Done, smaller than claimed.** Six of the "13 private indexes" already wrap `SpatialHashGrid2D`. The only true duplicate (`VertexHashGrid` in `LocalMeshRefiner` and `CrossFieldSolver`) is shared; the other point hashes differ in tie rule on purpose (documented on `VertexHashGrid`). |
+| 6 | Finish the registry | **Done** except bespoke UI. Modifier `Summarize`, analysis/annotation `Build` hooks and declarative `DescribeResult` rows, attribute-driven `TerrainUnitScaler` (proven equal to the hand-listed one), two guard tests with counted / ratcheting exemptions. Left: bespoke card rows, analysis/annotation collapsed summaries, the slow-build "expensive stage" set, a preview-colouring hook. |
 | 7 | Grader request objects | **Done.** `PadGradeRequest` / `PathGradeRequest` / `GradeOutcome` are the only entry points. |
 | 8 | Shared conversion layer | **Done.** `RhinoGeometryConversions` and `ToConstraintPolyline` live in `MoleHill.Shared`; GH components extract through `GhSolveContext.TryExtractMesh` (quad meshes now accepted). Slope Analysis keeps its raw read because its per-face output is index-aligned with the input. |
-| 10 | Services sub-folders | **Done.** |
 | 9 | Remesher roles | **Done** (docs + `MeshFeatureDetection`). The GH Remesh divergence is the card's Full Rebuild mode vs its default isotropic one; adding a Mode input to GH is a feature decision, left open. |
+| 10 | Services sub-folders | **Done.** |
+| 11 | Build stages | In progress. |
+| 12 | Annotation builder split | **Done** as three partial files (labels, sections, emit); separate classes were not worth it because the private helpers are shared. |
+| 13 | Schema migrations | **Done.** `TerrainSchemaMigrations`: ordered version steps (22, 23, 25, 27, 29, 31, 32) plus an unversioned legacy phase; per-type load normalization is `NormalizeAfterLoad` on the definitions; 18 characterization tests written against the old code first. |
+| 14 | Pure logic out of the host | **Done** for the GeoTIFF tag/metadata/unit readers, `RasterGeoreference`, `CurveReviewRules`, `SectionProfileComparer` (now `MoleHill.Core.IO` / `Core.Analysis`). Kept in the host: `GeoTiffElevationReader` (LibTiff), `TerrainReportBuilder`, `CurveReviewPalette`. |
 | 15 | Shared test meshes | **Done** for Core tests (`TestMeshes`). |
+| 16 | Trim architecture.md | **Done.** The latency section went from 944 to 175 lines (rules kept, measurements left to git and the baseline). |
 | 17 | Stray temp files | **Done.** |
-| 5, 6, 9, 11–14, 16 | | Open. |
 
-Verified: full solution 0 warnings; Core/Rhino/GH tests green at every commit; `hosted-perf` at `de95bf6`
-reported no regression and finished meshes identical to the baseline in every phase. **Not run:** the
-WallGradeProbe 1,152-case sweep, which is the acceptance for the inserter repairs on degenerate and
-clockwise faces.
+Verified: full solution 0 warnings and Core/Rhino/GH tests green after every merge; `hosted-perf` at
+`de95bf6` reported no regression and finished meshes identical to the baseline in every phase; the
+WallGradeProbe sweep at the full grid (6 contexts x 5 shapes x 2 gaps x 3 spacings x 7 slopes, grade and
+breakline modes, 2,520 cases) inserted every wall locally, every terrain one loop, no non-manifold
+edges, every grade case graded; worst batter error median 0.9 %, p90 2.6 %.
+
+**Open questions for the owner** (found while making unit scaling data-driven; behaviour kept identical):
+`PondingAnalysisDefinition.MinimumDepth` is a depth that a model-unit change never rescaled; the summary
+fields `CatchmentLargestArea`, `PondTotalVolume`, `PondMaxDepth`, `PondTotalArea` are not rescaled (they are
+regenerated on rebuild); `LegendAnnotationDefinition.SwatchSize` / `GradientLength` are treated as multiples
+of text height. Each is marked `[UnitFree]` with that reason.
 
 **The bar for every step is unchanged:** `dotnet build` clean, `./validate.ps1 managed` green, and
 `./validate.ps1 hosted-perf` for anything on a build path. Do not touch `src/TriangleNet/**`.
