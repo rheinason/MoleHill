@@ -1,3 +1,4 @@
+using MoleHill.Core.Engine;
 using MoleHill.Core.Sculpting;
 using Xunit;
 
@@ -66,7 +67,7 @@ public class SculptFieldRasterizerTests
         ApplyBump(vertices, vertexCount, 5.0, 5.0, 3.0, 2.0);
 
         var field = new SculptDisplacementField(CellSize);
-        SculptFieldRasterizer.Rasterize(vertices, vertexCount, faces, faceCount, baseZ, field, 2.0, 8.0, 2.0, 8.0);
+        SculptFieldRasterizer.Rasterize(new IndexedTriMesh(vertices, vertexCount, faces, faceCount), baseZ, field, 2.0, 8.0, 2.0, 8.0);
 
         for (int i = 0; i < vertexCount; i++)
         {
@@ -85,7 +86,7 @@ public class SculptFieldRasterizerTests
         var field = new SculptDisplacementField(CellSize);
         field.SetSample(0, 0, 9f); // pre-existing sample far from the dirty region
 
-        SculptFieldRasterizer.Rasterize(vertices, vertexCount, faces, faceCount, baseZ, field, 4.0, 6.0, 4.0, 6.0);
+        SculptFieldRasterizer.Rasterize(new IndexedTriMesh(vertices, vertexCount, faces, faceCount), baseZ, field, 4.0, 6.0, 4.0, 6.0);
 
         Assert.Equal(9f, field.GetSample(0, 0));
     }
@@ -100,7 +101,7 @@ public class SculptFieldRasterizerTests
         ApplyBump(vertices, vertexCount, 5.0, 5.0, 3.0, 2.0);
 
         var field = new SculptDisplacementField(CellSize);
-        SculptFieldRasterizer.Rasterize(vertices, vertexCount, faces, faceCount, baseZ, field, 1.0, 9.0, 1.0, 9.0);
+        SculptFieldRasterizer.Rasterize(new IndexedTriMesh(vertices, vertexCount, faces, faceCount), baseZ, field, 1.0, 9.0, 1.0, 9.0);
 
         var (fineVertices, fineCount, _, _) = BuildGridMesh(41, 9.0, offset: 0.4);
         for (int i = 0; i < fineCount; i++)
@@ -125,11 +126,11 @@ public class SculptFieldRasterizerTests
         // Stroke 1: bump at (3.5, 5), committed.
         ApplyBump(vertices, vertexCount, 3.5, 5.0, 2.0, 1.0);
         var field = new SculptDisplacementField(CellSize);
-        SculptFieldRasterizer.Rasterize(vertices, vertexCount, faces, faceCount, baseZ, field, 1.0, 6.0, 2.5, 7.5);
+        SculptFieldRasterizer.Rasterize(new IndexedTriMesh(vertices, vertexCount, faces, faceCount), baseZ, field, 1.0, 6.0, 2.5, 7.5);
 
         // Stroke 2: overlapping bump at (6, 5), committed over the same field.
         ApplyBump(vertices, vertexCount, 6.0, 5.0, 2.0, 1.0);
-        SculptFieldRasterizer.Rasterize(vertices, vertexCount, faces, faceCount, baseZ, field, 3.5, 8.5, 2.5, 7.5);
+        SculptFieldRasterizer.Rasterize(new IndexedTriMesh(vertices, vertexCount, faces, faceCount), baseZ, field, 3.5, 8.5, 2.5, 7.5);
 
         for (int i = 0; i < vertexCount; i++)
         {
@@ -156,9 +157,7 @@ public class SculptFieldRasterizerTests
             vertices[i * 3 + 2] = 2.0 * mask.EvaluateInfluence(x, y);
         }
 
-        SculptFieldRasterizer.Rasterize(
-            vertices, vertexCount, faces, faceCount, baseZ, field,
-            0.0, 2.0, 0.0, 2.0, mask);
+        SculptFieldRasterizer.Rasterize(new IndexedTriMesh(vertices, vertexCount, faces, faceCount), baseZ, field, 0.0, 2.0, 0.0, 2.0, mask);
 
         Assert.Equal(7f, field.GetSample(4, 4));
         Assert.Equal(2.0, field.GetSample(6, 4), 5); // x=1.5, halfway through the feather

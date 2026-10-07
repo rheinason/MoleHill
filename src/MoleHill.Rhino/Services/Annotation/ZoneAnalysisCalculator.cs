@@ -1,3 +1,4 @@
+using MoleHill.Core.Engine;
 using MoleHill.Core.Analysis;
 using MoleHill.Rhino.Model;
 using MoleHill.Shared;
@@ -26,10 +27,7 @@ internal static class ZoneAnalysisCalculator
             result.TriangleCount += faceCount;
 
             // Only min/max/average are read here, so skip the auto-range fit and its allocations.
-            var slopes = SlopeAnalyzer.Summarize(
-                vertices, vertexCount, faces, faceCount,
-                SlopeAnalyzer.SlopeUnit.Percent,
-                autoRange: false);
+            var slopes = SlopeAnalyzer.Summarize(new IndexedTriMesh(vertices, vertexCount, faces, faceCount), SlopeAnalyzer.SlopeUnit.Percent, autoRange: false);
             if (result.TriangleCount == faceCount)
             {
                 result.SlopeMinPercent = slopes.Min;

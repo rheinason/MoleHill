@@ -1,3 +1,5 @@
+using MoleHill.Core.Engine;
+
 namespace MoleHill.Core.Analysis;
 
 /// <summary>
@@ -11,20 +13,10 @@ namespace MoleHill.Core.Analysis;
 /// </summary>
 public static class ContourGenerator
 {
-    /// <summary>Contours the mesh by elevation — the ordinary case, where the field being contoured is Z.</summary>
-    public static List<ContourLevel> Generate(
-        double[] verticesXyz,
-        int vertexCount,
-        int[] faces,
-        int faceCount,
-        IReadOnlyList<double> levels,
-        double tolerance) =>
-        Generate(verticesXyz, vertexCount, faces, faceCount, field: null, levels, tolerance);
-
     /// <summary>
-    /// Contours an arbitrary per-vertex scalar <paramref name="field"/> over the mesh, emitting the
-    /// crossings as points ON the mesh. Null contours elevation, so the two callers share one marching
-    /// pass rather than one each.
+    /// Contours the mesh by elevation, or an arbitrary per-vertex scalar <paramref name="field"/> over it,
+    /// emitting the crossings as points ON the mesh. A null field contours elevation, so both cases share
+    /// one marching pass.
     ///
     /// This is what draws a cut/fill delta: the field is <c>newZ − refZ</c>, so a "level" is a depth and
     /// level 0 is the balance line. A vertex whose field value is not finite marks ground the field does
@@ -33,14 +25,12 @@ public static class ContourGenerator
     /// a value that does not exist.
     /// </summary>
     public static List<ContourLevel> Generate(
-        double[] verticesXyz,
-        int vertexCount,
-        int[] faces,
-        int faceCount,
-        double[]? field,
+        IndexedTriMesh terrain,
         IReadOnlyList<double> levels,
-        double tolerance)
+        double tolerance,
+        double[]? field = null)
     {
+        (double[] verticesXyz, int vertexCount, int[] faces, int faceCount) = terrain;
         var result = new List<ContourLevel>();
         if (levels == null || levels.Count == 0 || faceCount == 0 || vertexCount < 3)
             return result;

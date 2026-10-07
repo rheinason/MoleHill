@@ -1,3 +1,4 @@
+using MoleHill.Core.Engine;
 using MoleHill.Core.Processing;
 using MoleHill.Rhino.Model;
 using MoleHill.Rhino.Registry;
@@ -45,17 +46,13 @@ internal static class ProjectToStage
         if (!TryResolveProjectToTarget(snapshot, modifier, build, out RhinoMesh? target) || target == null)
             return mesh;
 
-        if (!RhinoGeometryConversions.TryExtractMeshData(
-                mesh, out double[] vertices, out int vertexCount, out int[] faces, out int faceCount,
-                out string? inputError))
+        if (!RhinoGeometryConversions.TryExtractMesh(mesh, out IndexedTriMesh input, out string? inputError))
         {
             build.Diagnostics.Add(inputError ?? "Could not extract the Project To input mesh.");
             return mesh;
         }
 
-        if (!RhinoGeometryConversions.TryExtractMeshData(
-                target, out double[] targetVertices, out int targetVertexCount, out int[] targetFaces,
-                out int targetFaceCount, out string? targetError))
+        if (!RhinoGeometryConversions.TryExtractMesh(target, out IndexedTriMesh targetMesh, out string? targetError))
         {
             build.Diagnostics.Add(targetError ?? "Could not extract the Project To target mesh.");
             return mesh;
@@ -70,19 +67,13 @@ internal static class ProjectToStage
         }
 
         double[] conformed = SurfaceConformer.Conform(
-            vertices,
-            vertexCount,
-            targetVertices,
-            targetVertexCount,
-            targetFaces,
-            targetFaceCount,
+            input,
+            targetMesh,
             loops,
             modifier.Strength,
             modifier.FeatherDistance,
             tolerance,
             shouldCancel,
-            faces,
-            faceCount,
             TerrainBuildService.RemeshWallFaceMinSlopeDeg);
 
         if (conformed.Any(value => !double.IsFinite(value)))
@@ -91,7 +82,7 @@ internal static class ProjectToStage
             return mesh;
         }
 
-        RhinoMesh result = RhinoGeometryConversions.BuildMesh(conformed, vertexCount, faces, faceCount);
+        RhinoMesh result = RhinoGeometryConversions.BuildMesh(conformed, input.VertexCount, input.Faces, input.FaceCount);
         if (result.Vertices.Count == 0 || result.Faces.Count == 0 || !result.IsValid)
         {
             result.Dispose();

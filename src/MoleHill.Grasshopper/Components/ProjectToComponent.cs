@@ -68,8 +68,7 @@ public sealed class ProjectToComponent : RegistryTerrainComponent
         }
 
         double[] vertices = inputMesh.Vertices;
-        double[] projected = SurfaceConformer.Conform(vertices, inputMesh.VertexCount, targetMesh.Vertices, targetMesh.VertexCount,
-            targetMesh.Faces, targetMesh.FaceCount, loops, ctx.GetNumber(2, 1.0), ctx.GetNumber(3), ctx.Tolerance);
+        double[] projected = SurfaceConformer.Conform(inputMesh, targetMesh, loops, ctx.GetNumber(2, 1.0), ctx.GetNumber(3), ctx.Tolerance);
         int changed = 0;
         for (int i = 0; i < vertices.Length; i += 3)
             if (Math.Abs(projected[i + 2] - vertices[i + 2]) > ctx.Tolerance) changed++;

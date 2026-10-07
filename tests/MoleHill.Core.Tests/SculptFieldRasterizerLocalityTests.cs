@@ -1,3 +1,4 @@
+using MoleHill.Core.Engine;
 using MoleHill.Core.Sculpting;
 using Xunit;
 
@@ -37,9 +38,7 @@ public class SculptFieldRasterizerLocalityTests
         field.SetSample(200, 200, 7.5f);
 
         Bump(vertices, vertexCount, 10.0, 10.0, 2.0, 3.0);
-        SculptFieldRasterizer.Rasterize(
-            vertices, vertexCount, faces, faceCount, baseZ, field,
-            dirtyMinX: 8.0, dirtyMaxX: 12.0, dirtyMinY: 8.0, dirtyMaxY: 12.0);
+        SculptFieldRasterizer.Rasterize(new IndexedTriMesh(vertices, vertexCount, faces, faceCount), baseZ, field, dirtyMinX: 8.0, dirtyMaxX: 12.0, dirtyMinY: 8.0, dirtyMaxY: 12.0);
 
         Assert.Equal(7.5f, field.GetSample(200, 200));
         Assert.True(Math.Abs(field.GetSample(40, 40)) > 1e-6, "The stroke centre should have been written.");
@@ -52,9 +51,7 @@ public class SculptFieldRasterizerLocalityTests
         var baseZ = new double[vertexCount];
         var field = new SculptDisplacementField(CellSize);
 
-        SculptFieldRasterizer.Rasterize(
-            vertices, vertexCount, faces, faceCount, baseZ, field,
-            dirtyMinX: 400.0, dirtyMaxX: 404.0, dirtyMinY: 400.0, dirtyMaxY: 404.0);
+        SculptFieldRasterizer.Rasterize(new IndexedTriMesh(vertices, vertexCount, faces, faceCount), baseZ, field, dirtyMinX: 400.0, dirtyMaxX: 404.0, dirtyMinY: 400.0, dirtyMaxY: 404.0);
 
         Assert.True(field.IsEmpty);
     }
@@ -78,10 +75,7 @@ public class SculptFieldRasterizerLocalityTests
         }
 
         var field = new SculptDisplacementField(CellSize);
-        SculptFieldRasterizer.Rasterize(
-            vertices, vertexCount, faces, faceCount, baseZ, field,
-            dirtyMinX: 5.0, dirtyMaxX: 15.0, dirtyMinY: 5.0, dirtyMaxY: 15.0,
-            constraintMask: mask);
+        SculptFieldRasterizer.Rasterize(new IndexedTriMesh(vertices, vertexCount, faces, faceCount), baseZ, field, dirtyMinX: 5.0, dirtyMaxX: 15.0, dirtyMinY: 5.0, dirtyMaxY: 15.0, constraintMask: mask);
 
         // Well outside the feather, influence is 1 and the raw delta is the full 2.0.
         Assert.Equal(2.0f, field.GetSample(48, 48), 3);
@@ -94,9 +88,7 @@ public class SculptFieldRasterizerLocalityTests
         Bump(vertices, vertexCount, 5.0, 5.0, 1.5, 2.0);
 
         var field = new SculptDisplacementField(CellSize);
-        SculptFieldRasterizer.Rasterize(
-            vertices, vertexCount, faces, faceCount, baseZ, field,
-            dirtyMinX: 3.5, dirtyMaxX: 6.5, dirtyMinY: 3.5, dirtyMaxY: 6.5);
+        SculptFieldRasterizer.Rasterize(new IndexedTriMesh(vertices, vertexCount, faces, faceCount), baseZ, field, dirtyMinX: 3.5, dirtyMaxX: 6.5, dirtyMinY: 3.5, dirtyMaxY: 6.5);
         return field;
     }
 

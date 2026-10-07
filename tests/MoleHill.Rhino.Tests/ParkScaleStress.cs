@@ -1,3 +1,4 @@
+using MoleHill.Core.Engine;
 using System.Diagnostics;
 using System.Runtime;
 using System.Text.Json;
@@ -701,8 +702,7 @@ public static class ParkScaleStress
                 levels.Add(step * interval);
 
             var curves = new List<Curve>();
-            foreach (MoleHill.Core.Analysis.ContourLevel contourLevel in MoleHill.Core.Analysis.ContourGenerator.Generate(
-                         vertices, nx * ny, faces, faces.Length / 3, levels, 1e-6))
+            foreach (MoleHill.Core.Analysis.ContourLevel contourLevel in MoleHill.Core.Analysis.ContourGenerator.Generate(new IndexedTriMesh(vertices, nx * ny, faces, faces.Length / 3), levels, 1e-6))
             {
                 foreach (MoleHill.Core.Analysis.ContourPolyline polyline in contourLevel.Polylines)
                 {

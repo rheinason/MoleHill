@@ -1,4 +1,5 @@
 using MoleHill.Core.Analysis;
+using MoleHill.Core.Engine;
 using MoleHill.Rhino.Model;
 using MoleHill.Rhino.Services;
 using RhinoMesh = Rhino.Geometry.Mesh;
@@ -23,11 +24,8 @@ internal sealed class AnalysisBuildContext
     public required Dictionary<BasinGraphCacheKey, BasinGraph> BasinGraphCache { get; init; }
     public Func<bool>? ShouldCancel { get; init; }
 
-    // Extracted from CurrentMesh by one TryExtractMeshData call, so the counts always describe the arrays.
-    public double[] Vertices { get; set; } = Array.Empty<double>();
-    public int VertexCount { get; set; }
-    public int[] Faces { get; set; } = Array.Empty<int>();
-    public int FaceCount { get; set; }
+    // Extracted from CurrentMesh by one TryExtractMesh call, so the counts always describe the arrays.
+    public IndexedTriMesh Mesh { get; set; } = IndexedTriMesh.Empty;
     public double ElevationMinZ { get; set; }
     public double ElevationMaxZ { get; set; }
     public double SurfaceArea { get; set; }

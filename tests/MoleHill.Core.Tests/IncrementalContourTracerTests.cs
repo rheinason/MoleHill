@@ -1,3 +1,4 @@
+using MoleHill.Core.Engine;
 using MoleHill.Core.Analysis;
 using Xunit;
 
@@ -56,7 +57,7 @@ public class IncrementalContourTracerTests
         double[] levels = { 1.0, 2.0, 3.0 };
 
         var tracer = new IncrementalContourTracer(v, f, fc, levels);
-        var reference = ContourGenerator.Generate(v, vc, f, fc, levels, 1e-9);
+        var reference = ContourGenerator.Generate(new IndexedTriMesh(v, vc, f, fc), levels, 1e-9);
 
         for (int li = 0; li < levels.Length; li++)
             Assert.Equal(TotalLength(reference, levels[li]), TotalLength(tracer.Segments(), li), 6);

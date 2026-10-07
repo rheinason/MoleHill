@@ -1,4 +1,5 @@
 using MoleHill.Core.Analysis;
+using MoleHill.Core.Engine;
 using MoleHill.Rhino.Model;
 using MoleHill.Shared;
 using Rhino;
@@ -94,23 +95,12 @@ internal static class TerrainAnalysisPreviewBuilder
     {
         range = null;
         distribution = null;
-        if (!RhinoGeometryConversions.TryExtractMeshData(
-                mesh, out var vertices, out int vertexCount, out var faces, out int faceCount, out _))
+        if (!RhinoGeometryConversions.TryExtractMesh(mesh, out IndexedTriMesh extracted, out _))
             return null;
 
+        (double[] vertices, _, int[] faces, int faceCount) = extracted;
         var palette = analysis.ResolveRamp();
-        var slope = SlopeAnalyzer.Analyze(
-            vertices,
-            vertexCount,
-            faces,
-            faceCount,
-            analysis.Unit,
-            analysis.AutoColorRange,
-            analysis.RangeLow,
-            analysis.RangeHigh,
-            palette.Stops,
-            analysis.ColorMode,
-            analysis.ColorInterval);
+        var slope = SlopeAnalyzer.Analyze(extracted, analysis.Unit, analysis.AutoColorRange, analysis.RangeLow, analysis.RangeHigh, palette.Stops, analysis.ColorMode, analysis.ColorInterval);
 
         range = slope.Range;
         distribution = BuildDistribution(slope.Slopes, ReadOnlySpan<double>.Empty, slope.Range);
@@ -136,21 +126,11 @@ internal static class TerrainAnalysisPreviewBuilder
     {
         range = null;
         distribution = null;
-        if (!RhinoGeometryConversions.TryExtractMeshData(
-                mesh, out var vertices, out int vertexCount, out var faces, out int faceCount, out _))
+        if (!RhinoGeometryConversions.TryExtractMesh(mesh, out IndexedTriMesh extracted, out _))
             return null;
 
-        var aspect = AspectAnalyzer.Analyze(
-            vertices,
-            vertexCount,
-            faces,
-            faceCount,
-            DocumentNorth.AzimuthDegrees(doc),
-            SlopeAnalyzer.ConvertUnitToRatio(analysis.FlatSlopeThresholdDegrees, SlopeAnalyzer.SlopeUnit.Degrees),
-            analysis.ResolveRamp().Stops,
-            analysis.ColorMode,
-            analysis.ColorInterval,
-            UnmappedColor);
+        (double[] vertices, _, int[] faces, int faceCount) = extracted;
+        var aspect = AspectAnalyzer.Analyze(extracted, DocumentNorth.AzimuthDegrees(doc), SlopeAnalyzer.ConvertUnitToRatio(analysis.FlatSlopeThresholdDegrees, SlopeAnalyzer.SlopeUnit.Degrees), analysis.ResolveRamp().Stops, analysis.ColorMode, analysis.ColorInterval, UnmappedColor);
 
         range = aspect.Range;
 
@@ -365,10 +345,7 @@ internal static class TerrainAnalysisPreviewBuilder
             return null;
 
         var evaluation = GradientComplianceEvaluator.Evaluate(
-            vertices,
-            vertexCount,
-            faces,
-            faceCount,
+            new IndexedTriMesh(vertices, vertexCount, faces, faceCount),
             RhinoSourceResolver.ResolveCurves(doc, analysis.LevelAreas),
             RhinoSourceResolver.ResolveCurves(doc, analysis.Routes),
             analysis,

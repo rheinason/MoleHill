@@ -1,5 +1,6 @@
 // Gradient compliance stage: level-area checks summarized for the analysis card and the report.
 using MoleHill.Core.Analysis;
+using MoleHill.Core.Engine;
 using MoleHill.Rhino.Model;
 
 namespace MoleHill.Rhino.Services;
@@ -13,10 +14,7 @@ internal sealed partial class TerrainBuildService
     /// </summary>
     internal static TerrainAnalysisSummary BuildGradientComplianceSummary(
         TerrainBuildSnapshot snapshot,
-        double[] vertices,
-        int vertexCount,
-        int[] faces,
-        int faceCount,
+        IndexedTriMesh terrain,
         GradientComplianceAnalysisDefinition analysis,
         Func<bool>? shouldCancel)
     {
@@ -25,10 +23,7 @@ internal sealed partial class TerrainBuildService
             return summary;
 
         GradientComplianceEvaluator.Evaluation evaluation = GradientComplianceEvaluator.Evaluate(
-            vertices,
-            vertexCount,
-            faces,
-            faceCount,
+            terrain,
             TerrainBuildSnapshotResolver.ResolveCurves(snapshot, analysis.LevelAreas),
             TerrainBuildSnapshotResolver.ResolveCurves(snapshot, analysis.Routes),
             analysis,

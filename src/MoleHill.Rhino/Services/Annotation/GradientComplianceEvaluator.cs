@@ -1,4 +1,5 @@
 using MoleHill.Core.Analysis;
+using MoleHill.Core.Engine;
 using MoleHill.Rhino.Model;
 using Rhino.Geometry;
 
@@ -46,26 +47,21 @@ internal static class GradientComplianceEvaluator
     }
 
     public static Evaluation Evaluate(
-        double[] vertices,
-        int vertexCount,
-        int[] faces,
-        int faceCount,
+        IndexedTriMesh terrain,
         IReadOnlyList<Curve> levelAreaCurves,
         IReadOnlyList<Curve> routeCurves,
         GradientComplianceAnalysisDefinition analysis,
         double tolerance,
         Func<bool>? shouldCancel = null)
     {
+        (double[] vertices, int vertexCount, int[] faces, int faceCount) = terrain;
         GradientRuleSet rules = analysis.Rules;
         double measurementLength = Math.Max(0.0, analysis.MeasurementLength);
 
         GradientComplianceAnalyzer.Result levelAreas = rules.LevelAreaMode == GradientRuleMode.Off
             ? GradientComplianceAnalyzer.Result.Empty(faceCount)
             : GradientComplianceAnalyzer.EvaluateLevelAreas(
-                vertices,
-                vertexCount,
-                faces,
-                faceCount,
+                terrain,
                 RhinoSourceResolver.ToXyLoops(levelAreaCurves, tolerance),
                 new GradientComplianceAnalyzer.Options
                 {
@@ -80,10 +76,7 @@ internal static class GradientComplianceEvaluator
         GradientComplianceAnalyzer.RouteResult routes = rules.RouteMode == GradientRuleMode.Off
             ? GradientComplianceAnalyzer.RouteResult.Empty(faceCount)
             : GradientComplianceAnalyzer.EvaluateRoutes(
-                vertices,
-                vertexCount,
-                faces,
-                faceCount,
+                terrain,
                 routePolylines,
                 new GradientComplianceAnalyzer.RouteOptions
                 {

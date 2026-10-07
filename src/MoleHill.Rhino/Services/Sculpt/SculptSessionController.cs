@@ -1,3 +1,4 @@
+using MoleHill.Core.Engine;
 using Eto.Forms;
 using MoleHill.Core.Sculpting;
 using MoleHill.Rhino.Model;
@@ -510,11 +511,7 @@ internal sealed class SculptSessionController
             return;
 
         CaptureTileChanges(record, before: true);
-        SculptFieldRasterizer.Rasterize(
-            _engine.Vertices, _engine.VertexCount, _engine.Faces, _engine.FaceCount,
-            _engine.BaseZ, _engine.Field,
-            record.DirtyMinX, record.DirtyMaxX, record.DirtyMinY, record.DirtyMaxY,
-            _constraintMask);
+        SculptFieldRasterizer.Rasterize(new IndexedTriMesh(_engine.Vertices, _engine.VertexCount, _engine.Faces, _engine.FaceCount), _engine.BaseZ, _engine.Field, record.DirtyMinX, record.DirtyMaxX, record.DirtyMinY, record.DirtyMaxY, _constraintMask);
         _engine.Field.PruneZeroTiles();
         CaptureTileChanges(record, before: false);
         _undoStack.Push(record);

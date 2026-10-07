@@ -1,3 +1,4 @@
+using MoleHill.Core.Engine;
 using MoleHill.Core.Analysis;
 using MoleHill.Rhino.Model;
 using Rhino;
@@ -207,8 +208,7 @@ internal sealed class SculptAnalysisColorizer
         if (!slope.AutoColorRange)
             return AnalysisRange.FromRequested(slope.RangeLow, slope.RangeHigh, RangeShape.FromZero);
 
-        var summary = SlopeAnalyzer.Summarize(
-            vertices, vertices.Length / 3, faces, faceCount, slope.Unit, autoRange: true);
+        var summary = SlopeAnalyzer.Summarize(new IndexedTriMesh(vertices, vertices.Length / 3, faces, faceCount), slope.Unit, autoRange: true);
         return summary.Range;
     }
 
