@@ -188,12 +188,12 @@ internal sealed class TerrainDisplayState
     /// <summary>
     /// Folds the predecessor state's extents into this state's preview bounds, so the first redraw
     /// after a swap still invalidates the region the old state drew (without it, partial redraws can
-    /// leave ghost pixels of the previous frame). Pass the predecessor's <see cref="GetContentBounds"/>,
-    /// never its <see cref="GetPreviewBounds"/>: those already hold <em>its</em> predecessor and its
-    /// margin, so chaining them made the box ratchet ~15% larger on every build and never shrink. After
-    /// a long editing session it reached thousands of times the terrain's size, Rhino fitted the
-    /// perspective clipping planes to it, and the whole viewport went blank whenever the terrain was
-    /// shown — until Reset Build dropped the state.
+    /// leave ghost pixels of the previous frame). Pass the predecessor's <see cref="GetReplacedBounds"/>,
+    /// never its <see cref="GetPreviewBounds"/>: those carry its margin and, once chained, every earlier
+    /// state too, so the box ratcheted ~15% larger on every build and never shrank. After a long editing
+    /// session it reached thousands of times the terrain's size, Rhino fitted the perspective clipping
+    /// planes to it, and the whole viewport went blank whenever the terrain was shown — until Reset Build
+    /// dropped the state.
     /// </summary>
     public void IncludePreviousPreviewBounds(BoundingBox bounds)
     {
@@ -213,6 +213,25 @@ internal sealed class TerrainDisplayState
 
         _previewBounds = null;
     }
+
+    /// <summary>
+    /// What a state that replaces this one must still invalidate: this state's own extents, plus those it
+    /// inherited if it was replaced before it was ever drawn (two swaps between frames), so the region the
+    /// last drawn state covered is redrawn however many swaps come before the next frame. Once drawn, a
+    /// state hands on its own extents only, which is what keeps the box from ratcheting.
+    /// </summary>
+    public BoundingBox GetReplacedBounds(global::Rhino.RhinoDoc? doc = null)
+    {
+        BoundingBox bounds = GetContentBounds(doc);
+        if (!HasBeenDrawn && _previousPreviewBounds.HasValue)
+            bounds.Union(_previousPreviewBounds.Value);
+        return bounds;
+    }
+
+    /// <summary>Set by the conduit once a frame has drawn this state; see <see cref="GetReplacedBounds"/>.</summary>
+    public bool HasBeenDrawn { get; private set; }
+
+    public void MarkDrawn() => HasBeenDrawn = true;
 
     /// <summary>
     /// What the conduit feeds to <c>CalculateBoundingBox</c>: this state's own extents, the extents of

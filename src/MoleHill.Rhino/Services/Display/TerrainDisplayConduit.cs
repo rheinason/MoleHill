@@ -45,6 +45,7 @@ internal sealed class TerrainDisplayConduit : DisplayConduit
                 DrawShadowCasters(e, e.RhinoDoc, view.Terrain, view.DisplayState);
             else
                 DrawTerrain(e, e.RhinoDoc, view.Terrain, view.DisplayState);
+            view.DisplayState.MarkDrawn();
         }
     }
 

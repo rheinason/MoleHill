@@ -17,7 +17,7 @@ internal sealed partial class TerrainController
         TerrainBuildResult build,
         long buildVersion = 0)
     {
-        BoundingBox previousPreviewBounds = runtimeCache.DisplayState?.GetContentBounds(doc) ?? BoundingBox.Empty;
+        BoundingBox previousPreviewBounds = runtimeCache.DisplayState?.GetReplacedBounds(doc) ?? BoundingBox.Empty;
         TerrainDisplayState? previousDisplayState = runtimeCache.DisplayState;
         var displayState = new TerrainDisplayState
         {
@@ -102,7 +102,7 @@ internal sealed partial class TerrainController
         if (previous == null)
             return;
 
-        BoundingBox previousPreviewBounds = previous.GetContentBounds(doc);
+        BoundingBox previousPreviewBounds = previous.GetReplacedBounds(doc);
         var displayState = new TerrainDisplayState
         {
             IsPreview = false,
@@ -180,7 +180,7 @@ internal sealed partial class TerrainController
             return false;
         }
 
-        BoundingBox previousPreviewBounds = previous.GetContentBounds(doc);
+        BoundingBox previousPreviewBounds = previous.GetReplacedBounds(doc);
         var displayState = new TerrainDisplayState
         {
             // Exact geometry, but not for the current input - which is what a preview is.

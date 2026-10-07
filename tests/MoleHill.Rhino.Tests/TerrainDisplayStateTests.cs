@@ -129,7 +129,8 @@ public class TerrainDisplayStateTests
         for (int build = 0; build < 200; build++)
         {
             TerrainDisplayState next = CreateStateWithGuide(new Point3d(0, 0, 0), new Point3d(100, 100, 10));
-            next.IncludePreviousPreviewBounds(previous.GetContentBounds());
+            next.IncludePreviousPreviewBounds(previous.GetReplacedBounds());
+            next.MarkDrawn();
             previous = next;
         }
 
@@ -142,11 +143,29 @@ public class TerrainDisplayStateTests
         TerrainDisplayState previous = CreateStateWithGuide(new Point3d(-500, -500, 0), new Point3d(-400, -400, 0));
         TerrainDisplayState next = CreateStateWithGuide(new Point3d(0, 0, 0), new Point3d(100, 100, 0));
 
-        next.IncludePreviousPreviewBounds(previous.GetContentBounds());
+        next.IncludePreviousPreviewBounds(previous.GetReplacedBounds());
 
         BoundingBox bounds = next.GetPreviewBounds();
         Assert.True(bounds.Contains(new Point3d(-500, -500, 0)));
         Assert.True(bounds.Contains(new Point3d(100, 100, 0)));
+    }
+
+    [Fact]
+    public void GetPreviewBounds_TwoSwapsBeforeAFrame_StillCoversTheLastDrawnState()
+    {
+        // An interim state and then the final one can both arrive before the next frame. The region the
+        // last drawn state covered must still be redrawn, or it leaves ghost pixels.
+        TerrainDisplayState drawn = CreateStateWithGuide(new Point3d(-500, -500, 0), new Point3d(-400, -400, 0));
+        drawn.MarkDrawn();
+        TerrainDisplayState interim = CreateStateWithGuide(new Point3d(0, 0, 0), new Point3d(100, 100, 0));
+        interim.IncludePreviousPreviewBounds(drawn.GetReplacedBounds());
+        TerrainDisplayState final = CreateStateWithGuide(new Point3d(300, 300, 0), new Point3d(400, 400, 0));
+        final.IncludePreviousPreviewBounds(interim.GetReplacedBounds());
+
+        BoundingBox bounds = final.GetPreviewBounds();
+
+        Assert.True(bounds.Contains(new Point3d(-500, -500, 0)));
+        Assert.True(bounds.Contains(new Point3d(400, 400, 0)));
     }
 
     private static TerrainDisplayState CreateStateWithGuide(Point3d from, Point3d to)
