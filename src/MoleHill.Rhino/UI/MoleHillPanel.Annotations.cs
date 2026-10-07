@@ -148,7 +148,7 @@ public sealed partial class MoleHillPanel
     }
 
     /// <summary>The unit-aware formatters result rows need, bound to the active document and the user's slope unit.</summary>
-    private static readonly ResultFormatter ResultFormats = new(FormatArea, FormatVolume, FormatZoneLength, FormatSlopeDegrees);
+    private static readonly ResultFormatter ResultFormats = new(FormatArea, FormatVolume, FormatZoneLength, AnalysisFormatting.FormatSlopeDegrees);
 
     private void AddResultRows(DynamicLayout layout, IReadOnlyList<ResultRow>? rows)
     {

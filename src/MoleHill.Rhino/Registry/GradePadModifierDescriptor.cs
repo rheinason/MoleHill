@@ -21,7 +21,7 @@ internal sealed class GradePadModifierDescriptor : ModifierTypeDescriptor
     public override string Summarize(ModifierDefinition modifier)
     {
         var p = (GradePadModifierDefinition)modifier;
-        return $"{CountSources(p.Boundaries)} boundaries | Fill {FormatSlopeDegrees(p.SlopeAngle)}";
+        return $"{CountSources(p.Boundaries)} boundaries | Fill {AnalysisFormatting.FormatSlopeDegrees(p.SlopeAngle)}";
     }
 
     public override string? InertReason(ModifierDefinition modifier, TerrainBuildSnapshot snapshot) =>

@@ -328,9 +328,6 @@ public sealed partial class MoleHillPanel
         }
     }
 
-    private static string FormatSlopeDegrees(double degrees) =>
-        SlopeInput.FormatWithUnit(Math.Tan(degrees * Math.PI / 180.0), SlopeUnitPreference.Current);
-
     private static TerrainAnalysisSummary? GetAnalysisSummary(TerrainDefinition terrain, Guid analysisId)
     {
         return terrain.LastAnalysisResults.FirstOrDefault(item => item.AnalysisId == analysisId);

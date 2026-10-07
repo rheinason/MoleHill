@@ -1,6 +1,7 @@
 using System.Globalization;
 using MoleHill.Core.Analysis;
 using MoleHill.Rhino.Model;
+using MoleHill.Rhino.Services;
 using Rhino;
 
 namespace MoleHill.Rhino.Registry;
@@ -166,4 +167,8 @@ internal static class AnalysisFormatting
         CutFillAnalysisDefinition => value => value.ToString("+0.00;-0.00;0.00", CultureInfo.CurrentCulture),
         _ => value => value.ToString("F2", CultureInfo.CurrentCulture)
     };
+
+    /// <summary>A slope stored as degrees, shown in the user's chosen slope unit.</summary>
+    public static string FormatSlopeDegrees(double degrees) =>
+        SlopeInput.FormatWithUnit(Math.Tan(degrees * Math.PI / 180.0), SlopeUnitPreference.Current);
 }

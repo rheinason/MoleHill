@@ -24,7 +24,7 @@ internal sealed class RetainingWallModifierDescriptor : ModifierTypeDescriptor
         var w = (RetainingWallModifierDefinition)modifier;
         int curves = CountSources(w.WallCurves);
         return w.GradesTerrain
-            ? $"{curves} wall curves | grade terrain, {(w.UseAsymmetricSides ? "asymmetric sides" : $"Fill {FormatSlopeDegrees(w.SlopeAngle)}")}"
+            ? $"{curves} wall curves | grade terrain, {(w.UseAsymmetricSides ? "asymmetric sides" : $"Fill {AnalysisFormatting.FormatSlopeDegrees(w.SlopeAngle)}")}"
             : $"{curves} wall curves | breaklines only";
     }
 
