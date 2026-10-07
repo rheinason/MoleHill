@@ -18,7 +18,7 @@ referenced rather than restated.
 | 6 | Finish the registry | **Done** except bespoke UI. Modifier `Summarize`, analysis/annotation `Build` hooks and declarative `DescribeResult` rows, attribute-driven `TerrainUnitScaler` (proven equal to the hand-listed one), two guard tests with counted / ratcheting exemptions. Left: bespoke card rows, analysis/annotation collapsed summaries, the slow-build "expensive stage" set, a preview-colouring hook. |
 | 7 | Grader request objects | **Done.** `PadGradeRequest` / `PathGradeRequest` / `GradeOutcome` are the only entry points. |
 | 8 | Shared conversion layer | **Done.** `RhinoGeometryConversions` and `ToConstraintPolyline` live in `MoleHill.Shared`; GH components extract through `GhSolveContext.TryExtractMesh` (quad meshes now accepted). Slope Analysis keeps its raw read because its per-face output is index-aligned with the input. |
-| 9 | Remesher roles | **Done** (docs + `MeshFeatureDetection`). The GH Remesh divergence is the card's Full Rebuild mode vs its default isotropic one; adding a Mode input to GH is a feature decision, left open. |
+| 9 | Remesher roles | **Done** (docs + `MeshFeatureDetection`). GH Remesh now has a Mode input (`rebuild` default, `isotropic` through the shared `IsotropicRemeshPipeline` the card also uses). |
 | 10 | Services sub-folders | **Done.** |
 | 11 | Build stages | **Done.** All 13 modifier stages are `Services/Build/Stages/XxxStage` classes; the ~60 helpers they share are now `internal static` on `TerrainBuildService` (listed in `Services/README.md`). |
 | 12 | Annotation builder split | **Done** as three partial files (labels, sections, emit); separate classes were not worth it because the private helpers are shared. |
@@ -34,11 +34,10 @@ WallGradeProbe sweep at the full grid (6 contexts x 5 shapes x 2 gaps x 3 spacin
 breakline modes, 2,520 cases) inserted every wall locally, every terrain one loop, no non-manifold
 edges, every grade case graded; worst batter error median 0.9 %, p90 2.6 %.
 
-**Open questions for the owner** (found while making unit scaling data-driven; behaviour kept identical):
-`PondingAnalysisDefinition.MinimumDepth` is a depth that a model-unit change never rescaled; the summary
-fields `CatchmentLargestArea`, `PondTotalVolume`, `PondMaxDepth`, `PondTotalArea` are not rescaled (they are
-regenerated on rebuild); `LegendAnnotationDefinition.SwatchSize` / `GradientLength` are treated as multiples
-of text height. Each is marked `[UnitFree]` with that reason.
+**Owner questions, resolved 2026-10-07:** Ponding's `MinimumDepth` and the pond/catchment summary fields now
+scale with model units (`[ModelLength]` / `[ModelArea]` / `[ModelVolume]`), so a new card in a millimetre
+document also defaults to 50 mm; the Legend's swatch size and gradient length stay multiples of text height.
+GH Remesh has a Mode input. Live confirmation of both is listed in `docs/rhino-live-testing.md` §0.
 
 **The bar for every step is unchanged:** `dotnet build` clean, `./validate.ps1 managed` green, and
 `./validate.ps1 hosted-perf` for anything on a build path. Do not touch `src/TriangleNet/**`.

@@ -9,6 +9,25 @@ when the host blocks spawning, use the explicitly designated user-started test s
 `WScript.Shell`/`SendKeys` and `user32` cursor calls are a fallback for
 genuine pointer gestures only — they are blind, focus-dependent, and cannot report what happened.
 
+## 0. Pending live checks
+
+Run these at the next live session, then delete each line once it has passed (say so in the commit).
+They were added on 2026-10-07 with changes that unit tests cannot fully prove outside Rhino.
+
+- **GH quad meshes (native tests).** `tests/MoleHill.Grasshopper.Tests/GhMeshExtractionTests.cs` has two
+  `[RhinoNativeFact]` tests that skip outside Rhino: a quad mesh converts to triangles, and duplicate vertices
+  combine with counts matching the arrays. Run them inside a slot (load the test DLL into the slot and invoke
+  by reflection, as for the native lane). Then in Grasshopper feed a quad mesh to Grade Pad and Remesh: both
+  must solve (they used to error "Mesh contains quad faces"). Slope Analysis must still reject it, because
+  its per-face output is index-aligned with the input faces.
+- **GH Remesh Mode.** Place Remesh on a saved definition from before the Mode input existed: its output must
+  be unchanged (the default is `rebuild`). Set Mode to `isotropic` with Edge Length 0 and compare with a Remesh
+  card on the same terrain: same target edge (the component remarks it), comparable face count, creases kept
+  at the same Crease Angle.
+- **Ponding with model units.** In a metres document with a Ponding card at Ignore Below 0.05, change the
+  units to millimetres with scaling: Ignore Below must read 50, and the pond depth/area/volume results must
+  scale. A new Ponding card in a millimetre document must default to 50.
+
 ## 1. Build before launching
 
 Build with no Rhino holding the `.rhp`:
