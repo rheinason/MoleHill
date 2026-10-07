@@ -7,6 +7,7 @@ public sealed class WaterflowAnalysisDefinition : AnalysisDefinition
     public SourceReferenceSet Sources { get; set; } = new();
 
     /// <summary>Maximum plan length for each path. Zero continues to the edge or a local sink.</summary>
+    [ModelLength]
     public double MaxLength { get; set; }
 
     /// <summary>

@@ -1,3 +1,4 @@
+using static MoleHill.Rhino.Registry.ModifierSummaryFormatting;
 using MoleHill.Rhino.Model;
 using MoleHill.Rhino.Services;
 using Rhino;
@@ -25,6 +26,14 @@ internal sealed class SculptModifierDescriptor : ModifierTypeDescriptor
     };
 
     public override void RunBuildStage(ModifierBuildContext context) => TerrainBuildService.RunSculptStage(context);
+
+    public override string Summarize(ModifierDefinition modifier)
+    {
+        var sculpt = (SculptModifierDefinition)modifier;
+        return sculpt.Tiles.Count == 0
+            ? "no strokes"
+            : $"{sculpt.Tiles.Count} tiles | {CountSources(sculpt.Constraints)} protect curves";
+    }
 
     public override IReadOnlyList<ModifierParam> Parameters { get; } = new[]
     {

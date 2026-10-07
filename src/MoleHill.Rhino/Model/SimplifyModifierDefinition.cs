@@ -9,10 +9,12 @@ public sealed class SimplifyModifierDefinition : ModifierDefinition
 
     public string Mode { get; set; } = MaximumDeviationMode;
 
+    [ModelLength]
     public double MaximumDeviation { get; set; }
 
     public int TargetVertexCount { get; set; } = 50_000;
 
+    [UnitFree("A percentage; unitless.")]
     public double RetainPercentage { get; set; } = 50.0;
 
     public SimplifyModifierDefinition()

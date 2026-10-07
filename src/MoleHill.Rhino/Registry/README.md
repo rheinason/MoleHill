@@ -43,7 +43,8 @@ strings come from each descriptor's `Kind` and must stay stable so saved `.3dm` 
   **must stay stable** so saved `.3dm` files load), `DefinitionType`, `DisplayName`/`IconName`/`Subtitle`/
   `SortOrder`/`CanCreateFromMenu` (menu + card chrome), `Create(unitSystem)` (metre-authored defaults
   are converted through the registry's `ModelUnitContext` overload),
-  `RunBuildStage(context)` (the build step), and `Parameters` (the card schema).
+  `RunBuildStage(context)` (the build step), `Summarize(modifier)` (the collapsed-card line; helpers in
+  `ModifierSummaryFormatting`), and `Parameters` (the card schema).
 
 ## What a descriptor drives
 - **Factory** — `TerrainController.CreateModifier` → `Registry.CreateModifier`.

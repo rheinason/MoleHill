@@ -18,6 +18,7 @@ public abstract class BlockAttributeAnnotationDefinition : AnnotationDefinition
 
     public string? BlockDefinitionName { get; set; }
 
+    [UnitFree("A block scale factor; unitless.")]
     public double BlockScale { get; set; } = 1.0;
 
     public string AttributePrefix { get; set; } = string.Empty;

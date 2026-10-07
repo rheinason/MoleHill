@@ -32,6 +32,7 @@ public sealed class ScatterObjectDefinition : TerrainObjectDefinition
     public ScatterPattern Pattern { get; set; } = ScatterPattern.Random;
 
     /// <summary>Curve mode: along-curve randomness as a fraction [0,1] of the spacing step.</summary>
+    [UnitFree("A fraction of the spacing; unitless.")]
     public double AlongJitter { get; set; }
 
     /// <summary>Curve mode, multi-block: whether blocks are picked weighted-random or cycled in order.</summary>
@@ -39,16 +40,21 @@ public sealed class ScatterObjectDefinition : TerrainObjectDefinition
 
     public ScatterDensityMode DensityMode { get; set; } = ScatterDensityMode.Count;
 
+    [UnitFree("A count.")]
     public double Count { get; set; } = 100.0;
 
+    [InverseModelArea]
     public double PerAreaDensity { get; set; } = 0.1;
 
+    [ModelLength]
     public double Spacing { get; set; } = 1.0;
 
     /// <summary>Curve + <see cref="ScatterDensityMode.EdgeToEdge"/>: gap between block footprints.</summary>
+    [ModelLength]
     public double EdgeGap { get; set; }
 
     /// <summary>Curve mode: random XY offset radius applied to each on-curve point.</summary>
+    [ModelLength]
     public double JitterXy { get; set; }
 
     /// <summary>Curve mode: orient instances to the curve tangent direction.</summary>
@@ -56,14 +62,18 @@ public sealed class ScatterObjectDefinition : TerrainObjectDefinition
 
     public bool SlopeFilterEnabled { get; set; }
 
+    [UnitFree("An angle in degrees; angles do not change with model units.")]
     public double SlopeMinDegrees { get; set; }
 
+    [UnitFree("An angle in degrees; angles do not change with model units.")]
     public double SlopeMaxDegrees { get; set; } = 90.0;
 
     public bool ElevationFilterEnabled { get; set; }
 
+    [ModelLength]
     public double ElevationMin { get; set; }
 
+    [ModelLength]
     public double ElevationMax { get; set; }
 
     /// <summary>Orient instances to the terrain normal; when false they stay upright (world Z).</summary>

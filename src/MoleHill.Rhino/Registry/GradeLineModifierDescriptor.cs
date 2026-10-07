@@ -1,3 +1,4 @@
+using static MoleHill.Rhino.Registry.ModifierSummaryFormatting;
 using MoleHill.Rhino.Model;
 using MoleHill.Rhino.Services;
 using Rhino;
@@ -16,6 +17,15 @@ internal sealed class GradeLineModifierDescriptor : ModifierTypeDescriptor
     public override string Subtitle => "Batter away from a design line";
     public override ModifierDefinition Create(UnitSystem unitSystem) => new GradeLineModifierDefinition();
     public override void RunBuildStage(ModifierBuildContext context) => TerrainBuildService.RunGradeLineStage(context);
+
+    public override string Summarize(ModifierDefinition modifier)
+    {
+        var line = (GradeLineModifierDefinition)modifier;
+        int lineCount = CountSources(line.Lines);
+        return line.UseAsymmetricSides
+            ? $"{lineCount} design lines | asymmetric sides"
+            : $"{lineCount} design lines | Fill {FormatSlopeDegrees(line.SlopeAngle)}";
+    }
 
     public override string? InertReason(ModifierDefinition modifier, TerrainBuildSnapshot snapshot) =>
         modifier is GradeLineModifierDefinition m && NoneResolve(snapshot, m.Lines) ? "Not applied — no lines selected." : null;

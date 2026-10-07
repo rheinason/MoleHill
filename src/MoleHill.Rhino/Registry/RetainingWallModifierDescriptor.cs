@@ -1,3 +1,4 @@
+using static MoleHill.Rhino.Registry.ModifierSummaryFormatting;
 using MoleHill.Rhino.Model;
 using MoleHill.Rhino.Services;
 using Rhino;
@@ -17,6 +18,15 @@ internal sealed class RetainingWallModifierDescriptor : ModifierTypeDescriptor
     public override ModifierDefinition Create(UnitSystem unitSystem) =>
         new RetainingWallModifierDefinition { MaxWallWidth = ModelUnits.FromMeters(1.0, unitSystem) };
     public override void RunBuildStage(ModifierBuildContext context) => TerrainBuildService.RunRetainingWallStage(context);
+
+    public override string Summarize(ModifierDefinition modifier)
+    {
+        var w = (RetainingWallModifierDefinition)modifier;
+        int curves = CountSources(w.WallCurves);
+        return w.GradesTerrain
+            ? $"{curves} wall curves | grade terrain, {(w.UseAsymmetricSides ? "asymmetric sides" : $"Fill {FormatSlopeDegrees(w.SlopeAngle)}")}"
+            : $"{curves} wall curves | breaklines only";
+    }
 
     public override string? InertReason(ModifierDefinition modifier, TerrainBuildSnapshot snapshot) =>
         modifier is RetainingWallModifierDefinition m && NoneResolve(snapshot, m.WallCurves) ? "Not applied — no wall curves selected." : null;

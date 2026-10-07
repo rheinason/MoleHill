@@ -1,3 +1,4 @@
+using static MoleHill.Rhino.Registry.ModifierSummaryFormatting;
 using MoleHill.Rhino.Model;
 using MoleHill.Rhino.Services;
 using Rhino;
@@ -16,6 +17,12 @@ internal sealed class GradePadModifierDescriptor : ModifierTypeDescriptor
     public override string Subtitle => "Level pad, batter to daylight";
     public override ModifierDefinition Create(UnitSystem unitSystem) => new GradePadModifierDefinition();
     public override void RunBuildStage(ModifierBuildContext context) => TerrainBuildService.RunGradePadStage(context);
+
+    public override string Summarize(ModifierDefinition modifier)
+    {
+        var p = (GradePadModifierDefinition)modifier;
+        return $"{CountSources(p.Boundaries)} boundaries | Fill {FormatSlopeDegrees(p.SlopeAngle)}";
+    }
 
     public override string? InertReason(ModifierDefinition modifier, TerrainBuildSnapshot snapshot) =>
         modifier is GradePadModifierDefinition m && NoneResolve(snapshot, m.Boundaries) ? "Not applied — no boundaries selected." : null;

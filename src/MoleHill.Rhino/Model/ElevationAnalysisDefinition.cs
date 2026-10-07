@@ -1,5 +1,6 @@
 namespace MoleHill.Rhino.Model;
 
+[ModelLengthMembers("RangeLow", "RangeHigh", "ColorInterval")]
 public sealed class ElevationAnalysisDefinition : AnalysisDefinition
 {
     public ElevationAnalysisDefinition()

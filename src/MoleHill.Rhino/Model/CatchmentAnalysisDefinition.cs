@@ -16,6 +16,7 @@ public sealed class CatchmentAnalysisDefinition : DrainageAnalysisDefinition
     ///
     /// Zero keeps every catchment, which on a real survey means hundreds of slivers along the low edge.
     /// </summary>
+    [UnitFree("A percentage; unitless.")]
     public double MinimumBasinAreaPercent { get; set; } = 1.0;
 
     /// <summary>Draw the catchment boundaries as closed polygons.</summary>

@@ -22,5 +22,6 @@ public abstract class DrainageAnalysisDefinition : AnalysisDefinition
     /// face turns a graded pad's catchment into confetti — which is the failure this whole setting exists
     /// to prevent.
     /// </summary>
+    [UnitFree("An angle in degrees; angles do not change with model units.")]
     public double FlatSlopeThresholdDegrees { get; set; } = 0.3;
 }

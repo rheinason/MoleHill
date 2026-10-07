@@ -1,3 +1,4 @@
+using static MoleHill.Rhino.Registry.ModifierSummaryFormatting;
 using MoleHill.Rhino.Model;
 using MoleHill.Rhino.Services;
 using Rhino;
@@ -16,6 +17,13 @@ internal sealed class RetopoModifierDescriptor : ModifierTypeDescriptor
     public override string Subtitle => "Quads that follow the terrain's creases";
     public override ModifierDefinition Create(UnitSystem unitSystem) => new RetopoModifierDefinition();
     public override void RunBuildStage(ModifierBuildContext context) => TerrainBuildService.RunRetopoStage(context);
+
+    public override string Summarize(ModifierDefinition modifier)
+    {
+        var retopo = (RetopoModifierDefinition)modifier;
+        string retopoEdge = retopo.TargetEdgeLength > 0 ? $"Edge Length {retopo.TargetEdgeLength:G4}" : "Edge Length auto";
+        return $"{retopoEdge} | {(retopo.Quads ? "Quads on" : "field preview")}";
+    }
 
     public override IReadOnlyList<ModifierParam> Parameters { get; } = new[]
     {

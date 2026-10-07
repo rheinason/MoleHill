@@ -57,21 +57,27 @@ public sealed class ReportTableAnnotationDefinition : AnnotationDefinition
     /// stays proportioned when the annotation style is rescaled — which is the whole point of following
     /// the style in the first place.
     /// </summary>
+    [UnitFree("A multiple of the text height, not an absolute length.")]
     public double ColumnGap { get; set; } = 1.5;
 
     /// <summary>Line spacing as a multiple of the text height.</summary>
+    [UnitFree("A multiple of the text height, not an absolute length.")]
     public double RowSpacing { get; set; } = 1.8;
 
     /// <summary>Absolute text height, used only when <see cref="AnnotationDefinition.FollowsAnnotationStyle"/>
     /// is false — the same arrangement the section annotations use.</summary>
+    [ModelLength]
     public double TextHeight { get; set; } = 1.0;
 
     public int? ColorArgb { get; set; }
 
+    [ModelLength]
     public double InsertionOriginX { get; set; }
 
+    [ModelLength]
     public double InsertionOriginY { get; set; }
 
+    [ModelLength]
     public double InsertionOriginZ { get; set; }
 
     /// <summary>False places the table beside the terrain's bounding box, so a freshly added card draws

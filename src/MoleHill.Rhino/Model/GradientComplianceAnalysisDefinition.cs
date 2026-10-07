@@ -25,6 +25,7 @@ public sealed class GradientComplianceAnalysisDefinition : AnalysisDefinition
     public SourceReferenceSet Routes { get; set; } = new();
 
     /// <summary>Width of the corridor checked either side of each route, in model units.</summary>
+    [ModelLength]
     public double RouteWidth { get; set; } = 1.5;
 
     /// <summary>
@@ -33,6 +34,7 @@ public sealed class GradientComplianceAnalysisDefinition : AnalysisDefinition
     /// level would pass. Not part of the standard, because no standard states one, so it is not in
     /// <see cref="Rules"/>. The default is a wheelchair's turning diameter.
     /// </summary>
+    [ModelLength]
     public double MeasurementLength { get; set; } = 1.5;
 
     public override IEnumerable<SourceReferenceSet> EnumerateSourceSets()

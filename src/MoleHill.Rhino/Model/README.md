@@ -114,3 +114,9 @@ add the matching descriptor in `Registry/` (see `Registry/README.md`). The descr
 discriminator, factory, menu entry, and card chrome. Modifiers also get their build step + schema card from
 the descriptor; objects/markers/analyses/annotations still have bespoke card bodies (and both analyses and
 annotations keep their `TerrainBuildService.Analysis.cs` build stage).
+
+**Unit scaling is declared on the property.** Every `double`/`double?` on a definition type carries
+`[ModelLength]`, `[ModelArea]`, `[ModelVolume]`, `[InverseModelArea]` or `[UnitFree(reason)]`
+(`ModelUnitAttributes.cs`); `Services/Persistence/TerrainUnitScaler` multiplies by reflection, and
+`ModelUnitAttributeGuardTests` fails on an undeclared one. A concrete type may promote an inherited unit-free
+property with `[ModelLengthMembers]` (Elevation and Cut/Fill promote the colour range).

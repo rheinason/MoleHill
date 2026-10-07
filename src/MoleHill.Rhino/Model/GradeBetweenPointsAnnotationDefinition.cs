@@ -11,6 +11,7 @@ namespace MoleHill.Rhino.Model;
 public sealed class GradeBetweenPointsAnnotationDefinition : BlockAttributeAnnotationDefinition
 {
     /// <summary>Text height of the callout label and the size basis for the downhill arrow.</summary>
+    [ModelLength]
     public double TextHeight { get; set; } = 1.0;
 
     public GradeBetweenPointsAnnotationDefinition()

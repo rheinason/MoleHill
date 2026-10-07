@@ -48,9 +48,11 @@ public abstract class TerrainSectionAnnotationDefinitionBase : AnnotationDefinit
     /// text height, so the fill reads as a texture at whatever scale the drawing is set up for. A pattern's
     /// native spacing is arbitrary — Rhino's Hatch1 is 0.125 model units — so a fixed scale of 1 prints as
     /// solid black on a real section. Set a positive value to override.</summary>
+    [UnitFree("A multiple or ratio; unitless.")]
     public double HatchScale { get; set; }
 
     /// <summary>Pattern rotation, in degrees, passed to the generated hatch.</summary>
+    [UnitFree("An angle in degrees; angles do not change with model units.")]
     public double HatchRotationDegrees { get; set; }
 
     /// <summary>
@@ -63,26 +65,36 @@ public abstract class TerrainSectionAnnotationDefinitionBase : AnnotationDefinit
 
     public int? ColorArgb { get; set; }
 
+    [ModelLength]
     public double InsertionOriginX { get; set; }
 
+    [ModelLength]
     public double InsertionOriginY { get; set; }
 
+    [ModelLength]
     public double InsertionOriginZ { get; set; }
 
+    [UnitFree("A unit-vector component of the insertion plane; unitless.")]
     public double InsertionXAxisX { get; set; } = 1.0;
 
+    [UnitFree("A unit-vector component of the insertion plane; unitless.")]
     public double InsertionXAxisY { get; set; }
 
+    [UnitFree("A unit-vector component of the insertion plane; unitless.")]
     public double InsertionXAxisZ { get; set; }
 
+    [UnitFree("A unit-vector component of the insertion plane; unitless.")]
     public double InsertionYAxisX { get; set; }
 
+    [UnitFree("A unit-vector component of the insertion plane; unitless.")]
     public double InsertionYAxisY { get; set; } = 1.0;
 
+    [UnitFree("A unit-vector component of the insertion plane; unitless.")]
     public double InsertionYAxisZ { get; set; }
 
     public bool HasInsertionPlane { get; set; }
 
+    [ModelLength]
     public double TextHeight { get; set; } = 1.0;
 
     /// <summary>
@@ -94,6 +106,7 @@ public abstract class TerrainSectionAnnotationDefinitionBase : AnnotationDefinit
     /// two of the three, and the plain Section Cut simply passed 1.0, so the one section people reach for
     /// first was the one that could not be exaggerated.
     /// </summary>
+    [UnitFree("A multiple or ratio; unitless.")]
     public double VerticalExaggeration { get; set; } = 1.0;
 
     /// <summary>True when cut/fill shading has something to compare against.</summary>

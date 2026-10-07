@@ -13,15 +13,19 @@ public sealed class GradePathModifierDefinition : ModifierDefinition
     /// <see cref="UseVariableWidth"/> is true.</summary>
     public SourceReferenceSet WidthEdges { get; set; } = new();
 
+    [ModelLength]
     public double Width { get; set; } = 2.0;
 
     /// <summary>Main (fill) batter slope in degrees, used where terrain sits below the road. The cut
     /// slope inherits this value unless <see cref="CutSlopeAngle"/> overrides it.</summary>
+    [UnitFree("A slope angle; only the reach scales.")]
     public double SlopeAngle { get; set; } = 33.0;
 
     /// <summary>Cut-side batter slope override in degrees (terrain above the road). 0 = inherit <see cref="SlopeAngle"/>.</summary>
+    [UnitFree("A slope angle; only the reach scales.")]
     public double CutSlopeAngle { get; set; }
 
+    [ModelLength]
     public double MaxDistance { get; set; }
 
     /// <summary>
@@ -32,6 +36,7 @@ public sealed class GradePathModifierDefinition : ModifierDefinition
     public bool GradeThroughBreaklines { get; set; }
 
     /// <summary>Maximum plan distance used to match width edges. Zero uses four times Width.</summary>
+    [ModelLength]
     public double MaxEdgeDistance { get; set; }
 
     public GradePathModifierDefinition()

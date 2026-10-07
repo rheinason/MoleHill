@@ -1,3 +1,4 @@
+using static MoleHill.Rhino.Registry.ModifierSummaryFormatting;
 using MoleHill.Rhino.Model;
 using MoleHill.Rhino.Services;
 using Rhino;
@@ -20,6 +21,15 @@ internal sealed class RemeshModifierDescriptor : ModifierTypeDescriptor
         CreaseAngle = 30.0
     };
     public override void RunBuildStage(ModifierBuildContext context) => TerrainBuildService.RunRemeshStage(context);
+
+    public override string Summarize(ModifierDefinition modifier)
+    {
+        var r = (RemeshModifierDefinition)modifier;
+        string remeshEdge = r.EdgeLength > 0 ? $"Edge Length {r.EdgeLength:G4}" : "Edge Length auto";
+        return r.CreaseAngle > 0
+            ? $"{remeshEdge} | Crease Angle {r.CreaseAngle:G4} deg"
+            : remeshEdge;
+    }
 
     private static readonly IReadOnlyList<(string Key, string Label)> ModeOptions = new[]
     {

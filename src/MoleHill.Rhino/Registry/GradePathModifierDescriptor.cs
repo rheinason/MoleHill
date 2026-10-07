@@ -1,3 +1,4 @@
+using static MoleHill.Rhino.Registry.ModifierSummaryFormatting;
 using MoleHill.Rhino.Model;
 using MoleHill.Rhino.Services;
 using Rhino;
@@ -17,6 +18,15 @@ internal sealed class GradePathModifierDescriptor : ModifierTypeDescriptor
     public override ModifierDefinition Create(UnitSystem unitSystem) =>
         new GradePathModifierDefinition { Width = ModelUnits.FromMeters(2.0, unitSystem) };
     public override void RunBuildStage(ModifierBuildContext context) => TerrainBuildService.RunGradePathStage(context);
+
+    public override string Summarize(ModifierDefinition modifier)
+    {
+        var path = (GradePathModifierDefinition)modifier;
+        int paths = CountSources(path.Paths);
+        if (!path.UseVariableWidth)
+            return $"{paths} centerlines | Width {path.Width:G4}";
+        return $"{paths} centerlines | variable width, {CountSources(path.WidthEdges)} width edges | Width {path.Width:G4} fallback";
+    }
 
     public override string? InertReason(ModifierDefinition modifier, TerrainBuildSnapshot snapshot) =>
         modifier is GradePathModifierDefinition m && NoneResolve(snapshot, m.Paths) ? "Not applied — no paths selected." : null;

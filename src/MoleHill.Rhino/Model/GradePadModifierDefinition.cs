@@ -8,11 +8,14 @@ public sealed class GradePadModifierDefinition : ModifierDefinition
 
     /// <summary>Main (fill) batter slope in degrees, used where terrain sits below the pad. The cut
     /// slope inherits this value unless <see cref="CutSlopeAngle"/> overrides it.</summary>
+    [UnitFree("A slope angle; only the reach scales.")]
     public double SlopeAngle { get; set; } = 33.0;
 
     /// <summary>Cut-side batter slope override in degrees (terrain above the pad). 0 = inherit <see cref="SlopeAngle"/>.</summary>
+    [UnitFree("A slope angle; only the reach scales.")]
     public double CutSlopeAngle { get; set; }
 
+    [ModelLength]
     public double MaxDistance { get; set; }
 
     /// <summary>

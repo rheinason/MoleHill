@@ -51,6 +51,7 @@ public sealed class TerrainDefinition
     /// layer. It is also the one place preview and bake deliberately differ, now that everything else
     /// resolves through one appearance record — which is why the panel labels it as on-screen only.
     /// </summary>
+    [UnitFree("A display line weight in pixels; not a model length.")]
     public double PreviewLineWeight { get; set; } = 1.0;
 
     /// <summary>
@@ -93,10 +94,13 @@ public sealed class TerrainDefinition
 
     public string SlopePalettePreset { get; set; } = ColorRampPresets.DefaultKey;
 
+    [UnitFree("A percentage; unitless.")]
     public double SlopeColorLowPercent { get; set; }
 
+    [UnitFree("A percentage; unitless.")]
     public double SlopeColorHighPercent { get; set; }
 
+    [ModelLength]
     public double GlobalTolerance { get; set; }
 
     [JsonPropertyName("earthworkReference")]

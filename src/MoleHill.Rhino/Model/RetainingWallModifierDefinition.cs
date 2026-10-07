@@ -22,24 +22,31 @@ public sealed class RetainingWallModifierDefinition : ModifierDefinition
     public string Mode { get; set; } = BreaklineOnlyMode;
 
     /// <summary>Main (fill) batter slope in degrees for the graded mode.</summary>
+    [UnitFree("A slope angle; only the reach scales.")]
     public double SlopeAngle { get; set; } = 33.0;
 
     /// <summary>Cut-side batter slope override in degrees. 0 = inherit <see cref="SlopeAngle"/>.</summary>
+    [UnitFree("A slope angle; only the reach scales.")]
     public double CutSlopeAngle { get; set; }
 
     /// <summary>Opt-in switch for different batters on the toe and top sides.</summary>
     public bool UseAsymmetricSides { get; set; }
 
     /// <summary>Toe-side (lower rail) overrides in degrees. 0 = inherit the shared pair.</summary>
+    [UnitFree("A slope angle; only the reach scales.")]
     public double ToeCutSlopeAngle { get; set; }
 
+    [UnitFree("A slope angle; only the reach scales.")]
     public double ToeFillSlopeAngle { get; set; }
 
     /// <summary>Top-side (upper rail) overrides in degrees. 0 = inherit the shared pair.</summary>
+    [UnitFree("A slope angle; only the reach scales.")]
     public double TopCutSlopeAngle { get; set; }
 
+    [UnitFree("A slope angle; only the reach scales.")]
     public double TopFillSlopeAngle { get; set; }
 
+    [ModelLength]
     public double MaxDistance { get; set; }
 
     /// <summary>Derived from <see cref="Mode"/>, so it is never written to the document.</summary>
@@ -47,6 +54,7 @@ public sealed class RetainingWallModifierDefinition : ModifierDefinition
     public bool GradesTerrain =>
         string.Equals(Mode, GradeMode, StringComparison.OrdinalIgnoreCase);
 
+    [ModelLength]
     public double MaxWallWidth
     {
         get => _maxWallWidth;
@@ -59,6 +67,7 @@ public sealed class RetainingWallModifierDefinition : ModifierDefinition
 
     [JsonPropertyName("tolerance")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    [UnitFree("Migration shim: reads as zero and only seeds MaxWallWidth when an old document is loaded.")]
     public double LegacyTolerance
     {
         get => 0.0;

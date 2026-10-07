@@ -27,6 +27,7 @@ public sealed class TriangulateModifierDefinition : GeometryInputModifierDefinit
 
     /// <summary>Raster elevation-unit to document-unit scale captured by the GeoTIFF import action.
     /// Zero asks snapshot capture to infer embedded units, falling back to document units.</summary>
+    [ModelLength(OnlyWhenPositive = true)]
     public double DemElevationScale { get; set; }
 
     public string? DemSourceFileName { get; set; }

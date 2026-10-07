@@ -15,6 +15,7 @@ public sealed class RemeshModifierDefinition : ModifierDefinition
     /// Target edge length for the remesh. 0 = preserve the input mesh's approximate plan face
     /// density (the remesh then regularizes at the mesh's own scale instead of changing density).
     /// </summary>
+    [ModelLength]
     public double EdgeLength { get; set; }
 
     /// <summary>
@@ -24,6 +25,7 @@ public sealed class RemeshModifierDefinition : ModifierDefinition
     /// this field globally; the serializer migrates those into <see cref="EdgeLength"/> and zeroes it,
     /// so a nonzero value here only ever comes from a schema-24+ rebuild-mode edit.
     /// </summary>
+    [ModelArea]
     public double MaxArea { get; set; }
 
     /// <summary>
@@ -31,6 +33,7 @@ public sealed class RemeshModifierDefinition : ModifierDefinition
     /// forces skinny triangles to be refined. 0 = no angle constraint. Ignored by the "isotropic" and
     /// "local" modes. Schema 24.
     /// </summary>
+    [UnitFree("An angle in degrees; angles do not change with model units.")]
     public double MinAngle { get; set; }
 
     /// <summary>
@@ -38,6 +41,7 @@ public sealed class RemeshModifierDefinition : ModifierDefinition
     /// this fold angle are pinned for this remesh so they stay crisp — detected from geometry, never
     /// persisted as breaklines. 0 disables it.
     /// </summary>
+    [UnitFree("An angle in degrees; angles do not change with model units.")]
     public double CreaseAngle { get; set; }
 
     public RemeshModifierDefinition()

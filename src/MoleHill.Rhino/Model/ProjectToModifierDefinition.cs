@@ -11,8 +11,10 @@ public sealed class ProjectToModifierDefinition : ModifierDefinition
     /// <summary>Closed XY loops interpreted with even-odd containment, including nested donut holes.</summary>
     public SourceReferenceSet Boundaries { get; set; } = new();
 
+    [UnitFree("A 0 to 1 blend weight; unitless.")]
     public double Strength { get; set; } = 1.0;
 
+    [ModelLength]
     public double FeatherDistance { get; set; }
 
     public ProjectToModifierDefinition()
