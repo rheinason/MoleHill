@@ -1,5 +1,6 @@
 using MoleHill.Core.Engine;
 using MoleHill.Core.Grading;
+using MoleHill.Core.Geometry;
 
 namespace MoleHill.Core.Analysis;
 
@@ -542,7 +543,7 @@ public static class GradientComplianceAnalyzer
         foreach (double[] loop in loops)
         {
             int count = loop.Length / 2;
-            if (count >= 3 && PadGrader.PointInPolygon(x, y, loop, count))
+            if (count >= 3 && Geometry2D.PointInPolygon(x, y, loop, count))
                 inside = !inside;
         }
 

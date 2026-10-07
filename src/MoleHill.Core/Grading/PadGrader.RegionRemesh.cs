@@ -101,7 +101,7 @@ public static partial class PadGrader
             double py = vertices[vertexIndex * 3 + 1];
             foreach (double[] loop in offsetLoops)
             {
-                if (PointInPolygon(px, py, loop, loop.Length / 2))
+                if (Geometry2D.PointInPolygon(px, py, loop, loop.Length / 2))
                     return true;
             }
 
@@ -122,7 +122,7 @@ public static partial class PadGrader
             foreach (double[] loop in offsetLoops)
             {
                 int loopCount = loop.Length / 2;
-                if (PointInPolygon(faceCx, faceCy, loop, loopCount))
+                if (Geometry2D.PointInPolygon(faceCx, faceCy, loop, loopCount))
                     return true;
 
                 for (int i = 0; i < loopCount; i++)
@@ -292,7 +292,7 @@ public static partial class PadGrader
                 bool inIsland = false;
                 foreach (double[] poly in islandPolys)
                 {
-                    if (PointInPolygon(cx, cy, poly, poly.Length / 2))
+                    if (Geometry2D.PointInPolygon(cx, cy, poly, poly.Length / 2))
                     {
                         inIsland = true;
                         break;
@@ -483,8 +483,8 @@ public static partial class PadGrader
             if (pad.VertexCount <= 0)
                 continue;
 
-            (double px, double py) = PolygonInteriorPoint(pad.XyVertices, pad.VertexCount);
-            if (PointInPolygon(px, py, rimPoly, rimCount))
+            (double px, double py) = Geometry2D.PolygonInteriorPoint(pad.XyVertices, pad.VertexCount);
+            if (Geometry2D.PointInPolygon(px, py, rimPoly, rimCount))
                 holePads.Add(pad);
         }
 
@@ -503,7 +503,7 @@ public static partial class PadGrader
         double seedCell = Math.Max(tolerance * 8.0, targetEdge * 0.25);
         bool AddSeed(double sx, double sy)
         {
-            if (!PointInPolygon(sx, sy, rimPoly, rimCount))
+            if (!Geometry2D.PointInPolygon(sx, sy, rimPoly, rimCount))
                 return false;
 
             var key = ((long)Math.Round(sx / seedCell), (long)Math.Round(sy / seedCell));
@@ -522,8 +522,8 @@ public static partial class PadGrader
         {
             for (double gx = minX + targetEdge; gx < maxX; gx += targetEdge)
             {
-                if (PointInPolygon(gx, gy, rimPoly, rimCount) &&
-                    DistToPolygon(gx, gy, rimPoly, rimCount) > targetEdge * 0.4)
+                if (Geometry2D.PointInPolygon(gx, gy, rimPoly, rimCount) &&
+                    Geometry2D.DistanceToPolygon(gx, gy, rimPoly, rimCount) > targetEdge * 0.4)
                 {
                     AddSeed(gx, gy);
                 }
@@ -593,7 +593,7 @@ public static partial class PadGrader
             // remesh boundary matches the rim exactly and welds watertight.
             double ccx = (extracted.Xy[e0 * 2] + extracted.Xy[e1 * 2] + extracted.Xy[e2 * 2]) / 3.0;
             double ccy = (extracted.Xy[e0 * 2 + 1] + extracted.Xy[e1 * 2 + 1] + extracted.Xy[e2 * 2 + 1]) / 3.0;
-            if (!PointInPolygon(ccx, ccy, rimXy, rimCount))
+            if (!Geometry2D.PointInPolygon(ccx, ccy, rimXy, rimCount))
                 continue;
 
             int g0 = remeshToGlobal[e0];
@@ -648,7 +648,7 @@ public static partial class PadGrader
 
             // Guaranteed-interior point (a concave pad's vertex average can fall outside the
             // footprint); also the pull target for the inset ring below.
-            (double cx, double cy) = PolygonInteriorPoint(pad.XyVertices, pad.VertexCount);
+            (double cx, double cy) = Geometry2D.PolygonInteriorPoint(pad.XyVertices, pad.VertexCount);
             yield return (cx, cy);
 
             // Inset boundary ring (10% toward the interior point; each point is verified inside the
@@ -667,7 +667,7 @@ public static partial class PadGrader
                     double ey = py + ((qy - py) * t);
                     double ix = ex + ((cx - ex) * 0.1);
                     double iy = ey + ((cy - ey) * 0.1);
-                    if (PointInPolygon(ix, iy, pad.XyVertices, pad.VertexCount))
+                    if (Geometry2D.PointInPolygon(ix, iy, pad.XyVertices, pad.VertexCount))
                         yield return (ix, iy);
                 }
             }
@@ -677,8 +677,8 @@ public static partial class PadGrader
             {
                 for (double gx = minX + (s * 0.5); gx < maxX; gx += s)
                 {
-                    if (PointInPolygon(gx, gy, pad.XyVertices, pad.VertexCount) &&
-                        DistToPolygon(gx, gy, pad.XyVertices, pad.VertexCount) > s * 0.25)
+                    if (Geometry2D.PointInPolygon(gx, gy, pad.XyVertices, pad.VertexCount) &&
+                        Geometry2D.DistanceToPolygon(gx, gy, pad.XyVertices, pad.VertexCount) > s * 0.25)
                     {
                         yield return (gx, gy);
                     }
@@ -716,12 +716,12 @@ public static partial class PadGrader
             if (pad.VertexCount < 3)
                 continue;
 
-            (double cx, double cy) = PolygonInteriorPoint(pad.XyVertices, pad.VertexCount);
+            (double cx, double cy) = Geometry2D.PolygonInteriorPoint(pad.XyVertices, pad.VertexCount);
 
             bool inAnyRim = false;
             foreach (double[] poly in rimPolys)
             {
-                if (PointInPolygon(cx, cy, poly, poly.Length / 2))
+                if (Geometry2D.PointInPolygon(cx, cy, poly, poly.Length / 2))
                 {
                     inAnyRim = true;
                     break;
@@ -747,8 +747,8 @@ public static partial class PadGrader
             if (pad.VertexCount <= 0)
                 continue;
 
-            (double px, double py) = PolygonInteriorPoint(pad.XyVertices, pad.VertexCount);
-            if (PointInPolygon(px, py, rimPoly, rimCount))
+            (double px, double py) = Geometry2D.PolygonInteriorPoint(pad.XyVertices, pad.VertexCount);
+            if (Geometry2D.PointInPolygon(px, py, rimPoly, rimCount))
                 return true;
         }
 

@@ -571,8 +571,8 @@ repairs pinched hole boundaries (outside faces at
 irregular vertices are pulled into the carve) and re-conforms via a single CDT when the hand-rolled
 splitter emits an untraceable boundary. That re-conform re-triangulates the whole terrain, so both
 graders pass their persistent hard constraints (retaining walls) down to it — otherwise a pad on the
-far side of the site flips a wall's face edges away and drops its foot vertices. Shared: `GradingGeometry2D` (all 2D primitives —
-point-in-polygon, distance, interior point; `PadGrader.Spatial.cs` are thin compat wrappers),
+far side of the site flips a wall's face edges away and drops its foot vertices. Shared: `Geometry2D` (`Core/Geometry`; all 2D primitives —
+point-in-polygon, distance, interior point, segment tests; guarded against private copies by `Geometry2DGuardTests`),
 `BatterStripBuilder`, `MeshAreaTopologySplitter`, `GradedRegionAssembler.WeldGradedRegion`.
 
 **Grade Line is the corridor at width zero**, not a fourth grader. `PathDefinition.IsSingleLine` (width

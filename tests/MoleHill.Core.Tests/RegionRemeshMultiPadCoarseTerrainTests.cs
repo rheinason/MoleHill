@@ -1,6 +1,7 @@
 using MoleHill.Core.Engine;
 using MoleHill.Core.Grading;
 using Xunit;
+using MoleHill.Core.Geometry;
 
 namespace MoleHill.Core.Tests;
 
@@ -9368,14 +9369,14 @@ public class RegionRemeshMultiPadCoarseTerrainTests
         for (int pi = 0; pi < pads.Length; pi++)
         {
             var pad = pads[pi];
-            (double rx, double ry) = PadGrader.PolygonInteriorPoint(pad.XyVertices, pad.VertexCount);
+            (double rx, double ry) = Geometry2D.PolygonInteriorPoint(pad.XyVertices, pad.VertexCount);
             double padZ = pad.EvaluateZ(rx, ry);
 
             bool higherWins = false;
             for (int pj = 0; pj < pads.Length; pj++)
             {
                 if (pj == pi) continue;
-                if (PadGrader.PointInPolygon(rx, ry, pads[pj].XyVertices, pads[pj].VertexCount) &&
+                if (Geometry2D.PointInPolygon(rx, ry, pads[pj].XyVertices, pads[pj].VertexCount) &&
                     pads[pj].EvaluateZ(rx, ry) > padZ)
                 {
                     higherWins = true;

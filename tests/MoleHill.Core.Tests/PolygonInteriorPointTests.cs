@@ -1,5 +1,6 @@
 using MoleHill.Core.Grading;
 using Xunit;
+using MoleHill.Core.Geometry;
 
 namespace MoleHill.Core.Tests;
 
@@ -10,7 +11,7 @@ public class PolygonInteriorPointTests
     {
         double[] xy = { 0, 0, 10, 0, 10, 10, 0, 10 };
 
-        (double x, double y) = PadGrader.PolygonInteriorPoint(xy, 4);
+        (double x, double y) = Geometry2D.PolygonInteriorPoint(xy, 4);
 
         Assert.Equal(5.0, x, 12);
         Assert.Equal(5.0, y, 12);
@@ -23,11 +24,11 @@ public class PolygonInteriorPointTests
         // (5, 5.5), inside the notch — OUTSIDE the polygon.
         double[] xy = { 0, 0, 10, 0, 10, 10, 8, 10, 8, 2, 2, 2, 2, 10, 0, 10 };
 
-        Assert.False(PadGrader.PointInPolygon(5.0, 5.5, xy, 8));
+        Assert.False(Geometry2D.PointInPolygon(5.0, 5.5, xy, 8));
 
-        (double x, double y) = PadGrader.PolygonInteriorPoint(xy, 8);
+        (double x, double y) = Geometry2D.PolygonInteriorPoint(xy, 8);
 
-        Assert.True(PadGrader.PointInPolygon(x, y, xy, 8));
+        Assert.True(Geometry2D.PointInPolygon(x, y, xy, 8));
     }
 
     [Fact]
@@ -36,11 +37,11 @@ public class PolygonInteriorPointTests
         // Same U-shape with reversed winding — the construction must be winding-agnostic.
         double[] xy = { 0, 10, 2, 10, 2, 2, 8, 2, 8, 10, 10, 10, 10, 0, 0, 0 };
 
-        Assert.False(PadGrader.PointInPolygon(5.0, 5.5, xy, 8));
+        Assert.False(Geometry2D.PointInPolygon(5.0, 5.5, xy, 8));
 
-        (double x, double y) = PadGrader.PolygonInteriorPoint(xy, 8);
+        (double x, double y) = Geometry2D.PolygonInteriorPoint(xy, 8);
 
-        Assert.True(PadGrader.PointInPolygon(x, y, xy, 8));
+        Assert.True(Geometry2D.PointInPolygon(x, y, xy, 8));
     }
 
     [Fact]
@@ -50,11 +51,11 @@ public class PolygonInteriorPointTests
         double[] xy = { 0, 0, 20, 0, 20, 2, 2, 2, 2, 20, 0, 20 };
 
         (double avgInsideX, double avgInsideY) = (7.333, 7.333);
-        Assert.False(PadGrader.PointInPolygon(avgInsideX, avgInsideY, xy, 6));
+        Assert.False(Geometry2D.PointInPolygon(avgInsideX, avgInsideY, xy, 6));
 
-        (double x, double y) = PadGrader.PolygonInteriorPoint(xy, 6);
+        (double x, double y) = Geometry2D.PolygonInteriorPoint(xy, 6);
 
-        Assert.True(PadGrader.PointInPolygon(x, y, xy, 6));
+        Assert.True(Geometry2D.PointInPolygon(x, y, xy, 6));
     }
 
     [Fact]
@@ -62,7 +63,7 @@ public class PolygonInteriorPointTests
     {
         double[] xy = { 0, 0, 5, 0, 10, 0 };
 
-        (double x, double y) = PadGrader.PolygonInteriorPoint(xy, 3);
+        (double x, double y) = Geometry2D.PolygonInteriorPoint(xy, 3);
 
         Assert.False(double.IsNaN(x));
         Assert.False(double.IsNaN(y));

@@ -1,6 +1,7 @@
 using MoleHill.Core.Engine;
 using MoleHill.Core.Grading;
 using Xunit;
+using MoleHill.Core.Geometry;
 
 namespace MoleHill.Core.Tests;
 
@@ -124,7 +125,7 @@ internal static class PadInvariantAssert
     }
 
     private static bool VertexInside(double[] v, int index, PadGrader.PadBoundary pad) =>
-        PadGrader.PointInPolygon(v[index * 3], v[index * 3 + 1], pad.XyVertices, pad.VertexCount);
+        Geometry2D.PointInPolygon(v[index * 3], v[index * 3 + 1], pad.XyVertices, pad.VertexCount);
 
     private static void AssertVertexOnPlane(double[] v, int index, PadGrader.PadBoundary pad, double zTolerance)
     {

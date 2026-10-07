@@ -506,9 +506,9 @@ public static partial class PadGrader
     {
         double mx = (ax + bx) * 0.5;
         double my = (ay + by) * 0.5;
-        return PointInPolygon(ax, ay, pad.XyVertices, pad.VertexCount) ||
-               PointInPolygon(bx, by, pad.XyVertices, pad.VertexCount) ||
-               PointInPolygon(mx, my, pad.XyVertices, pad.VertexCount);
+        return Geometry2D.PointInPolygon(ax, ay, pad.XyVertices, pad.VertexCount) ||
+               Geometry2D.PointInPolygon(bx, by, pad.XyVertices, pad.VertexCount) ||
+               Geometry2D.PointInPolygon(mx, my, pad.XyVertices, pad.VertexCount);
     }
 
     private static bool SegmentsIntersectExcludingSharedEndpoints(

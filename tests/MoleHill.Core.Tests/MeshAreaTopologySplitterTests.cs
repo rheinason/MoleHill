@@ -3,6 +3,7 @@ using MoleHill.Core.Grading;
 using TriangleNet.Geometry;
 using TriangleNet.Meshing;
 using Xunit;
+using MoleHill.Core.Geometry;
 
 namespace MoleHill.Core.Tests;
 
@@ -192,12 +193,12 @@ public class MeshAreaTopologySplitterTests
         for (int faceIndex = 0; faceIndex < result!.FaceCount; faceIndex++)
         {
             var (cx, cy) = GetFaceCentroid(result, faceIndex);
-            if (PadGrader.PointInPolygon(cx, cy, inner.XyVertices, inner.VertexCount))
+            if (Geometry2D.PointInPolygon(cx, cy, inner.XyVertices, inner.VertexCount))
             {
                 Assert.Equal(1, result.FaceAreaIndex[faceIndex]);
                 overlapFaceCount++;
             }
-            else if (PadGrader.PointInPolygon(cx, cy, outer.XyVertices, outer.VertexCount))
+            else if (Geometry2D.PointInPolygon(cx, cy, outer.XyVertices, outer.VertexCount))
             {
                 Assert.Equal(0, result.FaceAreaIndex[faceIndex]);
                 outerOnlyFaceCount++;

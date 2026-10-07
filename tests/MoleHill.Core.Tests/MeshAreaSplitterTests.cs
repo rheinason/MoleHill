@@ -1,6 +1,7 @@
 using MoleHill.Core.Engine;
 using MoleHill.Core.Grading;
 using Xunit;
+using MoleHill.Core.Geometry;
 
 namespace MoleHill.Core.Tests;
 
@@ -60,12 +61,12 @@ public class MeshAreaSplitterTests
         for (int faceIndex = 0; faceIndex < result!.FaceCount; faceIndex++)
         {
             var (cx, cy) = GetFaceCentroid(result, faceIndex);
-            if (PadGrader.PointInPolygon(cx, cy, inner.XyVertices, inner.VertexCount))
+            if (Geometry2D.PointInPolygon(cx, cy, inner.XyVertices, inner.VertexCount))
             {
                 Assert.Equal(1, result.FaceAreaIndex[faceIndex]);
                 innerFaceCount++;
             }
-            else if (PadGrader.PointInPolygon(cx, cy, outer.XyVertices, outer.VertexCount))
+            else if (Geometry2D.PointInPolygon(cx, cy, outer.XyVertices, outer.VertexCount))
             {
                 Assert.Equal(0, result.FaceAreaIndex[faceIndex]);
                 outerOnlyFaceCount++;

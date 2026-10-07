@@ -1,4 +1,5 @@
 using MoleHill.Core.Engine;
+using MoleHill.Core.Geometry;
 
 namespace MoleHill.Core.Grading;
 
@@ -88,7 +89,7 @@ public static partial class PadGrader
                 if (px < prepared.MinX || px > prepared.MaxX || py < prepared.MinY || py > prepared.MaxY)
                     continue;
 
-                if (PointInPolygon(px, py, prepared.Pad.XyVertices, prepared.Pad.VertexCount))
+                if (Geometry2D.PointInPolygon(px, py, prepared.Pad.XyVertices, prepared.Pad.VertexCount))
                 {
                     padTopZ = Math.Max(padTopZ, pads[padIndex].EvaluateZ(px, py));
                     insidePadTop = true;
@@ -295,7 +296,7 @@ public static partial class PadGrader
                     else
                     {
                         double slopeRatio = pad.SlopeRatioFor(branchSign);
-                        double batterReach = DistToPolygon(
+                        double batterReach = Geometry2D.DistanceToPolygon(
                             resolvedShoulderX,
                             resolvedShoulderY,
                             padLoop.XyVertices,
@@ -579,7 +580,7 @@ public static partial class PadGrader
                 if (px < bounds.MinX || px > bounds.MaxX || py < bounds.MinY || py > bounds.MaxY)
                     continue;
 
-                if (PointInPolygon(px, py, bounds.Pad.XyVertices, bounds.Pad.VertexCount))
+                if (Geometry2D.PointInPolygon(px, py, bounds.Pad.XyVertices, bounds.Pad.VertexCount))
                     insidePadIdx = Math.Max(insidePadIdx, p);
             }
 

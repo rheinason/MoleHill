@@ -402,7 +402,7 @@ public static partial class PadGrader
                 double x = vertices[i * 3], y = vertices[i * 3 + 1];
                 if (x < minX || x > maxX || y < minY || y > maxY)
                     continue;
-                if (!PointInPolygon(x, y, pad.XyVertices, pad.VertexCount))
+                if (!Geometry2D.PointInPolygon(x, y, pad.XyVertices, pad.VertexCount))
                     continue;
 
                 double z = pad.EvaluateZ(x, y);
@@ -425,7 +425,7 @@ public static partial class PadGrader
             if (pad.VertexCount < 3)
                 return false;
 
-            (double rx, double ry) = PolygonInteriorPoint(pad.XyVertices, pad.VertexCount);
+            (double rx, double ry) = Geometry2D.PolygonInteriorPoint(pad.XyVertices, pad.VertexCount);
 
             // Only this pad's flatness is asserted here; a point a higher pad also covers is that pad's
             // responsibility (verified at its own representative point).
@@ -435,7 +435,7 @@ public static partial class PadGrader
             {
                 if (q == p)
                     continue;
-                if (PointInPolygon(rx, ry, pads[q].XyVertices, pads[q].VertexCount) &&
+                if (Geometry2D.PointInPolygon(rx, ry, pads[q].XyVertices, pads[q].VertexCount) &&
                     pads[q].EvaluateZ(rx, ry) > ownerZ)
                 {
                     higherWins = true;
@@ -627,8 +627,8 @@ public static partial class PadGrader
 
             // Guaranteed-interior representative point: a concave pad's vertex average can fall
             // outside its own footprint, which would assign the pad to the wrong hole (or none).
-            (double px, double py) = PolygonInteriorPoint(build.Pad.XyVertices, n);
-            if (PointInPolygon(px, py, boundaryXy, boundaryCount))
+            (double px, double py) = Geometry2D.PolygonInteriorPoint(build.Pad.XyVertices, n);
+            if (Geometry2D.PointInPolygon(px, py, boundaryXy, boundaryCount))
                 inside.Add(build);
         }
 
@@ -801,7 +801,7 @@ public static partial class PadGrader
             {
                 double sx = sv[i * 3];
                 double sy = sv[i * 3 + 1];
-                if (PointInPolygon(sx, sy, boundaryXy, boundaryPointCount))
+                if (Geometry2D.PointInPolygon(sx, sy, boundaryXy, boundaryPointCount))
                     AddPoint(sx, sy, 0.0);
             }
         }
@@ -1050,7 +1050,7 @@ public static partial class PadGrader
                 int a = faces[f * 3], b = faces[f * 3 + 1], c = faces[f * 3 + 2];
                 double cx = (vertices[a * 3] + vertices[b * 3] + vertices[c * 3]) / 3.0;
                 double cy = (vertices[(a * 3) + 1] + vertices[(b * 3) + 1] + vertices[(c * 3) + 1]) / 3.0;
-                exterior[f] = !PointInPolygon(cx, cy, boundaryPoly, built);
+                exterior[f] = !Geometry2D.PointInPolygon(cx, cy, boundaryPoly, built);
             }
         }
 
@@ -1117,8 +1117,8 @@ public static partial class PadGrader
         {
             double px = pointsXy[i * 2];
             double py = pointsXy[i * 2 + 1];
-            if (PointInPolygon(px, py, polygonXy, polygonCount) &&
-                DistToPolygon(px, py, polygonXy, polygonCount) > interiorMargin)
+            if (Geometry2D.PointInPolygon(px, py, polygonXy, polygonCount) &&
+                Geometry2D.DistanceToPolygon(px, py, polygonXy, polygonCount) > interiorMargin)
             {
                 return true;
             }

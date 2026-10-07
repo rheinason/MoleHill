@@ -1,6 +1,7 @@
 using MoleHill.Core.Engine;
 using MoleHill.Core.Grading;
 using Xunit;
+using MoleHill.Core.Geometry;
 
 namespace MoleHill.Core.Tests;
 
@@ -294,8 +295,8 @@ public class PadGraderTests
             faces.Length / 3,
             pads);
 
-        double interiorZ = PadGrader.InterpolateZ(gradedVertices, faces, faces.Length / 3, 2.0, 2.0);
-        double boundaryZ = PadGrader.InterpolateZ(gradedVertices, faces, faces.Length / 3, 3.0, 2.0);
+        double interiorZ = Geometry2D.InterpolateZ(gradedVertices, faces, faces.Length / 3, 2.0, 2.0);
+        double boundaryZ = Geometry2D.InterpolateZ(gradedVertices, faces, faces.Length / 3, 3.0, 2.0);
 
         Assert.Equal(1.0, interiorZ, 6);
         Assert.Equal(2.0, boundaryZ, 6);

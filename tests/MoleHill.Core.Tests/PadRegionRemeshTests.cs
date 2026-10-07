@@ -1,6 +1,7 @@
 using MoleHill.Core.Engine;
 using MoleHill.Core.Grading;
 using Xunit;
+using MoleHill.Core.Geometry;
 
 namespace MoleHill.Core.Tests;
 
@@ -160,7 +161,7 @@ public class PadRegionRemeshTests
     }
 
     private static bool Inside(double[] v, int index, PadGrader.PadBoundary pad) =>
-        PadGrader.PointInPolygon(v[index * 3], v[index * 3 + 1], pad.XyVertices, pad.VertexCount);
+        Geometry2D.PointInPolygon(v[index * 3], v[index * 3 + 1], pad.XyVertices, pad.VertexCount);
 
     private static double FaceSlopeDegrees(double[] v, int a, int b, int c)
     {
