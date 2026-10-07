@@ -137,7 +137,7 @@ internal static class TriangulateStage
 
         int diagnosticsStart = build.Diagnostics.Count;
         int structuredDiagnosticsStart = build.StructuredDiagnostics.Count;
-        StageSupport.ThrowIfCancellationRequested(shouldCancel);
+        TerrainBuildService.ThrowIfCancellationRequested(shouldCancel);
         var exactTinMeshes = TerrainBuildSnapshotResolver.ResolveObjects(snapshot, modifier.TinMesh)
             .Select(source => source.Geometry)
             .OfType<RhinoMesh>()
@@ -272,7 +272,7 @@ internal static class TriangulateStage
                 "Breaklines and the terrain boundary remain constrained.");
         }
 
-        StageSupport.ThrowIfCancellationRequested(shouldCancel);
+        TerrainBuildService.ThrowIfCancellationRequested(shouldCancel);
         TerrainConstraintPreprocessor.Result processed = TerrainConstraintPreprocessor.ProcessSeparately(
             flattenedBreaklines.Select(static polyline => polyline.Points).ToList(),
             constrainContours
@@ -309,7 +309,7 @@ internal static class TriangulateStage
         var breaklineData = BreaklineDiscretizer.Process(polylines, shouldCancel);
         var merged = PointCloudProcessor.Merge(spotXyz, points.Count + sampledContourVertexCount, breaklineData, inputTolerance, shouldCancel);
         progress.Complete("Point deduplication", $"{merged.VertexCount:N0} unique vertices, {merged.SegmentCount:N0} segments");
-        StageSupport.ThrowIfCancellationRequested(shouldCancel);
+        TerrainBuildService.ThrowIfCancellationRequested(shouldCancel);
         ulong resolvedInputFingerprint = ComputeTriangulateResolvedInputFingerprint(
             terrain,
             modifier,
@@ -420,7 +420,7 @@ internal static class TriangulateStage
         }
 
         var cleanup = TinInputCleaner.Clean(merged, inputTolerance);
-        StageSupport.ThrowIfCancellationRequested(shouldCancel);
+        TerrainBuildService.ThrowIfCancellationRequested(shouldCancel);
         if (!cleanup.HasChanges)
         {
             build.Diagnostics.Add(exactMessage ?? "Triangulation failed.");
@@ -461,7 +461,7 @@ internal static class TriangulateStage
                 out outputFingerprint);
         }
 
-        StageSupport.ThrowIfCancellationRequested(shouldCancel);
+        TerrainBuildService.ThrowIfCancellationRequested(shouldCancel);
         if (!TerrainBuildService.TryBuildValidatedTinMesh(
             cleanup.XyCoords,
             cleanup.ZValues,

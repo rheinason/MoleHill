@@ -57,7 +57,7 @@ internal static class AddGeometryStage
         TerrainRuntimeCache runtimeCache,
         Func<bool>? shouldCancel = null)
     {
-        StageSupport.ThrowIfCancellationRequested(shouldCancel);
+        TerrainBuildService.ThrowIfCancellationRequested(shouldCancel);
         var points = TerrainBuildSnapshotResolver.ResolvePoints(snapshot, modifier.Points);
         var breaklineCurves = TerrainBuildSnapshotResolver.ResolveCurves(snapshot, modifier.Breaklines);
         var contourCurves = TerrainBuildSnapshotResolver.ResolveCurves(snapshot, modifier.Contours);
@@ -125,7 +125,7 @@ internal static class AddGeometryStage
         var newElevationConstraints = TerrainBuildService.CreateConstraintPolylines(flattenedContours, processed.Contours, preserveInputElevation: true);
         var persistentElevationConstraints = TerrainBuildService.CombineConstraints(build.PersistentElevationConstraints, newElevationConstraints);
 
-        StageSupport.ThrowIfCancellationRequested(shouldCancel);
+        TerrainBuildService.ThrowIfCancellationRequested(shouldCancel);
         var polylines = TerrainBuildService.CreateFlatPolylines(TerrainBuildService.CombineConstraints(build.PersistentHardConstraints, build.PersistentElevationConstraints));
         polylines.AddRange(processed.Breaklines.Concat(processed.Contours)
             .Where(static polyline => polyline != null)

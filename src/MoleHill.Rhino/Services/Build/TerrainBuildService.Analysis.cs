@@ -1160,7 +1160,7 @@ internal sealed partial class TerrainBuildService
         return combined;
     }
 
-    private static void ThrowIfCancellationRequested(Func<bool>? shouldCancel)
+    internal static void ThrowIfCancellationRequested(Func<bool>? shouldCancel)
     {
         if (shouldCancel?.Invoke() == true)
             throw new OperationCanceledException("Terrain rebuild cancelled.");

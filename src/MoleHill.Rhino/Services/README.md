@@ -52,9 +52,7 @@ file that needs Rhino's runtime must be added to that `Exclude` at its new path.
   on the cache/fingerprint side; `CombineConstraints`, `CreateConstraintPolylines`, `RebuildMeshWithConstraints`,
   `FinalizeGradingMesh`, `UpstreamBreaklines`, `TryBuildValidatedTinMesh` and the patch-summary helpers on the
   geometry side. A helper used by exactly one stage lives in that stage's class; the moment a second stage
-  needs it, raise it to `internal static` on `TerrainBuildService` (never copy it). `StageSupport`
-  holds a cancellation check that duplicates `TerrainBuildService.ThrowIfCancellationRequested`
-  (`.Analysis.cs`); fold the two together when that file is free. Most stages are fingerprint-cached
+  needs it, raise it to `internal static` on `TerrainBuildService` (never copy it). Most stages are fingerprint-cached
   (`StageCacheEntry`); analysis, zones, markers, object placements, and scatter run only in
   `TerrainBuildMode.Final`. Analysis entries are per analysis id, so changing one card does not
   invalidate unrelated summaries/outputs; a fully cached analysis pass skips mesh extraction,

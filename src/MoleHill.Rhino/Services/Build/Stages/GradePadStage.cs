@@ -131,7 +131,7 @@ internal static class GradePadStage
         var inputsTimer = Stopwatch.StartNew();
         int diagnosticsStart = build.Diagnostics.Count;
         int structuredDiagnosticsStart = build.StructuredDiagnostics.Count;
-        StageSupport.ThrowIfCancellationRequested(shouldCancel);
+        TerrainBuildService.ThrowIfCancellationRequested(shouldCancel);
         if (mesh == null)
         {
             TerrainBuildService.WarnMissingMesh(build, modifier.Label);
@@ -197,7 +197,7 @@ internal static class GradePadStage
             TerrainBuildService.StageTimingDiagnosticThresholdMs);
         build.Diagnostics.AddRange(resolvedInputs.Diagnostics);
         build.StructuredDiagnostics.AddRange(resolvedInputs.StructuredDiagnostics);
-        StageSupport.ThrowIfCancellationRequested(shouldCancel);
+        TerrainBuildService.ThrowIfCancellationRequested(shouldCancel);
         if (resolvedInputs.Pads.Length == 0)
         {
             build.Diagnostics.Add("Grade Pad has no valid closed boundaries.");
@@ -297,7 +297,7 @@ internal static class GradePadStage
         }
         else
         {
-            StageSupport.ThrowIfCancellationRequested(shouldCancel);
+            TerrainBuildService.ThrowIfCancellationRequested(shouldCancel);
             var topologyDiagnostics = new List<string>();
             var gradeResult = GradePadsWindowed(
                 vertices,
@@ -315,7 +315,7 @@ internal static class GradePadStage
                 out var gradeWarning,
                 out IReadOnlyList<MoleHill.Core.Grading.OutputPolyline> failureOutputPolylines,
                 out IReadOnlyList<GradingDiagnostic> failureStructuredDiagnostics);
-            StageSupport.ThrowIfCancellationRequested(shouldCancel);
+            TerrainBuildService.ThrowIfCancellationRequested(shouldCancel);
             runtimeCache.CoreCaseRecorder?.RecordPad(
                 modifier.Label,
                 vertices,
@@ -428,7 +428,7 @@ internal static class GradePadStage
                 effectiveLocks.Length > 0 ? effectiveLocks : null)
             : topologyEntry.Vertices;
         filterTimer.Stop();
-        StageSupport.ThrowIfCancellationRequested(shouldCancel);
+        TerrainBuildService.ThrowIfCancellationRequested(shouldCancel);
         build.RecordTiming(
             "Grade Pad Filter",
             filterTimer.Elapsed,
