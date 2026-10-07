@@ -1,4 +1,5 @@
-﻿using MoleHill.Rhino.Model;
+using MoleHill.Core.Analysis;
+using MoleHill.Rhino.Model;
 using MoleHill.Rhino.Services;
 using AnalysisParam = MoleHill.Rhino.Registry.ParameterDescriptor<MoleHill.Rhino.Model.AnalysisDefinition>;
 using RhinoObjectType = Rhino.DocObjects.ObjectType;
@@ -26,6 +27,25 @@ internal sealed class EarthworkAnalysisDescriptor : AnalysisTypeDescriptor
 
     public override TerrainAnalysisSummary? Build(AnalysisBuildContext c, AnalysisDefinition analysis) =>
         TerrainBuildService.BuildEarthworkSummary(c.Snapshot, c.FallbackBaseMesh, c.CurrentMesh, c.Vertices, c.Faces, (EarthworkAnalysisDefinition)analysis, c.SurfaceArea, c.ElevationMinZ, c.ElevationMaxZ, c.Build, c.ReferenceComparisonCache, c.ReferenceProjectionCache, c.ShouldCancel);
+
+    public override IReadOnlyList<ResultRow> DescribeResult(AnalysisDefinition analysis, TerrainAnalysisSummary? summary, ResultFormatter format)
+    {
+        if (summary == null)
+            return new[] { ResultRow.RebuildRequired("Rebuild the terrain to populate earthwork values.") };
+
+        string summaryText =
+            $"Cut: {format.Volume(summary.CutVolume)}{Environment.NewLine}" +
+            $"Fill: {format.Volume(summary.FillVolume)}{Environment.NewLine}" +
+            $"Net: {format.Volume(summary.NetVolume)}{Environment.NewLine}" +
+            $"Mode: {(summary.EarthworkIsEstimated ? "Estimated from terrain delta" : "Exact")}";
+        return new[]
+        {
+            ResultRow.Summary(
+                "Summary",
+                summaryText,
+                "Earthwork summary from the last terrain build. Click into the field to select and copy values.")
+        };
+    }
 
     public override IReadOnlyList<AnalysisParam> Parameters { get; } = new[]
     {
@@ -72,6 +92,23 @@ internal sealed class SlopeAnalysisDescriptor : AnalysisTypeDescriptor
     public override TerrainAnalysisSummary? Build(AnalysisBuildContext c, AnalysisDefinition analysis) =>
         TerrainBuildService.BuildSlopeSummary(c.Vertices, c.VertexCount, c.Faces, c.FaceCount, (SlopeAnalysisDefinition)analysis, c.SurfaceArea);
 
+    public override IReadOnlyList<ResultRow> DescribeResult(AnalysisDefinition analysis, TerrainAnalysisSummary? summary, ResultFormatter format)
+    {
+        // The mapped range and the ramp itself are the colour card's job now; what is left here is the
+        // statistic the card cannot know — what the terrain actually measured on the last build.
+        if (summary == null)
+            return Array.Empty<ResultRow>();
+
+        var slope = (SlopeAnalysisDefinition)analysis;
+        return new[]
+        {
+            ResultRow.Of(
+                "Min / Avg / Max",
+                $"{AnalysisFormatting.FormatSlopeSummaryValue(summary.SlopeMinPercent, slope.Unit)} / {AnalysisFormatting.FormatSlopeSummaryValue(summary.SlopeAveragePercent, slope.Unit)} / {AnalysisFormatting.FormatSlopeSummaryValue(summary.SlopeMaxPercent, slope.Unit)}",
+                "Current terrain slope summary from the last build.")
+        };
+    }
+
     public override IReadOnlyList<AnalysisParam> Parameters { get; } = new[]
     {
         AnalysisParam.ColorRamp(
@@ -94,6 +131,31 @@ internal sealed class AspectAnalysisDescriptor : AnalysisTypeDescriptor
 
     public override TerrainAnalysisSummary? Build(AnalysisBuildContext c, AnalysisDefinition analysis) =>
         TerrainBuildService.BuildAspectSummary(c.Snapshot, c.Vertices, c.Faces, (AspectAnalysisDefinition)analysis, c.SurfaceArea);
+
+    public override IReadOnlyList<ResultRow> DescribeResult(AnalysisDefinition analysis, TerrainAnalysisSummary? summary, ResultFormatter format)
+    {
+        if (summary == null)
+            return Array.Empty<ResultRow>();
+
+        string dominant = summary.AspectDominantBearing is { } bearing
+            ? $"{AspectAnalyzer.SectorName(bearing)} ({bearing:F0}°)"
+            : "None — no mean direction";
+        string flat = summary.AspectFaceCount > 0
+            ? $"{summary.AspectFlatFaceCount:N0} of {summary.AspectFaceCount:N0} " +
+              $"({(double)summary.AspectFlatFaceCount / summary.AspectFaceCount:P0})"
+            : "—";
+        return new[]
+        {
+            ResultRow.Of(
+                "Facing",
+                dominant,
+                "The plan-area-weighted mean direction the terrain drains towards, from the last build."),
+            ResultRow.Of(
+                "Flat",
+                flat,
+                "Faces too flat to have an aspect. These are drawn neutral grey, not given a direction.")
+        };
+    }
 
     public override IReadOnlyList<AnalysisParam> Parameters { get; } = new[]
     {
@@ -132,6 +194,11 @@ internal sealed class ElevationAnalysisDescriptor : AnalysisTypeDescriptor
             ElevationMaxZ = c.ElevationMaxZ
         };
 
+    public override IReadOnlyList<ResultRow> DescribeResult(AnalysisDefinition analysis, TerrainAnalysisSummary? summary, ResultFormatter format) =>
+        summary == null
+            ? Array.Empty<ResultRow>()
+            : new[] { ResultRow.Of("Area", format.Area(summary.SurfaceArea), "Terrain surface area from the last build.") };
+
     public override IReadOnlyList<AnalysisParam> Parameters { get; } = new[]
     {
         AnalysisParam.ColorRamp(
@@ -155,6 +222,34 @@ internal sealed class CutFillAnalysisDescriptor : AnalysisTypeDescriptor
 
     public override TerrainAnalysisSummary? Build(AnalysisBuildContext c, AnalysisDefinition analysis) =>
         TerrainBuildService.BuildCutFillSummary(c.Snapshot, c.FallbackBaseMesh, c.CurrentMesh, c.Vertices, c.Faces, (CutFillAnalysisDefinition)analysis, c.SurfaceArea, c.ElevationMinZ, c.ElevationMaxZ, c.Build, c.ReferenceComparisonCache, c.ReferenceProjectionCache, c.ShouldCancel);
+
+    public override IReadOnlyList<ResultRow> DescribeResult(AnalysisDefinition analysis, TerrainAnalysisSummary? summary, ResultFormatter format)
+    {
+        if (summary == null)
+            return Array.Empty<ResultRow>();
+
+        var cutFill = (CutFillAnalysisDefinition)analysis;
+        var rows = new List<ResultRow>
+        {
+            ResultRow.Of("Cut / Fill / Net",
+                $"{summary.CutVolume:F2} / {summary.FillVolume:F2} / {summary.NetVolume:F2}",
+                "Current earthworks summary from the last build.")
+        };
+
+        if (cutFill.DrawsDeltaOutput)
+        {
+            string balance = summary.CutFillBalanceCurveCount > 0
+                ? $"{summary.CutFillBalanceCurveCount:N0} curve(s)"
+                : cutFill.ShowBalanceLine ? "None — no sign change" : "Off";
+            rows.Add(ResultRow.Of(
+                "Drawn",
+                $"{summary.CutFillDeltaContourCount:N0} delta contour(s) | balance: {balance}",
+                "Delta lines drawn on the last build. A balance line only exists where the " +
+                "delta changes sign — a site that is all fill has none."));
+        }
+
+        return rows;
+    }
 
     public override IReadOnlyList<AnalysisParam> Parameters { get; } = new[]
     {
@@ -244,6 +339,24 @@ internal sealed class WaterflowAnalysisDescriptor : AnalysisTypeDescriptor
     public override TerrainAnalysisSummary? Build(AnalysisBuildContext c, AnalysisDefinition analysis) =>
         TerrainBuildService.BuildWaterflowSummary(c.Snapshot, c.Vertices, c.VertexCount, c.Faces, c.FaceCount, (WaterflowAnalysisDefinition)analysis, c.Build, c.ShouldCancel);
 
+    public override IReadOnlyList<ResultRow> DescribeResult(AnalysisDefinition analysis, TerrainAnalysisSummary? summary, ResultFormatter format)
+    {
+        if (summary == null)
+            return new[] { ResultRow.RebuildRequired("Rebuild the terrain to generate waterflow paths.") };
+
+        return new[]
+        {
+            ResultRow.Of(
+                "Points / Paths",
+                $"{summary.SampleSourceCount} point(s) -> {summary.GeneratedOutputCount} path(s)",
+                "Waterflow paths traced from the point sources across the final terrain."),
+            ResultRow.Of(
+                "Ends",
+                $"{summary.WaterflowBoundaryCount} boundary | {summary.WaterflowSinkCount} sink | {summary.WaterflowRejectedCount} outside",
+                "How the point paths ended during the last terrain build.")
+        };
+    }
+
     public override IReadOnlyList<AnalysisParam> Parameters { get; } = new[]
     {
         AnalysisParam.Sources(
@@ -302,6 +415,45 @@ internal sealed class CatchmentAnalysisDescriptor : AnalysisTypeDescriptor
 
     public override TerrainAnalysisSummary? Build(AnalysisBuildContext c, AnalysisDefinition analysis) =>
         TerrainBuildService.BuildCatchmentSummary(c.Snapshot, c.Vertices, c.Faces, (CatchmentAnalysisDefinition)analysis, c.Build, c.BasinGraphCache, c.ShouldCancel);
+
+    public override IReadOnlyList<ResultRow> DescribeResult(AnalysisDefinition analysis, TerrainAnalysisSummary? summary, ResultFormatter format)
+    {
+        if (summary == null)
+            return new[] { ResultRow.RebuildRequired("Rebuild the terrain to resolve catchments.") };
+
+        var catchment = (CatchmentAnalysisDefinition)analysis;
+        var rows = new List<ResultRow>
+        {
+            ResultRow.Of(
+                "Catchments",
+                summary.CatchmentLargestArea is { } largest
+                    ? $"{summary.CatchmentBasinCount:N0} | largest {format.Area(largest)}"
+                    : $"{summary.CatchmentBasinCount:N0}",
+                "Catchments resolved on the last build, after any small ones were merged. " +
+                "Raise “Merge Below” if there are too many to read."),
+
+            // Surfaced on this card deliberately: the routing already knows the terrain holds
+            // water somewhere, and saying nothing until a ponding card exists would be withholding
+            // the one thing here that indicates a mistake rather than describing the design.
+            ResultRow.Of(
+                "Closed depressions",
+                summary.CatchmentSinkCount > 0
+                    ? $"{summary.CatchmentSinkCount:N0} — water has nowhere to go"
+                    : "None",
+                "Catchments with no outlet. Water reaching one stays there, which is usually a " +
+                "grading mistake rather than a design.")
+        };
+
+        if (catchment.ShowBoundaries || catchment.ShowFlowPaths)
+        {
+            rows.Add(ResultRow.Of(
+                "Drawn",
+                $"{summary.GeneratedOutputCount:N0} curve(s)",
+                "Boundary and flow-path curves drawn on the last build."));
+        }
+
+        return rows;
+    }
 
     public override IReadOnlyList<AnalysisParam> Parameters { get; } = new[]
     {
@@ -384,6 +536,40 @@ internal sealed class PondingAnalysisDescriptor : AnalysisTypeDescriptor
     public override TerrainAnalysisSummary? Build(AnalysisBuildContext c, AnalysisDefinition analysis) =>
         TerrainBuildService.BuildPondingSummary(c.Snapshot, c.Vertices, c.Faces, (PondingAnalysisDefinition)analysis, c.Build, c.BasinGraphCache, c.ShouldCancel);
 
+    public override IReadOnlyList<ResultRow> DescribeResult(AnalysisDefinition analysis, TerrainAnalysisSummary? summary, ResultFormatter format)
+    {
+        if (summary == null)
+            return new[] { ResultRow.RebuildRequired("Rebuild the terrain to check for standing water.") };
+
+        // Phrased as an answer, not a count. "None" is the result people are looking for, and
+        // it should read as reassurance rather than as an empty field.
+        var rows = new List<ResultRow>
+        {
+            ResultRow.Of(
+                "Standing water",
+                summary.PondCount == 0
+                    ? "None — everywhere drains"
+                    : $"{summary.PondCount:N0} depression(s)",
+                "Closed depressions deeper than “Ignore Below”. Water reaching one stays " +
+                "there.")
+        };
+
+        if (summary.PondCount > 0)
+        {
+            rows.Add(ResultRow.Of(
+                "Deepest / Volume",
+                $"{format.Length(summary.PondMaxDepth ?? 0.0)} / {format.Volume(summary.PondTotalVolume ?? 0.0)}",
+                "Deepest standing water, and the total held across every depression, from the " +
+                "last build."));
+            rows.Add(ResultRow.Of(
+                "Wet area",
+                format.Area(summary.PondTotalArea ?? 0.0),
+                "Total water-surface area at the level each depression overflows at."));
+        }
+
+        return rows;
+    }
+
     public override IReadOnlyList<AnalysisParam> Parameters { get; } = new[]
     {
         AnalysisParam.ColorRamp(
@@ -464,6 +650,85 @@ internal sealed class GradientComplianceAnalysisDescriptor : AnalysisTypeDescrip
 
     public override TerrainAnalysisSummary? Build(AnalysisBuildContext c, AnalysisDefinition analysis) =>
         TerrainBuildService.BuildGradientComplianceSummary(c.Snapshot, c.Vertices, c.VertexCount, c.Faces, c.FaceCount, (GradientComplianceAnalysisDefinition)analysis, c.ShouldCancel);
+
+    public override IReadOnlyList<ResultRow> DescribeResult(AnalysisDefinition analysis, TerrainAnalysisSummary? summary, ResultFormatter format)
+    {
+        if (summary == null)
+            return new[] { ResultRow.RebuildRequired("Rebuild the terrain to check the level areas.") };
+
+        var compliance = (GradientComplianceAnalysisDefinition)analysis;
+        var rows = new List<ResultRow>();
+
+        if (summary.LevelAreaCheckedArea is { } checkedArea &&
+            summary.LevelAreaSteepestSlopeDegrees is { } steepestDegrees)
+        {
+            double exceeding = summary.LevelAreaExceedingArea ?? 0.0;
+            string verdict = compliance.Rules.LevelAreaMode == GradientRuleMode.Warn ? "fails" : "over the limit";
+
+            // Phrased as an answer, like Ponding's: "all within" is what people are looking for.
+            rows.Add(ResultRow.Of(
+                "Level Result",
+                exceeding > 0.0
+                    ? $"{format.Area(exceeding)} of {format.Area(checkedArea)} {verdict}"
+                    : $"All {format.Area(checkedArea)} within the limit",
+                "Plan area of level-area ground checked on the last build, and how much of it is " +
+                "steeper than the limit when measured over “Measure Over”."));
+            rows.Add(ResultRow.Of(
+                "Level Steepest",
+                format.SlopeDegrees(steepestDegrees),
+                "The steepest averaged gradient found in any level area, in any direction."));
+        }
+        else if (summary.RouteCheckedArea == null)
+        {
+            rows.Add(ResultRow.Of(
+                "Result",
+                "None checked",
+                "No terrain lies inside a closed level-area curve or a route corridor, or the rules are off."));
+        }
+
+        if (summary.RouteCheckedArea is { } routeArea &&
+            summary.RouteSteepestRunningDegrees is { } runningDegrees &&
+            summary.RouteSteepestCrossDegrees is { } crossDegrees)
+        {
+            double runningFails = summary.RouteRunningExceedingArea ?? 0.0;
+            double crossFails = summary.RouteCrossExceedingArea ?? 0.0;
+            string routeVerdict = compliance.Rules.RouteMode == GradientRuleMode.Warn ? "fail" : "over";
+            rows.Add(ResultRow.Of(
+                "Route Result",
+                runningFails > 0.0 || crossFails > 0.0
+                    ? $"{format.Area(runningFails)} running, {format.Area(crossFails)} cross {routeVerdict}, of {format.Area(routeArea)}"
+                    : $"All {format.Area(routeArea)} within the limits",
+                "Route corridor checked on the last build. Running slope past the ramp limit and cross " +
+                "slope past the cross limit are counted separately; ground failing both counts in each. Ground " +
+                "that is also a level area is counted here too, though the preview colours it by the " +
+                "level-area rule."));
+            rows.Add(ResultRow.Of(
+                "Route Ramps",
+                format.Area(summary.RouteRampArea ?? 0.0),
+                "Route ground steeper than a walk but within the ramp limit. Allowed; stage three will " +
+                "hold it to ramp rules on rise and landings."));
+            rows.Add(ResultRow.Of(
+                "Route Steepest",
+                $"{format.SlopeDegrees(runningDegrees)} running, {format.SlopeDegrees(crossDegrees)} cross",
+                "The steepest averaged running and cross slope found on any route."));
+        }
+
+        if (summary.RouteRunCount is { } runCount)
+        {
+            int failed = summary.RouteFailedRunCount ?? 0;
+            int landings = summary.RouteLandingCount ?? 0;
+            rows.Add(ResultRow.Of(
+                "Route Runs",
+                (failed > 0 ? $"{failed:N0} of {runCount:N0} runs too high or long" : $"All {runCount:N0} runs within limits") +
+                $", {landings:N0} landing(s) found" +
+                (summary.RouteLargestRunRise is { } rise ? $", largest rise {format.Length(rise)}" : string.Empty),
+                "Each route is followed along its length and split at landings: level stretches at least " +
+                "“Landing Min” long, shown teal. The walks and ramps between them are checked for rise " +
+                "and going; a failing run shows in the failure colour along its whole length."));
+        }
+
+        return rows;
+    }
 
     private static GradientRuleSet Rules(AnalysisDefinition analysis) =>
         ((GradientComplianceAnalysisDefinition)analysis).Rules;

@@ -1,4 +1,4 @@
-﻿using MoleHill.Rhino.Model;
+using MoleHill.Rhino.Model;
 
 namespace MoleHill.Rhino.Registry;
 
@@ -78,4 +78,13 @@ internal abstract class AnnotationTypeDescriptor
     /// the Report Table needs the zone schedule, which exists only after the zones stage.
     /// </summary>
     public virtual TerrainAnalysisSummary? Build(AnalysisBuildContext context, AnnotationDefinition annotation) => null;
+
+    /// <summary>
+    /// The rows this annotation's card shows for what the last build produced, as data. Empty when there
+    /// is nothing to say (the default, which the Legend uses: it is drawn by the preview, not built). Rows
+    /// keep their order; the panel draws them after the schema rows. Anything that needs a live Eto
+    /// control (the insertion-origin picker) is not a row and stays in the panel.
+    /// </summary>
+    public virtual IReadOnlyList<ResultRow> DescribeResult(AnnotationDefinition annotation, TerrainAnalysisSummary? summary, ResultFormatter format) =>
+        Array.Empty<ResultRow>();
 }

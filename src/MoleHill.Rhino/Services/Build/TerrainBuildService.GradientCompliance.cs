@@ -1,4 +1,4 @@
-﻿// Gradient compliance stage: level-area checks summarized for the analysis card and the report.
+// Gradient compliance stage: level-area checks summarized for the analysis card and the report.
 using MoleHill.Core.Analysis;
 using MoleHill.Rhino.Model;
 

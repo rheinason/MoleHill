@@ -40,6 +40,20 @@ internal static class AnalysisFormatting
         _ => "%"
     };
 
+    /// <summary>Formats a sampled value with a card's format string, falling back to "G4" when it is blank or invalid.</summary>
+    public static string FormatValue(double value, string? format)
+    {
+        string effectiveFormat = string.IsNullOrWhiteSpace(format) ? "G4" : format;
+        try
+        {
+            return value.ToString(effectiveFormat, CultureInfo.CurrentCulture);
+        }
+        catch (FormatException)
+        {
+            return value.ToString("G4", CultureInfo.CurrentCulture);
+        }
+    }
+
     public static string FormatSlopeSummaryValue(double percentValue, SlopeAnalyzer.SlopeUnit unit)
     {
         return FormatSlopeValue(ConvertPercentToSlopeUnit(percentValue, unit), unit);

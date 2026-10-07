@@ -1,4 +1,4 @@
-﻿using MoleHill.Core.Analysis;
+using MoleHill.Core.Analysis;
 using MoleHill.Rhino.Model;
 using Rhino;
 using Rhino.Geometry;
