@@ -29,13 +29,13 @@ public class PathGraderBoundaryClippingTests
     {
         var path = BuildBoundaryCrossingPath();
 
-        GradingResult? result = PathGrader.Grade(
-            BuildSquareVertices(),
-            4,
-            BuildSquareFaces(),
-            2,
-            new[] { path },
-            out string? errorMessage);
+        GradeOutcome gradeOutcome = PathGrader.Grade(new PathGradeRequest
+        {
+            Terrain = new IndexedTriMesh(BuildSquareVertices(), 4, BuildSquareFaces(), 2),
+            Paths = new[] { path },
+        });
+        string? errorMessage = gradeOutcome.ErrorMessage;
+        GradingResult? result = gradeOutcome.Result;
 
         Assert.NotNull(result);
         Assert.True(string.IsNullOrWhiteSpace(errorMessage) || !errorMessage.Contains("failed", StringComparison.OrdinalIgnoreCase));
@@ -51,13 +51,13 @@ public class PathGraderBoundaryClippingTests
     {
         var path = BuildBoundaryCrossingPath();
 
-        GradingResult? result = PathGrader.Grade(
-            BuildSquareVertices(),
-            4,
-            BuildSquareFaces(),
-            2,
-            new[] { path },
-            out string? errorMessage);
+        GradeOutcome gradeOutcome2 = PathGrader.Grade(new PathGradeRequest
+        {
+            Terrain = new IndexedTriMesh(BuildSquareVertices(), 4, BuildSquareFaces(), 2),
+            Paths = new[] { path },
+        });
+        string? errorMessage = gradeOutcome2.ErrorMessage;
+        GradingResult? result = gradeOutcome2.Result;
 
         Assert.NotNull(result);
         Assert.True(string.IsNullOrWhiteSpace(errorMessage) || !errorMessage.Contains("failed", StringComparison.OrdinalIgnoreCase), errorMessage);

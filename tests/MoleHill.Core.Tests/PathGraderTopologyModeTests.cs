@@ -305,13 +305,13 @@ public class PathGraderTopologyModeTests
             slopeAngleDeg: 45.0,
             maxDistance: 10.0);
 
-        GradingResult? result = PathGrader.Grade(
-            vertices,
-            vertices.Length / 3,
-            faces,
-            faces.Length / 3,
-            new[] { path },
-            out string? warning);
+        GradeOutcome gradeOutcome = PathGrader.Grade(new PathGradeRequest
+        {
+            Terrain = new IndexedTriMesh(vertices, vertices.Length / 3, faces, faces.Length / 3),
+            Paths = new[] { path },
+        });
+        string? warning = gradeOutcome.ErrorMessage;
+        GradingResult? result = gradeOutcome.Result;
 
         Assert.NotNull(result);
         Assert.True(string.IsNullOrWhiteSpace(warning) || !warning.Contains("failed", StringComparison.OrdinalIgnoreCase));
@@ -368,14 +368,14 @@ public class PathGraderTopologyModeTests
             IsClosed: false,
             PreserveInputElevation: true);
 
-        GradingResult? result = PathGrader.Grade(
-            vertices,
-            vertices.Length / 3,
-            faces,
-            faces.Length / 3,
-            new[] { path },
-            new[] { hardConstraint },
-            out string? warning);
+        GradeOutcome gradeOutcome2 = PathGrader.Grade(new PathGradeRequest
+        {
+            Terrain = new IndexedTriMesh(vertices, vertices.Length / 3, faces, faces.Length / 3),
+            Paths = new[] { path },
+            HardConstraints = new[] { hardConstraint },
+        });
+        string? warning = gradeOutcome2.ErrorMessage;
+        GradingResult? result = gradeOutcome2.Result;
 
         Assert.NotNull(result);
         Assert.True(string.IsNullOrWhiteSpace(warning) || !warning.Contains("failed", StringComparison.OrdinalIgnoreCase));
@@ -411,13 +411,13 @@ public class PathGraderTopologyModeTests
             slopeAngleDeg: 45.0,
             maxDistance: 6.0);
 
-        GradingResult? result = PathGrader.Grade(
-            vertices,
-            vertices.Length / 3,
-            faces,
-            faces.Length / 3,
-            new[] { path },
-            out string? warning);
+        GradeOutcome gradeOutcome3 = PathGrader.Grade(new PathGradeRequest
+        {
+            Terrain = new IndexedTriMesh(vertices, vertices.Length / 3, faces, faces.Length / 3),
+            Paths = new[] { path },
+        });
+        string? warning = gradeOutcome3.ErrorMessage;
+        GradingResult? result = gradeOutcome3.Result;
 
         Assert.NotNull(result);
         Assert.True(string.IsNullOrWhiteSpace(warning) || !warning.Contains("failed", StringComparison.OrdinalIgnoreCase));

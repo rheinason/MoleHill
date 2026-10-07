@@ -32,11 +32,22 @@ internal sealed partial class TerrainBuildService
     {
         runtimeCache.GradingWindowMemos.TryGetValue(memoKey, out GradingWindows.Memo? previous);
         var next = new GradingWindows.Memo();
-        GradingResult? result = PadGrader.GradeWindowed(
-            vertices, vertexCount, faces, faceCount, pads, locks, hardConstraints, tolerance, detailSize,
-            previous, next, diagnostics, out warning, out failureOutputPolylines, out failureDiagnostics);
+        GradeOutcome outcome = PadGrader.GradeWindowed(
+            new PadGradeRequest
+            {
+                Terrain = new IndexedTriMesh(vertices, vertexCount, faces, faceCount),
+                Pads = pads,
+                LockCurves = locks,
+                HardConstraints = hardConstraints,
+                ModelTolerance = tolerance,
+                TerrainDetailSize = detailSize
+            },
+            previous, next, diagnostics);
         runtimeCache.GradingWindowMemos[memoKey] = next;
-        return result;
+        warning = outcome.ErrorMessage;
+        failureOutputPolylines = outcome.FailureOutputPolylines;
+        failureDiagnostics = outcome.FailureDiagnostics;
+        return outcome.Result;
     }
 
     private static GradingResult? GradePathsWindowed(
@@ -55,11 +66,19 @@ internal sealed partial class TerrainBuildService
     {
         runtimeCache.GradingWindowMemos.TryGetValue(memoKey, out GradingWindows.Memo? previous);
         var next = new GradingWindows.Memo();
-        GradingResult? result = PathGrader.GradeWindowed(
-            vertices, vertexCount, faces, faceCount, paths, hardConstraints, tolerance, preferSplitKeep,
-            previous, next, diagnostics, out warning);
+        GradeOutcome outcome = PathGrader.GradeWindowed(
+            new PathGradeRequest
+            {
+                Terrain = new IndexedTriMesh(vertices, vertexCount, faces, faceCount),
+                Paths = paths,
+                HardConstraints = hardConstraints,
+                ModelTolerance = tolerance,
+                PreferSplitKeep = preferSplitKeep
+            },
+            previous, next, diagnostics);
         runtimeCache.GradingWindowMemos[memoKey] = next;
-        return result;
+        warning = outcome.ErrorMessage;
+        return outcome.Result;
     }
 
     /// <summary>Faces of reach around a rail, in local face sizes: the quality patch grows up to six rings.</summary>

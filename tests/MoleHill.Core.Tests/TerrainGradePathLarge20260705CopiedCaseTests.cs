@@ -19031,29 +19031,29 @@ public class TerrainGradePathLarge20260705CopiedCaseTests
         string? errorMessage;
         if (performanceTimings == null)
         {
-            result = PathGrader.Grade(
-                vertices,
-                vertexCount,
-                faces,
-                faceCount,
-                paths,
-                hardConstraints,
-                out errorMessage,
-                preferSplitKeep: preferSplitKeep);
+            GradeOutcome gradeOutcome = PathGrader.Grade(new PathGradeRequest
+            {
+                Terrain = new IndexedTriMesh(vertices, vertexCount, faces, faceCount),
+                Paths = paths,
+                HardConstraints = hardConstraints,
+                PreferSplitKeep = preferSplitKeep,
+            });
+            errorMessage = gradeOutcome.ErrorMessage;
+            result = gradeOutcome.Result;
         }
         else
         {
-            result = PathGrader.Grade(
-                vertices,
-                vertexCount,
-                faces,
-                faceCount,
-                paths,
-                hardConstraints,
-                out errorMessage,
-                GradingTolerances.DefaultModelTolerance,
-                preferSplitKeep,
+            GradeOutcome timedOutcome = PathGrader.Grade(
+                new PathGradeRequest
+                {
+                    Terrain = new IndexedTriMesh(vertices, vertexCount, faces, faceCount),
+                    Paths = paths,
+                    HardConstraints = hardConstraints,
+                    PreferSplitKeep = preferSplitKeep
+                },
                 performanceTimings);
+            errorMessage = timedOutcome.ErrorMessage;
+            result = timedOutcome.Result;
         }
         gradeStopwatch.Stop();
         long gradeTotalAllocatedBytes =

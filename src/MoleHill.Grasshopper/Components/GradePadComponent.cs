@@ -1,3 +1,4 @@
+using MoleHill.Core.Engine;
 using Grasshopper.Kernel;
 using Rhino.Geometry;
 using MoleHill.Core.Grading;
@@ -171,12 +172,14 @@ public sealed class GradePadComponent : RegistryTerrainComponent
             if (lockList.Count > 0) locks = lockList.ToArray();
         }
 
-        var result = PadGrader.Grade(
-            vertices, vertexCount,
-            faces, faceCount,
-            pads.ToArray(),
-            locks,
-            out string? errorMessage);
+        GradeOutcome gradeOutcome = PadGrader.Grade(new PadGradeRequest
+        {
+            Terrain = new IndexedTriMesh(vertices, vertexCount, faces, faceCount),
+            Pads = pads.ToArray(),
+            LockCurves = locks ?? Array.Empty<PadGrader.LockCurve>(),
+        });
+        string? errorMessage = gradeOutcome.ErrorMessage;
+        var result = gradeOutcome.Result;
 
         if (result == null)
         {

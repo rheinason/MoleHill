@@ -64,19 +64,19 @@ internal sealed partial class TerrainBuildService
             faceCount);
 
         var coreTimer = Stopwatch.StartNew();
-        GradingResult? gradingResult = PathGrader.Grade(
-            vertices,
-            vertexCount,
-            faces,
-            faceCount,
-            railGradeArray,
-            // Retaining-wall batters are authoritative terrain edits. Existing preserved-elevation
-            // curves (including input contours) must not stop the batter before it reaches daylight;
-            // those constraints are still carried into the subsequent wall remesh unchanged.
-            railHardConstraints,
-            out string? warning,
-            wallTolerance,
-            preferSplitKeep: railPreferSplitKeep);
+        GradeOutcome gradeOutcome = PathGrader.Grade(new PathGradeRequest
+        {
+            Terrain = new IndexedTriMesh(vertices, vertexCount, faces, faceCount),
+            Paths = railGradeArray,
+            HardConstraints = // Retaining-wall batters are authoritative terrain edits. Existing preserved-elevation
+                        // curves (including input contours) must not stop the batter before it reaches daylight;
+                        // those constraints are still carried into the subsequent wall remesh unchanged.
+                        railHardConstraints,
+            ModelTolerance = wallTolerance,
+            PreferSplitKeep = railPreferSplitKeep,
+        });
+        string? warning = gradeOutcome.ErrorMessage;
+        GradingResult? gradingResult = gradeOutcome.Result;
         coreTimer.Stop();
 
         // Record the rail grade like any other Core grading call. Without this the stage that produces

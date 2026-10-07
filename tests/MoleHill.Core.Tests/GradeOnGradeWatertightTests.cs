@@ -53,7 +53,13 @@ public class GradeOnGradeWatertightTests
         // A pad, then a road whose corridor runs right alongside the pad so their batters interact.
         double[] padXy = { 30, 30, 60, 30, 60, 60, 30, 60 };
         var pads = new[] { new PadGrader.PadBoundary(padXy, 4, targetZ: 4.0, slopeAngleDeg: 33.0) };
-        GradingResult? padResult = PadGrader.Grade(t.v, t.vc, t.f, t.fc, pads, null, out string? padErr);
+        GradeOutcome gradeOutcome = PadGrader.Grade(new PadGradeRequest
+        {
+            Terrain = new IndexedTriMesh(t.v, t.vc, t.f, t.fc),
+            Pads = pads,
+        });
+        string? padErr = gradeOutcome.ErrorMessage;
+        GradingResult? padResult = gradeOutcome.Result;
         Assert.True(padResult != null, padErr);
         AssertWatertight2dCdt(padResult!, "after Grade Pad");
 
@@ -65,10 +71,13 @@ public class GradeOnGradeWatertightTests
             slopeAngleDeg: 33.0,
             maxDistance: 0.0);
 
-        GradingResult? pathResult = PathGrader.Grade(
-            padResult!.Vertices, padResult.VertexCount,
-            padResult.Faces, padResult.FaceCount,
-            new[] { path }, out string? pathErr);
+        GradeOutcome gradeOutcome2 = PathGrader.Grade(new PathGradeRequest
+        {
+            Terrain = new IndexedTriMesh(padResult!.Vertices, padResult.VertexCount, padResult.Faces, padResult.FaceCount),
+            Paths = new[] { path },
+        });
+        string? pathErr = gradeOutcome2.ErrorMessage;
+        GradingResult? pathResult = gradeOutcome2.Result;
 
         Assert.True(pathResult != null, pathErr);
         AssertWatertight2dCdt(pathResult!, "after Grade Path on the pad-graded terrain");

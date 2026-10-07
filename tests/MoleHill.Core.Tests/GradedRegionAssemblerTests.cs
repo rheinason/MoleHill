@@ -165,7 +165,13 @@ public class GradedRegionAssemblerTests
         double[] padXy = { 32, 16, 38, 16, 38, 24, 32, 24 };
         var pads = new[] { new PadGrader.PadBoundary(padXy, 4, targetZ: 0.0, slopeAngleDeg: 45.0) };
 
-        GradingResult? result = PadGrader.Grade(t.v, t.vc, t.f, t.fc, pads, null, out string? err);
+        GradeOutcome gradeOutcome = PadGrader.Grade(new PadGradeRequest
+        {
+            Terrain = new IndexedTriMesh(t.v, t.vc, t.f, t.fc),
+            Pads = pads,
+        });
+        string? err = gradeOutcome.ErrorMessage;
+        GradingResult? result = gradeOutcome.Result;
 
         Assert.True(result != null, err);
         Assert.Contains("explicit batter", string.Join(" ", result!.Diagnostics), StringComparison.OrdinalIgnoreCase);

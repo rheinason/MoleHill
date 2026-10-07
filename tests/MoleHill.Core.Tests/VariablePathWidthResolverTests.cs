@@ -128,13 +128,13 @@ public sealed class VariablePathWidthResolverTests
             },
             new VariablePathWidthResolver.Options { MaxEdgeDistance = 10.0 });
 
-        GradingResult? result = PathGrader.Grade(
-            terrain.Vertices,
-            terrain.VertexCount,
-            terrain.Faces,
-            terrain.FaceCount,
-            width.Paths,
-            out string? error);
+        GradeOutcome gradeOutcome = PathGrader.Grade(new PathGradeRequest
+        {
+            Terrain = new IndexedTriMesh(terrain.Vertices, terrain.VertexCount, terrain.Faces, terrain.FaceCount),
+            Paths = width.Paths,
+        });
+        string? error = gradeOutcome.ErrorMessage;
+        GradingResult? result = gradeOutcome.Result;
 
         Assert.NotNull(result);
         Assert.Null(error);

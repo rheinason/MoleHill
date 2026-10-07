@@ -35,11 +35,15 @@ public class PadGraderTests
                 slopeAngleDeg: 45.0,
                 maxDistance: 15.0 * scale);
 
-            GradingResult? result = PadGrader.Grade(
-                vertices, 4, faces, 2, new[] { pad }, null,
-                out string? errorMessage, out _,
-                modelTolerance: 0.001 * scale,
-                terrainDetailSize: 0.25 * scale);
+            GradeOutcome gradeOutcome = PadGrader.Grade(new PadGradeRequest
+            {
+                Terrain = new IndexedTriMesh(vertices, 4, faces, 2),
+                Pads = new[] { pad },
+                ModelTolerance = 0.001 * scale,
+                TerrainDetailSize = 0.25 * scale,
+            });
+            string? errorMessage = gradeOutcome.ErrorMessage;
+            GradingResult? result = gradeOutcome.Result;
 
             Assert.NotNull(result);
             Assert.True(string.IsNullOrWhiteSpace(errorMessage) || !errorMessage.Contains("failed", StringComparison.OrdinalIgnoreCase), errorMessage);
@@ -64,26 +68,33 @@ public class PadGraderTests
     }
 
     [Fact]
-    public void Grade_InvalidTerrainVertexArray_ReturnsFailure()
+    public void Grade_VertexCountBeyondArray_IsRejectedBeforeGrading()
+    {
+        // A count the arrays cannot hold no longer reaches the grader: IndexedTriMesh refuses it.
+        Assert.Throws<ArgumentOutOfRangeException>(() => new IndexedTriMesh(new[] { 0.0, 0.0, 0.0 }, 4, BuildGridFaces(3), 8));
+    }
+
+    [Fact]
+    public void Grade_FaceOutsideVertexRange_ReturnsInvalidTerrainDiagnostic()
     {
         var pad = new PadGrader.PadBoundary(
             new[] { 1.0, 1.0, 3.0, 1.0, 3.0, 3.0, 1.0, 3.0 },
             4,
             targetZ: 1.0);
 
-        GradingResult? result = PadGrader.Grade(
-            new[] { 0.0, 0.0, 0.0 },
-            4,
-            BuildGridFaces(3),
-            8,
-            new[] { pad },
-            null,
-            out string? errorMessage,
-            out IReadOnlyList<OutputPolyline> failureOutputPolylines,
-            out IReadOnlyList<GradingDiagnostic> failureStructuredDiagnostics);
+        // A 3x3 grid's faces over only the first four of its vertices.
+        GradeOutcome gradeOutcome2 = PadGrader.Grade(new PadGradeRequest
+        {
+            Terrain = new IndexedTriMesh(BuildGridVertices(2, 1.0), 4, BuildGridFaces(3), 8),
+            Pads = new[] { pad },
+        });
+        string? errorMessage = gradeOutcome2.ErrorMessage;
+        IReadOnlyList<OutputPolyline> failureOutputPolylines = gradeOutcome2.FailureOutputPolylines;
+        IReadOnlyList<GradingDiagnostic> failureStructuredDiagnostics = gradeOutcome2.FailureDiagnostics;
+        GradingResult? result = gradeOutcome2.Result;
 
         Assert.Null(result);
-        Assert.Contains("vertex array", errorMessage ?? string.Empty, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("outside the terrain vertex range", errorMessage ?? string.Empty, StringComparison.OrdinalIgnoreCase);
         Assert.Empty(failureOutputPolylines);
         GradingDiagnostic diagnostic = Assert.Single(failureStructuredDiagnostics);
         Assert.Equal("grade_pad.input.invalid_terrain", diagnostic.Code);
@@ -98,14 +109,13 @@ public class PadGraderTests
             4,
             targetZ: 1.0);
 
-        GradingResult? result = PadGrader.Grade(
-            BuildGridVertices(5, 1.0),
-            25,
-            BuildGridFaces(5),
-            32,
-            new[] { pad },
-            null,
-            out string? errorMessage);
+        GradeOutcome gradeOutcome3 = PadGrader.Grade(new PadGradeRequest
+        {
+            Terrain = new IndexedTriMesh(BuildGridVertices(5, 1.0), 25, BuildGridFaces(5), 32),
+            Pads = new[] { pad },
+        });
+        string? errorMessage = gradeOutcome3.ErrorMessage;
+        GradingResult? result = gradeOutcome3.Result;
 
         Assert.Null(result);
         Assert.Contains("finite", errorMessage ?? string.Empty, StringComparison.OrdinalIgnoreCase);
@@ -120,14 +130,14 @@ public class PadGraderTests
             targetZ: 1.0);
         var lockCurve = new PadGrader.LockCurve(new[] { 0.0, 2.0, double.NaN, 2.0 }, 2);
 
-        GradingResult? result = PadGrader.Grade(
-            BuildGridVertices(5, 1.0),
-            25,
-            BuildGridFaces(5),
-            32,
-            new[] { pad },
-            new[] { lockCurve },
-            out string? errorMessage);
+        GradeOutcome gradeOutcome4 = PadGrader.Grade(new PadGradeRequest
+        {
+            Terrain = new IndexedTriMesh(BuildGridVertices(5, 1.0), 25, BuildGridFaces(5), 32),
+            Pads = new[] { pad },
+            LockCurves = new[] { lockCurve },
+        });
+        string? errorMessage = gradeOutcome4.ErrorMessage;
+        GradingResult? result = gradeOutcome4.Result;
 
         Assert.Null(result);
         Assert.Contains("finite", errorMessage ?? string.Empty, StringComparison.OrdinalIgnoreCase);
@@ -327,14 +337,13 @@ public class PadGraderTests
         var faces = BuildGridFaces(5);
         var pads = BuildPads();
 
-        var result = PadGrader.Grade(
-            vertices,
-            vertices.Length / 3,
-            faces,
-            faces.Length / 3,
-            pads,
-            null,
-            out var warning);
+        GradeOutcome gradeOutcome5 = PadGrader.Grade(new PadGradeRequest
+        {
+            Terrain = new IndexedTriMesh(vertices, vertices.Length / 3, faces, faces.Length / 3),
+            Pads = pads,
+        });
+        var warning = gradeOutcome5.ErrorMessage;
+        var result = gradeOutcome5.Result;
 
         Assert.True(result != null, warning);
         Assert.True(string.IsNullOrWhiteSpace(warning) || !warning.Contains("failed", StringComparison.OrdinalIgnoreCase));
@@ -367,14 +376,13 @@ public class PadGraderTests
                 maxDistance: 0.01)
         };
 
-        GradingResult? result = PadGrader.Grade(
-            vertices,
-            vertices.Length / 3,
-            faces,
-            faces.Length / 3,
-            pads,
-            null,
-            out string? warning);
+        GradeOutcome gradeOutcome6 = PadGrader.Grade(new PadGradeRequest
+        {
+            Terrain = new IndexedTriMesh(vertices, vertices.Length / 3, faces, faces.Length / 3),
+            Pads = pads,
+        });
+        string? warning = gradeOutcome6.ErrorMessage;
+        GradingResult? result = gradeOutcome6.Result;
 
         Assert.True(result != null, warning);
         Assert.True(string.IsNullOrWhiteSpace(warning), warning);
@@ -524,14 +532,13 @@ public class PadGraderTests
                 slopeAngleDeg: 33.0)
         };
 
-        GradingResult? result = PadGrader.Grade(
-            vertices,
-            vertices.Length / 3,
-            faces,
-            faces.Length / 3,
-            pads,
-            null,
-            out string? warning);
+        GradeOutcome gradeOutcome7 = PadGrader.Grade(new PadGradeRequest
+        {
+            Terrain = new IndexedTriMesh(vertices, vertices.Length / 3, faces, faces.Length / 3),
+            Pads = pads,
+        });
+        string? warning = gradeOutcome7.ErrorMessage;
+        GradingResult? result = gradeOutcome7.Result;
 
         PadInvariantAssert.AssertValidExplicitGrading(result, warning, faces.Length / 3, pads);
     }
@@ -551,14 +558,13 @@ public class PadGraderTests
                 slopeAngleDeg: 33.0)
         };
 
-        GradingResult? result = PadGrader.Grade(
-            vertices,
-            vertices.Length / 3,
-            faces,
-            faces.Length / 3,
-            pads,
-            null,
-            out string? warning);
+        GradeOutcome gradeOutcome8 = PadGrader.Grade(new PadGradeRequest
+        {
+            Terrain = new IndexedTriMesh(vertices, vertices.Length / 3, faces, faces.Length / 3),
+            Pads = pads,
+        });
+        string? warning = gradeOutcome8.ErrorMessage;
+        GradingResult? result = gradeOutcome8.Result;
 
         PadInvariantAssert.AssertValidExplicitGrading(result, warning, faces.Length / 3, pads);
     }
@@ -584,14 +590,13 @@ public class PadGraderTests
                 slopeAngleDeg: targetSlopeDeg)
         };
 
-        GradingResult? result = PadGrader.Grade(
-            vertices,
-            vertices.Length / 3,
-            faces,
-            faces.Length / 3,
-            pads,
-            null,
-            out string? warning);
+        GradeOutcome gradeOutcome9 = PadGrader.Grade(new PadGradeRequest
+        {
+            Terrain = new IndexedTriMesh(vertices, vertices.Length / 3, faces, faces.Length / 3),
+            Pads = pads,
+        });
+        string? warning = gradeOutcome9.ErrorMessage;
+        GradingResult? result = gradeOutcome9.Result;
 
         Assert.True(result != null, warning);
 
@@ -633,14 +638,13 @@ public class PadGraderTests
                 slopeAngleDeg: targetSlopeDeg)
         };
 
-        GradingResult? result = PadGrader.Grade(
-            vertices,
-            vertices.Length / 3,
-            faces,
-            faces.Length / 3,
-            pads,
-            null,
-            out string? warning);
+        GradeOutcome gradeOutcome10 = PadGrader.Grade(new PadGradeRequest
+        {
+            Terrain = new IndexedTriMesh(vertices, vertices.Length / 3, faces, faces.Length / 3),
+            Pads = pads,
+        });
+        string? warning = gradeOutcome10.ErrorMessage;
+        GradingResult? result = gradeOutcome10.Result;
 
         Assert.True(result != null, warning);
 
@@ -681,14 +685,13 @@ public class PadGraderTests
                 slopeAngleDeg: targetSlopeDeg)
         };
 
-        GradingResult? result = PadGrader.Grade(
-            vertices,
-            vertices.Length / 3,
-            faces,
-            faces.Length / 3,
-            pads,
-            null,
-            out string? warning);
+        GradeOutcome gradeOutcome11 = PadGrader.Grade(new PadGradeRequest
+        {
+            Terrain = new IndexedTriMesh(vertices, vertices.Length / 3, faces, faces.Length / 3),
+            Pads = pads,
+        });
+        string? warning = gradeOutcome11.ErrorMessage;
+        GradingResult? result = gradeOutcome11.Result;
 
         Assert.True(result != null, $"Grade returned null: {warning}");
 
@@ -726,14 +729,13 @@ public class PadGraderTests
                 stitchApronDistance: 0.5)
         };
 
-        GradingResult? result = PadGrader.Grade(
-            vertices,
-            vertices.Length / 3,
-            faces,
-            faces.Length / 3,
-            pads,
-            null,
-            out string? warning);
+        GradeOutcome gradeOutcome12 = PadGrader.Grade(new PadGradeRequest
+        {
+            Terrain = new IndexedTriMesh(vertices, vertices.Length / 3, faces, faces.Length / 3),
+            Pads = pads,
+        });
+        string? warning = gradeOutcome12.ErrorMessage;
+        GradingResult? result = gradeOutcome12.Result;
 
         PadInvariantAssert.AssertValidExplicitGrading(result, warning, faces.Length / 3, pads);
         string diagnostics = string.Join("|", result!.Diagnostics);
@@ -762,14 +764,13 @@ public class PadGraderTests
             new PadGrader.PadBoundary(BuildRegularPolygon(28.0, 56.0, 5.0, 20), 20, targetZ: 2.8, slopeAngleDeg: 30.0, stitchApronDistance: 0.5)
         };
 
-        GradingResult? result = PadGrader.Grade(
-            vertices,
-            vertices.Length / 3,
-            faces,
-            faces.Length / 3,
-            pads,
-            null,
-            out string? warning);
+        GradeOutcome gradeOutcome13 = PadGrader.Grade(new PadGradeRequest
+        {
+            Terrain = new IndexedTriMesh(vertices, vertices.Length / 3, faces, faces.Length / 3),
+            Pads = pads,
+        });
+        string? warning = gradeOutcome13.ErrorMessage;
+        GradingResult? result = gradeOutcome13.Result;
 
         Assert.True(result != null, warning);
         string diagnostics = string.Join(Environment.NewLine, result!.Diagnostics);
@@ -835,14 +836,13 @@ public class PadGraderTests
                 slopeAngleDeg: 30.0)
         };
 
-        GradingResult? result = PadGrader.Grade(
-            vertices,
-            vertices.Length / 3,
-            faces,
-            faces.Length / 3,
-            pads,
-            null,
-            out string? warning);
+        GradeOutcome gradeOutcome14 = PadGrader.Grade(new PadGradeRequest
+        {
+            Terrain = new IndexedTriMesh(vertices, vertices.Length / 3, faces, faces.Length / 3),
+            Pads = pads,
+        });
+        string? warning = gradeOutcome14.ErrorMessage;
+        GradingResult? result = gradeOutcome14.Result;
 
         Assert.True(result != null, warning);
         string diagnostics = string.Join(Environment.NewLine, result!.Diagnostics);
@@ -1241,12 +1241,14 @@ public class PadGraderTests
 
         var lockCurve = MakeLockCurve(0.0, 65.0, 100.0, 65.0);
 
-        GradingResult? result = PadGrader.Grade(
-            vertices, vertices.Length / 3,
-            faces, faces.Length / 3,
-            new[] { pad },
-            new[] { lockCurve },
-            out string? errorMessage);
+        GradeOutcome gradeOutcome15 = PadGrader.Grade(new PadGradeRequest
+        {
+            Terrain = new IndexedTriMesh(vertices, vertices.Length / 3, faces, faces.Length / 3),
+            Pads = new[] { pad },
+            LockCurves = new[] { lockCurve },
+        });
+        string? errorMessage = gradeOutcome15.ErrorMessage;
+        GradingResult? result = gradeOutcome15.Result;
 
         Assert.NotNull(result);
         Assert.True(
@@ -1282,12 +1284,13 @@ public class PadGraderTests
 
         var lockCurve = MakeLockCurve(0.0, 65.0, 100.0, 65.0);
 
-        GradingResult? result = PadGrader.Grade(
-            vertices, vertices.Length / 3,
-            faces, faces.Length / 3,
-            new[] { pad },
-            new[] { lockCurve },
-            out _);
+        GradeOutcome gradeOutcome16 = PadGrader.Grade(new PadGradeRequest
+        {
+            Terrain = new IndexedTriMesh(vertices, vertices.Length / 3, faces, faces.Length / 3),
+            Pads = new[] { pad },
+            LockCurves = new[] { lockCurve },
+        });
+        GradingResult? result = gradeOutcome16.Result;
 
         Assert.NotNull(result);
 
@@ -1329,12 +1332,13 @@ public class PadGraderTests
             slopeAngleDeg: 45.0,
             maxDistance: 10.0);
 
-        GradingResult? result = PadGrader.Grade(
-            vertices, vertices.Length / 3,
-            faces, faces.Length / 3,
-            new[] { pad },
-            null,
-            out string? errorMessage);
+        GradeOutcome gradeOutcome17 = PadGrader.Grade(new PadGradeRequest
+        {
+            Terrain = new IndexedTriMesh(vertices, vertices.Length / 3, faces, faces.Length / 3),
+            Pads = new[] { pad },
+        });
+        string? errorMessage = gradeOutcome17.ErrorMessage;
+        GradingResult? result = gradeOutcome17.Result;
 
         Assert.NotNull(result);
         Assert.True(

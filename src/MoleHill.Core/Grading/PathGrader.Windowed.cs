@@ -31,7 +31,7 @@ public static partial class PathGrader
         return new GradeOutcome { Result = result, ErrorMessage = errorMessage };
     }
 
-    public static GradingResult? GradeWindowed(
+    private static GradingResult? GradeWindowed(
         double[] vertices,
         int vertexCount,
         int[] faces,
@@ -84,7 +84,7 @@ public static partial class PathGrader
                 failurePolylines = Array.Empty<OutputPolyline>();
                 failureStructured = Array.Empty<GradingDiagnostic>();
                 var windowConstraints = hardConstraints.Where(c => GradingWindows.PointsOverlap(c.Points, c.PointCount, box)).ToList();
-                return Grade(wv, wvc, wf, wfc, items.Select(i => paths[i]).ToArray(), windowConstraints, out error, modelTolerance, preferSplitKeep);
+                return GradeCore(wv, wvc, wf, wfc, items.Select(i => paths[i]).ToArray(), windowConstraints, out error, modelTolerance, preferSplitKeep, performanceTimings: null);
             },
             (items, minX, minY, maxX, maxY, low, high) =>
             {
@@ -138,7 +138,7 @@ public static partial class PathGrader
         if (outcome.NeedsWholeMesh)
         {
             notes.Add("Grade Path graded the whole terrain: a path's window changed a face it shares with the rest.");
-            return Grade(vertices, vertexCount, faces, faceCount, paths, hardConstraints, out errorMessage, modelTolerance, preferSplitKeep);
+            return GradeCore(vertices, vertexCount, faces, faceCount, paths, hardConstraints, out errorMessage, modelTolerance, preferSplitKeep, performanceTimings: null);
         }
 
         notes.Add($"Grade Path graded {outcome.WindowCount:N0} window(s); {outcome.ReusedWindows:N0} unchanged since the last build ({outcome.Timings}).");

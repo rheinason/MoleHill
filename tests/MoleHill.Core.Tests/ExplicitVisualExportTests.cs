@@ -1,3 +1,4 @@
+using MoleHill.Core.Engine;
 using System.Globalization;
 using System.Text;
 using MoleHill.Core.Grading;
@@ -77,7 +78,13 @@ public class ExplicitVisualExportTests
         double[] padXy = { 24, 24, 36, 24, 36, 36, 24, 36 };
         var pads = new[] { new PadGrader.PadBoundary(padXy, 4, targetZ: -1.0, slopeAngleDeg: 30.0) };
 
-        GradingResult? r = PadGrader.Grade(t.v, t.vc, t.f, t.fc, pads, null, out string? err);
+        GradeOutcome gradeOutcome = PadGrader.Grade(new PadGradeRequest
+        {
+            Terrain = new IndexedTriMesh(t.v, t.vc, t.f, t.fc),
+            Pads = pads,
+        });
+        string? err = gradeOutcome.ErrorMessage;
+        GradingResult? r = gradeOutcome.Result;
         Assert.True(r != null, err);
         string diag = string.Join(" | ", r!.Diagnostics);
         Assert.Contains("explicit batter", diag, StringComparison.OrdinalIgnoreCase);
@@ -94,7 +101,13 @@ public class ExplicitVisualExportTests
         double[] padXy = { 24, 24, 36, 24, 36, 36, 24, 36 };
         var pads = new[] { new PadGrader.PadBoundary(padXy, 4, targetZ: -1.0, slopeAngleDeg: 30.0) };
 
-        GradingResult? r = PadGrader.Grade(t.v, t.vc, t.f, t.fc, pads, null, out string? err);
+        GradeOutcome gradeOutcome2 = PadGrader.Grade(new PadGradeRequest
+        {
+            Terrain = new IndexedTriMesh(t.v, t.vc, t.f, t.fc),
+            Pads = pads,
+        });
+        string? err = gradeOutcome2.ErrorMessage;
+        GradingResult? r = gradeOutcome2.Result;
         Assert.True(r != null, err);
         Assert.Contains("explicit batter", string.Join(" ", r!.Diagnostics), StringComparison.OrdinalIgnoreCase);
         WriteObj(Path.Combine(OutDir, "graded-pad-coarse.obj"), r.Vertices, r.VertexCount, r.Faces, r.FaceCount);
@@ -111,7 +124,13 @@ public class ExplicitVisualExportTests
             new PadGrader.PadBoundary(new[] { 28.0, 20.0, 40.0, 20.0, 40.0, 32.0, 28.0, 32.0 }, 4, targetZ: 1.5, slopeAngleDeg: 30.0)
         };
 
-        GradingResult? r = PadGrader.Grade(t.v, t.vc, t.f, t.fc, pads, null, out string? err);
+        GradeOutcome gradeOutcome3 = PadGrader.Grade(new PadGradeRequest
+        {
+            Terrain = new IndexedTriMesh(t.v, t.vc, t.f, t.fc),
+            Pads = pads,
+        });
+        string? err = gradeOutcome3.ErrorMessage;
+        GradingResult? r = gradeOutcome3.Result;
         Assert.True(r != null, err);
         Assert.Contains("explicit batter", string.Join(" ", r!.Diagnostics), StringComparison.OrdinalIgnoreCase);
         WriteObj(Path.Combine(OutDir, "graded-interacting-pads.obj"), r.Vertices, r.VertexCount, r.Faces, r.FaceCount);
@@ -130,7 +149,14 @@ public class ExplicitVisualExportTests
         var lockCurve = new MoleHill.Core.Engine.ConstraintPolyline(
             new[] { 18.0, 36.0, 0.0, 42.0, 36.0, 0.0 }, PointCount: 2, IsClosed: false, PreserveInputElevation: false);
 
-        GradingResult? r = PathGrader.Grade(t.v, t.vc, t.f, t.fc, paths, new[] { lockCurve }, out string? err);
+        GradeOutcome gradeOutcome4 = PathGrader.Grade(new PathGradeRequest
+        {
+            Terrain = new IndexedTriMesh(t.v, t.vc, t.f, t.fc),
+            Paths = paths,
+            HardConstraints = new[] { lockCurve },
+        });
+        string? err = gradeOutcome4.ErrorMessage;
+        GradingResult? r = gradeOutcome4.Result;
         Assert.True(r != null, err);
         Assert.Contains("explicit corridor", string.Join(" ", r!.Diagnostics), StringComparison.OrdinalIgnoreCase);
         WriteObj(Path.Combine(OutDir, "graded-path-lockcurve.obj"), r.Vertices, r.VertexCount, r.Faces, r.FaceCount);
@@ -157,7 +183,13 @@ public class ExplicitVisualExportTests
             new PathGrader.PathDefinition(xy.ToArray(), z.ToArray(), z.Count, width: 5.0, slopeAngleDeg: 30.0, maxDistance: 8.0)
         };
 
-        GradingResult? r = PathGrader.Grade(t.v, t.vc, t.f, t.fc, paths, out string? err);
+        GradeOutcome gradeOutcome5 = PathGrader.Grade(new PathGradeRequest
+        {
+            Terrain = new IndexedTriMesh(t.v, t.vc, t.f, t.fc),
+            Paths = paths,
+        });
+        string? err = gradeOutcome5.ErrorMessage;
+        GradingResult? r = gradeOutcome5.Result;
         Assert.True(r != null, err);
         string diag = string.Join(" | ", r!.Diagnostics);
         Assert.Contains("explicit corridor", diag, StringComparison.OrdinalIgnoreCase);

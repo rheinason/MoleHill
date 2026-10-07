@@ -1877,17 +1877,16 @@ public class TerrainGradePadSeamIntegrityCopiedCaseTests
         };
         PadGrader.LockCurve[]? lockCurves = null;
 
-        GradingResult? result = PadGrader.Grade(
-            vertices,
-            vertexCount,
-            faces,
-            faceCount,
-            pads,
-            lockCurves,
-            out string? errorMessage,
-            out _,
-            modelTolerance: 0.01,
-            terrainDetailSize: 0.25);
+        GradeOutcome gradeOutcome = PadGrader.Grade(new PadGradeRequest
+        {
+            Terrain = new IndexedTriMesh(vertices, vertexCount, faces, faceCount),
+            Pads = pads,
+            LockCurves = lockCurves ?? Array.Empty<PadGrader.LockCurve>(),
+            ModelTolerance = 0.01,
+            TerrainDetailSize = 0.25,
+        });
+        string? errorMessage = gradeOutcome.ErrorMessage;
+        GradingResult? result = gradeOutcome.Result;
 
         Assert.True(result != null, errorMessage);
         Assert.True(string.IsNullOrWhiteSpace(errorMessage), errorMessage);

@@ -29,10 +29,14 @@ public class PathGraderTests
                 slopeAngleDeg: 33.0,
                 maxDistance: 1.5 * scale);
 
-            GradingResult? result = PathGrader.Grade(
-                vertices, 4, faces, 2, new[] { path },
-                out string? errorMessage,
-                modelTolerance: 0.001 * scale);
+            GradeOutcome gradeOutcome = PathGrader.Grade(new PathGradeRequest
+            {
+                Terrain = new IndexedTriMesh(vertices, 4, faces, 2),
+                Paths = new[] { path },
+                ModelTolerance = 0.001 * scale,
+            });
+            string? errorMessage = gradeOutcome.ErrorMessage;
+            GradingResult? result = gradeOutcome.Result;
 
             Assert.NotNull(result);
             Assert.True(string.IsNullOrWhiteSpace(errorMessage) || !errorMessage.Contains("failed", StringComparison.OrdinalIgnoreCase), errorMessage);
@@ -66,13 +70,13 @@ public class PathGraderTests
             vertexCount: 2,
             width: 2.0);
 
-        GradingResult? result = PathGrader.Grade(
-            BuildSquareVertices(),
-            4,
-            new[] { 0, 1, 99 },
-            1,
-            new[] { path },
-            out string? errorMessage);
+        GradeOutcome gradeOutcome2 = PathGrader.Grade(new PathGradeRequest
+        {
+            Terrain = new IndexedTriMesh(BuildSquareVertices(), 4, new[] { 0, 1, 99 }, 1),
+            Paths = new[] { path },
+        });
+        string? errorMessage = gradeOutcome2.ErrorMessage;
+        GradingResult? result = gradeOutcome2.Result;
 
         Assert.Null(result);
         Assert.Contains("outside the terrain vertex range", errorMessage ?? string.Empty, StringComparison.OrdinalIgnoreCase);
@@ -87,13 +91,13 @@ public class PathGraderTests
             vertexCount: 2,
             width: 2.0);
 
-        GradingResult? result = PathGrader.Grade(
-            BuildSquareVertices(),
-            4,
-            BuildSquareFaces(),
-            2,
-            new[] { path },
-            out string? errorMessage);
+        GradeOutcome gradeOutcome3 = PathGrader.Grade(new PathGradeRequest
+        {
+            Terrain = new IndexedTriMesh(BuildSquareVertices(), 4, BuildSquareFaces(), 2),
+            Paths = new[] { path },
+        });
+        string? errorMessage = gradeOutcome3.ErrorMessage;
+        GradingResult? result = gradeOutcome3.Result;
 
         Assert.Null(result);
         Assert.Contains("finite", errorMessage ?? string.Empty, StringComparison.OrdinalIgnoreCase);
@@ -109,13 +113,13 @@ public class PathGraderTests
             width: 0.0,
             outwardNormals: new[] { 0.0, 1.0, 0.0, 1.0 });
 
-        GradingResult? result = PathGrader.Grade(
-            BuildSquareVertices(),
-            4,
-            BuildSquareFaces(),
-            2,
-            new[] { path },
-            out string? errorMessage);
+        GradeOutcome gradeOutcome4 = PathGrader.Grade(new PathGradeRequest
+        {
+            Terrain = new IndexedTriMesh(BuildSquareVertices(), 4, BuildSquareFaces(), 2),
+            Paths = new[] { path },
+        });
+        string? errorMessage = gradeOutcome4.ErrorMessage;
+        GradingResult? result = gradeOutcome4.Result;
 
         Assert.Null(result);
         Assert.Contains("outward normals", errorMessage ?? string.Empty, StringComparison.OrdinalIgnoreCase);
@@ -131,13 +135,13 @@ public class PathGraderTests
             width: 0.0,
             outwardNormals: new[] { 0.0, 1.0, double.NaN, 1.0 });
 
-        GradingResult? result = PathGrader.Grade(
-            BuildSquareVertices(),
-            4,
-            BuildSquareFaces(),
-            2,
-            new[] { path },
-            out string? errorMessage);
+        GradeOutcome gradeOutcome5 = PathGrader.Grade(new PathGradeRequest
+        {
+            Terrain = new IndexedTriMesh(BuildSquareVertices(), 4, BuildSquareFaces(), 2),
+            Paths = new[] { path },
+        });
+        string? errorMessage = gradeOutcome5.ErrorMessage;
+        GradingResult? result = gradeOutcome5.Result;
 
         Assert.Null(result);
         Assert.Contains("outward normals", errorMessage ?? string.Empty, StringComparison.OrdinalIgnoreCase);
@@ -157,14 +161,14 @@ public class PathGraderTests
             IsClosed: false,
             PreserveInputElevation: true);
 
-        GradingResult? result = PathGrader.Grade(
-            BuildSquareVertices(),
-            4,
-            BuildSquareFaces(),
-            2,
-            new[] { path },
-            new[] { hardConstraint },
-            out string? errorMessage);
+        GradeOutcome gradeOutcome6 = PathGrader.Grade(new PathGradeRequest
+        {
+            Terrain = new IndexedTriMesh(BuildSquareVertices(), 4, BuildSquareFaces(), 2),
+            Paths = new[] { path },
+            HardConstraints = new[] { hardConstraint },
+        });
+        string? errorMessage = gradeOutcome6.ErrorMessage;
+        GradingResult? result = gradeOutcome6.Result;
 
         Assert.Null(result);
         Assert.Contains("finite", errorMessage ?? string.Empty, StringComparison.OrdinalIgnoreCase);
@@ -223,13 +227,13 @@ public class PathGraderTests
             slopeAngleDeg: 33.0,
             maxDistance: 1.5);
 
-        var result = PathGrader.Grade(
-            BuildSquareVertices(),
-            4,
-            BuildSquareFaces(),
-            2,
-            new[] { path },
-            out string? errorMessage);
+        GradeOutcome gradeOutcome7 = PathGrader.Grade(new PathGradeRequest
+        {
+            Terrain = new IndexedTriMesh(BuildSquareVertices(), 4, BuildSquareFaces(), 2),
+            Paths = new[] { path },
+        });
+        string? errorMessage = gradeOutcome7.ErrorMessage;
+        var result = gradeOutcome7.Result;
 
         Assert.NotNull(result);
         Assert.True(string.IsNullOrWhiteSpace(errorMessage) || !errorMessage.Contains("failed", StringComparison.OrdinalIgnoreCase));
@@ -249,13 +253,13 @@ public class PathGraderTests
             slopeAngleDeg: 33.0,
             maxDistance: 0.0);
 
-        var result = PathGrader.Grade(
-            BuildSquareVertices(),
-            4,
-            BuildSquareFaces(),
-            2,
-            new[] { path },
-            out string? errorMessage);
+        GradeOutcome gradeOutcome8 = PathGrader.Grade(new PathGradeRequest
+        {
+            Terrain = new IndexedTriMesh(BuildSquareVertices(), 4, BuildSquareFaces(), 2),
+            Paths = new[] { path },
+        });
+        string? errorMessage = gradeOutcome8.ErrorMessage;
+        var result = gradeOutcome8.Result;
 
         Assert.NotNull(result);
         Assert.True(string.IsNullOrWhiteSpace(errorMessage) || !errorMessage.Contains("failed", StringComparison.OrdinalIgnoreCase));
@@ -285,13 +289,13 @@ public class PathGraderTests
             slopeAngleDeg: 45.0,
             maxDistance: 0.0);
 
-        var result = PathGrader.Grade(
-            terrain,
-            4,
-            BuildSquareFaces(),
-            2,
-            new[] { path },
-            out string? errorMessage);
+        GradeOutcome gradeOutcome9 = PathGrader.Grade(new PathGradeRequest
+        {
+            Terrain = new IndexedTriMesh(terrain, 4, BuildSquareFaces(), 2),
+            Paths = new[] { path },
+        });
+        string? errorMessage = gradeOutcome9.ErrorMessage;
+        var result = gradeOutcome9.Result;
 
         Assert.NotNull(result);
         Assert.True(string.IsNullOrWhiteSpace(errorMessage) || !errorMessage.Contains("failed", StringComparison.OrdinalIgnoreCase));
@@ -313,13 +317,13 @@ public class PathGraderTests
             slopeAngleDeg: 45.0,
             maxDistance: 15.0);
 
-        var result = PathGrader.Grade(
-            BuildLargeSquareVertices(),
-            4,
-            BuildSquareFaces(),
-            2,
-            new[] { path },
-            out string? errorMessage);
+        GradeOutcome gradeOutcome10 = PathGrader.Grade(new PathGradeRequest
+        {
+            Terrain = new IndexedTriMesh(BuildLargeSquareVertices(), 4, BuildSquareFaces(), 2),
+            Paths = new[] { path },
+        });
+        string? errorMessage = gradeOutcome10.ErrorMessage;
+        var result = gradeOutcome10.Result;
 
         Assert.NotNull(result);
         Assert.True(string.IsNullOrWhiteSpace(errorMessage) || !errorMessage.Contains("failed", StringComparison.OrdinalIgnoreCase));
@@ -495,11 +499,13 @@ public class PathGraderTests
             slopeAngleDeg: 45.0,
             maxDistance: 2.5);
 
-        var result = PathGrader.Grade(
-            BuildSquareVertices(), 4,
-            BuildSquareFaces(), 2,
-            new[] { path },
-            out string? errorMessage);
+        GradeOutcome gradeOutcome11 = PathGrader.Grade(new PathGradeRequest
+        {
+            Terrain = new IndexedTriMesh(BuildSquareVertices(), 4, BuildSquareFaces(), 2),
+            Paths = new[] { path },
+        });
+        string? errorMessage = gradeOutcome11.ErrorMessage;
+        var result = gradeOutcome11.Result;
 
         Assert.True(result != null, errorMessage);
 
@@ -550,7 +556,12 @@ public class PathGraderTests
             slopeAngleDeg: 45.0,
             maxDistance: 2.0);
 
-        var result = PathGrader.Grade(terrain, 4, BuildSquareFaces(), 2, new[] { path }, out _);
+        GradeOutcome gradeOutcome12 = PathGrader.Grade(new PathGradeRequest
+        {
+            Terrain = new IndexedTriMesh(terrain, 4, BuildSquareFaces(), 2),
+            Paths = new[] { path },
+        });
+        var result = gradeOutcome12.Result;
         Assert.NotNull(result);
 
         bool foundLeft = false, foundRight = false;
@@ -602,11 +613,13 @@ public class PathGraderTests
             slopeAngleDeg: 45.0,
             maxDistance: 2.0);
 
-        var result = PathGrader.Grade(
-            BuildSquareVertices(), 4,
-            BuildSquareFaces(), 2,
-            new[] { path },
-            out string? errorMessage);
+        GradeOutcome gradeOutcome13 = PathGrader.Grade(new PathGradeRequest
+        {
+            Terrain = new IndexedTriMesh(BuildSquareVertices(), 4, BuildSquareFaces(), 2),
+            Paths = new[] { path },
+        });
+        string? errorMessage = gradeOutcome13.ErrorMessage;
+        var result = gradeOutcome13.Result;
 
         Assert.True(result != null, errorMessage);
 
@@ -664,14 +677,14 @@ public class PathGraderTests
             IsClosed: false,
             PreserveInputElevation: true);
 
-        GradingResult? result = PathGrader.Grade(
-            terrain,
-            terrain.Length / 3,
-            faces,
-            faces.Length / 3,
-            new[] { path },
-            new[] { barrier },
-            out string? errorMessage);
+        GradeOutcome gradeOutcome14 = PathGrader.Grade(new PathGradeRequest
+        {
+            Terrain = new IndexedTriMesh(terrain, terrain.Length / 3, faces, faces.Length / 3),
+            Paths = new[] { path },
+            HardConstraints = new[] { barrier },
+        });
+        string? errorMessage = gradeOutcome14.ErrorMessage;
+        GradingResult? result = gradeOutcome14.Result;
 
         Assert.NotNull(result);
         Assert.True(string.IsNullOrWhiteSpace(errorMessage) || !errorMessage.Contains("failed", StringComparison.OrdinalIgnoreCase), errorMessage);
@@ -792,13 +805,13 @@ public class PathGraderTests
             slopeAngleDeg: 45.0,
             maxDistance: 2.0);
 
-        GradingResult? result = PathGrader.Grade(
-            BuildSquareVertices(),
-            4,
-            BuildSquareFaces(),
-            2,
-            new[] { path },
-            out string? errorMessage);
+        GradeOutcome gradeOutcome15 = PathGrader.Grade(new PathGradeRequest
+        {
+            Terrain = new IndexedTriMesh(BuildSquareVertices(), 4, BuildSquareFaces(), 2),
+            Paths = new[] { path },
+        });
+        string? errorMessage = gradeOutcome15.ErrorMessage;
+        GradingResult? result = gradeOutcome15.Result;
 
         Assert.NotNull(result);
         Assert.True(string.IsNullOrWhiteSpace(errorMessage) || !errorMessage.Contains("failed", StringComparison.OrdinalIgnoreCase), errorMessage);
@@ -816,13 +829,13 @@ public class PathGraderTests
             slopeAngleDeg: 45.0,
             maxDistance: 2.0);
 
-        GradingResult? result = PathGrader.Grade(
-            BuildSquareVertices(),
-            4,
-            BuildSquareFaces(),
-            2,
-            new[] { path },
-            out string? errorMessage);
+        GradeOutcome gradeOutcome16 = PathGrader.Grade(new PathGradeRequest
+        {
+            Terrain = new IndexedTriMesh(BuildSquareVertices(), 4, BuildSquareFaces(), 2),
+            Paths = new[] { path },
+        });
+        string? errorMessage = gradeOutcome16.ErrorMessage;
+        GradingResult? result = gradeOutcome16.Result;
 
         Assert.NotNull(result);
         Assert.True(string.IsNullOrWhiteSpace(errorMessage) || !errorMessage.Contains("failed", StringComparison.OrdinalIgnoreCase), errorMessage);
@@ -841,13 +854,13 @@ public class PathGraderTests
             slopeAngleDeg: 45.0,
             maxDistance: 2.0);
 
-        GradingResult? result = PathGrader.Grade(
-            BuildSquareVertices(),
-            4,
-            BuildSquareFaces(),
-            2,
-            new[] { path },
-            out string? errorMessage);
+        GradeOutcome gradeOutcome17 = PathGrader.Grade(new PathGradeRequest
+        {
+            Terrain = new IndexedTriMesh(BuildSquareVertices(), 4, BuildSquareFaces(), 2),
+            Paths = new[] { path },
+        });
+        string? errorMessage = gradeOutcome17.ErrorMessage;
+        GradingResult? result = gradeOutcome17.Result;
 
         Assert.NotNull(result);
         Assert.True(string.IsNullOrWhiteSpace(errorMessage) || !errorMessage.Contains("failed", StringComparison.OrdinalIgnoreCase), errorMessage);
@@ -865,13 +878,13 @@ public class PathGraderTests
             slopeAngleDeg: 45.0,
             maxDistance: 2.0);
 
-        GradingResult? result = PathGrader.Grade(
-            BuildSquareVertices(),
-            4,
-            BuildSquareFaces(),
-            2,
-            new[] { path },
-            out string? errorMessage);
+        GradeOutcome gradeOutcome18 = PathGrader.Grade(new PathGradeRequest
+        {
+            Terrain = new IndexedTriMesh(BuildSquareVertices(), 4, BuildSquareFaces(), 2),
+            Paths = new[] { path },
+        });
+        string? errorMessage = gradeOutcome18.ErrorMessage;
+        GradingResult? result = gradeOutcome18.Result;
 
         Assert.NotNull(result);
         Assert.True(string.IsNullOrWhiteSpace(errorMessage) || !errorMessage.Contains("failed", StringComparison.OrdinalIgnoreCase), errorMessage);
@@ -899,13 +912,13 @@ public class PathGraderTests
             slopeAngleDeg: 33.0,
             maxDistance: 2.0);
 
-        GradingResult? result = PathGrader.Grade(
-            terrain,
-            4,
-            BuildSquareFaces(),
-            2,
-            new[] { path },
-            out string? errorMessage);
+        GradeOutcome gradeOutcome19 = PathGrader.Grade(new PathGradeRequest
+        {
+            Terrain = new IndexedTriMesh(terrain, 4, BuildSquareFaces(), 2),
+            Paths = new[] { path },
+        });
+        string? errorMessage = gradeOutcome19.ErrorMessage;
+        GradingResult? result = gradeOutcome19.Result;
 
         Assert.NotNull(result);
         Assert.True(string.IsNullOrWhiteSpace(errorMessage) || !errorMessage.Contains("failed", StringComparison.OrdinalIgnoreCase), errorMessage);

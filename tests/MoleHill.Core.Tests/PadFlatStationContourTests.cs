@@ -45,7 +45,13 @@ public class PadFlatStationContourTests
         double[] padXy = { 16, cy - 4, 24, cy - 4, 24, cy + 4, 16, cy + 4 };
         var pads = new[] { new PadGrader.PadBoundary(padXy, 4, targetZ: 2.0, slopeAngleDeg: 33.0) };
 
-        GradingResult? result = PadGrader.Grade(t.v, t.vc, t.f, t.fc, pads, null, out string? err);
+        GradeOutcome gradeOutcome = PadGrader.Grade(new PadGradeRequest
+        {
+            Terrain = new IndexedTriMesh(t.v, t.vc, t.f, t.fc),
+            Pads = pads,
+        });
+        string? err = gradeOutcome.ErrorMessage;
+        GradingResult? result = gradeOutcome.Result;
 
         PadInvariantAssert.AssertValidExplicitGrading(result, err, t.fc, pads, requireExplicit: true);
     }

@@ -146,18 +146,18 @@ internal static class TerrainCoreCaseTestExporter
         AppendPathArray(builder, record.Paths);
         AppendConstraintArray(builder, record.HardConstraints);
         builder.AppendLine();
-        builder.AppendLine("        GradingResult? result = PathGrader.Grade(");
-        builder.AppendLine("            vertices,");
-        builder.AppendLine("            vertexCount,");
-        builder.AppendLine("            faces,");
-        builder.AppendLine("            faceCount,");
-        builder.AppendLine("            paths,");
-        builder.AppendLine("            hardConstraints,");
-        builder.AppendLine("            out string? errorMessage,");
-        // Both of these default on PathGrader.Grade, and both change which tier runs — a replay that
-        // omits them grades at the wrong tolerance under the wrong topology strategy.
-        builder.AppendLine($"            {FormatDouble(record.ModelTolerance)},");
-        builder.AppendLine($"            {(record.PreferSplitKeep ? "true" : "false")});");
+        builder.AppendLine("        GradeOutcome outcome = PathGrader.Grade(new PathGradeRequest");
+        builder.AppendLine("        {");
+        builder.AppendLine("            Terrain = new IndexedTriMesh(vertices, vertexCount, faces, faceCount),");
+        builder.AppendLine("            Paths = paths,");
+        builder.AppendLine("            HardConstraints = hardConstraints,");
+        // Both of these default on the request, and both change which tier runs — a replay that omits
+        // them grades at the wrong tolerance under the wrong topology strategy.
+        builder.AppendLine($"            ModelTolerance = {FormatDouble(record.ModelTolerance)},");
+        builder.AppendLine($"            PreferSplitKeep = {(record.PreferSplitKeep ? "true" : "false")}");
+        builder.AppendLine("        });");
+        builder.AppendLine("        GradingResult? result = outcome.Result;");
+        builder.AppendLine("        string? errorMessage = outcome.ErrorMessage;");
         builder.AppendLine();
         AppendCommonAssertions(builder, "result", "errorMessage", record);
     }
@@ -171,14 +171,14 @@ internal static class TerrainCoreCaseTestExporter
         AppendPadArray(builder, record.Pads);
         AppendLockArray(builder, record.LockCurves);
         builder.AppendLine();
-        builder.AppendLine("        GradingResult? result = PadGrader.Grade(");
-        builder.AppendLine("            vertices,");
-        builder.AppendLine("            vertexCount,");
-        builder.AppendLine("            faces,");
-        builder.AppendLine("            faceCount,");
-        builder.AppendLine("            pads,");
-        builder.AppendLine("            lockCurves,");
-        builder.AppendLine("            out string? errorMessage);");
+        builder.AppendLine("        GradeOutcome outcome = PadGrader.Grade(new PadGradeRequest");
+        builder.AppendLine("        {");
+        builder.AppendLine("            Terrain = new IndexedTriMesh(vertices, vertexCount, faces, faceCount),");
+        builder.AppendLine("            Pads = pads,");
+        builder.AppendLine("            LockCurves = lockCurves ?? Array.Empty<PadGrader.LockCurve>()");
+        builder.AppendLine("        });");
+        builder.AppendLine("        GradingResult? result = outcome.Result;");
+        builder.AppendLine("        string? errorMessage = outcome.ErrorMessage;");
         builder.AppendLine();
         AppendCommonAssertions(builder, "result", "errorMessage", record);
     }

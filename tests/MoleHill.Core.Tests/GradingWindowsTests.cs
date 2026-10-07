@@ -310,8 +310,9 @@ public class GradingWindowsTests(ITestOutputHelper output)
         GradingResult? Run(double[] vertices, GradingWindows.Memo? previous, out GradingWindows.Memo next, List<string> notes)
         {
             next = new GradingWindows.Memo();
-            return PathGrader.GradeWindowed(vertices, vertices.Length / 3, f, f.Length / 3, paths,
-                Array.Empty<ConstraintPolyline>(), 0.001, preferSplitKeep: false, previous, next, notes, out _);
+            return PathGrader.GradeWindowed(
+                new PathGradeRequest { Terrain = IndexedTriMesh.FromArrays(vertices, f), Paths = paths, ModelTolerance = 0.001 },
+                previous, next, notes).Result;
         }
 
         var notes = new List<string>();
@@ -343,10 +344,26 @@ public class GradingWindowsTests(ITestOutputHelper output)
         ReadPadCase("MoleHill.Core.Tests.TestData.PadWindowPocketCase.bin", out double[] v, out int[] f,
             out PadGrader.PadBoundary[] pads, out List<ConstraintPolyline> hard, out double tol, out double detail);
 
-        GradingResult whole = PadGrader.Grade(v, v.Length / 3, f, f.Length / 3, pads, null, out _, out _, out _, tol, detail, hard)!;
+        GradeOutcome gradeOutcome = PadGrader.Grade(new PadGradeRequest
+        {
+            Terrain = new IndexedTriMesh(v, v.Length / 3, f, f.Length / 3),
+            Pads = pads,
+            ModelTolerance = tol,
+            TerrainDetailSize = detail,
+            HardConstraints = hard,
+        });
+        GradingResult whole = gradeOutcome.Result!;
         var notes = new List<string>();
-        GradingResult windowed = PadGrader.GradeWindowed(v, v.Length / 3, f, f.Length / 3, pads, Array.Empty<PadGrader.LockCurve>(),
-            hard, tol, detail, null, new GradingWindows.Memo(), notes, out _, out _, out _)!;
+        GradingResult windowed = PadGrader.GradeWindowed(
+            new PadGradeRequest
+            {
+                Terrain = IndexedTriMesh.FromArrays(v, f),
+                Pads = pads,
+                HardConstraints = hard,
+                ModelTolerance = tol,
+                TerrainDetailSize = detail
+            },
+            null, new GradingWindows.Memo(), notes).Result!;
 
         (int loops, int nonManifold) = Topology(windowed.Faces, windowed.FaceCount);
         output.WriteLine($"whole {whole.FaceCount} faces; windowed {windowed.FaceCount} faces, {loops} loop(s), {nonManifold} non-manifold; {string.Join(" | ", notes)}");
@@ -408,7 +425,16 @@ public class GradingWindowsTests(ITestOutputHelper output)
             (double[] wv, int wvc, int[] wf, int wfc, int[] items, (double, double, double, double) _, out string? error, out IReadOnlyList<OutputPolyline> failurePolylines, out IReadOnlyList<GradingDiagnostic> failureDiagnostics) =>
             {
                 failureDiagnostics = Array.Empty<GradingDiagnostic>();
-                return PadGrader.Grade(wv, wvc, wf, wfc, items.Select(i => pads[i]).ToArray(), null, out error, out failurePolylines, 0.001, 1.0);
+                GradeOutcome gradeOutcome2 = PadGrader.Grade(new PadGradeRequest
+                {
+                    Terrain = new IndexedTriMesh(wv, wvc, wf, wfc),
+                    Pads = items.Select(i => pads[i]).ToArray(),
+                    ModelTolerance = 0.001,
+                    TerrainDetailSize = 1.0,
+                });
+                error = gradeOutcome2.ErrorMessage;
+                failurePolylines = gradeOutcome2.FailureOutputPolylines;
+                return gradeOutcome2.Result;
             },
             (items, _, _, _, _, low, high) =>
             {

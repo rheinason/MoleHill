@@ -30,9 +30,16 @@ public class OneSidedRailRingTests
             g.Xy, g.Z, g.VertexCount, width: 0.0, slopeAngleDeg: g.SlopeAngleDeg, maxDistance: g.MaxDistance,
             fillSlopeAngleDeg: g.FillSlopeAngleDeg, isClosed: g.IsClosed, outwardNormals: g.Normals)).ToArray();
 
-        GradingResult? result = PathGrader.Grade(
-            capture.Vertices, capture.Vertices.Length / 3, capture.Faces, capture.Faces.Length / 3, grades,
-            Array.Empty<ConstraintPolyline>(), out string? warning, capture.Tolerance, false);
+        GradeOutcome gradeOutcome = PathGrader.Grade(new PathGradeRequest
+        {
+            Terrain = new IndexedTriMesh(capture.Vertices, capture.Vertices.Length / 3, capture.Faces, capture.Faces.Length / 3),
+            Paths = grades,
+            HardConstraints = Array.Empty<ConstraintPolyline>(),
+            ModelTolerance = capture.Tolerance,
+            PreferSplitKeep = false,
+        });
+        string? warning = gradeOutcome.ErrorMessage;
+        GradingResult? result = gradeOutcome.Result;
 
         Assert.True(result != null, warning);
         Assert.Contains(result!.Diagnostics, d => d.Contains("terrain conform", StringComparison.Ordinal));
@@ -81,9 +88,16 @@ public class OneSidedRailRingTests
 
         // At 30 degrees a 4 m batter needs 6.9 m to reach the ground; the ring is 5 m across its radius.
         var path = new PathGrader.PathDefinition(xy, z, stations, width: 0.0, slopeAngleDeg: 30.0, isClosed: true, outwardNormals: normals);
-        GradingResult? result = PathGrader.Grade(
-            vertices, vertices.Length / 3, faces, faces.Length / 3, new[] { path },
-            Array.Empty<ConstraintPolyline>(), out string? warning, 0.001, false);
+        GradeOutcome gradeOutcome2 = PathGrader.Grade(new PathGradeRequest
+        {
+            Terrain = new IndexedTriMesh(vertices, vertices.Length / 3, faces, faces.Length / 3),
+            Paths = new[] { path },
+            HardConstraints = Array.Empty<ConstraintPolyline>(),
+            ModelTolerance = 0.001,
+            PreferSplitKeep = false,
+        });
+        string? warning = gradeOutcome2.ErrorMessage;
+        GradingResult? result = gradeOutcome2.Result;
 
         Assert.True(result != null, warning);
         Assert.Contains(result!.Diagnostics, d => d.Contains("terrain conform", StringComparison.Ordinal));

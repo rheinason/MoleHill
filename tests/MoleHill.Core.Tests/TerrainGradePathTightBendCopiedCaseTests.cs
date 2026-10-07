@@ -1883,15 +1883,15 @@ public class TerrainGradePathTightBendCopiedCaseTests
 
         // The Rhino build service grades paths at tolerance 0.002 (bundle build-log line 1); the case
         // exporter drops it, and the default 1e-3 masks the in-Rhino behavior on this scene.
-        GradingResult? result = PathGrader.Grade(
-            vertices,
-            vertexCount,
-            faces,
-            faceCount,
-            paths,
-            hardConstraints,
-            out string? errorMessage,
-            modelTolerance: 0.002);
+        GradeOutcome gradeOutcome = PathGrader.Grade(new PathGradeRequest
+        {
+            Terrain = new IndexedTriMesh(vertices, vertexCount, faces, faceCount),
+            Paths = paths,
+            HardConstraints = hardConstraints,
+            ModelTolerance = 0.002,
+        });
+        string? errorMessage = gradeOutcome.ErrorMessage;
+        GradingResult? result = gradeOutcome.Result;
 
         Assert.NotNull(result);
         Assert.True(string.IsNullOrWhiteSpace(errorMessage) || !errorMessage.Contains("failed", StringComparison.OrdinalIgnoreCase), errorMessage);

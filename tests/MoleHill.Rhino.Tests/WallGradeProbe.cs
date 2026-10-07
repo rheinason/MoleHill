@@ -342,8 +342,16 @@ public static class WallGradeProbe
         Mesh gradedMesh = upstream;
         if (mode == RetainingWallModifierDefinition.GradeMode)
         {
-            var graded = Core.Grading.PathGrader.Grade(v0, vc0, f0, fc0, grades.ToArray(),
-                Array.Empty<ConstraintPolyline>(), out string? gradeWarning, tolerance, preferSplitKeep: false)
+            Core.Grading.GradeOutcome gradeOutcome = Core.Grading.PathGrader.Grade(new Core.Grading.PathGradeRequest
+            {
+                Terrain = new Core.Engine.IndexedTriMesh(v0, vc0, f0, fc0),
+                Paths = grades.ToArray(),
+                HardConstraints = Array.Empty<ConstraintPolyline>(),
+                ModelTolerance = tolerance,
+                PreferSplitKeep = false,
+            });
+            string? gradeWarning = gradeOutcome.ErrorMessage;
+            var graded = gradeOutcome.Result
                 ?? throw new InvalidOperationException("grading failed: " + gradeWarning);
             gradedMesh = (Mesh)service.GetMethod("FinalizeGradingMesh", flags)!.Invoke(null, new object[]
             {

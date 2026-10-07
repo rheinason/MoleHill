@@ -39,7 +39,7 @@ public static partial class PadGrader
         };
     }
 
-    public static GradingResult? GradeWindowed(
+    private static GradingResult? GradeWindowed(
         double[] vertices,
         int vertexCount,
         int[] faces,
@@ -91,7 +91,7 @@ public static partial class PadGrader
             {
                 LockCurve[] windowLocks = locks.Where(l => GradingWindows.XyOverlaps(l.XyVertices, l.VertexCount, box)).ToArray();
                 var windowConstraints = hardConstraints.Where(c => GradingWindows.PointsOverlap(c.Points, c.PointCount, box)).ToList();
-                return Grade(
+                return GradeCore(
                     wv, wvc, wf, wfc,
                     items.Select(i => pads[i]).ToArray(),
                     windowLocks.Length > 0 ? windowLocks : null,
@@ -145,7 +145,7 @@ public static partial class PadGrader
         if (outcome.NeedsWholeMesh)
         {
             notes.Add("Grade Pad graded the whole terrain: a pad's window changed a face it shares with the rest.");
-            return Grade(
+            return GradeCore(
                 vertices, vertexCount, faces, faceCount, pads, locks.Length > 0 ? locks : null,
                 out errorMessage, out failureOutputPolylines, out failureDiagnostics, modelTolerance, terrainDetailSize, hardConstraints);
         }

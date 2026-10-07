@@ -1116,8 +1116,14 @@ public class TerrainGradePadPathFirstCopiedCaseTests
         // Stage 1 — grade the path on the raw terrain. The current path grader must produce a
         // watertight terrain (a single closed boundary, no naked-edge cracks) for the pad stage to
         // conform onto.
-        GradingResult? pathResult = PathGrader.Grade(
-            vertices, vertexCount, faces, faceCount, paths, hardConstraints, out string? pathError);
+        GradeOutcome gradeOutcome = PathGrader.Grade(new PathGradeRequest
+        {
+            Terrain = new IndexedTriMesh(vertices, vertexCount, faces, faceCount),
+            Paths = paths,
+            HardConstraints = hardConstraints,
+        });
+        string? pathError = gradeOutcome.ErrorMessage;
+        GradingResult? pathResult = gradeOutcome.Result;
         Assert.NotNull(pathResult);
         Assert.True(string.IsNullOrWhiteSpace(pathError) || !pathError.Contains("failed", StringComparison.OrdinalIgnoreCase), pathError);
         MeshTopologyValidator.BoundaryGraphAnalysis pathTopo =
@@ -1126,9 +1132,14 @@ public class TerrainGradePadPathFirstCopiedCaseTests
         Assert.False(pathTopo.HasOpenBoundaryChains, "path stage left open boundary chains");
 
         // Stage 2 — grade the protected pads on the path's output.
-        GradingResult? result = PadGrader.Grade(
-            pathResult.Vertices, pathResult.VertexCount, pathResult.Faces, pathResult.FaceCount,
-            pads, lockCurves, out string? errorMessage);
+        GradeOutcome gradeOutcome2 = PadGrader.Grade(new PadGradeRequest
+        {
+            Terrain = new IndexedTriMesh(pathResult.Vertices, pathResult.VertexCount, pathResult.Faces, pathResult.FaceCount),
+            Pads = pads,
+            LockCurves = lockCurves ?? Array.Empty<PadGrader.LockCurve>(),
+        });
+        string? errorMessage = gradeOutcome2.ErrorMessage;
+        GradingResult? result = gradeOutcome2.Result;
         Assert.NotNull(result);
         Assert.True(string.IsNullOrWhiteSpace(errorMessage) || !errorMessage.Contains("failed", StringComparison.OrdinalIgnoreCase), errorMessage);
 

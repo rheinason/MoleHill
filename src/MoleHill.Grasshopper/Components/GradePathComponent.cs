@@ -1,3 +1,4 @@
+using MoleHill.Core.Engine;
 using Grasshopper.Kernel;
 using Rhino.Geometry;
 using MoleHill.Core.Grading;
@@ -196,11 +197,13 @@ public sealed class GradePathComponent : RegistryTerrainComponent
                 ctx.Warn(diagnostic.Message);
         }
 
-        var result = PathGrader.Grade(
-            vertices, vertexCount,
-            faces, faceCount,
-            widthResult.Paths,
-            out string? errorMessage);
+        GradeOutcome gradeOutcome = PathGrader.Grade(new PathGradeRequest
+        {
+            Terrain = new IndexedTriMesh(vertices, vertexCount, faces, faceCount),
+            Paths = widthResult.Paths,
+        });
+        string? errorMessage = gradeOutcome.ErrorMessage;
+        var result = gradeOutcome.Result;
 
         if (result == null)
         {

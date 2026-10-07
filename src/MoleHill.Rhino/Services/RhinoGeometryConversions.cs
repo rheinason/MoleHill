@@ -1,4 +1,5 @@
-﻿using System.Runtime.CompilerServices;
+﻿// Converts between Rhino meshes and Core's flat arrays: extraction from a normalized copy (with its counts), mesh construction, and normalization.
+using System.Runtime.CompilerServices;
 using MoleHill.Core.Engine;
 using MoleHill.Core.Grading;
 using MoleHill.Shared;

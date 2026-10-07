@@ -257,7 +257,14 @@ public class TiledIsotropicRemesherQualityTests(ITestOutputHelper output)
         }
 
         var path = new PathGrader.PathDefinition(xy.ToArray(), z.ToArray(), z.Count, width: 6.0, slopeAngleDeg: 26.5, maxDistance: 15.0);
-        GradingResult? graded = PathGrader.Grade(v, v.Length / 3, f, f.Length / 3, new[] { path }, out string? error, 0.001);
+        GradeOutcome gradeOutcome = PathGrader.Grade(new PathGradeRequest
+        {
+            Terrain = new IndexedTriMesh(v, v.Length / 3, f, f.Length / 3),
+            Paths = new[] { path },
+            ModelTolerance = 0.001,
+        });
+        string? error = gradeOutcome.ErrorMessage;
+        GradingResult? graded = gradeOutcome.Result;
         Assert.True(graded != null, error);
         vertices = graded!.Vertices;
         faces = graded.Faces;

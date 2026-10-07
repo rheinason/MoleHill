@@ -225,6 +225,10 @@ staying unresolved.
   measured-faster linear loop. Candidate ids are sorted before evaluation to preserve tie behaviour.
 - `GradedRegionAssembler.cs` - `SplitOutside`/`SplitConform` (terrain split) + `WeldGradedRegion`
   (identity weld of fills into terrain) + `AssembledMesh`.
+- `PadGradeRequest.cs` / `PathGradeRequest.cs` / `GradeOutcome.cs` - the graders' only entry points:
+  `PadGrader.Grade(request)`, `PathGrader.Grade(request)` and their `GradeWindowed` forms. The terrain
+  travels as an `IndexedTriMesh` (Engine), options are named properties, and both graders report failure
+  through one `GradeOutcome` (result, message, failure polylines, structured diagnostics).
 - `FaceCut/` - the face-cutting kernel the area splitter and the constraint inserter share
   (`FaceCutGeometry`, `FaceData`, `LocalPointBuilder`, `GlobalPointLookup` and the small value types):
   splitting a segment network at its own crossings, clipping a segment to a face, edge-point and piece

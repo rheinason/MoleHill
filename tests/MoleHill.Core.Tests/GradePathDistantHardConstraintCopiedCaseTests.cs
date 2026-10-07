@@ -79800,16 +79800,16 @@ public class GradePathDistantHardConstraintCopiedCaseTests
                 true),
         };
 
-        GradingResult? result = PathGrader.Grade(
-            vertices,
-            vertexCount,
-            faces,
-            faceCount,
-            paths,
-            hardConstraints,
-            out string? errorMessage,
-            0.002,
-            false);
+        GradeOutcome gradeOutcome = PathGrader.Grade(new PathGradeRequest
+        {
+            Terrain = new IndexedTriMesh(vertices, vertexCount, faces, faceCount),
+            Paths = paths,
+            HardConstraints = hardConstraints,
+            ModelTolerance = 0.002,
+            PreferSplitKeep = false,
+        });
+        string? errorMessage = gradeOutcome.ErrorMessage;
+        GradingResult? result = gradeOutcome.Result;
 
         Assert.NotNull(result);
         Assert.True(string.IsNullOrWhiteSpace(errorMessage), errorMessage);

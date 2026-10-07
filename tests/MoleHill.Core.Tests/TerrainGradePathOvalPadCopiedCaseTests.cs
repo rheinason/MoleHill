@@ -1257,14 +1257,14 @@ public class TerrainGradePathOvalPadCopiedCaseTests
                 true),
         };
 
-        GradingResult? result = PathGrader.Grade(
-            vertices,
-            vertexCount,
-            faces,
-            faceCount,
-            paths,
-            hardConstraints,
-            out string? errorMessage);
+        GradeOutcome gradeOutcome = PathGrader.Grade(new PathGradeRequest
+        {
+            Terrain = new IndexedTriMesh(vertices, vertexCount, faces, faceCount),
+            Paths = paths,
+            HardConstraints = hardConstraints,
+        });
+        string? errorMessage = gradeOutcome.ErrorMessage;
+        GradingResult? result = gradeOutcome.Result;
 
         Assert.NotNull(result);
         Assert.True(string.IsNullOrWhiteSpace(errorMessage) || !errorMessage.Contains("failed", StringComparison.OrdinalIgnoreCase), errorMessage);

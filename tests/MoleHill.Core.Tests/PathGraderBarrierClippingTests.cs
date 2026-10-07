@@ -53,12 +53,14 @@ public class PathGraderBarrierClippingTests
         var path = MakeHorizontalPath(y: 50.0, width: 4.0, maxDist: 5.0);
         var barrier = MakeBarrier(0.0, 62.0, 100.0, 62.0);
 
-        GradingResult? result = PathGrader.Grade(
-            CoarseVertices, CoarseVertices.Length / 3,
-            CoarseFaces, CoarseFaces.Length / 3,
-            new[] { path },
-            new[] { barrier },
-            out string? errorMessage);
+        GradeOutcome gradeOutcome = PathGrader.Grade(new PathGradeRequest
+        {
+            Terrain = new IndexedTriMesh(CoarseVertices, CoarseVertices.Length / 3, CoarseFaces, CoarseFaces.Length / 3),
+            Paths = new[] { path },
+            HardConstraints = new[] { barrier },
+        });
+        string? errorMessage = gradeOutcome.ErrorMessage;
+        GradingResult? result = gradeOutcome.Result;
 
         Assert.NotNull(result);
         Assert.True(
@@ -74,12 +76,14 @@ public class PathGraderBarrierClippingTests
         var path = MakeHorizontalPath(y: 50.0, width: 4.0, maxDist: 10.0);
         var barrier = MakeBarrier(0.0, 57.0, 100.0, 57.0);
 
-        GradingResult? result = PathGrader.Grade(
-            CoarseVertices, CoarseVertices.Length / 3,
-            CoarseFaces, CoarseFaces.Length / 3,
-            new[] { path },
-            new[] { barrier },
-            out string? errorMessage);
+        GradeOutcome gradeOutcome2 = PathGrader.Grade(new PathGradeRequest
+        {
+            Terrain = new IndexedTriMesh(CoarseVertices, CoarseVertices.Length / 3, CoarseFaces, CoarseFaces.Length / 3),
+            Paths = new[] { path },
+            HardConstraints = new[] { barrier },
+        });
+        string? errorMessage = gradeOutcome2.ErrorMessage;
+        GradingResult? result = gradeOutcome2.Result;
 
         Assert.NotNull(result);
         Assert.True(
@@ -108,12 +112,14 @@ public class PathGraderBarrierClippingTests
         var closerRail = MakeBarrier(0.0, 56.0, 100.0, 56.0);
         var fartherRail = MakeBarrier(0.0, 60.0, 100.0, 60.0);
 
-        GradingResult? result = PathGrader.Grade(
-            CoarseVertices, CoarseVertices.Length / 3,
-            CoarseFaces, CoarseFaces.Length / 3,
-            new[] { path },
-            new[] { closerRail, fartherRail },
-            out string? errorMessage);
+        GradeOutcome gradeOutcome3 = PathGrader.Grade(new PathGradeRequest
+        {
+            Terrain = new IndexedTriMesh(CoarseVertices, CoarseVertices.Length / 3, CoarseFaces, CoarseFaces.Length / 3),
+            Paths = new[] { path },
+            HardConstraints = new[] { closerRail, fartherRail },
+        });
+        string? errorMessage = gradeOutcome3.ErrorMessage;
+        GradingResult? result = gradeOutcome3.Result;
 
         Assert.NotNull(result);
         Assert.True(
@@ -144,12 +150,14 @@ public class PathGraderBarrierClippingTests
         var path = MakeHorizontalPath(y: 50.0, width: 4.0, maxDist: 5.0, z: 2.0);
         var barrier = MakeBarrier(50.0, 0.0, 50.0, 100.0);
 
-        GradingResult? result = PathGrader.Grade(
-            CoarseVertices, CoarseVertices.Length / 3,
-            CoarseFaces, CoarseFaces.Length / 3,
-            new[] { path },
-            new[] { barrier },
-            out string? errorMessage);
+        GradeOutcome gradeOutcome4 = PathGrader.Grade(new PathGradeRequest
+        {
+            Terrain = new IndexedTriMesh(CoarseVertices, CoarseVertices.Length / 3, CoarseFaces, CoarseFaces.Length / 3),
+            Paths = new[] { path },
+            HardConstraints = new[] { barrier },
+        });
+        string? errorMessage = gradeOutcome4.ErrorMessage;
+        GradingResult? result = gradeOutcome4.Result;
 
         Assert.True(result != null, errorMessage);
         Assert.Contains(result!.Diagnostics, d => d.Contains("stopped at 1", StringComparison.Ordinal));
@@ -172,12 +180,14 @@ public class PathGraderBarrierClippingTests
         double insideBefore = new TerrainFaceGrid(CoarseVertices, CoarseVertices.Length / 3, CoarseFaces, CoarseFaces.Length / 3)
             .InterpolateZ(50.0, 50.0);
 
-        GradingResult? result = PathGrader.Grade(
-            CoarseVertices, CoarseVertices.Length / 3,
-            CoarseFaces, CoarseFaces.Length / 3,
-            new[] { path },
-            new[] { pad },
-            out string? errorMessage);
+        GradeOutcome gradeOutcome5 = PathGrader.Grade(new PathGradeRequest
+        {
+            Terrain = new IndexedTriMesh(CoarseVertices, CoarseVertices.Length / 3, CoarseFaces, CoarseFaces.Length / 3),
+            Paths = new[] { path },
+            HardConstraints = new[] { pad },
+        });
+        string? errorMessage = gradeOutcome5.ErrorMessage;
+        GradingResult? result = gradeOutcome5.Result;
 
         Assert.True(result != null, errorMessage);
         Assert.Contains(result!.Diagnostics, d => d.Contains("left to it", StringComparison.Ordinal));
@@ -199,12 +209,14 @@ public class PathGraderBarrierClippingTests
             maxDistance: 5.0);
         var barrier = MakeBarrier(50.0, 0.0, 50.0, 100.0);
 
-        GradingResult? result = PathGrader.Grade(
-            CoarseVertices, CoarseVertices.Length / 3,
-            CoarseFaces, CoarseFaces.Length / 3,
-            new[] { path },
-            new[] { barrier },
-            out string? errorMessage);
+        GradeOutcome gradeOutcome6 = PathGrader.Grade(new PathGradeRequest
+        {
+            Terrain = new IndexedTriMesh(CoarseVertices, CoarseVertices.Length / 3, CoarseFaces, CoarseFaces.Length / 3),
+            Paths = new[] { path },
+            HardConstraints = new[] { barrier },
+        });
+        string? errorMessage = gradeOutcome6.ErrorMessage;
+        GradingResult? result = gradeOutcome6.Result;
 
         Assert.NotNull(result);
         Assert.True(
@@ -225,13 +237,15 @@ public class PathGraderBarrierClippingTests
             maxDistance: 5.0);
         var barrier = MakeBarrier(50.0, 0.0, 50.0, 100.0);
 
-        GradingResult? result = PathGrader.Grade(
-            CoarseVertices, CoarseVertices.Length / 3,
-            CoarseFaces, CoarseFaces.Length / 3,
-            new[] { path },
-            new[] { barrier },
-            out string? errorMessage,
-            modelTolerance);
+        GradeOutcome gradeOutcome7 = PathGrader.Grade(new PathGradeRequest
+        {
+            Terrain = new IndexedTriMesh(CoarseVertices, CoarseVertices.Length / 3, CoarseFaces, CoarseFaces.Length / 3),
+            Paths = new[] { path },
+            HardConstraints = new[] { barrier },
+            ModelTolerance = modelTolerance,
+        });
+        string? errorMessage = gradeOutcome7.ErrorMessage;
+        GradingResult? result = gradeOutcome7.Result;
 
         Assert.NotNull(result);
         Assert.True(
@@ -251,12 +265,14 @@ public class PathGraderBarrierClippingTests
             maxDistance: 5.0);
         var barrier = MakeBarrier(10.0, 50.0, 12.0, 60.0);
 
-        GradingResult? result = PathGrader.Grade(
-            CoarseVertices, CoarseVertices.Length / 3,
-            CoarseFaces, CoarseFaces.Length / 3,
-            new[] { path },
-            new[] { barrier },
-            out string? errorMessage);
+        GradeOutcome gradeOutcome8 = PathGrader.Grade(new PathGradeRequest
+        {
+            Terrain = new IndexedTriMesh(CoarseVertices, CoarseVertices.Length / 3, CoarseFaces, CoarseFaces.Length / 3),
+            Paths = new[] { path },
+            HardConstraints = new[] { barrier },
+        });
+        string? errorMessage = gradeOutcome8.ErrorMessage;
+        GradingResult? result = gradeOutcome8.Result;
 
         Assert.NotNull(result);
         Assert.True(
@@ -270,18 +286,22 @@ public class PathGraderBarrierClippingTests
         // Regression: no barriers should produce the same result as the existing Grade() overload.
         var path = MakeHorizontalPath(y: 50.0, width: 4.0, maxDist: 10.0, z: 5.0);
 
-        GradingResult? withEmpty = PathGrader.Grade(
-            CoarseVertices, CoarseVertices.Length / 3,
-            CoarseFaces, CoarseFaces.Length / 3,
-            new[] { path },
-            Array.Empty<ConstraintPolyline>(),
-            out string? errorEmpty);
+        GradeOutcome gradeOutcome9 = PathGrader.Grade(new PathGradeRequest
+        {
+            Terrain = new IndexedTriMesh(CoarseVertices, CoarseVertices.Length / 3, CoarseFaces, CoarseFaces.Length / 3),
+            Paths = new[] { path },
+            HardConstraints = Array.Empty<ConstraintPolyline>(),
+        });
+        string? errorEmpty = gradeOutcome9.ErrorMessage;
+        GradingResult? withEmpty = gradeOutcome9.Result;
 
-        GradingResult? withNoArg = PathGrader.Grade(
-            CoarseVertices, CoarseVertices.Length / 3,
-            CoarseFaces, CoarseFaces.Length / 3,
-            new[] { path },
-            out string? errorNoArg);
+        GradeOutcome gradeOutcome10 = PathGrader.Grade(new PathGradeRequest
+        {
+            Terrain = new IndexedTriMesh(CoarseVertices, CoarseVertices.Length / 3, CoarseFaces, CoarseFaces.Length / 3),
+            Paths = new[] { path },
+        });
+        string? errorNoArg = gradeOutcome10.ErrorMessage;
+        GradingResult? withNoArg = gradeOutcome10.Result;
 
         Assert.NotNull(withEmpty);
         Assert.NotNull(withNoArg);

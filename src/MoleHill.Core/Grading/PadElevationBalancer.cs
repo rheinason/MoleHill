@@ -1,4 +1,6 @@
 // Applies bracketed net-volume search to one translated planar Grade Pad boundary.
+using MoleHill.Core.Engine;
+
 namespace MoleHill.Core.Grading;
 
 public sealed class PadElevationBalanceResult
@@ -32,10 +34,15 @@ public static class PadElevationBalancer
         VolumeSearchSample? Evaluate(double elevation)
         {
             PadGrader.PadBoundary adjusted = Translate(pad, elevation - originalElevation);
-            GradingResult? result = PadGrader.Grade(
-                terrainVertices, terrainVertexCount,
-                terrainFaces, terrainFaceCount,
-                new[] { adjusted }, locks, out string? error, modelTolerance);
+            GradeOutcome gradeOutcome = PadGrader.Grade(new PadGradeRequest
+            {
+                Terrain = new IndexedTriMesh(terrainVertices, terrainVertexCount, terrainFaces, terrainFaceCount),
+                Pads = new[] { adjusted },
+                LockCurves = locks ?? Array.Empty<PadGrader.LockCurve>(),
+                ModelTolerance = modelTolerance,
+            });
+            string? error = gradeOutcome.ErrorMessage;
+            GradingResult? result = gradeOutcome.Result;
             if (result == null)
                 return null;
             double errorMagnitude = Math.Abs(result.NetVolume - targetNet);

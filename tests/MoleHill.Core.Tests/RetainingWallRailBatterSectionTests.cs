@@ -19,10 +19,15 @@ public class RetainingWallRailBatterSectionTests
     private static (GradingResult? result, double[] gradedVertices) GradeAt(double angle)
     {
         var (vertices, vertexCount, faces, faceCount, paths) = RetainingWallRailCaseData.Build(angle);
-        GradingResult? result = PathGrader.Grade(
-            vertices, vertexCount, faces, faceCount, paths,
-            Array.Empty<ConstraintPolyline>(),
-            out _, 0.01, false);
+        GradeOutcome gradeOutcome = PathGrader.Grade(new PathGradeRequest
+        {
+            Terrain = new IndexedTriMesh(vertices, vertexCount, faces, faceCount),
+            Paths = paths,
+            HardConstraints = Array.Empty<ConstraintPolyline>(),
+            ModelTolerance = 0.01,
+            PreferSplitKeep = false,
+        });
+        GradingResult? result = gradeOutcome.Result;
 
         if (result == null)
             return (null, Array.Empty<double>());

@@ -32,14 +32,14 @@ public class TerrainGradePathAfterProtectedPadsCopiedCaseTests
                 constraint.PreserveInputElevation))
             .ToArray();
 
-        GradingResult? result = PathGrader.Grade(
-            fixture.Vertices,
-            fixture.VertexCount,
-            fixture.Faces,
-            fixture.FaceCount,
-            paths,
-            hardConstraints,
-            out string? errorMessage);
+        GradeOutcome gradeOutcome = PathGrader.Grade(new PathGradeRequest
+        {
+            Terrain = new IndexedTriMesh(fixture.Vertices, fixture.VertexCount, fixture.Faces, fixture.FaceCount),
+            Paths = paths,
+            HardConstraints = hardConstraints,
+        });
+        string? errorMessage = gradeOutcome.ErrorMessage;
+        GradingResult? result = gradeOutcome.Result;
 
         Assert.True(result != null, errorMessage);
         Assert.True(

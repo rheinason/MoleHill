@@ -20,7 +20,7 @@ public static partial class PadGrader
     {
         ArgumentNullException.ThrowIfNull(request);
         (double[] vertices, int vertexCount, int[] faces, int faceCount) = request.Terrain;
-        GradingResult? result = Grade(
+        GradingResult? result = GradeCore(
             vertices, vertexCount, faces, faceCount, request.Pads, request.LockCurves,
             out string? errorMessage,
             out IReadOnlyList<OutputPolyline> failureOutputPolylines,
@@ -35,58 +35,7 @@ public static partial class PadGrader
         };
     }
 
-    /// <summary>
-    /// Apply pad grading to a terrain mesh.
-    /// Each pad carries its own slope angle and max distance.
-    /// Later pads in the array override earlier ones in overlapping zones.
-    /// </summary>
-    public static GradingResult? Grade(
-        double[] vertices, int vertexCount,
-        int[] faces, int faceCount,
-        PadBoundary[] pads,
-        LockCurve[]? lockCurves,
-        out string? errorMessage,
-        double modelTolerance = GradingTolerances.DefaultModelTolerance)
-    {
-        return Grade(
-            vertices,
-            vertexCount,
-            faces,
-            faceCount,
-            pads,
-            lockCurves,
-            out errorMessage,
-            out _,
-            out _,
-            modelTolerance,
-            terrainDetailSize: 0.0);
-    }
-
-    public static GradingResult? Grade(
-        double[] vertices, int vertexCount,
-        int[] faces, int faceCount,
-        PadBoundary[] pads,
-        LockCurve[]? lockCurves,
-        out string? errorMessage,
-        out IReadOnlyList<OutputPolyline> failureOutputPolylines,
-        double modelTolerance = GradingTolerances.DefaultModelTolerance,
-        double terrainDetailSize = 0.0)
-    {
-        return Grade(
-            vertices,
-            vertexCount,
-            faces,
-            faceCount,
-            pads,
-            lockCurves,
-            out errorMessage,
-            out failureOutputPolylines,
-            out _,
-            modelTolerance,
-            terrainDetailSize);
-    }
-
-    public static GradingResult? Grade(
+    private static GradingResult? GradeCore(
         double[] vertices, int vertexCount,
         int[] faces, int faceCount,
         PadBoundary[] pads,

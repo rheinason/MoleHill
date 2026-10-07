@@ -54,82 +54,22 @@ public static partial class PathGrader
     }
 
     /// <summary>
-    /// Apply path grading to a terrain mesh.
-    /// Overlapping paths are blended by proximity so junction behavior is stable
-    /// regardless of the input order.
-    /// </summary>
-    /// <summary>
     /// Grades <see cref="PathGradeRequest.Terrain"/> along <see cref="PathGradeRequest.Paths"/> (a path of width
-    /// zero is a Grade Line). Fails cleanly - a null <see cref="GradeOutcome.Result"/> with a reason - rather
+    /// zero is a Grade Line). Overlapping paths are blended by proximity, so junction behaviour does not
+    /// depend on input order. Fails cleanly - a null <see cref="GradeOutcome.Result"/> with a reason - rather
     /// than return topology worse than its input.
     /// </summary>
-    public static GradeOutcome Grade(PathGradeRequest request)
+    public static GradeOutcome Grade(PathGradeRequest request) => Grade(request, performanceTimings: null);
+
+    /// <summary><see cref="Grade(PathGradeRequest)"/>, recording per-phase timings for benchmarks.</summary>
+    internal static GradeOutcome Grade(PathGradeRequest request, PerformanceTimings? performanceTimings)
     {
         ArgumentNullException.ThrowIfNull(request);
         (double[] vertices, int vertexCount, int[] faces, int faceCount) = request.Terrain;
-        GradingResult? result = Grade(
+        GradingResult? result = GradeCore(
             vertices, vertexCount, faces, faceCount, request.Paths, request.HardConstraints,
-            out string? errorMessage, request.ModelTolerance, request.PreferSplitKeep);
+            out string? errorMessage, request.ModelTolerance, request.PreferSplitKeep, performanceTimings);
         return new GradeOutcome { Result = result, ErrorMessage = errorMessage };
-    }
-
-    public static GradingResult? Grade(
-        double[] vertices, int vertexCount,
-        int[] faces, int faceCount,
-        PathDefinition[] paths,
-        out string? errorMessage,
-        double modelTolerance = GradingTolerances.DefaultModelTolerance,
-        bool preferSplitKeep = false)
-    {
-        return Grade(vertices, vertexCount, faces, faceCount, paths, Array.Empty<ConstraintPolyline>(), out errorMessage, modelTolerance, preferSplitKeep);
-    }
-
-    public static GradingResult? Grade(
-        double[] vertices, int vertexCount,
-        int[] faces, int faceCount,
-        PathDefinition[] paths,
-        IReadOnlyList<ConstraintPolyline> hardConstraints,
-        out string? errorMessage,
-        double modelTolerance = GradingTolerances.DefaultModelTolerance,
-        bool preferSplitKeep = false)
-    {
-        return GradeCore(
-            vertices,
-            vertexCount,
-            faces,
-            faceCount,
-            paths,
-            hardConstraints,
-            out errorMessage,
-            modelTolerance,
-            preferSplitKeep,
-            performanceTimings: null);
-    }
-
-    internal static GradingResult? Grade(
-        double[] vertices,
-        int vertexCount,
-        int[] faces,
-        int faceCount,
-        PathDefinition[] paths,
-        IReadOnlyList<ConstraintPolyline> hardConstraints,
-        out string? errorMessage,
-        double modelTolerance,
-        bool preferSplitKeep,
-        PerformanceTimings performanceTimings)
-    {
-        ArgumentNullException.ThrowIfNull(performanceTimings);
-        return GradeCore(
-            vertices,
-            vertexCount,
-            faces,
-            faceCount,
-            paths,
-            hardConstraints,
-            out errorMessage,
-            modelTolerance,
-            preferSplitKeep,
-            performanceTimings);
     }
 
     private static GradingResult? GradeCore(

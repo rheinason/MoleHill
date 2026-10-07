@@ -102,8 +102,13 @@ public class LineGraderTests
         // A line at z=0, ten below terrain, with 45 degree batters: reach is ~10 either side.
         var paths = new[] { Line(new[] { -20.0, 0.0, 20.0, 0.0 }, new[] { 0.0, 0.0 }) };
 
-        GradingResult? result = PathGrader.Grade(
-            terrain.v, terrain.vc, terrain.f, terrain.fc, paths, out string? errorMessage);
+        GradeOutcome gradeOutcome = PathGrader.Grade(new PathGradeRequest
+        {
+            Terrain = new IndexedTriMesh(terrain.v, terrain.vc, terrain.f, terrain.fc),
+            Paths = paths,
+        });
+        string? errorMessage = gradeOutcome.ErrorMessage;
+        GradingResult? result = gradeOutcome.Result;
 
         Assert.True(result != null, errorMessage);
         PadInvariantAssert.AssertWatertightManifold(result!);
@@ -122,8 +127,13 @@ public class LineGraderTests
         var terrain = FlatTerrain(0.0);
         var paths = new[] { Line(new[] { -20.0, 0.0, 20.0, 0.0 }, new[] { 6.0, 6.0 }) };
 
-        GradingResult? result = PathGrader.Grade(
-            terrain.v, terrain.vc, terrain.f, terrain.fc, paths, out string? errorMessage);
+        GradeOutcome gradeOutcome2 = PathGrader.Grade(new PathGradeRequest
+        {
+            Terrain = new IndexedTriMesh(terrain.v, terrain.vc, terrain.f, terrain.fc),
+            Paths = paths,
+        });
+        string? errorMessage = gradeOutcome2.ErrorMessage;
+        GradingResult? result = gradeOutcome2.Result;
 
         Assert.True(result != null, errorMessage);
         PadInvariantAssert.AssertWatertightManifold(result!);
@@ -138,8 +148,13 @@ public class LineGraderTests
         var terrain = FlatTerrain(10.0);
         var paths = new[] { Line(new[] { -20.0, 0.0, 20.0, 0.0 }, new[] { 0.0, 0.0 }) };
 
-        GradingResult? result = PathGrader.Grade(
-            terrain.v, terrain.vc, terrain.f, terrain.fc, paths, out string? errorMessage);
+        GradeOutcome gradeOutcome3 = PathGrader.Grade(new PathGradeRequest
+        {
+            Terrain = new IndexedTriMesh(terrain.v, terrain.vc, terrain.f, terrain.fc),
+            Paths = paths,
+        });
+        string? errorMessage = gradeOutcome3.ErrorMessage;
+        GradingResult? result = gradeOutcome3.Result;
 
         Assert.True(result != null, errorMessage);
 
@@ -164,8 +179,13 @@ public class LineGraderTests
                 rightCut: 20.0)
         };
 
-        GradingResult? result = PathGrader.Grade(
-            terrain.v, terrain.vc, terrain.f, terrain.fc, paths, out string? errorMessage);
+        GradeOutcome gradeOutcome4 = PathGrader.Grade(new PathGradeRequest
+        {
+            Terrain = new IndexedTriMesh(terrain.v, terrain.vc, terrain.f, terrain.fc),
+            Paths = paths,
+        });
+        string? errorMessage = gradeOutcome4.ErrorMessage;
+        GradingResult? result = gradeOutcome4.Result;
 
         Assert.True(result != null, errorMessage);
         PadInvariantAssert.AssertWatertightManifold(result!);
@@ -202,14 +222,20 @@ public class LineGraderTests
         double[] xy = { -20.0, 0.0, 20.0, 0.0 };
         double[] z = { 0.0, 0.0 };
 
-        GradingResult? overridden = PathGrader.Grade(
-            terrain.v, terrain.vc, terrain.f, terrain.fc,
-            new[] { Line(xy, z, slopeAngleDeg: 45.0, leftCut: 20.0, rightCut: 20.0) },
-            out string? overriddenError);
-        GradingResult? shared = PathGrader.Grade(
-            terrain.v, terrain.vc, terrain.f, terrain.fc,
-            new[] { Line(xy, z, slopeAngleDeg: 20.0) },
-            out string? sharedError);
+        GradeOutcome gradeOutcome5 = PathGrader.Grade(new PathGradeRequest
+        {
+            Terrain = new IndexedTriMesh(terrain.v, terrain.vc, terrain.f, terrain.fc),
+            Paths = new[] { Line(xy, z, slopeAngleDeg: 45.0, leftCut: 20.0, rightCut: 20.0) },
+        });
+        string? overriddenError = gradeOutcome5.ErrorMessage;
+        GradingResult? overridden = gradeOutcome5.Result;
+        GradeOutcome gradeOutcome6 = PathGrader.Grade(new PathGradeRequest
+        {
+            Terrain = new IndexedTriMesh(terrain.v, terrain.vc, terrain.f, terrain.fc),
+            Paths = new[] { Line(xy, z, slopeAngleDeg: 20.0) },
+        });
+        string? sharedError = gradeOutcome6.ErrorMessage;
+        GradingResult? shared = gradeOutcome6.Result;
 
         Assert.True(overridden != null, overriddenError);
         Assert.True(shared != null, sharedError);
@@ -234,8 +260,13 @@ public class LineGraderTests
                 fillSlopeAngleDeg: 20.0)
         };
 
-        GradingResult? result = PathGrader.Grade(
-            terrain.v, terrain.vc, terrain.f, terrain.fc, paths, out string? errorMessage);
+        GradeOutcome gradeOutcome7 = PathGrader.Grade(new PathGradeRequest
+        {
+            Terrain = new IndexedTriMesh(terrain.v, terrain.vc, terrain.f, terrain.fc),
+            Paths = paths,
+        });
+        string? errorMessage = gradeOutcome7.ErrorMessage;
+        GradingResult? result = gradeOutcome7.Result;
 
         Assert.True(result != null, errorMessage);
         PadInvariantAssert.AssertWatertightManifold(result!);
@@ -251,8 +282,13 @@ public class LineGraderTests
         var terrain = FlatTerrain(5.0);
         var paths = new[] { Line(new[] { -20.0, 0.0, 20.0, 0.0 }, new[] { 5.0, 5.0 }) };
 
-        GradingResult? result = PathGrader.Grade(
-            terrain.v, terrain.vc, terrain.f, terrain.fc, paths, out string? errorMessage);
+        GradeOutcome gradeOutcome8 = PathGrader.Grade(new PathGradeRequest
+        {
+            Terrain = new IndexedTriMesh(terrain.v, terrain.vc, terrain.f, terrain.fc),
+            Paths = paths,
+        });
+        string? errorMessage = gradeOutcome8.ErrorMessage;
+        GradingResult? result = gradeOutcome8.Result;
 
         Assert.True(result != null, errorMessage);
         PadInvariantAssert.AssertWatertightManifold(result!);
@@ -269,8 +305,13 @@ public class LineGraderTests
         // A 45 degree batter would reach 50 either side; cap it at 5.
         var paths = new[] { Line(new[] { -20.0, 0.0, 20.0, 0.0 }, new[] { 0.0, 0.0 }, maxDistance: 5.0) };
 
-        GradingResult? result = PathGrader.Grade(
-            terrain.v, terrain.vc, terrain.f, terrain.fc, paths, out string? errorMessage);
+        GradeOutcome gradeOutcome9 = PathGrader.Grade(new PathGradeRequest
+        {
+            Terrain = new IndexedTriMesh(terrain.v, terrain.vc, terrain.f, terrain.fc),
+            Paths = paths,
+        });
+        string? errorMessage = gradeOutcome9.ErrorMessage;
+        GradingResult? result = gradeOutcome9.Result;
 
         Assert.True(result != null, errorMessage);
 
@@ -299,8 +340,13 @@ public class LineGraderTests
                 rightEdgeXy: new[] { -20.0, -2.0, 20.0, -2.0 })
         };
 
-        GradingResult? result = PathGrader.Grade(
-            terrain.v, terrain.vc, terrain.f, terrain.fc, paths, out string? errorMessage);
+        GradeOutcome gradeOutcome10 = PathGrader.Grade(new PathGradeRequest
+        {
+            Terrain = new IndexedTriMesh(terrain.v, terrain.vc, terrain.f, terrain.fc),
+            Paths = paths,
+        });
+        string? errorMessage = gradeOutcome10.ErrorMessage;
+        GradingResult? result = gradeOutcome10.Result;
 
         Assert.Null(result);
         Assert.Contains("single-line", errorMessage, StringComparison.OrdinalIgnoreCase);
@@ -320,9 +366,14 @@ public class LineGraderTests
                 slopeAngleDeg: 45.0)
         };
 
-        GradingResult? result = PathGrader.Grade(
-            terrain.v, terrain.vc, terrain.f, terrain.fc, paths, out string? errorMessage,
-            modelTolerance: 1e-3 * scale);
+        GradeOutcome gradeOutcome11 = PathGrader.Grade(new PathGradeRequest
+        {
+            Terrain = new IndexedTriMesh(terrain.v, terrain.vc, terrain.f, terrain.fc),
+            Paths = paths,
+            ModelTolerance = 1e-3 * scale,
+        });
+        string? errorMessage = gradeOutcome11.ErrorMessage;
+        GradingResult? result = gradeOutcome11.Result;
 
         Assert.True(result != null, errorMessage);
         PadInvariantAssert.AssertWatertightManifold(result!);
@@ -364,8 +415,13 @@ public class LineGraderTests
                 outwardNormals: normals)
         };
 
-        GradingResult? result = PathGrader.Grade(
-            terrain.v, terrain.vc, terrain.f, terrain.fc, paths, out string? errorMessage);
+        GradeOutcome gradeOutcome12 = PathGrader.Grade(new PathGradeRequest
+        {
+            Terrain = new IndexedTriMesh(terrain.v, terrain.vc, terrain.f, terrain.fc),
+            Paths = paths,
+        });
+        string? errorMessage = gradeOutcome12.ErrorMessage;
+        GradingResult? result = gradeOutcome12.Result;
 
         Assert.True(result != null, errorMessage);
         PadInvariantAssert.AssertWatertightManifold(result!);
@@ -411,8 +467,13 @@ public class LineGraderTests
                 outwardNormals: normals)
         };
 
-        GradingResult? result = PathGrader.Grade(
-            terrain.v, terrain.vc, terrain.f, terrain.fc, paths, out string? errorMessage);
+        GradeOutcome gradeOutcome13 = PathGrader.Grade(new PathGradeRequest
+        {
+            Terrain = new IndexedTriMesh(terrain.v, terrain.vc, terrain.f, terrain.fc),
+            Paths = paths,
+        });
+        string? errorMessage = gradeOutcome13.ErrorMessage;
+        GradingResult? result = gradeOutcome13.Result;
 
         Assert.True(result != null, errorMessage);
         PadInvariantAssert.AssertWatertightManifold(result!);
@@ -456,8 +517,13 @@ public class LineGraderTests
             Rail(1.0, 6.0, 1.0, 26.565051177078),
         };
 
-        GradingResult? result = PathGrader.Grade(
-            terrain.v, terrain.vc, terrain.f, terrain.fc, paths, out string? errorMessage);
+        GradeOutcome gradeOutcome14 = PathGrader.Grade(new PathGradeRequest
+        {
+            Terrain = new IndexedTriMesh(terrain.v, terrain.vc, terrain.f, terrain.fc),
+            Paths = paths,
+        });
+        string? errorMessage = gradeOutcome14.ErrorMessage;
+        GradingResult? result = gradeOutcome14.Result;
 
         Assert.True(result != null, errorMessage);
         PadInvariantAssert.AssertWatertightManifold(result!);
@@ -501,10 +567,20 @@ public class LineGraderTests
                 rightCutSlopeAngleDeg: rightCutDeg,
                 outwardNormals: new[] { 0.0, -1.0, 0.0, -1.0, 0.0, -1.0 });
 
-        GradingResult? overridden = PathGrader.Grade(
-            terrain.v, terrain.vc, terrain.f, terrain.fc, new[] { Rail(45.0, 20.0) }, out string? overriddenError);
-        GradingResult? shared = PathGrader.Grade(
-            terrain.v, terrain.vc, terrain.f, terrain.fc, new[] { Rail(20.0, 0.0) }, out string? sharedError);
+        GradeOutcome gradeOutcome15 = PathGrader.Grade(new PathGradeRequest
+        {
+            Terrain = new IndexedTriMesh(terrain.v, terrain.vc, terrain.f, terrain.fc),
+            Paths = new[] { Rail(45.0, 20.0) },
+        });
+        string? overriddenError = gradeOutcome15.ErrorMessage;
+        GradingResult? overridden = gradeOutcome15.Result;
+        GradeOutcome gradeOutcome16 = PathGrader.Grade(new PathGradeRequest
+        {
+            Terrain = new IndexedTriMesh(terrain.v, terrain.vc, terrain.f, terrain.fc),
+            Paths = new[] { Rail(20.0, 0.0) },
+        });
+        string? sharedError = gradeOutcome16.ErrorMessage;
+        GradingResult? shared = gradeOutcome16.Result;
 
         Assert.True(overridden != null, overriddenError);
         Assert.True(shared != null, sharedError);

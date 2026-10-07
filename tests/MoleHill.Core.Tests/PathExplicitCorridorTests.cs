@@ -29,8 +29,13 @@ public class PathExplicitCorridorTests
                 slopeAngleDeg: 45.0)
         };
 
-        GradingResult? result = PathGrader.Grade(
-            terrain.v, terrain.vc, terrain.f, terrain.fc, paths, out string? errorMessage);
+        GradeOutcome gradeOutcome = PathGrader.Grade(new PathGradeRequest
+        {
+            Terrain = new IndexedTriMesh(terrain.v, terrain.vc, terrain.f, terrain.fc),
+            Paths = paths,
+        });
+        string? errorMessage = gradeOutcome.ErrorMessage;
+        GradingResult? result = gradeOutcome.Result;
 
         Assert.True(result != null, errorMessage);
         string diagnostics = string.Join(Environment.NewLine, result!.Diagnostics);
@@ -87,8 +92,13 @@ public class PathExplicitCorridorTests
             new PathGrader.PathDefinition(xy, z, n, width: 4.0, slopeAngleDeg: 45.0)
         };
 
-        GradingResult? result = PathGrader.Grade(
-            terrain.v, terrain.vc, terrain.f, terrain.fc, paths, out string? errorMessage);
+        GradeOutcome gradeOutcome2 = PathGrader.Grade(new PathGradeRequest
+        {
+            Terrain = new IndexedTriMesh(terrain.v, terrain.vc, terrain.f, terrain.fc),
+            Paths = paths,
+        });
+        string? errorMessage = gradeOutcome2.ErrorMessage;
+        GradingResult? result = gradeOutcome2.Result;
 
         Assert.True(result != null, errorMessage);
         string diagnostics = string.Join(Environment.NewLine, result!.Diagnostics);

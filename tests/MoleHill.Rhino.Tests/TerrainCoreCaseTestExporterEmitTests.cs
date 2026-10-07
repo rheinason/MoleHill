@@ -61,15 +61,15 @@ public class TerrainCoreCaseTestExporterEmitTests
         string source = GenerateSource(CreateWallRailRecord());
 
         // The one-sidedness of the rail, and the two arguments that pick the grading tier.
-        Assert.Contains("0.01", source);
-        Assert.Contains("true);", source);
+        Assert.Contains("ModelTolerance = 0.01", source);
+        Assert.Contains("PreferSplitKeep = true", source);
         Assert.Contains("41", source);
         Assert.Contains("53", source);
 
         // Emitted as a single PathDefinition construction, with hardConstraints still threaded.
         Assert.Contains("new PathGrader.PathDefinition(", source);
-        Assert.Contains("hardConstraints,", source);
-        Assert.Contains("out string? errorMessage,", source);
+        Assert.Contains("HardConstraints = hardConstraints,", source);
+        Assert.Contains("string? errorMessage = outcome.ErrorMessage;", source);
     }
 
     /// <summary>

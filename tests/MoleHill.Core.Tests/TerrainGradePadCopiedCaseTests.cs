@@ -1,3 +1,4 @@
+using MoleHill.Core.Engine;
 using MoleHill.Core.Grading;
 using Xunit;
 
@@ -98,14 +99,13 @@ public class TerrainGradePadCopiedCaseTests
                 stitchApronDistance: 0.5),
         };
 
-        GradingResult? result = PadGrader.Grade(
-            vertices,
-            vertices.Length / 3,
-            faces,
-            faces.Length / 3,
-            pads,
-            null,
-            out string? errorMessage);
+        GradeOutcome gradeOutcome = PadGrader.Grade(new PadGradeRequest
+        {
+            Terrain = new IndexedTriMesh(vertices, vertices.Length / 3, faces, faces.Length / 3),
+            Pads = pads,
+        });
+        string? errorMessage = gradeOutcome.ErrorMessage;
+        GradingResult? result = gradeOutcome.Result;
 
         PadInvariantAssert.AssertValidExplicitGrading(result, errorMessage, faces.Length / 3, pads);
     }

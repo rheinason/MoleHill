@@ -3464,16 +3464,16 @@ public class Terrain_1_Retaining_Wall_Rails_CopiedCaseTests
         };
         var hardConstraints = Array.Empty<ConstraintPolyline>();
 
-        GradingResult? result = PathGrader.Grade(
-            vertices,
-            vertexCount,
-            faces,
-            faceCount,
-            paths,
-            hardConstraints,
-            out string? errorMessage,
-            0.01,
-            false);
+        GradeOutcome gradeOutcome = PathGrader.Grade(new PathGradeRequest
+        {
+            Terrain = new IndexedTriMesh(vertices, vertexCount, faces, faceCount),
+            Paths = paths,
+            HardConstraints = hardConstraints,
+            ModelTolerance = 0.01,
+            PreferSplitKeep = false,
+        });
+        string? errorMessage = gradeOutcome.ErrorMessage;
+        GradingResult? result = gradeOutcome.Result;
 
         Assert.NotNull(result);
         Assert.True(string.IsNullOrWhiteSpace(errorMessage) || !errorMessage.Contains("failed", StringComparison.OrdinalIgnoreCase), errorMessage);

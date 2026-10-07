@@ -3479,9 +3479,16 @@ public class RetainingWallRailGradeContractTests
 
         var hardConstraints = System.Array.Empty<ConstraintPolyline>();
 
-        GradingResult? result = PathGrader.Grade(
-            vertices, vertexCount, faces, faceCount, paths, hardConstraints,
-            out string? errorMessage, 0.01, false);
+        GradeOutcome gradeOutcome = PathGrader.Grade(new PathGradeRequest
+        {
+            Terrain = new IndexedTriMesh(vertices, vertexCount, faces, faceCount),
+            Paths = paths,
+            HardConstraints = hardConstraints,
+            ModelTolerance = 0.01,
+            PreferSplitKeep = false,
+        });
+        string? errorMessage = gradeOutcome.ErrorMessage;
+        GradingResult? result = gradeOutcome.Result;
 
         return (result, errorMessage, faceCount, faces);
     }

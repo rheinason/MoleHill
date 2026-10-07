@@ -23,9 +23,14 @@ public sealed class SurfaceSimplifierCapturedGradedCaseTests(ITestOutputHelper o
         ConstraintPolyline[] hardConstraints = fixture.HardConstraints.Select(constraint =>
             new ConstraintPolyline(
                 constraint.Points, constraint.PointCount, constraint.IsClosed, constraint.PreserveInputElevation)).ToArray();
-        GradingResult? graded = PathGrader.Grade(
-            fixture.Vertices, fixture.VertexCount, fixture.Faces, fixture.FaceCount,
-            paths, hardConstraints, out string? gradingFailure);
+        GradeOutcome gradeOutcome = PathGrader.Grade(new PathGradeRequest
+        {
+            Terrain = new IndexedTriMesh(fixture.Vertices, fixture.VertexCount, fixture.Faces, fixture.FaceCount),
+            Paths = paths,
+            HardConstraints = hardConstraints,
+        });
+        string? gradingFailure = gradeOutcome.ErrorMessage;
+        GradingResult? graded = gradeOutcome.Result;
         Assert.NotNull(graded);
         Assert.DoesNotContain("failed", gradingFailure ?? string.Empty, StringComparison.OrdinalIgnoreCase);
 

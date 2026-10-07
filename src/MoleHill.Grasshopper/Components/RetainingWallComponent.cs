@@ -207,11 +207,13 @@ public sealed class RetainingWallComponent : RegistryTerrainComponent
         if (!ctx.TryToFlatFaces(mesh, out var faces))
             return mesh;
 
-        GradingResult? result = PathGrader.Grade(
-            vertices, mesh.Vertices.Count,
-            faces, mesh.Faces.Count,
-            railGrades.ToArray(),
-            out string? errorMessage);
+        GradeOutcome gradeOutcome = PathGrader.Grade(new PathGradeRequest
+        {
+            Terrain = new IndexedTriMesh(vertices, mesh.Vertices.Count, faces, mesh.Faces.Count),
+            Paths = railGrades.ToArray(),
+        });
+        string? errorMessage = gradeOutcome.ErrorMessage;
+        GradingResult? result = gradeOutcome.Result;
 
         if (result == null)
         {

@@ -55,8 +55,13 @@ public class PathExplicitModeTests
             slopeAngleDeg: 33.0,
             maxDistance: 0.0);
 
-        GradingResult? result = PathGrader.Grade(
-            t.v, t.vc, t.f, t.fc, new[] { path }, out string? errorMessage);
+        GradeOutcome gradeOutcome = PathGrader.Grade(new PathGradeRequest
+        {
+            Terrain = new IndexedTriMesh(t.v, t.vc, t.f, t.fc),
+            Paths = new[] { path },
+        });
+        string? errorMessage = gradeOutcome.ErrorMessage;
+        GradingResult? result = gradeOutcome.Result;
 
         Assert.NotNull(result);
         Assert.True(string.IsNullOrWhiteSpace(errorMessage) || !errorMessage.Contains("failed", StringComparison.OrdinalIgnoreCase), errorMessage);

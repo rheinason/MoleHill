@@ -9302,15 +9302,15 @@ public class RegionRemeshMultiPadCoarseTerrainTests
         };
         PadGrader.LockCurve[]? lockCurves = null;
 
-        GradingResult? result = PadGrader.Grade(
-            vertices,
-            vertexCount,
-            faces,
-            faceCount,
-            pads,
-            lockCurves,
-            out string? errorMessage,
-            modelTolerance: 0.01);
+        GradeOutcome gradeOutcome = PadGrader.Grade(new PadGradeRequest
+        {
+            Terrain = new IndexedTriMesh(vertices, vertexCount, faces, faceCount),
+            Pads = pads,
+            LockCurves = lockCurves ?? Array.Empty<PadGrader.LockCurve>(),
+            ModelTolerance = 0.01,
+        });
+        string? errorMessage = gradeOutcome.ErrorMessage;
+        GradingResult? result = gradeOutcome.Result;
 
         Assert.NotNull(result);
 

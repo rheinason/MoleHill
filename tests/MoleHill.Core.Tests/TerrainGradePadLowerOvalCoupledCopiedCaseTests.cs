@@ -1049,14 +1049,14 @@ public class TerrainGradePadLowerOvalCoupledCopiedCaseTests
         };
         PadGrader.LockCurve[]? lockCurves = null;
 
-        GradingResult? result = PadGrader.Grade(
-            vertices,
-            vertexCount,
-            faces,
-            faceCount,
-            pads,
-            lockCurves,
-            out string? errorMessage);
+        GradeOutcome gradeOutcome = PadGrader.Grade(new PadGradeRequest
+        {
+            Terrain = new IndexedTriMesh(vertices, vertexCount, faces, faceCount),
+            Pads = pads,
+            LockCurves = lockCurves ?? Array.Empty<PadGrader.LockCurve>(),
+        });
+        string? errorMessage = gradeOutcome.ErrorMessage;
+        GradingResult? result = gradeOutcome.Result;
 
         PadInvariantAssert.AssertValidExplicitGrading(result, errorMessage, faces.Length / 3, pads);
     }

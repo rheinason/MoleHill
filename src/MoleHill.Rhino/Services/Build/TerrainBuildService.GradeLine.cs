@@ -1,3 +1,4 @@
+using MoleHill.Core.Engine;
 using System.Diagnostics;
 using MoleHill.Core.Grading;
 using MoleHill.Rhino.Model;
@@ -85,19 +86,19 @@ internal sealed partial class TerrainBuildService
                 gradeLineTolerance).HasConflicts;
 
         var coreTimer = Stopwatch.StartNew();
-        GradingResult? gradingResult = PathGrader.Grade(
-            vertices,
-            vertexCount,
-            faces,
-            faceCount,
-            lines,
-            lineBarriers,
-            out string? warning,
-            gradeLineTolerance,
-            preferSplitKeep: TerrainBuildHeuristics.ShouldPreferSplitKeepGradePath(
-                mode,
-                hasInteractingHardConstraints,
-                faceCount));
+        GradeOutcome gradeOutcome = PathGrader.Grade(new PathGradeRequest
+        {
+            Terrain = new IndexedTriMesh(vertices, vertexCount, faces, faceCount),
+            Paths = lines,
+            HardConstraints = lineBarriers,
+            ModelTolerance = gradeLineTolerance,
+            PreferSplitKeep = TerrainBuildHeuristics.ShouldPreferSplitKeepGradePath(
+                            mode,
+                            hasInteractingHardConstraints,
+                            faceCount),
+        });
+        string? warning = gradeOutcome.ErrorMessage;
+        GradingResult? gradingResult = gradeOutcome.Result;
         coreTimer.Stop();
 
         if (gradingResult == null)

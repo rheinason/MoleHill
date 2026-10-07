@@ -50,20 +50,20 @@ public sealed class VariablePathWidthQualityRegressionTests
         Assert.Equal(2, resolution.MatchedEdgeCount);
         Assert.Equal(1, resolution.PartialEdgeCount);
 
-        GradingResult? constant = PathGrader.Grade(
-            vertices,
-            vertexCount,
-            faces,
-            faceCount,
-            new[] { constantPath },
-            out string? constantError);
-        GradingResult? variable = PathGrader.Grade(
-            vertices,
-            vertexCount,
-            faces,
-            faceCount,
-            new[] { variablePath },
-            out string? variableError);
+        GradeOutcome gradeOutcome = PathGrader.Grade(new PathGradeRequest
+        {
+            Terrain = new IndexedTriMesh(vertices, vertexCount, faces, faceCount),
+            Paths = new[] { constantPath },
+        });
+        string? constantError = gradeOutcome.ErrorMessage;
+        GradingResult? constant = gradeOutcome.Result;
+        GradeOutcome gradeOutcome2 = PathGrader.Grade(new PathGradeRequest
+        {
+            Terrain = new IndexedTriMesh(vertices, vertexCount, faces, faceCount),
+            Paths = new[] { variablePath },
+        });
+        string? variableError = gradeOutcome2.ErrorMessage;
+        GradingResult? variable = gradeOutcome2.Result;
 
         Assert.NotNull(constant);
         Assert.Null(constantError);
@@ -101,20 +101,20 @@ public sealed class VariablePathWidthQualityRegressionTests
             new[] { -5.7108562800071185, -1.0, 2.0, -1.0, 10.0, -2.0, 18.000000000000004, -1.0, 25.710856280007114, -1.0 },
             false);
 
-        GradingResult? constant = PathGrader.Grade(
-            vertices,
-            vertices.Length / 3,
-            faces,
-            faces.Length / 3,
-            new[] { constantPath },
-            out string? constantError);
-        GradingResult? variable = PathGrader.Grade(
-            vertices,
-            vertices.Length / 3,
-            faces,
-            faces.Length / 3,
-            new[] { variablePath },
-            out string? variableError);
+        GradeOutcome gradeOutcome3 = PathGrader.Grade(new PathGradeRequest
+        {
+            Terrain = new IndexedTriMesh(vertices, vertices.Length / 3, faces, faces.Length / 3),
+            Paths = new[] { constantPath },
+        });
+        string? constantError = gradeOutcome3.ErrorMessage;
+        GradingResult? constant = gradeOutcome3.Result;
+        GradeOutcome gradeOutcome4 = PathGrader.Grade(new PathGradeRequest
+        {
+            Terrain = new IndexedTriMesh(vertices, vertices.Length / 3, faces, faces.Length / 3),
+            Paths = new[] { variablePath },
+        });
+        string? variableError = gradeOutcome4.ErrorMessage;
+        GradingResult? variable = gradeOutcome4.Result;
 
         Assert.NotNull(constant);
         Assert.Null(constantError);
