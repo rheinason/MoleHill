@@ -12,6 +12,9 @@ using RhinoMesh = Rhino.Geometry.Mesh;
 
 namespace MoleHill.Rhino.Services;
 
+/// <summary>
+/// Smooth modifier build stage: Laplacian smoothing within boundaries, with selected Grade Path roads held as breaklines.
+/// </summary>
 internal static class SmoothStage
 {
     internal static void Run(ModifierBuildContext c)

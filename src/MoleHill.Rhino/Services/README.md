@@ -11,7 +11,7 @@ file that needs Rhino's runtime must be added to that `Exclude` at its new path.
 
 | Folder | Holds |
 |---|---|
-| `Build/` | `TerrainBuildService.*` stage partials, build snapshots and fingerprints, stage keys, tolerance/heuristics, the runtime cache, case recorders/exporters and `LargeTinDiagnostic` |
+| `Build/` | `TerrainBuildService.*` shared-helper partials, `Stages/` (one static class per modifier build stage), build snapshots and fingerprints, stage keys, tolerance/heuristics, the runtime cache, case recorders/exporters and `LargeTinDiagnostic` |
 | `Controller/` | `TerrainController.*` partials and the policies around it (debounce, superseded builds, interim publish, slow-build warning), undo snapshots, latency tracing, the Grasshopper bridge, reference-terrain resolution |
 | `Display/` | The display conduit, presentation/render meshes, colours, preview view, runtime overlay, scatter block preview, analysis preview builder, drainage preview cache |
 | `Output/` | Layer roles/templates/creation/routing, annotation styles, hatch patterns, generated-object model, block catalog and templates, per-terrain layer rename/cleanup, content visibility |
@@ -36,12 +36,25 @@ file that needs Rhino's runtime must be added to that `Exclude` at its new path.
 - `TerrainCardResultSignature` fingerprints the build results the panel's cards show. A finished build
   whose fingerprint matches the last applied one raises `StatusChanged` (status line only) instead of
   `StateChanged` (full panel refresh). Anything new a card reads from a build belongs in it.
-- `TerrainBuildService.cs` + `TerrainBuildService.*.cs` partials - the staged build orchestrator. Each
-  partial owns a stage: `.Tin`, `.MeshConstraints`, `.Grading`, `.Zones`, `.Analysis`, `.Objects`,
-  `.Scatter`, `.Sculpt` (replays the sculpt displacement field as displacement-only), `.ProjectTo`
-  (Z-only conform to one mesh or terrain, with nested boundary feathering), `.Simplify` (certified
-  deviation/count/percentage 2.5D reduction with persistent constraint-edge preservation), `.Report`; plus
-  `.Cache`, `.Fingerprints`, `.Types`. Most stages are fingerprint-cached
+- `TerrainBuildService.cs` + `TerrainBuildService.*.cs` partials - the staged build orchestrator and the
+  helpers every stage shares. The partials are the shared surface (`.Tin`, `.MeshConstraints`, `.Grading`,
+  `.GradingWindows`, `.Boundaries`, `.Cache`, `.Fingerprints`, `.Types`) plus the non-modifier content
+  stages (`.Zones`, `.Analysis`, `.Objects`, `.Scatter`, `.Report`, `.Waterflow`, `.GradientCompliance`).
+- `Stages/` - one `internal static class XxxStage` per modifier, each with a `Run(ModifierBuildContext)`
+  that its descriptor's `RunBuildStage` calls, plus the helpers only that modifier uses: `SculptStage`
+  (replays the sculpt displacement field as displacement-only), `ProjectToStage` (Z-only conform to one
+  mesh or terrain, with nested boundary feathering), `SimplifyStage` (certified deviation/count/percentage
+  2.5D reduction with persistent constraint-edge preservation), `TriangulateStage`, `AddGeometryStage`,
+  `RemeshStage`, `RetopoStage`, `SmoothStage`, `GradePadStage`, `GradePathStage`, `GradeLineStage`,
+  `InSituStairStage`, `RetainingWallStage` (+ `.Grading`). A stage reaches shared helpers only through
+  `TerrainBuildService.X`, so a stage's dependencies read off its file: `ExecuteCachedMeshStage`,
+  `ComputeModifierStageFingerprint`, `GetToleranceProfile`, `WarnMissingMesh`, `DescribeModifierMeshResult`
+  on the cache/fingerprint side; `CombineConstraints`, `CreateConstraintPolylines`, `RebuildMeshWithConstraints`,
+  `FinalizeGradingMesh`, `UpstreamBreaklines`, `TryBuildValidatedTinMesh` and the patch-summary helpers on the
+  geometry side. A helper used by exactly one stage lives in that stage's class; the moment a second stage
+  needs it, raise it to `internal static` on `TerrainBuildService` (never copy it). `StageSupport`
+  holds a cancellation check that duplicates `TerrainBuildService.ThrowIfCancellationRequested`
+  (`.Analysis.cs`); fold the two together when that file is free. Most stages are fingerprint-cached
   (`StageCacheEntry`); analysis, zones, markers, object placements, and scatter run only in
   `TerrainBuildMode.Final`. Analysis entries are per analysis id, so changing one card does not
   invalidate unrelated summaries/outputs; a fully cached analysis pass skips mesh extraction,
@@ -70,7 +83,7 @@ file that needs Rhino's runtime must be added to that `Exclude` at its new path.
   diagnostic when used.
 - Large final Grade Path stages with persistent hard constraints ask Core to try split-keep before the
   explicit carve/weld tier; smaller and unconstrained paths remain explicit-first.
-- Grade Line runs the Core path cascade at width zero (`TerrainBuildService.GradeLine.cs`). It registers
+- Grade Line runs the Core path cascade at width zero (`Stages/GradeLineStage.cs`). It registers
   a grading-topology stage key and invalidates overlapping downstream grading stages exactly as Grade
   Path does, and persists its single output polyline as a hard constraint — which is what lets stacked
   Grade Lines on offset feature lines compose into a compound cross-section.

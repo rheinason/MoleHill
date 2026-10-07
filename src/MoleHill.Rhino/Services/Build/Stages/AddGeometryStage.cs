@@ -11,6 +11,9 @@ using RhinoMesh = Rhino.Geometry.Mesh;
 
 namespace MoleHill.Rhino.Services;
 
+/// <summary>
+/// Add Geometry modifier build stage: inserts point/breakline geometry into the incoming mesh, locally when possible, by re-triangulating otherwise.
+/// </summary>
 internal static class AddGeometryStage
 {
     internal static void Run(ModifierBuildContext c)

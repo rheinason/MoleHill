@@ -11,6 +11,9 @@ using RhinoMesh = Rhino.Geometry.Mesh;
 
 namespace MoleHill.Rhino.Services;
 
+/// <summary>
+/// Grade Pad modifier build stage: flattens terrain to each pad with cut/fill batters, windowed on large terrains.
+/// </summary>
 internal static class GradePadStage
 {
     internal static void Run(ModifierBuildContext c)

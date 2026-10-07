@@ -11,6 +11,9 @@ using RhinoMesh = Rhino.Geometry.Mesh;
 
 namespace MoleHill.Rhino.Services;
 
+/// <summary>
+/// Remesh modifier build stage: dispatches to the isotropic, rebuild or local-refine remesh by the card mode.
+/// </summary>
 internal static class RemeshStage
 {
     internal static void Run(ModifierBuildContext c)

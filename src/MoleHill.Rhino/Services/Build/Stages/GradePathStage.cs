@@ -10,6 +10,9 @@ using RhinoMesh = Rhino.Geometry.Mesh;
 
 namespace MoleHill.Rhino.Services;
 
+/// <summary>
+/// Grade Path modifier build stage: corridor grading along drawn paths with width and cut/fill batters.
+/// </summary>
 internal static class GradePathStage
 {
     internal static void Run(ModifierBuildContext c)

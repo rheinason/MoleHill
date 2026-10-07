@@ -11,6 +11,9 @@ using RhinoMesh = Rhino.Geometry.Mesh;
 
 namespace MoleHill.Rhino.Services;
 
+/// <summary>
+/// Retopo modifier build stage: quad-dominant extraction on the incoming mesh and the flow-cross preview overlay.
+/// </summary>
 internal static class RetopoStage
 {
     internal static void Run(ModifierBuildContext c)

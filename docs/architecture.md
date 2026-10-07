@@ -714,8 +714,10 @@ TIN production path's faster Triangle.NET-native adjacency.
 
 `TerrainBuildService.Build(snapshot, runtimeCache, mode)` runs stages, most behind a per-stage
 fingerprint cache (`runtimeCache.StageEntries`); decomposed into `TerrainBuildService.*.cs` partials
-(`.Tin`, `.MeshConstraints`, `.Grading`, `.Zones`, `.Analysis`, `.Objects`, `.Scatter`, `.Sculpt`, `.ProjectTo`, `.Simplify`,
-plus `.Cache`, `.Fingerprints`, `.Types`, `.Report`). Order: TIN → modifiers (smooth/remesh/sculpt/grade
+holding the shared helpers (`.Tin`, `.MeshConstraints`, `.Grading`, `.Cache`, `.Fingerprints`, `.Types`) and the
+non-modifier stages (`.Zones`, `.Analysis`, `.Objects`, `.Scatter`, `.Report`). Each modifier's build step is its
+own `Services/Build/Stages/XxxStage` static class (`Run(ModifierBuildContext)`, called from the descriptor's
+`RunBuildStage`); stages call shared helpers as `TerrainBuildService.X`. Order: TIN → modifiers (smooth/remesh/sculpt/grade
 pad/grade path/grade line/project-to/simplify) → analyses → annotations → zones → markers → object placements → scatter → report tables. **The generated-output
 stages run only in `TerrainBuildMode.Final` and are fingerprint-cached**. Analyses and annotations are each
 cached independently by id; zones, markers, objects, and scatter retain stage-level entries. Both families

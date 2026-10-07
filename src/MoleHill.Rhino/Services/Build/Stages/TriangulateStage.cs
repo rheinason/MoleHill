@@ -15,6 +15,9 @@ using RhinoMesh = Rhino.Geometry.Mesh;
 
 namespace MoleHill.Rhino.Services;
 
+/// <summary>
+/// Triangulate modifier build stage: builds the base TIN from points, breaklines, contours and DEM sources.
+/// </summary>
 internal static class TriangulateStage
 {
     internal static void Run(ModifierBuildContext c)

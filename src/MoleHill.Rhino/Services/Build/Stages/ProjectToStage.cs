@@ -7,6 +7,9 @@ using RhinoMesh = Rhino.Geometry.Mesh;
 
 namespace MoleHill.Rhino.Services;
 
+/// <summary>
+/// Project To modifier build stage: Z-only conform of the incoming mesh to a target mesh or terrain, with boundary feathering.
+/// </summary>
 internal static class ProjectToStage
 {
     internal static void Run(ModifierBuildContext c)

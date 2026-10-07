@@ -9,6 +9,9 @@ using RhinoMesh = Rhino.Geometry.Mesh;
 
 namespace MoleHill.Rhino.Services;
 
+/// <summary>
+/// In-Situ Stair modifier build stage: carves stair treads into the incoming mesh and records the stair summaries.
+/// </summary>
 internal static class InSituStairStage
 {
     internal static void Run(ModifierBuildContext c)
