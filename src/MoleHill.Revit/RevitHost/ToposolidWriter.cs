@@ -55,10 +55,10 @@ internal static class ToposolidWriter
 
         using var group = new TransactionGroup(document, "Write MoleHill Toposolids");
         using var transaction = new Transaction(document, "Write MoleHill Toposolids");
-        group.Start();
+        RequireStatus(group.Start(), TransactionStatus.Started, "start the transaction group");
         try
         {
-            transaction.Start();
+            RequireStatus(transaction.Start(), TransactionStatus.Started, "start the transaction");
             foreach (PlannedToposolid plan in request.Plans)
             {
                 Toposolid host = WriteHost(request, plan, hosts, schema, out Toposolid? replaced, result.Report);
@@ -79,19 +79,37 @@ internal static class ToposolidWriter
                     document.Delete(replaced.Id);
             }
 
-            transaction.Commit();
-            group.Assimilate();
+            // Commit reports a failure-handling rollback (or deferred processing) by status, not by exception.
+            // Results are only returned once both steps say they completed.
+            RequireStatus(transaction.Commit(), TransactionStatus.Committed, "commit the transaction");
+            RequireStatus(group.Assimilate(), TransactionStatus.Committed, "assimilate the transaction group");
         }
         catch
         {
-            if (transaction.GetStatus() == TransactionStatus.Started)
-                transaction.RollBack();
-            if (group.HasStarted())
-                group.RollBack();
+            // Cleanup must never replace the original error.
+            try
+            {
+                if (transaction.GetStatus() == TransactionStatus.Started)
+                    transaction.RollBack();
+                if (group.HasStarted())
+                    group.RollBack();
+            }
+            catch
+            {
+                // Revit already rolled back or is still processing failures; nothing more to undo here.
+            }
+
             throw;
         }
 
         return result;
+    }
+
+    private static void RequireStatus(TransactionStatus actual, TransactionStatus expected, string step)
+    {
+        if (actual != expected)
+            throw new InvalidOperationException(
+                $"Revit could not {step} (status {actual}). No Toposolids were written; the document is unchanged.");
     }
 
     private static Toposolid WriteHost(
