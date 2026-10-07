@@ -1,4 +1,5 @@
 using System.Text;
+using MoleHill.Core.IO;
 using MoleHill.Core.Interop;
 using MoleHill.Core.Reporting;
 using MoleHill.Rhino.Model;

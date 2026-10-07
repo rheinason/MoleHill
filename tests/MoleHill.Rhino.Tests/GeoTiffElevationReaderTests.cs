@@ -1,4 +1,5 @@
 using BitMiracle.LibTiff.Classic;
+using MoleHill.Core.IO;
 using MoleHill.Rhino.Services;
 using Xunit;
 

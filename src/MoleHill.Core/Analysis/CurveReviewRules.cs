@@ -1,5 +1,5 @@
 // Defines configurable curve-review rule modes, settings and evaluated results.
-namespace MoleHill.Rhino.Services;
+namespace MoleHill.Core.Analysis;
 
 internal enum CurveReviewRuleMode
 {

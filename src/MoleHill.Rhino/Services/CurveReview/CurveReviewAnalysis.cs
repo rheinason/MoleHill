@@ -1,6 +1,7 @@
 // Samples an inspected curve into a station profile with grade, kink, event, radius and terrain diagnostics.
 using Rhino;
 using Rhino.Geometry;
+using MoleHill.Core.Analysis;
 
 namespace MoleHill.Rhino.Services;
 

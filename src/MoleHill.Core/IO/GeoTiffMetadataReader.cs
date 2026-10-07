@@ -1,4 +1,4 @@
-namespace MoleHill.Rhino.Services;
+namespace MoleHill.Core.IO;
 
 internal static class GeoTiffMetadataReader
 {
