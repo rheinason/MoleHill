@@ -34,7 +34,7 @@ public class SurfaceRemesherCreaseTests
         (double[] verts, int[] faces) = RoofMesh();
         double cos30 = Math.Cos(30.0 * Math.PI / 180.0);
 
-        List<(int a, int b)> creases = SurfaceRemesher.DetectCreaseEdges(verts, faces, faces.Length / 3, cos30);
+        List<(int a, int b)> creases = MeshFeatureDetection.DetectCreaseEdges(verts, faces, faces.Length / 3, cos30);
 
         Assert.NotEmpty(creases);
         // Every detected crease edge must lie ON the ridge (both endpoints at y == 0).
@@ -50,7 +50,7 @@ public class SurfaceRemesherCreaseTests
     {
         var verts = new double[] { -1, -1, 0, 1, -1, 0, 1, 1, 0, -1, 1, 0 };
         var faces = new[] { 0, 1, 2, 0, 2, 3 };
-        Assert.Empty(SurfaceRemesher.DetectCreaseEdges(verts, faces, 2, Math.Cos(20.0 * Math.PI / 180.0)));
+        Assert.Empty(MeshFeatureDetection.DetectCreaseEdges(verts, faces, 2, Math.Cos(20.0 * Math.PI / 180.0)));
     }
 
     private static int RidgeEdgeCount(SurfaceRemesher.Result r)
