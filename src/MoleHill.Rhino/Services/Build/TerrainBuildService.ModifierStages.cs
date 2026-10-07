@@ -49,22 +49,4 @@ internal sealed partial class TerrainBuildService
             c.ShouldCancel);
         c.CurrentMeshFingerprint = fingerprint;
     }
-
-    internal static void RunGradePathStage(ModifierBuildContext c)
-    {
-        var gradePath = (GradePathModifierDefinition)c.Modifier;
-        c.UsedStageKeys.Add(TerrainStageKey.CreateGradingTopology(c.StageKey, "Path"));
-        RhinoMesh? input = c.CurrentMesh;
-        c.CurrentMesh = ExecuteCachedMeshStage(
-            c.Build,
-            c.RuntimeCache,
-            c.StageKey,
-            "Grade Path",
-            ComputeModifierStageFingerprint(c.Snapshot, c.Terrain, gradePath, c.CurrentMeshFingerprint),
-            () => input == null ? WarnMissingMesh(c.Build, gradePath.Label) : ApplyGradePath(c.Snapshot, c.Terrain, input, gradePath, c.Build, c.RuntimeCache, c.Index, c.StageKey, c.Mode),
-            result => DescribeModifierMeshResult(gradePath.Label, result),
-            out ulong fingerprint,
-            c.ShouldCancel);
-        c.CurrentMeshFingerprint = fingerprint;
-    }
 }

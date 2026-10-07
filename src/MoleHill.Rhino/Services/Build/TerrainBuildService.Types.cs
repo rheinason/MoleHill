@@ -102,27 +102,6 @@ internal sealed partial class TerrainBuildService
         public TimeSpan ConstraintElapsed { get; init; }
     }
 
-    private sealed class ResolvedGradePathInputs
-    {
-        public required PathGrader.PathDefinition[] Paths { get; init; }
-
-        public required ConstraintPolyline[] Constraints { get; init; }
-
-        public required double SuggestedEdgeLength { get; init; }
-
-        public IReadOnlyList<VariablePathWidthResolver.Diagnostic> WidthDiagnostics { get; init; } =
-            Array.Empty<VariablePathWidthResolver.Diagnostic>();
-
-        /// <summary>Crossings of a hard constraint the paths were stopped at before their constraints were made.</summary>
-        public int BarrierStops { get; init; }
-
-        /// <summary>Path pieces inside a closed hard constraint (a graded pad), left to it.</summary>
-        public int PiecesLeftToConstraints { get; init; }
-
-        /// <summary>How long <c>PathGrader.CreateConstraints</c> took; see the Pad equivalent.</summary>
-        public TimeSpan ConstraintElapsed { get; init; }
-    }
-
     private readonly record struct ConstraintSignature(
         ulong Fingerprint,
         int PointCount,

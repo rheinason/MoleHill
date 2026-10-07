@@ -51,37 +51,6 @@ internal sealed partial class TerrainBuildService
         return outcome.Result;
     }
 
-    private static GradingResult? GradePathsWindowed(
-        double[] vertices,
-        int vertexCount,
-        int[] faces,
-        int faceCount,
-        PathGrader.PathDefinition[] paths,
-        IReadOnlyList<ConstraintPolyline> hardConstraints,
-        double tolerance,
-        bool preferSplitKeep,
-        TerrainRuntimeCache runtimeCache,
-        string memoKey,
-        List<string> diagnostics,
-        out string? warning)
-    {
-        runtimeCache.GradingWindowMemos.TryGetValue(memoKey, out GradingWindows.Memo? previous);
-        var next = new GradingWindows.Memo();
-        GradeOutcome outcome = PathGrader.GradeWindowed(
-            new PathGradeRequest
-            {
-                Terrain = new IndexedTriMesh(vertices, vertexCount, faces, faceCount),
-                Paths = paths,
-                HardConstraints = hardConstraints,
-                ModelTolerance = tolerance,
-                PreferSplitKeep = preferSplitKeep
-            },
-            previous, next, diagnostics);
-        runtimeCache.GradingWindowMemos[memoKey] = next;
-        warning = outcome.ErrorMessage;
-        return outcome.Result;
-    }
-
     /// <summary>Faces of reach around a rail, in local face sizes: the quality patch grows up to six rings.</summary>
     private const double WallInsertRings = 8.0;
 
