@@ -118,6 +118,7 @@ internal sealed class TerrainDisplayState
 
     public HashSet<RuntimeOverlayOwner> VisibleDiagnosticOwners { get; } = new();
 
+    private BoundingBox? _contentBounds;
     private BoundingBox? _previewBounds;
     private BoundingBox? _previousPreviewBounds;
 
@@ -129,6 +130,7 @@ internal sealed class TerrainDisplayState
     /// </summary>
     public void InvalidatePreviewBounds()
     {
+        _contentBounds = null;
         _previewBounds = null;
         TerrainPresentationMesh.Invalidate(PreviewTerrainMesh);
         TerrainPresentationMesh.Invalidate(TerrainMesh);
@@ -147,6 +149,7 @@ internal sealed class TerrainDisplayState
     /// </summary>
     public void InvalidateOverlayBounds()
     {
+        _contentBounds = null;
         _previewBounds = null;
         InvalidateRenderContent();
     }
@@ -183,11 +186,14 @@ internal sealed class TerrainDisplayState
     }
 
     /// <summary>
-    /// Union of the extents this state draws through the display conduit (terrain mesh, generated
-    /// objects, scatter instance origins). Cached once — the state is immutable after a build and is
-    /// swapped atomically. The conduit feeds this to <c>CalculateBoundingBox</c> so Rhino invalidates
-    /// and redraws the scatter region on incremental operations; without it, partial redraws can leave
-    /// ghost pixels of the previous frame (looks like duplicate instances, though bake is unaffected).
+    /// Folds the predecessor state's extents into this state's preview bounds, so the first redraw
+    /// after a swap still invalidates the region the old state drew (without it, partial redraws can
+    /// leave ghost pixels of the previous frame). Pass the predecessor's <see cref="GetContentBounds"/>,
+    /// never its <see cref="GetPreviewBounds"/>: those already hold <em>its</em> predecessor and its
+    /// margin, so chaining them made the box ratchet ~15% larger on every build and never shrink. After
+    /// a long editing session it reached thousands of times the terrain's size, Rhino fitted the
+    /// perspective clipping planes to it, and the whole viewport went blank whenever the terrain was
+    /// shown — until Reset Build dropped the state.
     /// </summary>
     public void IncludePreviousPreviewBounds(BoundingBox bounds)
     {
@@ -208,15 +214,44 @@ internal sealed class TerrainDisplayState
         _previewBounds = null;
     }
 
+    /// <summary>
+    /// What the conduit feeds to <c>CalculateBoundingBox</c>: this state's own extents, the extents of
+    /// the state it replaced, and a margin for instances and text that reach past their origin. Cached
+    /// once — the state is immutable after a build and is swapped atomically.
+    /// </summary>
     public BoundingBox GetPreviewBounds(global::Rhino.RhinoDoc? doc = null)
     {
         if (_previewBounds.HasValue)
             return _previewBounds.Value;
 
-        var bounds = BoundingBox.Empty;
-        var definitionBoundsCache = new Dictionary<string, BoundingBox?>(StringComparer.Ordinal);
+        BoundingBox bounds = GetContentBounds(doc);
         if (_previousPreviewBounds.HasValue)
             bounds.Union(_previousPreviewBounds.Value);
+
+        if (bounds.IsValid)
+        {
+            // Scatter instances (and markers/text) extend beyond their origin point; pad the box so
+            // their full footprint stays inside the invalidated/redrawn region.
+            double diagonal = bounds.Diagonal.Length;
+            double margin = Math.Max(diagonal * 0.05, 1.0);
+            bounds.Inflate(margin);
+        }
+
+        _previewBounds = bounds;
+        return bounds;
+    }
+
+    /// <summary>
+    /// The extents this state itself draws through the display conduit (terrain mesh, generated objects,
+    /// scatter instances, visible overlays), without a margin and without any predecessor's extents.
+    /// </summary>
+    public BoundingBox GetContentBounds(global::Rhino.RhinoDoc? doc = null)
+    {
+        if (_contentBounds.HasValue)
+            return _contentBounds.Value;
+
+        var bounds = BoundingBox.Empty;
+        var definitionBoundsCache = new Dictionary<string, BoundingBox?>(StringComparer.Ordinal);
         UnionMesh(ref bounds, PreviewTerrainMesh);
         UnionMesh(ref bounds, TerrainMesh);
 
@@ -242,16 +277,7 @@ internal sealed class TerrainDisplayState
                 bounds.Union(overlayBounds);
         }
 
-        if (bounds.IsValid)
-        {
-            // Scatter instances (and markers/text) extend beyond their origin point; pad the box so
-            // their full footprint stays inside the invalidated/redrawn region.
-            double diagonal = bounds.Diagonal.Length;
-            double margin = Math.Max(diagonal * 0.05, 1.0);
-            bounds.Inflate(margin);
-        }
-
-        _previewBounds = bounds;
+        _contentBounds = bounds;
         return bounds;
     }
 

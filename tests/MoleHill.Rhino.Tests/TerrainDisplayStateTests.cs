@@ -1,5 +1,6 @@
 using MoleHill.Rhino.Model;
 using MoleHill.Rhino.Services;
+using Rhino.Geometry;
 using Xunit;
 
 namespace MoleHill.Rhino.Tests;
@@ -115,6 +116,48 @@ public class TerrainDisplayStateTests
         });
 
         Assert.False(state.HasRenderableContent(terrain));
+    }
+
+    [Fact]
+    public void GetPreviewBounds_ManySuccessiveBuilds_DoesNotRatchet()
+    {
+        // The controller seeds each new state with its predecessor's extents. Chaining the inflated
+        // preview bounds grew the box ~15% per build until Rhino's clipping planes blanked the viewport.
+        TerrainDisplayState previous = CreateStateWithGuide(new Point3d(0, 0, 0), new Point3d(100, 100, 10));
+        double firstDiagonal = previous.GetPreviewBounds().Diagonal.Length;
+
+        for (int build = 0; build < 200; build++)
+        {
+            TerrainDisplayState next = CreateStateWithGuide(new Point3d(0, 0, 0), new Point3d(100, 100, 10));
+            next.IncludePreviousPreviewBounds(previous.GetContentBounds());
+            previous = next;
+        }
+
+        Assert.Equal(firstDiagonal, previous.GetPreviewBounds().Diagonal.Length, 6);
+    }
+
+    [Fact]
+    public void GetPreviewBounds_AfterSwap_StillCoversPredecessorExtents()
+    {
+        TerrainDisplayState previous = CreateStateWithGuide(new Point3d(-500, -500, 0), new Point3d(-400, -400, 0));
+        TerrainDisplayState next = CreateStateWithGuide(new Point3d(0, 0, 0), new Point3d(100, 100, 0));
+
+        next.IncludePreviousPreviewBounds(previous.GetContentBounds());
+
+        BoundingBox bounds = next.GetPreviewBounds();
+        Assert.True(bounds.Contains(new Point3d(-500, -500, 0)));
+        Assert.True(bounds.Contains(new Point3d(100, 100, 0)));
+    }
+
+    private static TerrainDisplayState CreateStateWithGuide(Point3d from, Point3d to)
+    {
+        var state = new TerrainDisplayState();
+        state.RuntimeOverlays.Add(new RuntimeOverlayItem
+        {
+            Channel = RuntimeOverlayChannel.Guide,
+            Primitives = { RuntimeOverlayPrimitive.Polyline(new[] { from, to }) }
+        });
+        return state;
     }
 
     [Fact]
