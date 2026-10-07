@@ -6,6 +6,26 @@ already tracked in [cleanup-plan.md](cleanup-plan.md) and the
 [2026-09-19 review](codebase-review-and-implementation-plan-2026-09-19.md) (R06, R07, R11, R12) are
 referenced rather than restated.
 
+## Status (2026-10-07, branch `refactor-2026-10`)
+
+| # | Item | State |
+|---|---|---|
+| 1 | Face-cut kernel | **Done.** `Grading/FaceCut/`; the inserter also got the splitter's three repairs (clockwise winding, corner protection, degenerate faces), each with a test. |
+| 2 | `IndexedTriMesh` | **Started.** Type added; the count-less Rhino extraction is gone; the graders take it. Remaining: the other Core entry points (remeshers, splitter, analyzers). |
+| 3 | `ConstraintPolyline` top-level | **Done.** |
+| 4 | `Geometry2D` kernel | **Done.** 35 private copies removed, `PadGrader.Spatial` wrappers retired, `Geometry2DGuardTests` stops new copies. GH/Shared copies remain (can't see Core internals). |
+| 7 | Grader request objects | **Done.** `PadGradeRequest` / `PathGradeRequest` / `GradeOutcome` are the only entry points. |
+| 8 | Shared conversion layer | **Partial.** Small Rhino/GH helper copies merged; moving `RhinoGeometryConversions` to Shared (quad-mesh parity in GH) is open. |
+| 10 | Services sub-folders | **Done.** |
+| 15 | Shared test meshes | **Done** for Core tests (`TestMeshes`). |
+| 17 | Stray temp files | **Done.** |
+| 5, 6, 9, 11–14, 16 | | Open. |
+
+Verified: full solution 0 warnings; Core/Rhino/GH tests green at every commit; `hosted-perf` at `de95bf6`
+reported no regression and finished meshes identical to the baseline in every phase. **Not run:** the
+WallGradeProbe 1,152-case sweep, which is the acceptance for the inserter repairs on degenerate and
+clockwise faces.
+
 **The bar for every step is unchanged:** `dotnet build` clean, `./validate.ps1 managed` green, and
 `./validate.ps1 hosted-perf` for anything on a build path. Do not touch `src/TriangleNet/**`.
 
