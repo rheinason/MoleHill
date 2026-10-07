@@ -96,23 +96,6 @@ internal sealed partial class TerrainBuildService
             BuildRetopoFieldOverlay(c.Snapshot, c.Terrain, input, retopo, c.Build);
     }
 
-    internal static void RunSculptStage(ModifierBuildContext c)
-    {
-        var sculpt = (SculptModifierDefinition)c.Modifier;
-        RhinoMesh? input = c.CurrentMesh;
-        c.CurrentMesh = ExecuteCachedMeshStage(
-            c.Build,
-            c.RuntimeCache,
-            c.StageKey,
-            "Sculpt",
-            ComputeModifierStageFingerprint(c.Snapshot, c.Terrain, sculpt, c.CurrentMeshFingerprint),
-            () => input == null ? WarnMissingMesh(c.Build, sculpt.Label) : ApplySculpt(c.Snapshot, c.Terrain, input, sculpt, c.Build, c.ShouldCancel),
-            result => DescribeModifierMeshResult(sculpt.Label, result),
-            out ulong fingerprint,
-            c.ShouldCancel);
-        c.CurrentMeshFingerprint = fingerprint;
-    }
-
     internal static void RunSmoothStage(ModifierBuildContext c)
     {
         var smooth = (SmoothModifierDefinition)c.Modifier;

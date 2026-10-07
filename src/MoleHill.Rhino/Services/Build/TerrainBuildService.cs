@@ -357,7 +357,7 @@ internal sealed partial class TerrainBuildService
         });
     }
 
-    private static RhinoMesh? ExecuteCachedMeshStage(
+    internal static RhinoMesh? ExecuteCachedMeshStage(
         TerrainBuildResult build,
         TerrainRuntimeCache runtimeCache,
         string stageKey,
@@ -591,7 +591,7 @@ internal sealed partial class TerrainBuildService
         build.RecordTiming(stageName, timer.Elapsed, detailFactory());
     }
 
-    private static RhinoMesh? WarnMissingMesh(TerrainBuildResult build, string modifierLabel)
+    internal static RhinoMesh? WarnMissingMesh(TerrainBuildResult build, string modifierLabel)
     {
         build.Diagnostics.Add($"{modifierLabel} requires a terrain mesh generated earlier in the stack.");
         return null;
@@ -625,7 +625,7 @@ internal sealed partial class TerrainBuildService
             : $"{detail}; cache hit";
     }
 
-    private static ulong ComputeModifierStageFingerprint(
+    internal static ulong ComputeModifierStageFingerprint(
         TerrainBuildSnapshot snapshot,
         TerrainDefinition terrain,
         ModifierDefinition modifier,
@@ -856,7 +856,7 @@ internal sealed partial class TerrainBuildService
         return build.ObjectPlacements.Sum(group => group.Placements.Count);
     }
 
-    private static string DescribeModifierMeshResult(string label, RhinoMesh? mesh)
+    internal static string DescribeModifierMeshResult(string label, RhinoMesh? mesh)
     {
         string meshDetail = DescribeMesh(mesh) ?? "no mesh";
         return string.IsNullOrWhiteSpace(label)

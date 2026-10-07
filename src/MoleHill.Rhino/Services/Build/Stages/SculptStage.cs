@@ -1,5 +1,6 @@
 using MoleHill.Core.Sculpting;
 using MoleHill.Rhino.Model;
+using MoleHill.Rhino.Registry;
 using MoleHill.Shared;
 using RhinoMesh = Rhino.Geometry.Mesh;
 
@@ -10,8 +11,25 @@ namespace MoleHill.Rhino.Services;
 /// The field is a pure function of world XY, so the stage is fully stackable — upstream changes
 /// (re-triangulation, grading edits) flow through and the sculpt re-applies on top verbatim.
 /// </summary>
-internal sealed partial class TerrainBuildService
+internal static class SculptStage
 {
+    internal static void Run(ModifierBuildContext c)
+    {
+        var sculpt = (SculptModifierDefinition)c.Modifier;
+        RhinoMesh? input = c.CurrentMesh;
+        c.CurrentMesh = TerrainBuildService.ExecuteCachedMeshStage(
+            c.Build,
+            c.RuntimeCache,
+            c.StageKey,
+            "Sculpt",
+            TerrainBuildService.ComputeModifierStageFingerprint(c.Snapshot, c.Terrain, sculpt, c.CurrentMeshFingerprint),
+            () => input == null ? TerrainBuildService.WarnMissingMesh(c.Build, sculpt.Label) : ApplySculpt(c.Snapshot, c.Terrain, input, sculpt, c.Build, c.ShouldCancel),
+            result => TerrainBuildService.DescribeModifierMeshResult(sculpt.Label, result),
+            out ulong fingerprint,
+            c.ShouldCancel);
+        c.CurrentMeshFingerprint = fingerprint;
+    }
+
     private static RhinoMesh ApplySculpt(
         TerrainBuildSnapshot snapshot,
         TerrainDefinition terrain,
