@@ -23,8 +23,8 @@ public class ContentTypeSwitchGuardTests
     private static readonly Dictionary<string, string> Exemptions = new()
     {
         // Being reshaped by the concurrent persistence work; exempt by name until that lands.
-        ["src/MoleHill.Rhino/Services/Persistence/TerrainSerializer.cs"] = "JSON discriminator and legacy-shape handling; being moved behind the descriptor by the persistence work.",
-        ["src/MoleHill.Rhino/Services/Persistence/TerrainUnitScaler.cs"] = "Per-type unit scaling; being moved onto the descriptors by the persistence work.",
+        ["src/MoleHill.Rhino/Services/Persistence/TerrainSchemaMigrations.cs"] = "A versioned migration rewrites a historical document shape, which is about concrete types by definition.",
+        ["src/MoleHill.Rhino/Services/Persistence/TerrainUnitScaler.cs"] = "Scaling is attribute-driven; which summary owners get length-scaled sample fields is the one explicit per-type choice left.",
 
         ["src/MoleHill.Rhino/Services/Output/LayerRoutingMigration.cs"] = "One-time migration of saved documents; names the historical shape of each type.",
         ["src/MoleHill.Rhino/Services/Display/TerrainAnalysisPreviewBuilder.cs"] = "Preview colouring switches on the analysis that colours the mesh; a preview hook on AnalysisTypeDescriptor is the next step.",
