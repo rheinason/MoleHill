@@ -82,13 +82,10 @@ internal sealed partial class TerrainBuildService
 
         var splitTimer = Stopwatch.StartNew();
         var result = MeshAreaSplitter.SplitPreservingTopology(
-            vertices,
             // The extracted arrays describe a NORMALIZED copy of the mesh (quads split, identical
             // vertices combined, degenerate faces culled), so its counts are the only ones that match
             // them - mesh.Vertices.Count/mesh.Faces.Count belong to the un-normalized original.
-            vertexCount,
-            faces,
-            faceCount,
+            new IndexedTriMesh(vertices, vertexCount, faces, faceCount),
             boundaries,
             tolerance,
             out var splitWarning,

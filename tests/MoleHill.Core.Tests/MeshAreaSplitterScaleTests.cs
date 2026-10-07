@@ -28,8 +28,7 @@ public class MeshAreaSplitterScaleTests
     public void SplitPreservingTopology_LargeFaceContainingTinyZone_CompletesAndClassifiesInterior()
     {
         var result = MeshAreaSplitter.SplitPreservingTopology(
-            new[] { 0.0, 0.0, 0.0, 10000.0, 0.0, 0.0, 0.0, 10000.0, 0.0 }, 3,
-            new[] { 0, 1, 2 }, 1,
+            new IndexedTriMesh(new[] { 0.0, 0.0, 0.0, 10000.0, 0.0, 0.0, 0.0, 10000.0, 0.0 }, 3, new[] { 0, 1, 2 }, 1),
             new[] { new MeshAreaSplitter.AreaBoundary(new[] { 1.0, 1.0, 2.0, 1.0, 2.0, 2.0, 1.0, 2.0 }, 4) },
             1e-6, out var error);
         Assert.True(result != null, error);
@@ -79,7 +78,7 @@ public class MeshAreaSplitterScaleTests
             vertices[i * 3 + 1] = points[i].Y;
             faces[i * 3] = faces[i * 3 + 1] = faces[i * 3 + 2] = i;
         }
-        var result = MeshAreaSplitter.Classify(vertices, points.Count, faces, points.Count, areas, 0, out var error);
+        var result = MeshAreaSplitter.Classify(new IndexedTriMesh(vertices, points.Count, faces, points.Count), areas, 0, out var error);
         Assert.True(result != null, error);
         for (int i = 0; i < points.Count; i++)
         {

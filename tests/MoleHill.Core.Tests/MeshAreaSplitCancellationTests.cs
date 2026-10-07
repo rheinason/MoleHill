@@ -60,10 +60,7 @@ public class MeshAreaSplitCancellationTests
     {
         BuildGrid(side, out double[] vertices, out int vertexCount, out int[] faces, out int faceCount);
         return MeshAreaTopologySplitter.Split(
-            vertices,
-            vertexCount,
-            faces,
-            faceCount,
+            new IndexedTriMesh(vertices, vertexCount, faces, faceCount),
             RingAreas(side, 256),
             1e-6,
             out errorMessage,

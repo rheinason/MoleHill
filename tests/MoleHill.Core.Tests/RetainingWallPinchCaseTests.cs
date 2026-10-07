@@ -70,8 +70,13 @@ public class RetainingWallPinchCaseTests
 
         AngleSummary before = Measure(vertices, faces);
         bool inserted = MeshConstraintTopologyInserter.TryInsert(
-            vertices, vertices.Length / 3, faces, faces.Length / 3, rails, 0.01,
-            out double[] outputVertices, out _, out int[] outputFaces, out _, out string? error);
+            new IndexedTriMesh(vertices, vertices.Length / 3, faces, faces.Length / 3),
+            rails,
+            0.01,
+            out IndexedTriMesh insertedMesh,
+            out string? error);
+        double[] outputVertices = insertedMesh.Vertices;
+        int[] outputFaces = insertedMesh.Faces;
         Assert.True(inserted, error);
         Assert.Equal(37, outputVertices.Length / 3);
         Assert.Equal(58, outputFaces.Length / 3);

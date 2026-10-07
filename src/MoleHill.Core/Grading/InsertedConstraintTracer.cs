@@ -181,13 +181,11 @@ internal static class InsertedConstraintTracer
     /// <summary>Traces each constraint, keeping the drawn line where the trace does not complete.</summary>
     public static List<ConstraintPolyline> TraceAll(
         IReadOnlyList<ConstraintPolyline> constraints,
-        double[] vertices,
-        int vertexCount,
-        int[] faces,
-        int faceCount,
+        IndexedTriMesh terrain,
         double tolerance,
         out int traced)
     {
+        (double[] vertices, int vertexCount, int[] faces, int faceCount) = terrain;
         traced = 0;
         var result = new List<ConstraintPolyline>(constraints.Count);
         if (constraints.Count == 0)

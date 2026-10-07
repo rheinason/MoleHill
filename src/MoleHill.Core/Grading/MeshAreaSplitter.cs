@@ -90,10 +90,7 @@ public static class MeshAreaSplitter
     /// Split a mesh into areas defined by closed boundary curves.
     /// </summary>
     public static SplitResult? Split(
-        double[] vertices,
-        int vertexCount,
-        int[] faces,
-        int faceCount,
+        IndexedTriMesh mesh,
         AreaBoundary[] areas,
         IReadOnlyList<ConstraintPolyline> persistentConstraints,
         double tolerance,
@@ -101,6 +98,8 @@ public static class MeshAreaSplitter
         double minAngle,
         out string? errorMessage)
     {
+        (double[] vertices, int vertexCount, int[] faces, int faceCount) = mesh;
+
         errorMessage = null;
 
         if (areas.Length == 0)
@@ -140,10 +139,7 @@ public static class MeshAreaSplitter
         var finalVerts = remeshResult.Vertices;
         var finalFaces = remeshResult.Faces;
         return Classify(
-            finalVerts,
-            finalVerts.Length / 3,
-            finalFaces,
-            finalFaces.Length / 3,
+            IndexedTriMesh.FromArrays(finalVerts, finalFaces),
             areas,
             tolerance,
             out _);
@@ -154,20 +150,14 @@ public static class MeshAreaSplitter
     /// terrain triangles everywhere the boundaries do not touch.
     /// </summary>
     public static SplitResult? SplitPreservingTopology(
-        double[] vertices,
-        int vertexCount,
-        int[] faces,
-        int faceCount,
+        IndexedTriMesh mesh,
         AreaBoundary[] areas,
         double boundaryTolerance,
         out string? errorMessage,
         Func<bool>? shouldCancel = null)
     {
         return MeshAreaTopologySplitter.Split(
-            vertices,
-            vertexCount,
-            faces,
-            faceCount,
+            mesh,
             areas,
             boundaryTolerance,
             out errorMessage,
@@ -175,20 +165,14 @@ public static class MeshAreaSplitter
     }
 
     internal static SplitResult? SplitPreservingTopology(
-        double[] vertices,
-        int vertexCount,
-        int[] faces,
-        int faceCount,
+        IndexedTriMesh mesh,
         AreaBoundary[] areas,
         double boundaryTolerance,
         out string? errorMessage,
         MeshAreaTopologySplitter.PerformanceTimings performanceTimings)
     {
         return MeshAreaTopologySplitter.Split(
-            vertices,
-            vertexCount,
-            faces,
-            faceCount,
+            mesh,
             areas,
             boundaryTolerance,
             out errorMessage,
@@ -196,14 +180,13 @@ public static class MeshAreaSplitter
     }
 
     public static SplitResult? Classify(
-        double[] vertices,
-        int vertexCount,
-        int[] faces,
-        int faceCount,
+        IndexedTriMesh mesh,
         AreaBoundary[] areas,
         double boundaryTolerance,
         out string? errorMessage)
     {
+        (double[] vertices, int vertexCount, int[] faces, int faceCount) = mesh;
+
         errorMessage = null;
 
         if (areas.Length == 0)

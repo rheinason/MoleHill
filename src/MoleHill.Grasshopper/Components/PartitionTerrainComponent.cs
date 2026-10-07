@@ -173,10 +173,7 @@ public sealed class PartitionTerrainComponent : GH_Component
         }
 
         MeshAreaSplitter.SplitResult? result = MeshAreaSplitter.SplitPreservingTopology(
-            vertices,
-            extracted.VertexCount,
-            faces,
-            extracted.FaceCount,
+            new IndexedTriMesh(vertices, extracted.VertexCount, faces, extracted.FaceCount),
             boundaries.ToArray(),
             tolerance,
             out string? splitWarning);

@@ -56,7 +56,7 @@ public class MeshAreaTopologySplitterDegenerateFaceTests
         var faces = new[] { 0, 1, 2, 0, 2, 3, 4, 5, 6 };
 
         var result = MeshAreaSplitter.SplitPreservingTopology(
-            verts.ToArray(), verts.Count / 3, faces, faces.Length / 3,
+            new IndexedTriMesh(verts.ToArray(), verts.Count / 3, faces, faces.Length / 3),
             new[] { Square(20, 20, 80, 80) }, tolerance, out string? warning);
 
         Assert.True(result != null, $"{shape} face failed the whole split: {warning}");
@@ -89,7 +89,7 @@ public class MeshAreaTopologySplitterDegenerateFaceTests
         var faces = new[] { 0, 1, 2, 0, 2, 3 };
 
         var result = MeshAreaSplitter.SplitPreservingTopology(
-            verts, 4, faces, 2,
+            new IndexedTriMesh(verts, 4, faces, 2),
             new[] { new MeshAreaSplitter.AreaBoundary(dense.ToArray(), dense.Count / 2) },
             tolerance, out string? warning);
 
@@ -111,7 +111,7 @@ public class MeshAreaTopologySplitterDegenerateFaceTests
         try
         {
             result = MeshAreaSplitter.SplitPreservingTopology(
-                verts, 4, faces, 2, new[] { Square(20, 20, 80, 80) }, tolerance, out warning);
+                new IndexedTriMesh(verts, 4, faces, 2), new[] { Square(20, 20, 80, 80) }, tolerance, out warning);
         }
         finally
         {
@@ -154,7 +154,7 @@ public class MeshAreaTopologySplitterDegenerateFaceTests
         try
         {
             result = MeshAreaSplitter.SplitPreservingTopology(
-                verts.ToArray(), verts.Count / 3, faces.ToArray(), faces.Count / 3,
+                new IndexedTriMesh(verts.ToArray(), verts.Count / 3, faces.ToArray(), faces.Count / 3),
                 new[] { Square(15, 15, 25, 25) }, tolerance, out warning);
         }
         finally

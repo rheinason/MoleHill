@@ -168,15 +168,7 @@ internal static class InSituStairStage
             .Select(static reference => reference.SupportSurface)
             .ToArray();
         var batchGradeTimer = Stopwatch.StartNew();
-        var batchResult = SurfaceStripGrader.Grade(
-            currentVertices,
-            currentVertexCount,
-            currentFaces,
-            currentFaceCount,
-            stairSurfaces,
-            build.PersistentHardConstraints,
-            out var batchGradingWarning,
-            out var batchProfile);
+        var batchResult = SurfaceStripGrader.Grade(new IndexedTriMesh(currentVertices, currentVertexCount, currentFaces, currentFaceCount), stairSurfaces, build.PersistentHardConstraints, out var batchGradingWarning, out var batchProfile);
         batchGradeTimer.Stop();
         build.RecordTiming(
             "In-Situ Stair Surface Grade",

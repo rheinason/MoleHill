@@ -369,8 +369,9 @@ public static class WallGradeProbe
         if (!RhinoGeometryConversions.TryExtractMeshData(gradedMesh, out double[] v1, out int vc1, out int[] f1, out int fc1, out extractError))
             throw new InvalidOperationException(extractError);
         bool inserted = Core.Grading.MeshConstraintTopologyInserter.TryInsert(
-            v1, vc1, f1, fc1, prepared, tolerance,
-            out double[] v2, out int vc2, out int[] f2, out int fc2, out string? insertError);
+            new IndexedTriMesh(v1, vc1, f1, fc1), prepared, tolerance,
+            out IndexedTriMesh insertedMesh, out string? insertError);
+        (double[] v2, int vc2, int[] f2, int fc2) = insertedMesh;
         var before = MeshTopologyValidator.AnalyzeBoundaryGraph(f1, fc1);
         var after = inserted ? MeshTopologyValidator.AnalyzeBoundaryGraph(f2, fc2) : before;
 

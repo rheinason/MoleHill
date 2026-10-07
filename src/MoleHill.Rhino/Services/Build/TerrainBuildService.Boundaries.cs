@@ -1,3 +1,4 @@
+using MoleHill.Core.Engine;
 using MoleHill.Core.Grading;
 using MoleHill.Core.Processing;
 using MoleHill.Rhino.Model;
@@ -159,9 +160,7 @@ internal sealed partial class TerrainBuildService
         List<MeshAreaSplitter.AreaBoundary> hides = ResolveBoundaryAreas(snapshot, owner.HideBoundaries, tolerance, "Hide", build);
         List<MeshAreaSplitter.AreaBoundary> shows = ResolveBoundaryAreas(snapshot, owner.ShowBoundaries, tolerance, "Show", build);
 
-        TerrainBoundaryTrimmer.Result? result = TerrainBoundaryTrimmer.Trim(
-            vertices, vertices.Length / 3, faces, faces.Length / 3,
-            outer, hides, shows, tolerance, out string? error, shouldCancel);
+        TerrainBoundaryTrimmer.Result? result = TerrainBoundaryTrimmer.Trim(new IndexedTriMesh(vertices, vertices.Length / 3, faces, faces.Length / 3), outer, hides, shows, tolerance, out string? error, shouldCancel);
         if (result == null)
         {
             build.Diagnostics.Add(error ?? "Terrain boundary trim failed.");

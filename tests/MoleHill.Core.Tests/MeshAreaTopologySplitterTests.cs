@@ -13,20 +13,17 @@ public class MeshAreaTopologySplitterTests
     public void SplitPreservingTopology_BoundaryOnExistingEdges_LeavesMeshTopologyUnchanged()
     {
         var result = MeshAreaSplitter.SplitPreservingTopology(
-            new[]
+            new IndexedTriMesh(new[]
             {
                 0.0, 0.0, 0.0,
                 2.0, 0.0, 0.0,
                 2.0, 2.0, 0.0,
                 0.0, 2.0, 0.0
-            },
-            4,
-            new[]
+            }, 4, new[]
             {
                 0, 1, 2,
                 0, 2, 3
-            },
-            2,
+            }, 2),
             new[]
             {
                 new MeshAreaSplitter.AreaBoundary(
@@ -50,10 +47,7 @@ public class MeshAreaTopologySplitterTests
         var vertices = CreateGridVertices(4, 4, 2.0);
         var faces = CreateGridFaces(4, 4);
         var result = MeshAreaSplitter.SplitPreservingTopology(
-            vertices,
-            vertices.Length / 3,
-            faces,
-            faces.Length / 3,
+            IndexedTriMesh.FromArrays(vertices, faces),
             new[]
             {
                 new MeshAreaSplitter.AreaBoundary(
@@ -79,20 +73,17 @@ public class MeshAreaTopologySplitterTests
     public void SplitPreservingTopology_CreatesSharedExactCutAcrossAdjacentTriangles()
     {
         var result = MeshAreaSplitter.SplitPreservingTopology(
-            new[]
+            new IndexedTriMesh(new[]
             {
                 0.0, 0.0, 0.0,
                 2.0, 0.0, 0.0,
                 2.0, 2.0, 0.0,
                 0.0, 2.0, 0.0
-            },
-            4,
-            new[]
+            }, 4, new[]
             {
                 0, 1, 2,
                 0, 2, 3
-            },
-            2,
+            }, 2),
             new[]
             {
                 new MeshAreaSplitter.AreaBoundary(
@@ -113,20 +104,17 @@ public class MeshAreaTopologySplitterTests
     public void SplitPreservingTopology_SharedCutOnSlopedSurface_KeepsSingleInterpolatedBoundary()
     {
         var result = MeshAreaSplitter.SplitPreservingTopology(
-            new[]
+            new IndexedTriMesh(new[]
             {
                 0.0, 0.0, 0.0,
                 2.0, 0.0, 2.0,
                 2.0, 2.0, 4.0,
                 0.0, 2.0, 2.0
-            },
-            4,
-            new[]
+            }, 4, new[]
             {
                 0, 1, 2,
                 0, 2, 3
-            },
-            2,
+            }, 2),
             new[]
             {
                 new MeshAreaSplitter.AreaBoundary(
@@ -177,10 +165,7 @@ public class MeshAreaTopologySplitterTests
             4);
 
         var result = MeshAreaSplitter.SplitPreservingTopology(
-            vertices,
-            4,
-            faces,
-            2,
+            new IndexedTriMesh(vertices, 4, faces, 2),
             new[] { outer, inner },
             0.001,
             out var errorMessage);
@@ -232,7 +217,7 @@ public class MeshAreaTopologySplitterTests
         };
 
         var result = MeshAreaSplitter.SplitPreservingTopology(
-            vertices, vertices.Length / 3, faces, faces.Length / 3, areas, 0.001, out string? errorMessage);
+            IndexedTriMesh.FromArrays(vertices, faces), areas, 0.001, out string? errorMessage);
 
         Assert.True(result != null, errorMessage);
         Assert.Null(errorMessage);
@@ -311,7 +296,7 @@ public class MeshAreaTopologySplitterTests
             }
 
             var result = MeshAreaSplitter.SplitPreservingTopology(
-                vertices, vertices.Length / 3, faces, faces.Length / 3, areas.ToArray(), 0.001, out _);
+                IndexedTriMesh.FromArrays(vertices, faces), areas.ToArray(), 0.001, out _);
             if (result == null)
                 continue;
 

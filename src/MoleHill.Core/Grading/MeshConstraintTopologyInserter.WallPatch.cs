@@ -43,8 +43,8 @@ internal static partial class MeshConstraintTopologyInserter
         // Build the elevation reference before introducing Steiner points. The production inserter
         // preserves upstream Z and the host subsequently lifts rail vertices. Sampling that lifted
         // surface extends the same wall shape to points inside the refined band.
-        if (!TryInsert(vertices, vertices.Length / 3, faces, faceCount, constraints, tolerance,
-                out var referenceVertices, out _, out var referenceFaces, out _, out error)) return false;
+        if (!TryInsertCore(vertices, vertices.Length / 3, faces, faceCount, constraints, Array.Empty<double>(), tolerance,
+                out var referenceVertices, out _, out var referenceFaces, out _, out _, out error)) return false;
         for (int i = 0; i < referenceVertices.Length; i += 3)
         {
             var p = new Point2D(referenceVertices[i], referenceVertices[i + 1]);

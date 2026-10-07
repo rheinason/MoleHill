@@ -95,21 +95,17 @@ public static partial class PathGrader
         // the rest of the terrain intact. This preserves the surrounding mesh density and avoids the
         // whole-terrain re-triangulation (radial spokes) of the constraint-first rebuild.
         if (!MeshConstraintTopologyInserter.TryInsert(
-                vertices,
-                vertexCount,
-                faces,
-                faceCount,
+                new IndexedTriMesh(vertices, vertexCount, faces, faceCount),
                 pathConstraintSet.Constraints,
                 tolerance,
-                out double[] topologyVertices,
-                out int topologyVertexCount,
-                out int[] topologyFaces,
-                out int topologyFaceCount,
+                out IndexedTriMesh topology,
                 out string? topologyError))
         {
             errorMessage = topologyError ?? "Topology-preserving path insertion failed.";
             return null;
         }
+
+        (double[] topologyVertices, int topologyVertexCount, int[] topologyFaces, int topologyFaceCount) = topology;
 
         double[] gradedVertices = ApplyGradingZ(
             topologyVertices,

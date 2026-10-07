@@ -273,10 +273,8 @@ internal static class AddGeometryStage
         // snapped them through nearby vertices. Traced on the inserter's double-precision output, before
         // the Rhino mesh rounds it. A line that does not trace keeps its drawn form, as before.
         double traceTolerance = toleranceProfile.RemeshConstraintTolerance;
-        newHardConstraints = InsertedConstraintTracer.TraceAll(
-            newHardConstraints, inserted.Vertices, inserted.VertexCount, inserted.Faces, inserted.FaceCount, traceTolerance, out int tracedHard);
-        newElevationConstraints = InsertedConstraintTracer.TraceAll(
-            newElevationConstraints, inserted.Vertices, inserted.VertexCount, inserted.Faces, inserted.FaceCount, traceTolerance, out int tracedElevation);
+        newHardConstraints = InsertedConstraintTracer.TraceAll(newHardConstraints, new IndexedTriMesh(inserted.Vertices, inserted.VertexCount, inserted.Faces, inserted.FaceCount), traceTolerance, out int tracedHard);
+        newElevationConstraints = InsertedConstraintTracer.TraceAll(newElevationConstraints, new IndexedTriMesh(inserted.Vertices, inserted.VertexCount, inserted.Faces, inserted.FaceCount), traceTolerance, out int tracedElevation);
         int untraced = (newHardConstraints.Count + newElevationConstraints.Count) - (tracedHard + tracedElevation);
         if (untraced > 0)
             build.Diagnostics.Add($"{label}: {untraced} inserted line(s) could not be traced through the terrain and were kept as drawn.");

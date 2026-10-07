@@ -17,7 +17,7 @@ internal static partial class MeshConstraintTopologyInserter
     /// they land in; the caller assigns constraint elevations afterwards.
     /// </summary>
     /// <remarks>
-    /// This is the fallback for <see cref="TryInsert(double[], int, int[], int, IReadOnlyList{ConstraintPolyline}, double, out double[], out int, out int[], out int, out string?)"/>,
+    /// This is the fallback for <see cref="TryInsert(IndexedTriMesh, IReadOnlyList{ConstraintPolyline}, double, out IndexedTriMesh, out string?)"/>,
     /// which triangulates each crossed face on its own and must agree with every neighbour about where their
     /// shared edge was cut. When an upstream conform has left a vertex a millimetre off a neighbouring edge
     /// (the area splitter snaps up to <see cref="MeshAreaTopologySplitter.ConformSnapToleranceFactor"/> times

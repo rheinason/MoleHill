@@ -2,6 +2,7 @@ using System.Diagnostics;
 using MoleHill.Core.Grading;
 using Xunit;
 using Xunit.Abstractions;
+using MoleHill.Core.Engine;
 
 namespace MoleHill.Core.Tests;
 
@@ -90,7 +91,7 @@ public class MeshAreaTopologySplitterScalingBenchmarkTests(ITestOutputHelper out
 
         var stopwatch = Stopwatch.StartNew();
         MeshAreaSplitter.SplitResult? result = MeshAreaSplitter.SplitPreservingTopology(
-            vertices, vertexCount, faces, faceCount, areas, 1e-6, out string? warning, timings);
+            new IndexedTriMesh(vertices, vertexCount, faces, faceCount), areas, 1e-6, out string? warning, timings);
         stopwatch.Stop();
 
         long allocatedAfter = GC.GetTotalAllocatedBytes(precise: true);

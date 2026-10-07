@@ -89,19 +89,14 @@ public class GradingWindowsTests(ITestOutputHelper output)
         GradingWindows.Outcome RunRing(double[] vertices, GradingWindows.Memo? previous, out GradingWindows.Memo next)
         {
             next = new GradingWindows.Memo();
-            return GradingWindows.Grade(
-                vertices, vertices.Length / 3, f, f.Length / 3, reach, margin: 2.0,
-                (double[] wv, int wvc, int[] wf, int wfc, int[] items, (double, double, double, double) _, out string? error, out IReadOnlyList<OutputPolyline> failurePolylines, out IReadOnlyList<GradingDiagnostic> failureDiagnostics) =>
+            return GradingWindows.Grade(new IndexedTriMesh(vertices, vertices.Length / 3, f, f.Length / 3), reach, margin: 2.0, (double[] wv, int wvc, int[] wf, int wfc, int[] items, (double, double, double, double) _, out string? error, out IReadOnlyList<OutputPolyline> failurePolylines, out IReadOnlyList<GradingDiagnostic> failureDiagnostics) =>
                 {
                     graded++;
                     error = null;
                     failurePolylines = Array.Empty<OutputPolyline>();
                     failureDiagnostics = Array.Empty<GradingDiagnostic>();
                     return new GradingResult(wv, wvc, wf, wfc, 0, 0, Array.Empty<double>(), 0);
-                },
-                (_, _, _, _, _, _, _) => { },
-                previous,
-                next);
+                }, (_, _, _, _, _, _, _) => { }, previous, next);
         }
 
         GradingWindows.Outcome cold = RunRing(v, previous: null, out GradingWindows.Memo memo);
@@ -141,9 +136,7 @@ public class GradingWindowsTests(ITestOutputHelper output)
         var road = new double[] { 10.3, 7.1, 95.2, 88.6, 190.4, 12.9 };
         var reach = new[] { new GradingWindows.Reach(road, 3, Closed: false, Filled: false, Radius: radius) };
         int pinched = -1, loops = -1;
-        GradingWindows.Grade(
-            v, v.Length / 3, f, f.Length / 3, reach, margin: 0.7,
-            (double[] wv, int wvc, int[] wf, int wfc, int[] items, (double, double, double, double) _, out string? error, out IReadOnlyList<OutputPolyline> failurePolylines, out IReadOnlyList<GradingDiagnostic> failureDiagnostics) =>
+        GradingWindows.Grade(new IndexedTriMesh(v, v.Length / 3, f, f.Length / 3), reach, margin: 0.7, (double[] wv, int wvc, int[] wf, int wfc, int[] items, (double, double, double, double) _, out string? error, out IReadOnlyList<OutputPolyline> failurePolylines, out IReadOnlyList<GradingDiagnostic> failureDiagnostics) =>
             {
                 pinched = PinchedRimVertices(wf, wfc);
                 loops = Topology(wf, wfc).Loops;
@@ -151,10 +144,7 @@ public class GradingWindowsTests(ITestOutputHelper output)
                 failurePolylines = Array.Empty<OutputPolyline>();
                 failureDiagnostics = Array.Empty<GradingDiagnostic>();
                 return new GradingResult(wv, wvc, wf, wfc, 0, 0, Array.Empty<double>(), 0);
-            },
-            (_, _, _, _, _, _, _) => { },
-            previous: null,
-            new GradingWindows.Memo());
+            }, (_, _, _, _, _, _, _) => { }, previous: null, new GradingWindows.Memo());
 
         Assert.Equal(0, pinched);
         Assert.Equal(1, loops);
@@ -231,9 +221,7 @@ public class GradingWindowsTests(ITestOutputHelper output)
         int windowFaces = -1, loops = -1;
         double[] vertices = v.ToArray();
         int[] faces = f.ToArray();
-        GradingWindows.Grade(
-            vertices, vertices.Length / 3, faces, faces.Length / 3, reach, margin: 2.0,
-            (double[] wv, int wvc, int[] wf, int wfc, int[] items, (double, double, double, double) _, out string? error, out IReadOnlyList<OutputPolyline> failurePolylines, out IReadOnlyList<GradingDiagnostic> failureDiagnostics) =>
+        GradingWindows.Grade(new IndexedTriMesh(vertices, vertices.Length / 3, faces, faces.Length / 3), reach, margin: 2.0, (double[] wv, int wvc, int[] wf, int wfc, int[] items, (double, double, double, double) _, out string? error, out IReadOnlyList<OutputPolyline> failurePolylines, out IReadOnlyList<GradingDiagnostic> failureDiagnostics) =>
             {
                 windowFaces = wfc;
                 loops = Topology(wf, wfc).Loops;
@@ -241,10 +229,7 @@ public class GradingWindowsTests(ITestOutputHelper output)
                 failurePolylines = Array.Empty<OutputPolyline>();
                 failureDiagnostics = Array.Empty<GradingDiagnostic>();
                 return new GradingResult(wv, wvc, wf, wfc, 0, 0, Array.Empty<double>(), 0);
-            },
-            (_, _, _, _, _, _, _) => { },
-            previous: null,
-            new GradingWindows.Memo());
+            }, (_, _, _, _, _, _, _) => { }, previous: null, new GradingWindows.Memo());
 
         output.WriteLine($"window {windowFaces} faces, {loops} loop(s)");
         Assert.Equal(1, loops);
@@ -420,9 +405,7 @@ public class GradingWindowsTests(ITestOutputHelper output)
             new GradingWindows.Reach(p.XyVertices, p.VertexCount, Closed: true, Filled: true, Radius: p.MaxDistance + p.StitchApronDistance)).ToList();
 
         next = new GradingWindows.Memo();
-        return GradingWindows.Grade(
-            v, v.Length / 3, f, f.Length / 3, reach, margin: 3.0,
-            (double[] wv, int wvc, int[] wf, int wfc, int[] items, (double, double, double, double) _, out string? error, out IReadOnlyList<OutputPolyline> failurePolylines, out IReadOnlyList<GradingDiagnostic> failureDiagnostics) =>
+        return GradingWindows.Grade(new IndexedTriMesh(v, v.Length / 3, f, f.Length / 3), reach, margin: 3.0, (double[] wv, int wvc, int[] wf, int wfc, int[] items, (double, double, double, double) _, out string? error, out IReadOnlyList<OutputPolyline> failurePolylines, out IReadOnlyList<GradingDiagnostic> failureDiagnostics) =>
             {
                 failureDiagnostics = Array.Empty<GradingDiagnostic>();
                 GradeOutcome gradeOutcome2 = PadGrader.Grade(new PadGradeRequest
@@ -435,8 +418,7 @@ public class GradingWindowsTests(ITestOutputHelper output)
                 error = gradeOutcome2.ErrorMessage;
                 failurePolylines = gradeOutcome2.FailureOutputPolylines;
                 return gradeOutcome2.Result;
-            },
-            (items, _, _, _, _, low, high) =>
+            }, (items, _, _, _, _, low, high) =>
             {
                 foreach (int i in items)
                 {
@@ -446,9 +428,7 @@ public class GradingWindowsTests(ITestOutputHelper output)
                         high.Add(d);
                     }
                 }
-            },
-            previous,
-            next);
+            }, previous, next);
     }
 
     private static PadGrader.PadBoundary[] Pads(double z) => new[] { Pad(40, 40, 70, 70, z), Pad(130, 40, 160, 70, z) };

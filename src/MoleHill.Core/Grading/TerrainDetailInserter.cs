@@ -97,12 +97,13 @@ internal static class TerrainDetailInserter
 
         // 2. Topology: split only the faces the new data touches.
         if (!MeshConstraintTopologyInserter.TryInsert(
-                vertices, vertexCount, faces, faceCount, newConstraints, keptXy, tolerance,
-                out double[] outVertices, out int outVertexCount, out int[] outFaces, out int outFaceCount,
-                out MeshConstraintTopologyInserter.PointPlacement placement, out error))
+                new IndexedTriMesh(vertices, vertexCount, faces, faceCount), newConstraints, keptXy, tolerance,
+                out IndexedTriMesh inserted, out MeshConstraintTopologyInserter.PointPlacement placement, out error))
         {
             return false;
         }
+
+        (double[] outVertices, int outVertexCount, int[] outFaces, int outFaceCount) = inserted;
 
         // 3. Wall vertices keep their elevation: on an existing hard constraint, or on a steep face.
         //    Steepness is read before any lift, when new vertices still sit on their parent face's plane.

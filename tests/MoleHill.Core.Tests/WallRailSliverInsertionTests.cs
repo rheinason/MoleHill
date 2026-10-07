@@ -31,8 +31,13 @@ public class WallRailSliverInsertionTests
         var before = MeshTopologyValidator.AnalyzeBoundaryGraph(SliverFanFaces, faceCount);
 
         bool inserted = MeshConstraintTopologyInserter.TryInsert(
-            SliverFanVertices, vertexCount, SliverFanFaces, faceCount, new[] { SliverFanRail }, Tolerance,
-            out _, out _, out int[] faces, out int outputFaceCount, out string? error);
+            new IndexedTriMesh(SliverFanVertices, vertexCount, SliverFanFaces, faceCount),
+            new[] { SliverFanRail },
+            Tolerance,
+            out IndexedTriMesh insertedMesh,
+            out string? error);
+        int[] faces = insertedMesh.Faces;
+        int outputFaceCount = insertedMesh.FaceCount;
 
         Assert.True(inserted, error);
         var after = MeshTopologyValidator.AnalyzeBoundaryGraph(faces, outputFaceCount);

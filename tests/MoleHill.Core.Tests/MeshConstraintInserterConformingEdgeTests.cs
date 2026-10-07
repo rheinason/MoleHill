@@ -124,9 +124,15 @@ public class MeshConstraintInserterConformingEdgeTests
         var constraints = new[] { Polyline(x0, y0, 0.0, x1, y1, 0.0) };
 
         bool inserted = MeshConstraintTopologyInserter.TryInsert(
-            vertices, vertexCount, faces, faceCount, constraints, 1e-6,
-            out double[] outVertices, out int outVertexCount,
-            out int[] outFaces, out int outFaceCount, out string? error);
+            new IndexedTriMesh(vertices, vertexCount, faces, faceCount),
+            constraints,
+            1e-6,
+            out IndexedTriMesh insertedMesh,
+            out string? error);
+        double[] outVertices = insertedMesh.Vertices;
+        int outVertexCount = insertedMesh.VertexCount;
+        int[] outFaces = insertedMesh.Faces;
+        int outFaceCount = insertedMesh.FaceCount;
 
         Assert.True(inserted, $"{because}: insertion failed: {error}");
         Assert.Equal(
@@ -152,9 +158,15 @@ public class MeshConstraintInserterConformingEdgeTests
         foreach (var (faces, label) in new[] { (forward, "forward"), (reversed, "reversed") })
         {
             bool inserted = MeshConstraintTopologyInserter.TryInsert(
-                vertices, vertexCount, faces, 2, constraints, 1e-6,
-                out double[] outVertices, out int outVertexCount,
-                out int[] outFaces, out int outFaceCount, out string? error);
+                new IndexedTriMesh(vertices, vertexCount, faces, 2),
+                constraints,
+                1e-6,
+                out IndexedTriMesh insertedMesh2,
+                out string? error);
+            double[] outVertices = insertedMesh2.Vertices;
+            int outVertexCount = insertedMesh2.VertexCount;
+            int[] outFaces = insertedMesh2.Faces;
+            int outFaceCount = insertedMesh2.FaceCount;
 
             Assert.True(inserted, $"{label}: {error}");
             Assert.Equal(0, CountTJunctions(outVertices, outVertexCount, outFaces, outFaceCount));
@@ -172,9 +184,15 @@ public class MeshConstraintInserterConformingEdgeTests
         var constraints = new[] { Polyline(0.9, 0.1, 0.0, 0.1, 0.9, 0.0) };
 
         bool inserted = MeshConstraintTopologyInserter.TryInsert(
-            vertices, vertexCount, faces, faceCount, constraints, 1e-6,
-            out double[] outVertices, out int outVertexCount,
-            out int[] outFaces, out int outFaceCount, out string? error);
+            new IndexedTriMesh(vertices, vertexCount, faces, faceCount),
+            constraints,
+            1e-6,
+            out IndexedTriMesh insertedMesh3,
+            out string? error);
+        double[] outVertices = insertedMesh3.Vertices;
+        int outVertexCount = insertedMesh3.VertexCount;
+        int[] outFaces = insertedMesh3.Faces;
+        int outFaceCount = insertedMesh3.FaceCount;
 
         Assert.True(inserted, error);
         Assert.Equal(0, CountTJunctions(outVertices, outVertexCount, outFaces, outFaceCount));

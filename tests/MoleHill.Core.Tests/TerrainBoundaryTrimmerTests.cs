@@ -21,10 +21,7 @@ public class TerrainBoundaryTrimmerTests
     {
         var outer = Boundary(0.25, 0.25, 1.75, 1.75);
 
-        TerrainBoundaryTrimmer.Result result = TerrainBoundaryTrimmer.Trim(
-            Vertices, 4, Faces, 2, outer,
-            Array.Empty<MeshAreaSplitter.AreaBoundary>(), Array.Empty<MeshAreaSplitter.AreaBoundary>(),
-            1e-8, out string? error) !;
+        TerrainBoundaryTrimmer.Result result = TerrainBoundaryTrimmer.Trim(new IndexedTriMesh(Vertices, 4, Faces, 2), outer, Array.Empty<MeshAreaSplitter.AreaBoundary>(), Array.Empty<MeshAreaSplitter.AreaBoundary>(), 1e-8, out string? error) !;
 
         Assert.Null(error);
         Assert.True(result.FaceCount > 0);
@@ -42,11 +39,7 @@ public class TerrainBoundaryTrimmerTests
     [Fact]
     public void Trim_HideAndShow_ShowRestoresNestedIsland()
     {
-        TerrainBoundaryTrimmer.Result result = TerrainBoundaryTrimmer.Trim(
-            Vertices, 4, Faces, 2, null,
-            new[] { Boundary(0.25, 0.25, 1.75, 1.75) },
-            new[] { Boundary(0.75, 0.75, 1.25, 1.25) },
-            1e-8, out string? error) !;
+        TerrainBoundaryTrimmer.Result result = TerrainBoundaryTrimmer.Trim(new IndexedTriMesh(Vertices, 4, Faces, 2), null, new[] { Boundary(0.25, 0.25, 1.75, 1.75) }, new[] { Boundary(0.75, 0.75, 1.25, 1.25) }, 1e-8, out string? error) !;
 
         Assert.Null(error);
         Assert.True(result.ShowRestoredAnyFace);
@@ -65,10 +58,7 @@ public class TerrainBoundaryTrimmerTests
     [Fact]
     public void Trim_HideEverything_ReturnsEmptyResult()
     {
-        TerrainBoundaryTrimmer.Result result = TerrainBoundaryTrimmer.Trim(
-            Vertices, 4, Faces, 2, null,
-            new[] { Boundary(-1, -1, 3, 3) }, Array.Empty<MeshAreaSplitter.AreaBoundary>(),
-            1e-8, out string? error) !;
+        TerrainBoundaryTrimmer.Result result = TerrainBoundaryTrimmer.Trim(new IndexedTriMesh(Vertices, 4, Faces, 2), null, new[] { Boundary(-1, -1, 3, 3) }, Array.Empty<MeshAreaSplitter.AreaBoundary>(), 1e-8, out string? error) !;
 
         Assert.Null(error);
         Assert.Equal(0, result.FaceCount);
@@ -97,10 +87,7 @@ public class TerrainBoundaryTrimmerTests
             }
         }
 
-        TerrainBoundaryTrimmer.Result? result = TerrainBoundaryTrimmer.Trim(
-            vertices.ToArray(), vertices.Count / 3, faces.ToArray(), faces.Count / 3,
-            null, new[] { Boundary(0.3, 0.3, 0.7, 0.7) }, Array.Empty<MeshAreaSplitter.AreaBoundary>(),
-            0.0125, out string? error);
+        TerrainBoundaryTrimmer.Result? result = TerrainBoundaryTrimmer.Trim(new IndexedTriMesh(vertices.ToArray(), vertices.Count / 3, faces.ToArray(), faces.Count / 3), null, new[] { Boundary(0.3, 0.3, 0.7, 0.7) }, Array.Empty<MeshAreaSplitter.AreaBoundary>(), 0.0125, out string? error);
 
         Assert.NotNull(result);
         Assert.Null(error);

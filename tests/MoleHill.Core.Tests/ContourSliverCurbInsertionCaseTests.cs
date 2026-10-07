@@ -20,8 +20,15 @@ public sealed class ContourSliverCurbInsertionCaseTests
     public void TryInsert_CurbAcrossContourSlivers_NeverReturnsAFoldedMesh()
     {
         bool inserted = MeshConstraintTopologyInserter.TryInsert(
-            Vertices, Vertices.Length / 3, Faces, Faces.Length / 3, [Curb()], Tolerance,
-            out double[] vertices, out int vertexCount, out int[] faces, out int faceCount, out string? error);
+            new IndexedTriMesh(Vertices, Vertices.Length / 3, Faces, Faces.Length / 3),
+            [Curb()],
+            Tolerance,
+            out IndexedTriMesh insertedMesh,
+            out string? error);
+        double[] vertices = insertedMesh.Vertices;
+        int vertexCount = insertedMesh.VertexCount;
+        int[] faces = insertedMesh.Faces;
+        int faceCount = insertedMesh.FaceCount;
 
         Assert.True(inserted, error);
         Assert.True(vertexCount > Vertices.Length / 3, "The curb must split the faces it crosses.");
@@ -52,8 +59,14 @@ public sealed class ContourSliverCurbInsertionCaseTests
         var before = MeshTopologyValidator.AnalyzeBoundaryGraph(FarCornerFaces, FarCornerFaces.Length / 3);
         ConstraintPolyline curb = new([-1.4930085585699615, -0.7861726487189813, 7.399371621116108, 1.9195150946215733, 1.3006149102836844, 7.399371621116108], 2, IsClosed: false, PreserveInputElevation: true);
         bool inserted = MeshConstraintTopologyInserter.TryInsert(
-            FarCornerVertices, FarCornerVertices.Length / 3, FarCornerFaces, FarCornerFaces.Length / 3, [curb], Tolerance,
-            out _, out int vertexCount, out int[] faces, out int faceCount, out string? error);
+            new IndexedTriMesh(FarCornerVertices, FarCornerVertices.Length / 3, FarCornerFaces, FarCornerFaces.Length / 3),
+            [curb],
+            Tolerance,
+            out IndexedTriMesh insertedMesh2,
+            out string? error);
+        int vertexCount = insertedMesh2.VertexCount;
+        int[] faces = insertedMesh2.Faces;
+        int faceCount = insertedMesh2.FaceCount;
 
         Assert.True(inserted, error);
         Assert.True(vertexCount > FarCornerVertices.Length / 3);

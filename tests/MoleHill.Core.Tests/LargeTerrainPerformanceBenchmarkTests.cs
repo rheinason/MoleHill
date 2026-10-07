@@ -310,10 +310,7 @@ public class LargeTerrainPerformanceBenchmarkTests(ITestOutputHelper output)
             long allocatedBefore = GC.GetTotalAllocatedBytes(precise: true);
             var stopwatch = Stopwatch.StartNew();
             MeshAreaSplitter.SplitResult? result = MeshAreaTopologySplitter.Split(
-                vertices,
-                vertexCount,
-                faces,
-                faceCount,
+                new IndexedTriMesh(vertices, vertexCount, faces, faceCount),
                 areas,
                 boundaryTolerance: 1e-6,
                 out string? errorMessage);

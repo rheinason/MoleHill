@@ -851,8 +851,7 @@ internal static partial class RetainingWallStage
         // A little past the conform's own reach, so a point snapped right at the limit still traces.
         double traceRadius = GradingTolerances.ModelToleranceOrDefault(tolerance) *
             MeshAreaTopologySplitter.ConformSnapToleranceFactor * 1.25;
-        List<ConstraintPolyline> traced = InsertedConstraintTracer.TraceAll(
-            wallConstraints, vertices, vertexCount, faces, faceCount, traceRadius, out int tracedCount);
+        List<ConstraintPolyline> traced = InsertedConstraintTracer.TraceAll(wallConstraints, new IndexedTriMesh(vertices, vertexCount, faces, faceCount), traceRadius, out int tracedCount);
         if (tracedCount != wallConstraints.Count)
             return false;
 
@@ -972,18 +971,20 @@ internal static partial class RetainingWallStage
         int outputFaceCount = outputFaces.Length / 3;
         var inputBoundary = MeshTopologyValidator.AnalyzeBoundaryGraph(faces, faceCount);
         string? rejection = null;
-        if (!qualityInserted && !MeshConstraintTopologyInserter.TryInsert(
-                vertices,
-                vertexCount,
-                faces,
-                faceCount,
+        string? topologyError = null;
+        bool topologyInserted = qualityInserted;
+        if (!qualityInserted)
+        {
+            topologyInserted = MeshConstraintTopologyInserter.TryInsert(
+                new IndexedTriMesh(vertices, vertexCount, faces, faceCount),
                 wallConstraints,
                 tolerance,
-                out outputVertices,
-                out outputVertexCount,
-                out outputFaces,
-                out outputFaceCount,
-                out string? topologyError))
+                out IndexedTriMesh inserted,
+                out topologyError);
+            (outputVertices, outputVertexCount, outputFaces, outputFaceCount) = inserted;
+        }
+
+        if (!topologyInserted)
         {
             rejection = topologyError ?? "Retaining Wall topology insertion could not insert wall breaklines into the existing mesh.";
         }

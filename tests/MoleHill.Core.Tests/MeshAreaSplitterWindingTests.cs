@@ -30,7 +30,7 @@ public class MeshAreaSplitterWindingTests
 
         var boundary = new MeshAreaSplitter.AreaBoundary(new[] { 0.5, 0.5, 2.5, 0.7, 2.3, 2.6, 0.6, 2.4 }, 4);
         MeshAreaSplitter.SplitResult? result = MeshAreaSplitter.SplitPreservingTopology(
-            vertices.ToArray(), vertices.Count / 3, faces.ToArray(), faces.Count / 3, new[] { boundary }, 1e-6, out string? error);
+            new IndexedTriMesh(vertices.ToArray(), vertices.Count / 3, faces.ToArray(), faces.Count / 3), new[] { boundary }, 1e-6, out string? error);
 
         Assert.NotNull(result);
         Assert.True(result!.FaceCount > faces.Count / 3, error);
