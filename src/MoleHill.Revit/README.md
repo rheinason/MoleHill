@@ -58,8 +58,12 @@ Outputs: `Toposolids`, `Subdivisions` (one branch per Toposolid) and `Report`.
   transaction group, so it is a single undo step.
 - **Subdivisions** are matched by `hostKey::zoneKey`, so two partitions of one terrain can share zone
   keys. A replaced host gets new subdivisions, and the old ones go with the old host.
+  If the predecessor carries a subdivision the run does not recreate (a removed zone, one drawn by hand, or
+  any when `Subdivisions` is off), the write is refused before anything changes and the report names it.
+- **Inputs are checked against the target document.** A type or level from another Revit project, or one
+  of the wrong kind, is an error before any transaction opens.
 - **Absence never deletes.** A key missing from the run leaves its element alone. A subdivision whose
-  zone was removed is reported, not deleted.
+  zone was removed is reported, not deleted (unless its host is being replaced; see above).
 - **Units.** The package's `Meters Per Unit` converts to Revit's internal feet exactly once. Prepare
   Toposolid never moves coordinates, so apply placement transforms before it.
 

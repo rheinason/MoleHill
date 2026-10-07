@@ -131,6 +131,7 @@ internal static class ToposolidWriter
             case ToposolidWriteAction.Replace:
             {
                 Document document = request.Document;
+                RefuseIfSubdivisionsWouldBeLost(request, plan, existing.Element);
                 Toposolid created = Toposolid.Create(
                     document, ToCurveLoops(plan.Loops), ToXyz(plan.Points), existing.Element.GetTypeId(), existing.Element.LevelId);
                 ToposolidIdentity.Write(created, schema, plan.Key, plan.Fingerprint);
@@ -151,6 +152,35 @@ internal static class ToposolidWriter
                 return created;
             }
         }
+    }
+
+    /// <summary>
+    /// Deleting the predecessor deletes every subdivision on it. Those the plan recreates on the replacement
+    /// are fine; any other (a removed zone, a user-drawn one, or all of them when subdivisions are off) cannot
+    /// be moved faithfully, so the whole write is refused before anything changes.
+    /// </summary>
+    private static void RefuseIfSubdivisionsWouldBeLost(ToposolidWriteRequest request, PlannedToposolid plan, Toposolid predecessor)
+    {
+        var recreated = request.WriteSubdivisions
+            ? plan.Subdivisions.Select(subdivision => subdivision.IdentityKey).ToHashSet(StringComparer.Ordinal)
+            : new HashSet<string>(StringComparer.Ordinal);
+
+        var lost = new List<string>();
+        using var collector = new FilteredElementCollector(request.Document).OfClass(typeof(Toposolid));
+        foreach (Toposolid candidate in collector.Cast<Toposolid>())
+        {
+            if (!ToposolidIdentity.IsSubdivision(candidate) || candidate.HostTopoId != predecessor.Id)
+                continue;
+            string? key = ToposolidIdentity.Read(candidate).Key;
+            if (string.IsNullOrEmpty(key) || !recreated.Contains(key))
+                lost.Add(string.IsNullOrEmpty(key) ? $"{candidate.Id} (not written by MoleHill)" : $"{candidate.Id} ({key})");
+        }
+
+        if (lost.Count > 0)
+            throw new InvalidOperationException(
+                $"{plan.Key}: replacing Toposolid {predecessor.Id} would delete subdivision(s) this run does not recreate: " +
+                $"{string.Join(", ", lost)}. Nothing was written. Delete or move them in Revit, include their zones in the " +
+                "preparation (with Subdivisions on), or leave the geometry unchanged.");
     }
 
     private static Toposolid WriteSubdivision(
