@@ -40,6 +40,12 @@ internal static class RevitSession
             return outcome;
         }
 
+        ElementId toposolidTypeId = RevitInputs.ResolveTyped<ToposolidType>(toposolidType, document, "Toposolid Type", "type", outcome.Errors);
+        ElementId levelId = RevitInputs.ResolveTyped<Level>(level, document, "Level", "level", outcome.Errors);
+        ElementId subdivisionTypeId = RevitInputs.ResolveTyped<ToposolidType>(subdivisionType, document, "Subdivision Type", "type", outcome.Errors);
+        if (outcome.Errors.Count > 0)
+            return outcome;
+
         if (!run)
         {
             outcome.Report.Add($"{plans.Count} preparation(s) ready for '{document.Title}'. Set Run to write them.");
@@ -50,10 +56,10 @@ internal static class RevitSession
         {
             Document = document,
             Plans = plans,
-            ToposolidTypeId = RevitInputs.AsElementId(toposolidType),
-            LevelId = RevitInputs.AsElementId(level),
+            ToposolidTypeId = toposolidTypeId,
+            LevelId = levelId,
             WriteSubdivisions = writeSubdivisions,
-            SubdivisionTypeId = RevitInputs.AsElementId(subdivisionType),
+            SubdivisionTypeId = subdivisionTypeId,
             PreserveParameters = preserveParameters
         });
 

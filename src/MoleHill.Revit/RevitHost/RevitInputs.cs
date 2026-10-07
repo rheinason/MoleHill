@@ -29,6 +29,47 @@ internal static class RevitInputs
         return document != null && id != ElementId.InvalidElementId ? document.GetElement(id) : null;
     }
 
+    /// <summary>
+    /// Resolves an optional typed input (a type, a level) against the document being written, while the
+    /// element's own document is still known: an element from another project is rejected, because its id
+    /// could name something unrelated here. A bare id is read in <paramref name="document"/> and must name a
+    /// <typeparamref name="T"/>. An empty input is not an error; it returns the invalid id.
+    /// </summary>
+    public static ElementId ResolveTyped<T>(object? value, Document document, string label, string noun, List<string> errors)
+        where T : Element
+    {
+        value = Unwrap(value);
+        if (value == null || (value is string text && string.IsNullOrWhiteSpace(text)))
+            return ElementId.InvalidElementId;
+
+        Element? element = value as Element;
+        if (element != null && !element.Document.Equals(document))
+        {
+            errors.Add($"{label}: {noun} '{element.Name}' belongs to the Revit document '{element.Document.Title}', not '{document.Title}'. " +
+                       "Pick it from the document you are writing to.");
+            return ElementId.InvalidElementId;
+        }
+
+        if (element == null)
+        {
+            ElementId id = AsElementId(value);
+            element = id == ElementId.InvalidElementId ? null : document.GetElement(id);
+            if (element == null)
+            {
+                errors.Add($"{label}: the {noun} input '{value}' names no element in '{document.Title}'.");
+                return ElementId.InvalidElementId;
+            }
+        }
+
+        if (!element.IsValidObject || element is not T)
+        {
+            errors.Add($"{label}: the {noun} input is not a {typeof(T).Name}.");
+            return ElementId.InvalidElementId;
+        }
+
+        return element.Id;
+    }
+
     public static ElementId AsElementId(object? value)
     {
         value = Unwrap(value);
