@@ -1,4 +1,4 @@
-// Gradient compliance stage: level-area checks summarized for the analysis card and the report.
+﻿// Gradient compliance stage: level-area checks summarized for the analysis card and the report.
 using MoleHill.Core.Analysis;
 using MoleHill.Rhino.Model;
 
@@ -11,7 +11,7 @@ internal sealed partial class TerrainBuildService
     /// of it is over a limit, and the steepest ground found. Values the card did not measure stay null, so "no level areas
     /// set" never reads as "every landing passes".
     /// </summary>
-    private static TerrainAnalysisSummary BuildGradientComplianceSummary(
+    internal static TerrainAnalysisSummary BuildGradientComplianceSummary(
         TerrainBuildSnapshot snapshot,
         double[] vertices,
         int vertexCount,

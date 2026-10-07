@@ -1,6 +1,7 @@
 ﻿using System.Diagnostics;
 using MoleHill.Core.Analysis;
 using MoleHill.Rhino.Model;
+using MoleHill.Rhino.Registry;
 using Rhino.Geometry;
 using RhinoMesh = Rhino.Geometry.Mesh;
 
@@ -25,20 +26,23 @@ internal sealed partial class TerrainBuildService
         var totalTimer = Stopwatch.StartNew();
         var results = new List<TerrainAnalysisSummary>(terrain.Analyses.Count + terrain.Annotations.Count);
         ThrowIfCancellationRequested(shouldCancel);
-        double[] currentVertices = Array.Empty<double>();
-        int[] currentFaces = Array.Empty<int>();
-        int currentVertexCount = 0;
-        int currentFaceCount = 0;
-        double elevMinZ = 0.0;
-        double elevMaxZ = 0.0;
-        double surfaceArea = 0.0;
         bool analysisContextPrepared = false;
-        // Statistics are keyed on the current geometry too, so this cache is scoped to this pass; the
-        // projection cache is build-wide and supplied by the caller.
-        var referenceComparisonCache = new Dictionary<ReferenceComparisonCacheKey, ReferenceComparisonStats>();
-        // Same scoping, same reason: the drainage cards rest on one routing of this geometry, so two of
-        // them agreeing on their settings route it once.
-        var basinGraphCache = new Dictionary<BasinGraphCacheKey, BasinGraph>();
+        // Statistics are keyed on the current geometry too, so the comparison cache is scoped to this pass;
+        // the projection cache is build-wide and supplied by the caller. The basin-graph cache has the same
+        // scoping and reason: the drainage cards rest on one routing of this geometry, so two of them
+        // agreeing on their settings route it once.
+        var context = new AnalysisBuildContext
+        {
+            Snapshot = snapshot,
+            Terrain = terrain,
+            FallbackBaseMesh = fallbackBaseMesh,
+            CurrentMesh = currentMesh,
+            Build = build,
+            ReferenceComparisonCache = new Dictionary<ReferenceComparisonCacheKey, ReferenceComparisonStats>(),
+            ReferenceProjectionCache = referenceProjectionCache,
+            BasinGraphCache = new Dictionary<BasinGraphCacheKey, BasinGraph>(),
+            ShouldCancel = shouldCancel
+        };
 
         bool EnsureAnalysisContext()
         {
@@ -56,12 +60,14 @@ internal sealed partial class TerrainBuildService
                     out _))
                 return false;
 
-            currentVertices = vertices;
-            currentFaces = faces;
-            currentVertexCount = vertexCount;
-            currentFaceCount = faceCount;
-            GetElevationRange(currentVertices, currentVertexCount, out elevMinZ, out elevMaxZ);
-            surfaceArea = AreaMassProperties.Compute(currentMesh)?.Area ?? 0.0;
+            context.Vertices = vertices;
+            context.Faces = faces;
+            context.VertexCount = vertexCount;
+            context.FaceCount = faceCount;
+            GetElevationRange(vertices, vertexCount, out double elevMinZ, out double elevMaxZ);
+            context.ElevationMinZ = elevMinZ;
+            context.ElevationMaxZ = elevMaxZ;
+            context.SurfaceArea = AreaMassProperties.Compute(currentMesh)?.Area ?? 0.0;
             analysisContextPrepared = true;
             return true;
         }
@@ -143,91 +149,8 @@ internal sealed partial class TerrainBuildService
         {
             ThrowIfCancellationRequested(shouldCancel);
             AnalysisDefinition current = analysis;
-            RunStage(current, "Analysis", "analysis", () => current switch
-            {
-                EarthworkAnalysisDefinition earthwork => BuildEarthworkSummary(
-                    snapshot,
-                    fallbackBaseMesh,
-                    currentMesh,
-                    currentVertices,
-                    currentFaces,
-                    earthwork,
-                    surfaceArea,
-                    elevMinZ,
-                    elevMaxZ,
-                    build,
-                    referenceComparisonCache,
-                    referenceProjectionCache,
-                    shouldCancel),
-                SlopeAnalysisDefinition slope => BuildSlopeSummary(
-                    currentVertices,
-                    currentVertexCount,
-                    currentFaces,
-                    currentFaceCount,
-                    slope,
-                    surfaceArea),
-                AspectAnalysisDefinition aspect => BuildAspectSummary(
-                    snapshot,
-                    currentVertices,
-                    currentFaces,
-                    aspect,
-                    surfaceArea),
-                ElevationAnalysisDefinition => new TerrainAnalysisSummary
-                {
-                    AnalysisId = analysis.Id,
-                    SurfaceArea = surfaceArea,
-                    ElevationMinZ = elevMinZ,
-                    ElevationMaxZ = elevMaxZ
-                },
-                CatchmentAnalysisDefinition catchment => BuildCatchmentSummary(
-                    snapshot,
-                    currentVertices,
-                    currentFaces,
-                    catchment,
-                    build,
-                    basinGraphCache,
-                    shouldCancel),
-                PondingAnalysisDefinition ponding => BuildPondingSummary(
-                    snapshot,
-                    currentVertices,
-                    currentFaces,
-                    ponding,
-                    build,
-                    basinGraphCache,
-                    shouldCancel),
-                WaterflowAnalysisDefinition waterflow => BuildWaterflowSummary(
-                    snapshot,
-                    currentVertices,
-                    currentVertexCount,
-                    currentFaces,
-                    currentFaceCount,
-                    waterflow,
-                    build,
-                    shouldCancel),
-                GradientComplianceAnalysisDefinition compliance => BuildGradientComplianceSummary(
-                    snapshot,
-                    currentVertices,
-                    currentVertexCount,
-                    currentFaces,
-                    currentFaceCount,
-                    compliance,
-                    shouldCancel),
-                CutFillAnalysisDefinition cutFill => BuildCutFillSummary(
-                    snapshot,
-                    fallbackBaseMesh,
-                    currentMesh,
-                    currentVertices,
-                    currentFaces,
-                    cutFill,
-                    surfaceArea,
-                    elevMinZ,
-                    elevMaxZ,
-                    build,
-                    referenceComparisonCache,
-                    referenceProjectionCache,
-                    shouldCancel),
-                _ => null
-            });
+            RunStage(current, "Analysis", "analysis",
+                () => AnalysisTypeRegistry.ForType(current.GetType())?.Build(context, current));
         }
 
         foreach (var annotation in terrain.Annotations)
@@ -240,89 +163,8 @@ internal sealed partial class TerrainBuildService
                 continue;
 
             AnnotationDefinition current = annotation;
-            RunStage(current, "Annotation", "annotation", () => current switch
-            {
-                CurveSlopeLabelAnnotationDefinition curveSlope => TerrainAnalysisAnnotationBuilder.BuildCurveSlopeSummary(
-                    snapshot,
-                    currentMesh,
-                    curveSlope,
-                    build,
-                    shouldCancel,
-                    snapshot.LayerRoles),
-                CurveElevationLabelAnnotationDefinition curveElevation => TerrainAnalysisAnnotationBuilder.BuildCurveElevationSummary(
-                    snapshot,
-                    currentMesh,
-                    curveElevation,
-                    build,
-                    shouldCancel,
-                    snapshot.LayerRoles),
-                ProjectedElevationLabelAnnotationDefinition projectedElevation => TerrainAnalysisAnnotationBuilder.BuildProjectedElevationSummary(
-                    snapshot,
-                    currentMesh,
-                    projectedElevation,
-                    build,
-                    shouldCancel,
-                    snapshot.LayerRoles),
-                PointSlopeLabelAnnotationDefinition pointSlope => TerrainAnalysisAnnotationBuilder.BuildPointSlopeSummary(
-                    snapshot,
-                    currentMesh,
-                    pointSlope,
-                    build,
-                    shouldCancel,
-                    snapshot.LayerRoles),
-                SlopeArrowAnnotationDefinition slopeArrows => TerrainAnalysisAnnotationBuilder.BuildSlopeArrowSummary(
-                    snapshot,
-                    currentMesh,
-                    slopeArrows,
-                    build,
-                    shouldCancel,
-                    snapshot.LayerRoles),
-                GradeBetweenPointsAnnotationDefinition gradeCallout => TerrainAnalysisAnnotationBuilder.BuildGradeCalloutSummary(
-                    snapshot,
-                    currentMesh,
-                    gradeCallout,
-                    build,
-                    shouldCancel,
-                    snapshot.LayerRoles),
-                TerrainSectionAnnotationDefinition terrainSection => TerrainAnalysisAnnotationBuilder.BuildTerrainSectionSummary(
-                    snapshot,
-                    currentMesh,
-                    terrainSection,
-                    build,
-                    shouldCancel,
-                    snapshot.LayerRoles,
-                    fallbackBaseMesh),
-                CrossSectionStationAnnotationDefinition crossSection => TerrainAnalysisAnnotationBuilder.BuildCrossSectionStationSummary(
-                    snapshot,
-                    currentMesh,
-                    crossSection,
-                    build,
-                    shouldCancel,
-                    snapshot.LayerRoles,
-                    fallbackBaseMesh),
-                LongitudinalSectionAnnotationDefinition longitudinal => TerrainAnalysisAnnotationBuilder.BuildLongitudinalSectionSummary(
-                    snapshot,
-                    currentMesh,
-                    longitudinal,
-                    build,
-                    shouldCancel,
-                    snapshot.LayerRoles,
-                    fallbackBaseMesh),
-                // The report table draws what every other stage measured, so it cannot run here: the zone
-                // schedule does not exist until the zones stage has run. See TerrainBuildService.Report.cs.
-                ReportTableAnnotationDefinition => null,
-                ContourAnnotationDefinition contour => BuildContourSummary(
-                    terrain,
-                    currentMesh,
-                    contour,
-                    elevMinZ,
-                    elevMaxZ,
-                    snapshot.ModelAbsoluteTolerance,
-                    build,
-                    snapshot.AnnotationStyle,
-                    snapshot.LayerRoles),
-                _ => null
-            });
+            RunStage(current, "Annotation", "annotation",
+                () => AnnotationTypeRegistry.ForType(current.GetType())?.Build(context, current));
         }
 
         totalTimer.Stop();
@@ -330,7 +172,7 @@ internal sealed partial class TerrainBuildService
         return results;
     }
 
-    private static TerrainAnalysisSummary BuildSlopeSummary(
+    internal static TerrainAnalysisSummary BuildSlopeSummary(
         double[] currentVertices,
         int currentVertexCount,
         int[] currentFaces,
@@ -369,7 +211,7 @@ internal sealed partial class TerrainBuildService
     /// <c>TryExtractMeshData</c> normalizes a copy, so the mesh's own counts routinely describe
     /// different geometry and pairing the two reads off the end of the array. See CLAUDE.md.
     /// </summary>
-    private static TerrainAnalysisSummary BuildAspectSummary(
+    internal static TerrainAnalysisSummary BuildAspectSummary(
         TerrainBuildSnapshot snapshot,
         double[] currentVertices,
         int[] currentFaces,
@@ -394,7 +236,7 @@ internal sealed partial class TerrainBuildService
         };
     }
 
-    private static TerrainAnalysisSummary BuildEarthworkSummary(
+    internal static TerrainAnalysisSummary BuildEarthworkSummary(
         TerrainBuildSnapshot snapshot,
         RhinoMesh fallbackBaseMesh,
         RhinoMesh currentMesh,
@@ -435,7 +277,7 @@ internal sealed partial class TerrainBuildService
         };
     }
 
-    private static TerrainAnalysisSummary BuildCutFillSummary(
+    internal static TerrainAnalysisSummary BuildCutFillSummary(
         TerrainBuildSnapshot snapshot,
         RhinoMesh fallbackBaseMesh,
         RhinoMesh currentMesh,
@@ -698,7 +540,7 @@ internal sealed partial class TerrainBuildService
         }
     }
 
-    private static TerrainAnalysisSummary BuildContourSummary(
+    internal static TerrainAnalysisSummary BuildContourSummary(
         TerrainDefinition terrain,
         RhinoMesh currentMesh,
         ContourAnnotationDefinition analysis,

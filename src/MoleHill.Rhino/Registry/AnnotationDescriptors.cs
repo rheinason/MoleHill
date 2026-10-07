@@ -1,5 +1,6 @@
 ﻿using MoleHill.Core.Analysis;
 using MoleHill.Rhino.Model;
+using MoleHill.Rhino.Services;
 using AnnotationParam = MoleHill.Rhino.Registry.ParameterDescriptor<MoleHill.Rhino.Model.AnnotationDefinition>;
 using RhinoObjectType = Rhino.DocObjects.ObjectType;
 
@@ -119,6 +120,9 @@ internal sealed class ContourAnnotationDescriptor : AnnotationTypeDescriptor
     public override int SortOrder => 0;
     public override AnnotationDefinition Create() => new ContourAnnotationDefinition();
 
+    public override TerrainAnalysisSummary? Build(AnalysisBuildContext c, AnnotationDefinition annotation) =>
+        TerrainBuildService.BuildContourSummary(c.Terrain, c.CurrentMesh, (ContourAnnotationDefinition)annotation, c.ElevationMinZ, c.ElevationMaxZ, c.Snapshot.ModelAbsoluteTolerance, c.Build, c.Snapshot.AnnotationStyle, c.Snapshot.LayerRoles);
+
     public override IReadOnlyList<AnnotationParam> Parameters { get; } = new[]
     {
         AnnotationParam.Number(
@@ -195,6 +199,9 @@ internal sealed class CurveElevationLabelAnnotationDescriptor : AnnotationTypeDe
     public override int SortOrder => 1;
     public override AnnotationDefinition Create() => new CurveElevationLabelAnnotationDefinition();
 
+    public override TerrainAnalysisSummary? Build(AnalysisBuildContext c, AnnotationDefinition annotation) =>
+        TerrainAnalysisAnnotationBuilder.BuildCurveElevationSummary(c.Snapshot, c.CurrentMesh, (CurveElevationLabelAnnotationDefinition)annotation, c.Build, c.ShouldCancel, c.Snapshot.LayerRoles);
+
     public override IReadOnlyList<AnnotationParam> Parameters { get; } = new[]
     {
         AnnotationParam.Sources(
@@ -224,6 +231,9 @@ internal sealed class CurveSlopeLabelAnnotationDescriptor : AnnotationTypeDescri
     public override string Subtitle => "Slope labels sampled along a curve";
     public override int SortOrder => 2;
     public override AnnotationDefinition Create() => new CurveSlopeLabelAnnotationDefinition();
+
+    public override TerrainAnalysisSummary? Build(AnalysisBuildContext c, AnnotationDefinition annotation) =>
+        TerrainAnalysisAnnotationBuilder.BuildCurveSlopeSummary(c.Snapshot, c.CurrentMesh, (CurveSlopeLabelAnnotationDefinition)annotation, c.Build, c.ShouldCancel, c.Snapshot.LayerRoles);
 
     public override IReadOnlyList<AnnotationParam> Parameters { get; } = new[]
     {
@@ -262,6 +272,9 @@ internal sealed class ProjectedElevationLabelAnnotationDescriptor : AnnotationTy
     public override int SortOrder => 3;
     public override AnnotationDefinition Create() => new ProjectedElevationLabelAnnotationDefinition();
 
+    public override TerrainAnalysisSummary? Build(AnalysisBuildContext c, AnnotationDefinition annotation) =>
+        TerrainAnalysisAnnotationBuilder.BuildProjectedElevationSummary(c.Snapshot, c.CurrentMesh, (ProjectedElevationLabelAnnotationDefinition)annotation, c.Build, c.ShouldCancel, c.Snapshot.LayerRoles);
+
     public override IReadOnlyList<AnnotationParam> Parameters { get; } = new[]
     {
         AnnotationParam.Sources(
@@ -285,6 +298,9 @@ internal sealed class PointSlopeLabelAnnotationDescriptor : AnnotationTypeDescri
     public override string Subtitle => "Slope labels at picked points";
     public override int SortOrder => 4;
     public override AnnotationDefinition Create() => new PointSlopeLabelAnnotationDefinition();
+
+    public override TerrainAnalysisSummary? Build(AnalysisBuildContext c, AnnotationDefinition annotation) =>
+        TerrainAnalysisAnnotationBuilder.BuildPointSlopeSummary(c.Snapshot, c.CurrentMesh, (PointSlopeLabelAnnotationDefinition)annotation, c.Build, c.ShouldCancel, c.Snapshot.LayerRoles);
 
     public override IReadOnlyList<AnnotationParam> Parameters { get; } = new[]
     {
@@ -316,6 +332,9 @@ internal sealed class SlopeArrowAnnotationDescriptor : AnnotationTypeDescriptor
     public override string Subtitle => "Downhill arrows on a grid";
     public override int SortOrder => 5;
     public override AnnotationDefinition Create() => new SlopeArrowAnnotationDefinition();
+
+    public override TerrainAnalysisSummary? Build(AnalysisBuildContext c, AnnotationDefinition annotation) =>
+        TerrainAnalysisAnnotationBuilder.BuildSlopeArrowSummary(c.Snapshot, c.CurrentMesh, (SlopeArrowAnnotationDefinition)annotation, c.Build, c.ShouldCancel, c.Snapshot.LayerRoles);
 
     public override IReadOnlyList<AnnotationParam> Parameters { get; } = new[]
     {
@@ -353,6 +372,9 @@ internal sealed class GradeBetweenPointsAnnotationDescriptor : AnnotationTypeDes
     public override string Subtitle => "Grade between two points (1:n + %)";
     public override int SortOrder => 6;
     public override AnnotationDefinition Create() => new GradeBetweenPointsAnnotationDefinition();
+
+    public override TerrainAnalysisSummary? Build(AnalysisBuildContext c, AnnotationDefinition annotation) =>
+        TerrainAnalysisAnnotationBuilder.BuildGradeCalloutSummary(c.Snapshot, c.CurrentMesh, (GradeBetweenPointsAnnotationDefinition)annotation, c.Build, c.ShouldCancel, c.Snapshot.LayerRoles);
 
     public override IReadOnlyList<AnnotationParam> Parameters { get; } = new[]
     {
@@ -402,6 +424,9 @@ internal sealed class TerrainSectionAnnotationDescriptor : AnnotationTypeDescrip
     public override string Subtitle => "Profile at the cut line";
     public override int SortOrder => 7;
     public override AnnotationDefinition Create() => new TerrainSectionAnnotationDefinition();
+
+    public override TerrainAnalysisSummary? Build(AnalysisBuildContext c, AnnotationDefinition annotation) =>
+        TerrainAnalysisAnnotationBuilder.BuildTerrainSectionSummary(c.Snapshot, c.CurrentMesh, (TerrainSectionAnnotationDefinition)annotation, c.Build, c.ShouldCancel, c.Snapshot.LayerRoles, c.FallbackBaseMesh);
 
     public override IReadOnlyList<AnnotationParam> Parameters { get; } = new[]
     {
@@ -475,6 +500,9 @@ internal sealed class CrossSectionStationAnnotationDescriptor : AnnotationTypeDe
     public override string Subtitle => "Unrolled cuts at stations, in a grid";
     public override int SortOrder => 8;
     public override AnnotationDefinition Create() => new CrossSectionStationAnnotationDefinition();
+
+    public override TerrainAnalysisSummary? Build(AnalysisBuildContext c, AnnotationDefinition annotation) =>
+        TerrainAnalysisAnnotationBuilder.BuildCrossSectionStationSummary(c.Snapshot, c.CurrentMesh, (CrossSectionStationAnnotationDefinition)annotation, c.Build, c.ShouldCancel, c.Snapshot.LayerRoles, c.FallbackBaseMesh);
 
     public override IReadOnlyList<AnnotationParam> Parameters { get; } = new[]
     {
@@ -573,6 +601,9 @@ internal sealed class LongitudinalSectionAnnotationDescriptor : AnnotationTypeDe
     public override int SortOrder => 9;
     public override AnnotationDefinition Create() => new LongitudinalSectionAnnotationDefinition();
 
+    public override TerrainAnalysisSummary? Build(AnalysisBuildContext c, AnnotationDefinition annotation) =>
+        TerrainAnalysisAnnotationBuilder.BuildLongitudinalSectionSummary(c.Snapshot, c.CurrentMesh, (LongitudinalSectionAnnotationDefinition)annotation, c.Build, c.ShouldCancel, c.Snapshot.LayerRoles, c.FallbackBaseMesh);
+
     public override IReadOnlyList<AnnotationParam> Parameters { get; } = new[]
     {
         AnnotationParam.Number(
@@ -658,6 +689,10 @@ internal sealed class ReportTableAnnotationDescriptor : AnnotationTypeDescriptor
     public override string Subtitle => "Measured quantities, drawn as a table";
     public override int SortOrder => 10;
     public override AnnotationDefinition Create() => new ReportTableAnnotationDefinition();
+
+    // The report table draws what every other stage measured, so it cannot run in the analysis pass: the
+    // zone schedule does not exist until the zones stage has run. See TerrainBuildService.Report.cs.
+    public override TerrainAnalysisSummary? Build(AnalysisBuildContext c, AnnotationDefinition annotation) => null;
 
     public override IReadOnlyList<AnnotationParam> Parameters { get; } = new[]
     {

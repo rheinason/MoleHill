@@ -1,4 +1,5 @@
-using MoleHill.Rhino.Model;
+﻿using MoleHill.Rhino.Model;
+using MoleHill.Rhino.Services;
 using AnalysisParam = MoleHill.Rhino.Registry.ParameterDescriptor<MoleHill.Rhino.Model.AnalysisDefinition>;
 using RhinoObjectType = Rhino.DocObjects.ObjectType;
 
@@ -22,6 +23,9 @@ internal sealed class EarthworkAnalysisDescriptor : AnalysisTypeDescriptor
     public override string Subtitle => "Refs + summary";
     public override int SortOrder => 0;
     public override AnalysisDefinition Create() => new EarthworkAnalysisDefinition();
+
+    public override TerrainAnalysisSummary? Build(AnalysisBuildContext c, AnalysisDefinition analysis) =>
+        TerrainBuildService.BuildEarthworkSummary(c.Snapshot, c.FallbackBaseMesh, c.CurrentMesh, c.Vertices, c.Faces, (EarthworkAnalysisDefinition)analysis, c.SurfaceArea, c.ElevationMinZ, c.ElevationMaxZ, c.Build, c.ReferenceComparisonCache, c.ReferenceProjectionCache, c.ShouldCancel);
 
     public override IReadOnlyList<AnalysisParam> Parameters { get; } = new[]
     {
@@ -65,6 +69,9 @@ internal sealed class SlopeAnalysisDescriptor : AnalysisTypeDescriptor
     public override int SortOrder => 1;
     public override AnalysisDefinition Create() => new SlopeAnalysisDefinition();
 
+    public override TerrainAnalysisSummary? Build(AnalysisBuildContext c, AnalysisDefinition analysis) =>
+        TerrainBuildService.BuildSlopeSummary(c.Vertices, c.VertexCount, c.Faces, c.FaceCount, (SlopeAnalysisDefinition)analysis, c.SurfaceArea);
+
     public override IReadOnlyList<AnalysisParam> Parameters { get; } = new[]
     {
         AnalysisParam.ColorRamp(
@@ -84,6 +91,9 @@ internal sealed class AspectAnalysisDescriptor : AnalysisTypeDescriptor
     public override string? ActiveSubtitle => "Preview colors";
     public override int SortOrder => 2;
     public override AnalysisDefinition Create() => new AspectAnalysisDefinition();
+
+    public override TerrainAnalysisSummary? Build(AnalysisBuildContext c, AnalysisDefinition analysis) =>
+        TerrainBuildService.BuildAspectSummary(c.Snapshot, c.Vertices, c.Faces, (AspectAnalysisDefinition)analysis, c.SurfaceArea);
 
     public override IReadOnlyList<AnalysisParam> Parameters { get; } = new[]
     {
@@ -113,6 +123,15 @@ internal sealed class ElevationAnalysisDescriptor : AnalysisTypeDescriptor
     public override int SortOrder => 3;
     public override AnalysisDefinition Create() => new ElevationAnalysisDefinition();
 
+    public override TerrainAnalysisSummary? Build(AnalysisBuildContext c, AnalysisDefinition analysis) =>
+        new TerrainAnalysisSummary
+        {
+            AnalysisId = analysis.Id,
+            SurfaceArea = c.SurfaceArea,
+            ElevationMinZ = c.ElevationMinZ,
+            ElevationMaxZ = c.ElevationMaxZ
+        };
+
     public override IReadOnlyList<AnalysisParam> Parameters { get; } = new[]
     {
         AnalysisParam.ColorRamp(
@@ -133,6 +152,9 @@ internal sealed class CutFillAnalysisDescriptor : AnalysisTypeDescriptor
     public override string? ActiveSubtitle => "Preview colors";
     public override int SortOrder => 4;
     public override AnalysisDefinition Create() => new CutFillAnalysisDefinition();
+
+    public override TerrainAnalysisSummary? Build(AnalysisBuildContext c, AnalysisDefinition analysis) =>
+        TerrainBuildService.BuildCutFillSummary(c.Snapshot, c.FallbackBaseMesh, c.CurrentMesh, c.Vertices, c.Faces, (CutFillAnalysisDefinition)analysis, c.SurfaceArea, c.ElevationMinZ, c.ElevationMaxZ, c.Build, c.ReferenceComparisonCache, c.ReferenceProjectionCache, c.ShouldCancel);
 
     public override IReadOnlyList<AnalysisParam> Parameters { get; } = new[]
     {
@@ -219,6 +241,9 @@ internal sealed class WaterflowAnalysisDescriptor : AnalysisTypeDescriptor
     public override int SortOrder => 5;
     public override AnalysisDefinition Create() => new WaterflowAnalysisDefinition();
 
+    public override TerrainAnalysisSummary? Build(AnalysisBuildContext c, AnalysisDefinition analysis) =>
+        TerrainBuildService.BuildWaterflowSummary(c.Snapshot, c.Vertices, c.VertexCount, c.Faces, c.FaceCount, (WaterflowAnalysisDefinition)analysis, c.Build, c.ShouldCancel);
+
     public override IReadOnlyList<AnalysisParam> Parameters { get; } = new[]
     {
         AnalysisParam.Sources(
@@ -274,6 +299,9 @@ internal sealed class CatchmentAnalysisDescriptor : AnalysisTypeDescriptor
     public override string? ActiveSubtitle => "Preview colors";
     public override int SortOrder => 6;
     public override AnalysisDefinition Create() => new CatchmentAnalysisDefinition();
+
+    public override TerrainAnalysisSummary? Build(AnalysisBuildContext c, AnalysisDefinition analysis) =>
+        TerrainBuildService.BuildCatchmentSummary(c.Snapshot, c.Vertices, c.Faces, (CatchmentAnalysisDefinition)analysis, c.Build, c.BasinGraphCache, c.ShouldCancel);
 
     public override IReadOnlyList<AnalysisParam> Parameters { get; } = new[]
     {
@@ -353,6 +381,9 @@ internal sealed class PondingAnalysisDescriptor : AnalysisTypeDescriptor
     public override int SortOrder => 7;
     public override AnalysisDefinition Create() => new PondingAnalysisDefinition();
 
+    public override TerrainAnalysisSummary? Build(AnalysisBuildContext c, AnalysisDefinition analysis) =>
+        TerrainBuildService.BuildPondingSummary(c.Snapshot, c.Vertices, c.Faces, (PondingAnalysisDefinition)analysis, c.Build, c.BasinGraphCache, c.ShouldCancel);
+
     public override IReadOnlyList<AnalysisParam> Parameters { get; } = new[]
     {
         AnalysisParam.ColorRamp(
@@ -430,6 +461,9 @@ internal sealed class GradientComplianceAnalysisDescriptor : AnalysisTypeDescrip
     public override string? ActiveSubtitle => "Preview colors";
     public override int SortOrder => 8;
     public override AnalysisDefinition Create() => new GradientComplianceAnalysisDefinition();
+
+    public override TerrainAnalysisSummary? Build(AnalysisBuildContext c, AnalysisDefinition analysis) =>
+        TerrainBuildService.BuildGradientComplianceSummary(c.Snapshot, c.Vertices, c.VertexCount, c.Faces, c.FaceCount, (GradientComplianceAnalysisDefinition)analysis, c.ShouldCancel);
 
     private static GradientRuleSet Rules(AnalysisDefinition analysis) =>
         ((GradientComplianceAnalysisDefinition)analysis).Rules;

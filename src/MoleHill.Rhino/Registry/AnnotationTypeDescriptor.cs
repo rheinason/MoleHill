@@ -1,4 +1,4 @@
-using MoleHill.Rhino.Model;
+﻿using MoleHill.Rhino.Model;
 
 namespace MoleHill.Rhino.Registry;
 
@@ -68,4 +68,14 @@ internal abstract class AnnotationTypeDescriptor
     /// saying. Rendered as muted text, not as a warning.
     /// </summary>
     public virtual string? DescribeBasis(TerrainDefinition terrain, AnnotationDefinition annotation) => null;
+
+    /// <summary>
+    /// Runs this annotation's build during the analysis pass: emits its generated objects onto
+    /// <c>context.Build</c> and returns the summary, or returns null when the type produces nothing there.
+    /// The pass has already checked <c>IsEnabled</c>, consulted the stage cache and prepared the mesh data
+    /// on the context. Two types are deliberately not built here: the Legend is drawn with the preview
+    /// colouring by <c>TerrainController.RefreshLegends</c> (the pass skips it before this is called), and
+    /// the Report Table needs the zone schedule, which exists only after the zones stage.
+    /// </summary>
+    public virtual TerrainAnalysisSummary? Build(AnalysisBuildContext context, AnnotationDefinition annotation) => null;
 }

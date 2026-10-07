@@ -1,4 +1,4 @@
-using MoleHill.Core.Analysis;
+﻿using MoleHill.Core.Analysis;
 using MoleHill.Rhino.Model;
 using Rhino.Geometry;
 
@@ -6,7 +6,7 @@ namespace MoleHill.Rhino.Services;
 
 internal sealed partial class TerrainBuildService
 {
-    private static TerrainAnalysisSummary BuildWaterflowSummary(
+    internal static TerrainAnalysisSummary BuildWaterflowSummary(
         TerrainBuildSnapshot snapshot,
         double[] vertices,
         int vertexCount,
