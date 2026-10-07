@@ -483,7 +483,7 @@ internal sealed partial class TerrainBuildService
         return mesh;
     }
 
-    private static RhinoMesh CleanTinyFaces(RhinoMesh mesh, double tolerance, string sourceLabel, TerrainBuildResult build)
+    internal static RhinoMesh CleanTinyFaces(RhinoMesh mesh, double tolerance, string sourceLabel, TerrainBuildResult build)
     {
         if (!RhinoGeometryConversions.TryExtractMeshData(mesh, out var vertices, out _, out var faces, out int faceCount, out _))
             return mesh;

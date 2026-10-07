@@ -22,7 +22,7 @@ internal sealed partial class TerrainBuildService
     internal const double RetainingWallRebuildMinimumVertexRatio = 0.90;
     private const double MinRepresentablePadPlaneNormalZ = 1e-3;
     private const int TriangulateCacheVersion = 5;
-    private const int InSituStairTreadDepthWarningColorArgb = unchecked((int)0xFFFF0000);
+    internal const int InSituStairTreadDepthWarningColorArgb = unchecked((int)0xFFFF0000);
 
     public TerrainBuildResult Build(
         RhinoDoc doc,

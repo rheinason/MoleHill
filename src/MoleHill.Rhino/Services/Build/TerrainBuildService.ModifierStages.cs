@@ -67,38 +67,4 @@ internal sealed partial class TerrainBuildService
             c.ShouldCancel);
         c.CurrentMeshFingerprint = fingerprint;
     }
-
-    internal static void RunInSituStairStage(ModifierBuildContext c)
-    {
-        var inSituStair = (InSituStairModifierDefinition)c.Modifier;
-        RhinoMesh? input = c.CurrentMesh;
-        c.CurrentMesh = ExecuteCachedMeshStage(
-            c.Build,
-            c.RuntimeCache,
-            c.StageKey,
-            "In-Situ Stair",
-            ComputeModifierStageFingerprint(c.Snapshot, c.Terrain, inSituStair, c.CurrentMeshFingerprint),
-            () => input == null
-                ? WarnMissingMesh(c.Build, inSituStair.Label)
-                : ApplyInSituStair(c.Snapshot, c.Terrain, input, inSituStair, c.Build, c.Mode),
-            result => DescribeModifierMeshResult(inSituStair.Label, result),
-            out ulong fingerprint,
-            c.ShouldCancel);
-        c.CurrentMeshFingerprint = fingerprint;
-        if (c.RuntimeCache.StageEntries.TryGetValue(c.StageKey, out var stairStageEntry))
-        {
-            if (!string.IsNullOrWhiteSpace(inSituStair.ComputedTreadDepthSummary))
-            {
-                stairStageEntry.StairSurfaceCount = inSituStair.ComputedSurfaceCount;
-                stairStageEntry.StairTreadDepthSummary = inSituStair.ComputedTreadDepthSummary;
-                stairStageEntry.StairStepCountSummary = inSituStair.ComputedStepCountSummary;
-            }
-            else if (!string.IsNullOrWhiteSpace(stairStageEntry.StairTreadDepthSummary))
-            {
-                inSituStair.ComputedSurfaceCount = stairStageEntry.StairSurfaceCount;
-                inSituStair.ComputedTreadDepthSummary = stairStageEntry.StairTreadDepthSummary;
-                inSituStair.ComputedStepCountSummary = stairStageEntry.StairStepCountSummary;
-            }
-        }
-    }
 }
