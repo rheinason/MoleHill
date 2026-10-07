@@ -21,6 +21,7 @@ Two things about this project are not obvious from its file list:
 | [`Processing/`](Processing/README.md) | Input cleaning, simplification, constraint resolution |
 | [`Grading/`](Grading/README.md) | Pads, paths, walls, zone/area splitting — the watertight 2.5D invariant |
 | [`Analysis/`](Analysis/README.md) | Slope, aspect, elevation, cut/fill, contours, waterflow, drainage |
+| [`IO/`](IO/README.md) | Host-free file readers: classic TIFF / GeoTIFF tags and raster georeferencing |
 | [`Reporting/`](Reporting/README.md) | Quantity tables and CSV export |
 | [`Scattering/`](Scattering/README.md) | Deterministic weighted block scatter |
 | [`Sculpting/`](Sculpting/README.md) | The sparse world-XY displacement field and brush engine |

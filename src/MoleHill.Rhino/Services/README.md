@@ -238,7 +238,7 @@ layer table, dimension styles, and layouts can act on. See `docs/architecture.md
   meshes and lay their profiles into the same section cell. Existing ground for cut/fill comes from the
   analysis's `CutFillReference` source set — any Rhino mesh or surface, cut by the same
   `SectionCutGeometry` that cut the terrain so both profiles share one station parametrization — or,
-  failing that, from a selected comparison terrain. `SectionProfileComparison` splits proposed versus
+  failing that, from a selected comparison terrain. `SectionProfileComparison` (an adapter over Core's `SectionProfileComparer`) splits proposed versus
   reference profiles at crossings and gaps, normalizing every edge to low-station-first because the
   slicer can return a run in descending station order. Generated cut/fill hatches preview and bake under
   `Sections::CutFill::Cut` and `Sections::CutFill::Fill` sublayers — paths that match the office layer
@@ -390,7 +390,7 @@ layer table, dimension styles, and layouts can act on. See `docs/architecture.md
   resizable document-owned form is a reading order of titled blocks: elevation profile, checks,
   measurements, events, display. Rule thresholds sit behind a "Rule limits" disclosure under Checks, since
   limits are set rarely and checks are read constantly; a failing check row and any event row are click
-  targets that zoom the viewport to the occurrence. `CurveReviewRules` supplies Off/Report/Warn results;
+  targets that zoom the viewport to the occurrence. `CurveReviewRules` (Core, `MoleHill.Core.Analysis`) supplies Off/Report/Warn results;
   the Rhino-side store persists thresholds per user and stores radius in metres.
   `CurveReviewThresholdInput` turns a threshold into field text and back: the maximum grade is a slope,
   shown and typed in the user's slope unit through `SlopeInput`; the vertical grade change stays in
@@ -423,11 +423,12 @@ layer table, dimension styles, and layouts can act on. See `docs/architecture.md
 - `GeoreferenceImportPlanner.cs` - complete before/after object-table differencing so Paste/File import
   remaps all newly added ModelSpace objects rather than only Rhino's selected subset; failed remaps remove
   every newly added object and restore the prior selection.
-- `RasterGeoreference.cs` / `GeoTiffMetadataReader.cs` / `GeoTiffLinearUnitReader.cs` - dependency-free
+- `RasterGeoreference` / `GeoTiffMetadataReader` / `GeoTiffLinearUnitReader` (now `MoleHill.Core.IO`;
+  `RasterGeoreferenceExtensions.cs` keeps the one RhinoCommon `Transform`) - dependency-free
   affine raster placement from embedded GeoTIFF model tags or full six-value world files. Projected EPSG
   linear-unit keys are converted into document units; unlabelled rasters prompt for source units with
   document units as the default. CRS reprojection is intentionally out of scope.
-- `ClassicTiffTagReader.cs` / `GeoTiffMetadataReader.cs` / `GeoTiffElevationReader.cs` - direct classic-
+- `ClassicTiffTagReader` (Core) / `GeoTiffMetadataReader` (Core) / `GeoTiffElevationReader.cs` - direct classic-
   TIFF placement/GDAL tag parsing plus numeric single-band decoding through LibTiff.Net. The DEM path
   does not depend on GDI image conversion; it preserves integer/floating-point samples, applies
   scale/offset, skips NoData, and rejects RGB imagery. The Triangulate card references a planar Rhino

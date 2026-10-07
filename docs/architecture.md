@@ -837,7 +837,7 @@ Anything that needs to know what the content *means* still matches the concrete 
 `RegistryGuardTests.AnalysisAndAnnotationFamilies_AreDisjoint` pins that the two stay apart.
 
 **Discriminators were not renamed.** `contour`, `terrain-section`, `longitudinal-section` and the rest
-mean what they always did, so the move is invisible to saved documents. `TerrainSerializer.SplitLegacyAnnotations`
+mean what they always did, so the move is invisible to saved documents. the schema-31 step in `TerrainSchemaMigrations.JsonSteps`
 rewrites a pre-31 document's single `analyses` array into the two arrays *before* the envelope binds —
 without it, annotation discriminators are no longer valid under `AnalysisDefinition` and the document
 fails to load outright. A pre-31 document with `showAnalysisOutputs: false` keeps its analyses hidden and
@@ -1126,7 +1126,7 @@ starts drawing its annotations — the correct reading of a flag that only ever 
   `SectionCutGeometry` so both profiles share one station parametrization — falling back to a selected
   comparison terrain. Requiring a whole second terrain made cut/fill unreachable for anyone modelling one
   surface against a survey, and produced nothing without saying so; an unresolvable reference now reports
-  a diagnostic and the card shows a warning. `SectionProfileComparison` normalizes each profile edge to
+  a diagnostic and the card shows a warning. `SectionProfileComparer` (Core; `SectionProfileComparison` is its thin Rhino adapter) normalizes each profile edge to
   low-station-first — the slicer walks mesh adjacency and can return a run in descending station order,
   which the comparison used to discard edge by edge, so a wholly descending profile yielded no regions and
   cut/fill came back silently empty on perfectly valid section lines. Generated section geometry hangs off
@@ -2515,7 +2515,19 @@ asserted equal by `TerrainSchemaVersionGuardTests`, because a future document co
 one guard using the other's number.
 
 Reading is one-directional. *Older* documents migrate forward: `Deserialize` keeps the source version,
-runs the version-gated migrations against it, then stamps the current version. A missing or zero version
+runs the version-gated migrations against it, then stamps the current version.
+
+Migrations are explicit (`Services/Persistence/TerrainSchemaMigrations.cs`): `JsonSteps` are raw-JSON
+rewrites run before the envelope binds (the document no longer deserializes without them), and `Steps`
+are typed `(ToVersion, Description, Apply)` entries run in version order, each only while the document's
+source version is below its `ToVersion`. One step per historical version; a new schema bump adds an
+entry rather than an inline branch. Three other things happen on load and are *not* migrations:
+normalization of a definition's own fields (clamps, null-coalescing) lives on the definition as
+`NormalizeAfterLoad()`, the terrain-wide normalization stays in `TerrainSerializer`, and the unversioned
+legacy promotions (collage/mesh-areas to zones, the old slope preview and earthwork sources to analysis
+cards) are idempotent helpers in `TerrainSchemaMigrations` that only act when the old shape is present.
+The serializer runs normalization, then the versioned steps, then the legacy promotions.
+`TerrainSchemaMigrationTests` holds one hand-written document per gate, asserting both sides of it. A missing or zero version
 is a legacy document, not a future one, and is accepted. *Newer* documents are refused — `GuardSupportedSchema`
 throws before any normalization or legacy rewriting runs, `TerrainDocumentStore.Load` turns that into a
 null result plus a failure message, and `TerrainController` marks the document unreadable so `Save` refuses
