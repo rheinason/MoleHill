@@ -73,51 +73,37 @@ public static class SurfaceStripGrader
     }
 
     public static GradingResult? Grade(
-        double[] vertices,
-        int vertexCount,
-        int[] faces,
-        int faceCount,
+        IndexedTriMesh terrain,
         SurfaceDefinition surface,
         out string? errorMessage)
     {
         return Grade(
-            vertices,
-            vertexCount,
-            faces,
-            faceCount,
+            terrain,
             surface,
             Array.Empty<ConstraintPolyline>(),
             out errorMessage);
     }
 
     public static GradingResult? Grade(
-        double[] vertices,
-        int vertexCount,
-        int[] faces,
-        int faceCount,
+        IndexedTriMesh terrain,
         SurfaceDefinition surface,
         IReadOnlyList<ConstraintPolyline> barrierConstraints,
         out string? errorMessage)
     {
         return Grade(
-            vertices,
-            vertexCount,
-            faces,
-            faceCount,
+            terrain,
             new[] { surface },
             barrierConstraints,
             out errorMessage);
     }
 
     public static GradingResult? Grade(
-        double[] vertices,
-        int vertexCount,
-        int[] faces,
-        int faceCount,
+        IndexedTriMesh terrain,
         IReadOnlyList<SurfaceDefinition> surfaces,
         IReadOnlyList<ConstraintPolyline> barrierConstraints,
         out string? errorMessage)
     {
+        (double[] vertices, int vertexCount, int[] faces, int faceCount) = terrain;
         return GradeCore(
             vertices,
             vertexCount,
@@ -130,15 +116,13 @@ public static class SurfaceStripGrader
     }
 
     public static GradingResult? Grade(
-        double[] vertices,
-        int vertexCount,
-        int[] faces,
-        int faceCount,
+        IndexedTriMesh terrain,
         IReadOnlyList<SurfaceDefinition> surfaces,
         IReadOnlyList<ConstraintPolyline> barrierConstraints,
         out string? errorMessage,
         out TimingProfile profile)
     {
+        (double[] vertices, int vertexCount, int[] faces, int faceCount) = terrain;
         profile = new TimingProfile();
         return GradeCore(
             vertices,

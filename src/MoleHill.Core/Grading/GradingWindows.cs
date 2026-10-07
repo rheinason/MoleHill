@@ -106,10 +106,7 @@ public static class GradingWindows
     /// every item's reach.
     /// </summary>
     public static Outcome Grade(
-        double[] vertices,
-        int vertexCount,
-        int[] faces,
-        int faceCount,
+        IndexedTriMesh terrain,
         IReadOnlyList<Reach> reach,
         double margin,
         WindowGrader grade,
@@ -117,6 +114,7 @@ public static class GradingWindows
         Memo? previous,
         Memo next)
     {
+        (double[] vertices, int vertexCount, int[] faces, int faceCount) = terrain;
         var clock = System.Diagnostics.Stopwatch.StartNew();
         var phases = new System.Text.StringBuilder();
         void Phase(string name)

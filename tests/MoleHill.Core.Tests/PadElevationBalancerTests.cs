@@ -1,3 +1,4 @@
+using MoleHill.Core.Engine;
 using MoleHill.Core.Grading;
 using Xunit;
 
@@ -17,11 +18,7 @@ public sealed class PadElevationBalancerTests
             new[] { 40.0, 40.0, 60.0, 40.0, 60.0, 60.0, 40.0, 60.0 },
             4, targetZ: 0.0, slopeAngleDeg: 45.0, maxDistance: 15.0);
 
-        PadElevationBalanceResult result = PadElevationBalancer.Balance(
-            vertices, 4, faces, 2, pad, null,
-            minimumElevation: -1, maximumElevation: 1,
-            targetNet: 0, volumeTolerance: 0.1, iterationCap: 8,
-            modelTolerance: 0.001);
+        PadElevationBalanceResult result = PadElevationBalancer.Balance(new IndexedTriMesh(vertices, 4, faces, 2), pad, null, minimumElevation: -1, maximumElevation: 1, targetNet: 0, volumeTolerance: 0.1, iterationCap: 8, modelTolerance: 0.001);
 
         Assert.NotNull(result.Search.Best);
         Assert.NotNull(result.BestGrading);

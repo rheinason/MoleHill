@@ -1,3 +1,4 @@
+using MoleHill.Core.Engine;
 using Grasshopper.Kernel;
 using MoleHill.Core.Grading;
 using MoleHill.Grasshopper.Registry;
@@ -112,13 +113,7 @@ public sealed class InSituStairComponent : RegistryTerrainComponent
 
         foreach (var stairReference in stairBuild.References)
         {
-            var result = SurfaceStripGrader.Grade(
-                currentVertices,
-                currentVertexCount,
-                currentFaces,
-                currentFaceCount,
-                stairReference.SupportSurface,
-                out string? gradingWarning);
+            var result = SurfaceStripGrader.Grade(new IndexedTriMesh(currentVertices, currentVertexCount, currentFaces, currentFaceCount), stairReference.SupportSurface, out string? gradingWarning);
 
             if (result == null)
             {

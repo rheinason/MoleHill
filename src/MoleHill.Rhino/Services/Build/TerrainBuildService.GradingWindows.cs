@@ -70,14 +70,7 @@ internal sealed partial class TerrainBuildService
 
         runtimeCache.GradingWindowMemos.TryGetValue(memoKey, out GradingWindows.Memo? previous);
         var next = new GradingWindows.Memo();
-        GradingWindows.Outcome outcome = GradingWindows.Grade(
-            vertices,
-            vertexCount,
-            faces,
-            faceCount,
-            reach,
-            margin: 0.0,
-            (double[] wv, int wvc, int[] wf, int wfc, int[] items, (double MinX, double MinY, double MaxX, double MaxY) box,
+        GradingWindows.Outcome outcome = GradingWindows.Grade(new IndexedTriMesh(vertices, vertexCount, faces, faceCount), reach, margin: 0.0, (double[] wv, int wvc, int[] wf, int wfc, int[] items, (double MinX, double MinY, double MaxX, double MaxY) box,
                 out string? error, out IReadOnlyList<OutputPolyline> failurePolylines, out IReadOnlyList<GradingDiagnostic> failureDiagnostics) =>
             {
                 failurePolylines = Array.Empty<OutputPolyline>();
@@ -93,8 +86,7 @@ internal sealed partial class TerrainBuildService
 
                 error = null;
                 return new GradingResult(outV, outV.Length / 3, outF, outF.Length / 3, 0, 0, Array.Empty<double>(), 0, diagnostics: messages);
-            },
-            (items, minX, minY, maxX, maxY, low, high) =>
+            }, (items, minX, minY, maxX, maxY, low, high) =>
             {
                 var box = (minX, minY, maxX, maxY);
                 void Add(double value)
@@ -117,9 +109,7 @@ internal sealed partial class TerrainBuildService
                             Add(c.Points[k]);
                     }
                 }
-            },
-            previous,
-            next);
+            }, previous, next);
 
         if (outcome.NeedsWholeMesh || outcome.Errors.Count > 0 || outcome.Result == null)
             return false;

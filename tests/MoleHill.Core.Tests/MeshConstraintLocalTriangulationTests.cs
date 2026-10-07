@@ -69,7 +69,7 @@ public class MeshConstraintLocalTriangulationTests
             Assert.Equal(vertices[i], outVertices[i]);
 
         // The constraint is in the mesh as one edge chain.
-        InsertedConstraintTracer.TraceAll(new[] { constraint }, outVertices, outVertexCount, outFaces, outFaceCount, Tolerance, out int traced);
+        InsertedConstraintTracer.TraceAll(new[] { constraint }, new IndexedTriMesh(outVertices, outVertexCount, outFaces, outFaceCount), Tolerance, out int traced);
         Assert.Equal(1, traced);
 
         // Only faces near the constraint were replaced: most of the terrain is carried over as it was.

@@ -15,10 +15,7 @@ public static class TerrainBoundaryTrimmer
     }
 
     public static Result? Trim(
-        double[] vertices,
-        int vertexCount,
-        int[] faces,
-        int faceCount,
+        IndexedTriMesh terrain,
         MeshAreaSplitter.AreaBoundary? outer,
         IReadOnlyList<MeshAreaSplitter.AreaBoundary> hides,
         IReadOnlyList<MeshAreaSplitter.AreaBoundary> shows,
@@ -26,6 +23,7 @@ public static class TerrainBoundaryTrimmer
         out string? errorMessage,
         Func<bool>? shouldCancel = null)
     {
+        (double[] vertices, int vertexCount, int[] faces, int faceCount) = terrain;
         errorMessage = null;
         var all = new List<MeshAreaSplitter.AreaBoundary>();
         if (outer != null)

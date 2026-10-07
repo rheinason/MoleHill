@@ -24,13 +24,7 @@ public class SurfaceStripGraderTests
             planeYCoeff: 0.0,
             planeConstant: 0.0);
 
-        GradingResult? result = SurfaceStripGrader.Grade(
-            BuildGridVertices(),
-            15,
-            new[] { 0, 1, 1 },
-            1,
-            surface,
-            out string? errorMessage);
+        GradingResult? result = SurfaceStripGrader.Grade(new IndexedTriMesh(BuildGridVertices(), 15, new[] { 0, 1, 1 }, 1), surface, out string? errorMessage);
 
         Assert.Null(result);
         Assert.Contains("degenerate", errorMessage ?? string.Empty, StringComparison.OrdinalIgnoreCase);
@@ -54,13 +48,7 @@ public class SurfaceStripGraderTests
             planeYCoeff: 0.0,
             planeConstant: 0.0);
 
-        GradingResult? result = SurfaceStripGrader.Grade(
-            BuildGridVertices(),
-            15,
-            BuildGridFaces(),
-            16,
-            surface,
-            out string? errorMessage);
+        GradingResult? result = SurfaceStripGrader.Grade(new IndexedTriMesh(BuildGridVertices(), 15, BuildGridFaces(), 16), surface, out string? errorMessage);
 
         Assert.Null(result);
         Assert.Contains("finite", errorMessage ?? string.Empty, StringComparison.OrdinalIgnoreCase);
@@ -89,14 +77,7 @@ public class SurfaceStripGraderTests
             IsClosed: false,
             PreserveInputElevation: true);
 
-        GradingResult? result = SurfaceStripGrader.Grade(
-            BuildGridVertices(),
-            15,
-            BuildGridFaces(),
-            16,
-            surface,
-            new[] { barrier },
-            out string? errorMessage);
+        GradingResult? result = SurfaceStripGrader.Grade(new IndexedTriMesh(BuildGridVertices(), 15, BuildGridFaces(), 16), surface, new[] { barrier }, out string? errorMessage);
 
         Assert.Null(result);
         Assert.Contains("finite", errorMessage ?? string.Empty, StringComparison.OrdinalIgnoreCase);
@@ -105,14 +86,7 @@ public class SurfaceStripGraderTests
     [Fact]
     public void Grade_EmptySurfaceList_ReturnsFailure()
     {
-        GradingResult? result = SurfaceStripGrader.Grade(
-            BuildGridVertices(),
-            15,
-            BuildGridFaces(),
-            16,
-            Array.Empty<SurfaceStripGrader.SurfaceDefinition>(),
-            Array.Empty<ConstraintPolyline>(),
-            out string? errorMessage);
+        GradingResult? result = SurfaceStripGrader.Grade(new IndexedTriMesh(BuildGridVertices(), 15, BuildGridFaces(), 16), Array.Empty<SurfaceStripGrader.SurfaceDefinition>(), Array.Empty<ConstraintPolyline>(), out string? errorMessage);
 
         Assert.Null(result);
         Assert.Contains("surface", errorMessage ?? string.Empty, StringComparison.OrdinalIgnoreCase);
@@ -136,13 +110,7 @@ public class SurfaceStripGraderTests
             planeYCoeff: 0.0,
             planeConstant: 0.0);
 
-        GradingResult? result = SurfaceStripGrader.Grade(
-            BuildGridVertices(),
-            15,
-            BuildGridFaces(),
-            16,
-            surface,
-            out string? errorMessage);
+        GradingResult? result = SurfaceStripGrader.Grade(new IndexedTriMesh(BuildGridVertices(), 15, BuildGridFaces(), 16), surface, out string? errorMessage);
 
         Assert.Null(result);
         Assert.Contains("finite", errorMessage ?? string.Empty, StringComparison.OrdinalIgnoreCase);
@@ -160,13 +128,7 @@ public class SurfaceStripGraderTests
             planeYCoeff: 0.0,
             planeConstant: 0.0);
 
-        GradingResult? result = SurfaceStripGrader.Grade(
-            BuildGridVertices(),
-            15,
-            BuildGridFaces(),
-            16,
-            surface,
-            out string? errorMessage);
+        GradingResult? result = SurfaceStripGrader.Grade(new IndexedTriMesh(BuildGridVertices(), 15, BuildGridFaces(), 16), surface, out string? errorMessage);
 
         Assert.Null(result);
         Assert.Contains("boundary", errorMessage ?? string.Empty, StringComparison.OrdinalIgnoreCase);
@@ -192,13 +154,7 @@ public class SurfaceStripGraderTests
             slopeAngleDeg: 33.0,
             maxDistance: 0.0);
 
-        var result = SurfaceStripGrader.Grade(
-            BuildGridVertices(),
-            15,
-            BuildGridFaces(),
-            16,
-            surface,
-            out string? errorMessage);
+        var result = SurfaceStripGrader.Grade(new IndexedTriMesh(BuildGridVertices(), 15, BuildGridFaces(), 16), surface, out string? errorMessage);
 
         Assert.NotNull(result);
         Assert.True(string.IsNullOrWhiteSpace(errorMessage) || !errorMessage.Contains("failed", StringComparison.OrdinalIgnoreCase));
@@ -220,13 +176,7 @@ public class SurfaceStripGraderTests
             planeYCoeff: 0.0,
             planeConstant: 0.0);
 
-        var result = SurfaceStripGrader.Grade(
-            BuildGridVertices(),
-            15,
-            BuildGridFaces(),
-            16,
-            surface,
-            out string? errorMessage);
+        var result = SurfaceStripGrader.Grade(new IndexedTriMesh(BuildGridVertices(), 15, BuildGridFaces(), 16), surface, out string? errorMessage);
 
         Assert.Null(result);
         Assert.Contains("footprint", errorMessage ?? string.Empty, StringComparison.OrdinalIgnoreCase);
@@ -252,13 +202,7 @@ public class SurfaceStripGraderTests
             slopeAngleDeg: 33.0,
             maxDistance: 0.0);
 
-        var result = SurfaceStripGrader.Grade(
-            BuildGridVertices(),
-            15,
-            BuildGridFaces(),
-            16,
-            surface,
-            out string? errorMessage);
+        var result = SurfaceStripGrader.Grade(new IndexedTriMesh(BuildGridVertices(), 15, BuildGridFaces(), 16), surface, out string? errorMessage);
 
         Assert.Null(result);
         Assert.Contains("terrain boundary", errorMessage ?? string.Empty, StringComparison.OrdinalIgnoreCase);
@@ -284,13 +228,7 @@ public class SurfaceStripGraderTests
             slopeAngleDeg: 33.0,
             maxDistance: 0.0);
 
-        var withoutBarrier = SurfaceStripGrader.Grade(
-            BuildGridVertices(),
-            15,
-            BuildGridFaces(),
-            16,
-            surface,
-            out string? withoutBarrierWarning);
+        var withoutBarrier = SurfaceStripGrader.Grade(new IndexedTriMesh(BuildGridVertices(), 15, BuildGridFaces(), 16), surface, out string? withoutBarrierWarning);
 
         var barrier = new ConstraintPolyline(
             new[]
@@ -302,14 +240,7 @@ public class SurfaceStripGraderTests
             IsClosed: false,
             PreserveInputElevation: true);
 
-        var withBarrier = SurfaceStripGrader.Grade(
-            BuildGridVertices(),
-            15,
-            BuildGridFaces(),
-            16,
-            surface,
-            new[] { barrier },
-            out string? withBarrierWarning);
+        var withBarrier = SurfaceStripGrader.Grade(new IndexedTriMesh(BuildGridVertices(), 15, BuildGridFaces(), 16), surface, new[] { barrier }, out string? withBarrierWarning);
 
         Assert.NotNull(withoutBarrier);
         Assert.NotNull(withBarrier);

@@ -79,14 +79,7 @@ public static partial class PadGrader
         // Beyond an item's reach, room for the faces along the window edge.
         List<GradingWindows.Reach> grown = GradingWindows.WithMargins(vertices, faces, faceCount, reach, modelTolerance * 100.0);
 
-        GradingWindows.Outcome outcome = GradingWindows.Grade(
-            vertices,
-            vertexCount,
-            faces,
-            faceCount,
-            grown,
-            margin: 0.0,
-            (double[] wv, int wvc, int[] wf, int wfc, int[] items, (double MinX, double MinY, double MaxX, double MaxY) box,
+        GradingWindows.Outcome outcome = GradingWindows.Grade(new IndexedTriMesh(vertices, vertexCount, faces, faceCount), grown, margin: 0.0, (double[] wv, int wvc, int[] wf, int wfc, int[] items, (double MinX, double MinY, double MaxX, double MaxY) box,
                 out string? error, out IReadOnlyList<OutputPolyline> failurePolylines, out IReadOnlyList<GradingDiagnostic> failureStructured) =>
             {
                 LockCurve[] windowLocks = locks.Where(l => GradingWindows.XyOverlaps(l.XyVertices, l.VertexCount, box)).ToArray();
@@ -101,8 +94,7 @@ public static partial class PadGrader
                     modelTolerance,
                     terrainDetailSize,
                     windowConstraints);
-            },
-            (items, minX, minY, maxX, maxY, low, high) =>
+            }, (items, minX, minY, maxX, maxY, low, high) =>
             {
                 var box = (minX, minY, maxX, maxY);
                 void Add(double value)
@@ -138,9 +130,7 @@ public static partial class PadGrader
                     for (int k = 0; k < c.PointCount * 3; k++)
                         Add(c.Points[k]);
                 }
-            },
-            previous,
-            next);
+            }, previous, next);
 
         if (outcome.NeedsWholeMesh)
         {

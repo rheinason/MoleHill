@@ -1,4 +1,5 @@
 // Searches a bounded pad elevation range for a target net cut/fill volume.
+using MoleHill.Core.Engine;
 using Grasshopper.Kernel;
 using MoleHill.Core.Analysis;
 using MoleHill.Core.Grading;
@@ -125,11 +126,7 @@ public sealed class BalanceGradePadComponent : RegistryTerrainComponent
         PadElevationBalanceResult result;
         try
         {
-            result = PadElevationBalancer.Balance(
-                extracted.Vertices, extracted.VertexCount,
-                extracted.Faces, extracted.FaceCount, pad!, locks,
-                minimum, maximum, targetNet, volumeTolerance, iterationCap,
-                modelTolerance: tolerance);
+            result = PadElevationBalancer.Balance(new IndexedTriMesh(extracted.Vertices, extracted.VertexCount, extracted.Faces, extracted.FaceCount), pad!, locks, minimum, maximum, targetNet, volumeTolerance, iterationCap, modelTolerance: tolerance);
         }
         catch (ArgumentException exception)
         {

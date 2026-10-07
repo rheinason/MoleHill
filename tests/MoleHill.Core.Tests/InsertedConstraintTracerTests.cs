@@ -24,8 +24,7 @@ public sealed class InsertedConstraintTracerTests
             Tolerance, Tolerance, 70.0,
             out TerrainDetailInserter.Result? inserted, out string? error), error);
 
-        List<ConstraintPolyline> traced = InsertedConstraintTracer.TraceAll(
-            new[] { line }, inserted!.Vertices, inserted.VertexCount, inserted.Faces, inserted.FaceCount, Tolerance, out int tracedCount);
+        List<ConstraintPolyline> traced = InsertedConstraintTracer.TraceAll(new[] { line }, new IndexedTriMesh(inserted!.Vertices, inserted.VertexCount, inserted.Faces, inserted.FaceCount), Tolerance, out int tracedCount);
 
         Assert.Equal(1, tracedCount);
         ConstraintPolyline result = traced[0];
@@ -95,8 +94,7 @@ public sealed class InsertedConstraintTracerTests
         drawn[0] += 0.004;
         var drawnRing = new ConstraintPolyline(drawn, 5, true, PreserveInputElevation: true);
 
-        InsertedConstraintTracer.TraceAll(
-            new[] { drawnRing }, mesh!.Vertices, mesh.VertexCount, mesh.Faces, mesh.FaceCount, Tolerance, out int tracedCount);
+        InsertedConstraintTracer.TraceAll(new[] { drawnRing }, new IndexedTriMesh(mesh!.Vertices, mesh.VertexCount, mesh.Faces, mesh.FaceCount), Tolerance, out int tracedCount);
 
         Assert.Equal(1, tracedCount);
     }
@@ -117,8 +115,7 @@ public sealed class InsertedConstraintTracerTests
             Tolerance, Tolerance, 70.0,
             out TerrainDetailInserter.Result? inserted, out string? error), error);
 
-        List<ConstraintPolyline> traced = InsertedConstraintTracer.TraceAll(
-            new[] { line }, inserted!.Vertices, inserted.VertexCount, inserted.Faces, inserted.FaceCount, Tolerance, out int tracedCount);
+        List<ConstraintPolyline> traced = InsertedConstraintTracer.TraceAll(new[] { line }, new IndexedTriMesh(inserted!.Vertices, inserted.VertexCount, inserted.Faces, inserted.FaceCount), Tolerance, out int tracedCount);
 
         Assert.Equal(1, tracedCount);
         ConstraintPolyline piece = Assert.Single(traced);
@@ -133,8 +130,7 @@ public sealed class InsertedConstraintTracerTests
         double[] drawn = [0.7, 1.3, 1.0, 17.1, 15.9, 1.0];
         var line = new ConstraintPolyline(drawn, 2, false, PreserveInputElevation: true);
 
-        List<ConstraintPolyline> traced = InsertedConstraintTracer.TraceAll(
-            new[] { line }, vertices, vertices.Length / 3, faces, faces.Length / 3, Tolerance, out int tracedCount);
+        List<ConstraintPolyline> traced = InsertedConstraintTracer.TraceAll(new[] { line }, new IndexedTriMesh(vertices, vertices.Length / 3, faces, faces.Length / 3), Tolerance, out int tracedCount);
 
         Assert.Equal(0, tracedCount);
         Assert.Same(drawn, traced[0].Points);

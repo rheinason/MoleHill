@@ -13,10 +13,7 @@ public sealed class PadElevationBalanceResult
 public static class PadElevationBalancer
 {
     public static PadElevationBalanceResult Balance(
-        double[] terrainVertices,
-        int terrainVertexCount,
-        int[] terrainFaces,
-        int terrainFaceCount,
+        IndexedTriMesh terrain,
         PadGrader.PadBoundary pad,
         PadGrader.LockCurve[]? locks,
         double minimumElevation,
@@ -26,6 +23,7 @@ public static class PadElevationBalancer
         int iterationCap = 24,
         double modelTolerance = GradingTolerances.DefaultModelTolerance)
     {
+        (double[] terrainVertices, int terrainVertexCount, int[] terrainFaces, int terrainFaceCount) = terrain;
         ArgumentNullException.ThrowIfNull(pad);
         GradingResult? bestGrading = null;
         double bestError = double.PositiveInfinity;

@@ -59,7 +59,7 @@ public class OneSidedRailRingTests
 
             return new ConstraintPolyline(points, g.VertexCount, g.IsClosed, PreserveInputElevation: true);
         }).ToList();
-        InsertedConstraintTracer.TraceAll(rails, result.Vertices, result.VertexCount, result.Faces, result.FaceCount, 0.01, out int traced);
+        InsertedConstraintTracer.TraceAll(rails, new IndexedTriMesh(result.Vertices, result.VertexCount, result.Faces, result.FaceCount), 0.01, out int traced);
         Assert.Equal(rails.Count, traced);
     }
 
@@ -105,9 +105,7 @@ public class OneSidedRailRingTests
         Assert.Equal(1, topology.BoundaryComponentCount);
         Assert.Equal(0, topology.NonManifoldEdgeCount);
 
-        InsertedConstraintTracer.TraceAll(
-            new[] { new ConstraintPolyline(rail, stations, true, PreserveInputElevation: true) },
-            result.Vertices, result.VertexCount, result.Faces, result.FaceCount, 0.01, out int traced);
+        InsertedConstraintTracer.TraceAll(new[] { new ConstraintPolyline(rail, stations, true, PreserveInputElevation: true) }, new IndexedTriMesh(result.Vertices, result.VertexCount, result.Faces, result.FaceCount), 0.01, out int traced);
         Assert.Equal(1, traced);
 
         // The centre is graded as the cone's tip: well above the ground, below the rail.
