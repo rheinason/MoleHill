@@ -1,3 +1,6 @@
+using Rhino;
+using MoleHill.Shared;
+using MoleHill.Rhino.Registry;
 using MoleHill.Core.Analysis;
 using MoleHill.Core.Sculpting;
 using MoleHill.Rhino.Model;
@@ -177,5 +180,50 @@ public sealed class TerrainUnitScalerTests
         Assert.Equal(5, reportTable.TextHeight);
         Assert.Equal(1.5, reportTable.ColumnGap);
         Assert.Equal(1.8, reportTable.RowSpacing);
+    }
+
+    [Fact]
+    public void Scale_Ponding_MinimumDepthFollowsTheModelUnits()
+    {
+        var ponding = new PondingAnalysisDefinition { MinimumDepth = 0.05 };
+
+        TerrainUnitScaler.Scale(ponding, 1000);
+
+        Assert.Equal(50, ponding.MinimumDepth, 9);
+    }
+
+    [Fact]
+    public void Create_PondingInAMillimetreDocument_DefaultsToFiftyMillimetres()
+    {
+        var ponding = (PondingAnalysisDefinition)AnalysisTypeRegistry.Create(
+            "ponding", ModelUnitContext.FromUnitSystem(UnitSystem.Millimeters))!;
+
+        Assert.Equal(50, ponding.MinimumDepth, 9);
+    }
+
+    [Fact]
+    public void Scale_PondAndCatchmentResults_ScaleByLengthAreaAndVolume()
+    {
+        var pond = new TerrainAnalysisSummary
+        {
+            AnalysisId = Guid.NewGuid(),
+            PondMaxDepth = 0.5,
+            PondTotalArea = 3,
+            PondTotalVolume = 7,
+            CatchmentLargestArea = 11
+        };
+        var unmeasured = new TerrainAnalysisSummary { AnalysisId = Guid.NewGuid() };
+        var terrain = new TerrainDefinition();
+        terrain.LastAnalysisResults.Add(pond);
+        terrain.LastAnalysisResults.Add(unmeasured);
+
+        TerrainUnitScaler.Scale(new[] { terrain }, 2);
+
+        Assert.Equal(1, pond.PondMaxDepth);
+        Assert.Equal(12, pond.PondTotalArea);
+        Assert.Equal(56, pond.PondTotalVolume);
+        Assert.Equal(44, pond.CatchmentLargestArea);
+        Assert.Null(unmeasured.PondMaxDepth);
+        Assert.Null(unmeasured.PondTotalVolume);
     }
 }

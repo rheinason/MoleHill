@@ -17,7 +17,7 @@ public sealed class PondingAnalysisDefinition : DrainageAnalysisDefinition
     /// reader can judge: "50 mm standing water" means something, where a volume or an area threshold
     /// would have to be re-derived for every site.
     /// </summary>
-    [UnitFree("A depth in model units that the scaler has never rescaled; a change of units leaves it as typed.")]
+    [ModelLength]
     public double MinimumDepth { get; set; } = 0.05;
 
     /// <summary>Draw each pond's shoreline at the level it overflows at.</summary>
