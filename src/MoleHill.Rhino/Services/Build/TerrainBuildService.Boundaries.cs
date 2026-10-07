@@ -76,7 +76,7 @@ internal sealed partial class TerrainBuildService
         return selected;
     }
 
-    private static (List<Point3d> Points, List<Curve> Breaklines, List<Curve> Contours) FilterInputsToDataClip(
+    internal static (List<Point3d> Points, List<Curve> Breaklines, List<Curve> Contours) FilterInputsToDataClip(
         TerrainBuildSnapshot snapshot,
         TerrainDefinition terrain,
         List<Point3d> points,

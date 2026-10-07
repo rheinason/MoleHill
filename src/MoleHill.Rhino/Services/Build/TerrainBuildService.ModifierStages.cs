@@ -30,23 +30,6 @@ internal sealed partial class TerrainBuildService
         }
     }
 
-    internal static void RunAddGeometryStage(ModifierBuildContext c)
-    {
-        var addGeometry = (AddGeometryModifierDefinition)c.Modifier;
-        RhinoMesh? input = c.CurrentMesh;
-        c.CurrentMesh = ExecuteCachedMeshStage(
-            c.Build,
-            c.RuntimeCache,
-            c.StageKey,
-            "Add Geometry",
-            ComputeModifierStageFingerprint(c.Snapshot, c.Terrain, addGeometry, c.CurrentMeshFingerprint),
-            () => input == null ? WarnMissingMesh(c.Build, addGeometry.Label) : ApplyAddGeometry(c.Snapshot, c.Terrain, input, addGeometry, c.Build, c.RuntimeCache, c.ShouldCancel),
-            result => DescribeModifierMeshResult(addGeometry.Label, result),
-            out ulong fingerprint,
-            c.ShouldCancel);
-        c.CurrentMeshFingerprint = fingerprint;
-    }
-
     internal static void RunGradePadStage(ModifierBuildContext c)
     {
         var gradePad = (GradePadModifierDefinition)c.Modifier;

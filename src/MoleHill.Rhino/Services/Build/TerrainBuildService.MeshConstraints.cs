@@ -427,12 +427,12 @@ internal sealed partial class TerrainBuildService
         return result;
     }
 
-    private static List<double[]> CreateFlatPolylines(IReadOnlyList<Curve> curves, double tolerance)
+    internal static List<double[]> CreateFlatPolylines(IReadOnlyList<Curve> curves, double tolerance)
     {
         return TerrainTriangulationInputBuilder.CreateFlatPolylines(curves, tolerance);
     }
 
-    private static List<double[]> CreateFlatPolylines(IReadOnlyList<ConstraintPolyline> constraints)
+    internal static List<double[]> CreateFlatPolylines(IReadOnlyList<ConstraintPolyline> constraints)
     {
         var result = new List<double[]>(constraints.Count);
         foreach (var constraint in constraints)
@@ -451,7 +451,7 @@ internal sealed partial class TerrainBuildService
         return TerrainTriangulationInputBuilder.ToFlatPolyline(polyline);
     }
 
-    private static TinBoundaryPreparer.BoundaryPolyline[] CreateBoundaryPolylines(RhinoMesh mesh, double tolerance)
+    internal static TinBoundaryPreparer.BoundaryPolyline[] CreateBoundaryPolylines(RhinoMesh mesh, double tolerance)
     {
         var nakedEdges = mesh.GetNakedEdges();
         if (nakedEdges == null || nakedEdges.Length == 0)
@@ -468,21 +468,6 @@ internal sealed partial class TerrainBuildService
         }
 
         return result.ToArray();
-    }
-
-    private static TinBoundaryPreparer.BoundaryPolyline[] CombineBoundaryPolylines(
-        IReadOnlyList<TinBoundaryPreparer.BoundaryPolyline> primary,
-        IReadOnlyList<TinBoundaryPreparer.BoundaryPolyline> additional)
-    {
-        if (primary.Count == 0 && additional.Count == 0)
-            return Array.Empty<TinBoundaryPreparer.BoundaryPolyline>();
-
-        var result = new TinBoundaryPreparer.BoundaryPolyline[primary.Count + additional.Count];
-        for (int i = 0; i < primary.Count; i++)
-            result[i] = primary[i];
-        for (int i = 0; i < additional.Count; i++)
-            result[primary.Count + i] = additional[i];
-        return result;
     }
 
     internal static RhinoMesh BuildMeshFromArrays(double[] vertices, int[] faces) =>
