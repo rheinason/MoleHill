@@ -47,23 +47,6 @@ internal sealed partial class TerrainBuildService
         c.CurrentMeshFingerprint = fingerprint;
     }
 
-    internal static void RunRemeshStage(ModifierBuildContext c)
-    {
-        var remesh = (RemeshModifierDefinition)c.Modifier;
-        RhinoMesh? input = c.CurrentMesh;
-        c.CurrentMesh = ExecuteCachedMeshStage(
-            c.Build,
-            c.RuntimeCache,
-            c.StageKey,
-            "Remesh",
-            ComputeModifierStageFingerprint(c.Snapshot, c.Terrain, remesh, c.CurrentMeshFingerprint),
-            () => input == null ? WarnMissingMesh(c.Build, remesh.Label) : ApplyRemesh(c.Snapshot, c.Terrain, input, remesh, c.Build, c.Mode, c.ShouldCancel, c.RuntimeCache, c.StageKey),
-            result => DescribeModifierMeshResult(remesh.Label, result),
-            out ulong fingerprint,
-            c.ShouldCancel);
-        c.CurrentMeshFingerprint = fingerprint;
-    }
-
     internal static void RunSmoothStage(ModifierBuildContext c)
     {
         var smooth = (SmoothModifierDefinition)c.Modifier;

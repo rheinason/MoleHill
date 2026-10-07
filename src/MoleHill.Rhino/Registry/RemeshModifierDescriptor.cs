@@ -19,7 +19,7 @@ internal sealed class RemeshModifierDescriptor : ModifierTypeDescriptor
         Mode = "isotropic",
         CreaseAngle = 30.0
     };
-    public override void RunBuildStage(ModifierBuildContext context) => TerrainBuildService.RunRemeshStage(context);
+    public override void RunBuildStage(ModifierBuildContext context) => RemeshStage.Run(context);
 
     private static readonly IReadOnlyList<(string Key, string Label)> ModeOptions = new[]
     {
