@@ -20,7 +20,6 @@ internal sealed partial class TerrainBuildService
     /// a handful: this is a floor against wholesale detail loss, not a quality measure.
     /// </summary>
     internal const double RetainingWallRebuildMinimumVertexRatio = 0.90;
-    private const double MinRepresentablePadPlaneNormalZ = 1e-3;
     private const int TriangulateCacheVersion = 5;
     internal const int InSituStairTreadDepthWarningColorArgb = unchecked((int)0xFFFF0000);
 
@@ -733,68 +732,6 @@ internal sealed partial class TerrainBuildService
             builder.Add(ComputeSourceSetFingerprint(snapshot, owner.HideBoundaries));
             builder.Add(ComputeSourceSetFingerprint(snapshot, owner.ShowBoundaries));
         }
-        return builder.ToUInt64();
-    }
-
-    private static ulong ComputeGradePadTopologyFingerprint(
-        ulong upstreamFingerprint,
-        double tolerance,
-        GradePadModifierDefinition modifier,
-        IReadOnlyList<PadGrader.PadBoundary> pads,
-        IReadOnlyList<PadGrader.LockCurve> lockCurves)
-    {
-        var builder = new FingerprintBuilder();
-        builder.Add("GradePadTopologyV4");
-        builder.Add(upstreamFingerprint);
-        builder.Add(tolerance);
-        builder.Add(modifier.SlopeAngle);
-        builder.Add(modifier.CutSlopeAngle);
-        builder.Add(modifier.MaxDistance);
-        builder.Add(pads.Count);
-        foreach (var pad in pads)
-        {
-            builder.Add(pad.VertexCount);
-            AddDoubleArrayFingerprint(ref builder, pad.XyVertices);
-            AddDoubleArrayFingerprint(ref builder, pad.BoundaryVertices);
-            builder.Add(pad.PlaneXCoeff);
-            builder.Add(pad.PlaneYCoeff);
-            builder.Add(pad.PlaneConstant);
-            builder.Add(pad.StitchApronDistance);
-        }
-
-        builder.Add(lockCurves.Count);
-        foreach (var lc in lockCurves)
-        {
-            builder.Add(lc.VertexCount);
-            AddDoubleArrayFingerprint(ref builder, lc.XyVertices);
-        }
-
-        return builder.ToUInt64();
-    }
-
-    private static ulong ComputeGradePadResolvedInputFingerprint(
-        ulong topologyOutputFingerprint,
-        IReadOnlyList<PadGrader.PadBoundary> pads,
-        GradePadModifierDefinition modifier)
-    {
-        var builder = new FingerprintBuilder();
-        builder.Add("GradePadResolved");
-        builder.Add(topologyOutputFingerprint);
-        builder.Add(modifier.SlopeAngle);
-        builder.Add(modifier.CutSlopeAngle);
-        builder.Add(modifier.MaxDistance);
-        builder.Add(pads.Count);
-        foreach (var pad in pads)
-        {
-            builder.Add(pad.VertexCount);
-            AddDoubleArrayFingerprint(ref builder, pad.XyVertices);
-            AddDoubleArrayFingerprint(ref builder, pad.BoundaryVertices);
-            builder.Add(pad.PlaneXCoeff);
-            builder.Add(pad.PlaneYCoeff);
-            builder.Add(pad.PlaneConstant);
-            builder.Add(pad.StitchApronDistance);
-        }
-
         return builder.ToUInt64();
     }
 

@@ -80,28 +80,6 @@ internal sealed partial class TerrainBuildService
         }
     }
 
-    private sealed class ResolvedGradePadInputs
-    {
-        public required PadGrader.PadBoundary[] Pads { get; init; }
-
-        public required PadGrader.LockCurve[] Locks { get; init; }
-
-        public required ConstraintPolyline[] Constraints { get; init; }
-
-        public required double SuggestedEdgeLength { get; init; }
-
-        public required string[] Diagnostics { get; init; }
-
-        public required IReadOnlyList<GradingDiagnostic> StructuredDiagnostics { get; init; }
-
-        /// <summary>
-        /// How long <c>PadGrader.CreateConstraints</c> took. Reported separately because it is the only
-        /// part of input resolution that scales with the terrain mesh rather than with the number of
-        /// pads, and it dominated the stage - see docs/architecture.md, "The geometry-heavy case".
-        /// </summary>
-        public TimeSpan ConstraintElapsed { get; init; }
-    }
-
     private readonly record struct ConstraintSignature(
         ulong Fingerprint,
         int PointCount,

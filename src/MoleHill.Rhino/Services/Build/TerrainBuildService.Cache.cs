@@ -8,7 +8,7 @@ namespace MoleHill.Rhino.Services;
 
 internal sealed partial class TerrainBuildService
 {
-    private static RhinoMesh? RestoreCachedMeshStage(TerrainBuildResult build, StageCacheEntry cachedEntry, out ulong outputFingerprint)
+    internal static RhinoMesh? RestoreCachedMeshStage(TerrainBuildResult build, StageCacheEntry cachedEntry, out ulong outputFingerprint)
     {
         RestoreCachedDiagnostics(build, cachedEntry);
         build.AuxiliaryObjects.AddRange(TerrainRuntimeCacheCloner.CloneGeneratedObjects(cachedEntry.AuxiliaryObjects));
@@ -41,7 +41,7 @@ internal sealed partial class TerrainBuildService
                line.Contains(" planner timing:", StringComparison.OrdinalIgnoreCase);
     }
 
-    private static RhinoMesh? StoreMeshStageCache(
+    internal static RhinoMesh? StoreMeshStageCache(
         TerrainBuildResult build,
         TerrainRuntimeCache runtimeCache,
         string stageKey,
@@ -111,7 +111,7 @@ internal sealed partial class TerrainBuildService
         return mesh;
     }
 
-    private static StageCacheEntry CloneStageCacheEntry(
+    internal static StageCacheEntry CloneStageCacheEntry(
         StageCacheEntry source,
         ulong preResolutionFingerprint,
         ulong resolvedInputFingerprint)

@@ -14,43 +14,6 @@ namespace MoleHill.Rhino.Services;
 /// </summary>
 internal sealed partial class TerrainBuildService
 {
-    private static GradingResult? GradePadsWindowed(
-        double[] vertices,
-        int vertexCount,
-        int[] faces,
-        int faceCount,
-        PadGrader.PadBoundary[] pads,
-        PadGrader.LockCurve[] locks,
-        IReadOnlyList<ConstraintPolyline> hardConstraints,
-        double tolerance,
-        double detailSize,
-        TerrainRuntimeCache runtimeCache,
-        string memoKey,
-        List<string> diagnostics,
-        out string? warning,
-        out IReadOnlyList<OutputPolyline> failureOutputPolylines,
-        out IReadOnlyList<GradingDiagnostic> failureDiagnostics)
-    {
-        runtimeCache.GradingWindowMemos.TryGetValue(memoKey, out GradingWindows.Memo? previous);
-        var next = new GradingWindows.Memo();
-        GradeOutcome outcome = PadGrader.GradeWindowed(
-            new PadGradeRequest
-            {
-                Terrain = new IndexedTriMesh(vertices, vertexCount, faces, faceCount),
-                Pads = pads,
-                LockCurves = locks,
-                HardConstraints = hardConstraints,
-                ModelTolerance = tolerance,
-                TerrainDetailSize = detailSize
-            },
-            previous, next, diagnostics);
-        runtimeCache.GradingWindowMemos[memoKey] = next;
-        warning = outcome.ErrorMessage;
-        failureOutputPolylines = outcome.FailureOutputPolylines;
-        failureDiagnostics = outcome.FailureDiagnostics;
-        return outcome.Result;
-    }
-
     /// <summary>Faces of reach around a rail, in local face sizes: the quality patch grows up to six rings.</summary>
     private const double WallInsertRings = 8.0;
 

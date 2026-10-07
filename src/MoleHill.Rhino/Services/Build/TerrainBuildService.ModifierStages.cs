@@ -29,24 +29,4 @@ internal sealed partial class TerrainBuildService
             c.BaseMeshFingerprint = ComputeMeshFingerprint(c.BaseMesh);
         }
     }
-
-    internal static void RunGradePadStage(ModifierBuildContext c)
-    {
-        var gradePad = (GradePadModifierDefinition)c.Modifier;
-        c.UsedStageKeys.Add(TerrainStageKey.CreateGradingTopology(c.StageKey, "Pad"));
-        c.CurrentMesh = BuildGradePadMesh(
-            c.Snapshot,
-            c.Terrain,
-            gradePad,
-            c.Build,
-            c.RuntimeCache,
-            c.Index,
-            c.StageKey,
-            c.CurrentMesh,
-            c.CurrentMeshFingerprint,
-            c.Mode,
-            out ulong fingerprint,
-            c.ShouldCancel);
-        c.CurrentMeshFingerprint = fingerprint;
-    }
 }

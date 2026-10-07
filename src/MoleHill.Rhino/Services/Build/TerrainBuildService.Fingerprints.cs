@@ -254,7 +254,7 @@ internal sealed partial class TerrainBuildService
         return builder.ToUInt64();
     }
 
-    private static ulong ComputeGradingTopologyOutputFingerprint(
+    internal static ulong ComputeGradingTopologyOutputFingerprint(
         string graderKind,
         IReadOnlyList<double> vertices,
         int vertexCount,
@@ -344,7 +344,7 @@ internal sealed partial class TerrainBuildService
         }
     }
 
-    private static void AddDoubleArrayFingerprint(ref FingerprintBuilder builder, IReadOnlyList<double> values)
+    internal static void AddDoubleArrayFingerprint(ref FingerprintBuilder builder, IReadOnlyList<double> values)
     {
         builder.Add(values.Count);
         for (int i = 0; i < values.Count; i++)
