@@ -1,3 +1,5 @@
+using MoleHill.Core.Geometry;
+
 namespace MoleHill.Rhino.Services;
 
 internal static class ConstraintConflictDiagnostics
@@ -150,7 +152,7 @@ internal static class ConstraintConflictDiagnostics
                 double ay = polyline.Points[segmentIndex * 3 + 1];
                 double bx = polyline.Points[next * 3];
                 double by = polyline.Points[next * 3 + 1];
-                if (DistanceSquared(ax, ay, bx, by) <= 1e-18)
+                if (Geometry2D.DistanceSquared(ax, ay, bx, by) <= 1e-18)
                     continue;
 
                 segments.Add(new SegmentRef(ax, ay, bx, by, constraintIndex, segmentIndex));
@@ -199,8 +201,8 @@ internal static class ConstraintConflictDiagnostics
         double sy = right.By - right.Ay;
         double qpx = right.Ax - left.Ax;
         double qpy = right.Ay - left.Ay;
-        double rxs = Cross(rx, ry, sx, sy);
-        double qpxr = Cross(qpx, qpy, rx, ry);
+        double rxs = Geometry2D.Cross(rx, ry, sx, sy);
+        double qpxr = Geometry2D.Cross(qpx, qpy, rx, ry);
 
         if (Math.Abs(rxs) <= tolerance && Math.Abs(qpxr) <= tolerance)
         {
@@ -230,8 +232,8 @@ internal static class ConstraintConflictDiagnostics
         if (Math.Abs(rxs) <= tolerance)
             return ConflictKind.None;
 
-        double t = Cross(qpx, qpy, sx, sy) / rxs;
-        double u = Cross(qpx, qpy, rx, ry) / rxs;
+        double t = Geometry2D.Cross(qpx, qpy, sx, sy) / rxs;
+        double u = Geometry2D.Cross(qpx, qpy, rx, ry) / rxs;
         if (t < -tolerance || t > 1.0 + tolerance || u < -tolerance || u > 1.0 + tolerance)
             return ConflictKind.None;
 
@@ -245,10 +247,10 @@ internal static class ConstraintConflictDiagnostics
 
     private static bool IsSharedEndpointOnly(SegmentRef left, SegmentRef right, double x, double y, double tolerance)
     {
-        bool onLeftStart = DistanceSquared(left.Ax, left.Ay, x, y) <= tolerance * tolerance;
-        bool onLeftEnd = DistanceSquared(left.Bx, left.By, x, y) <= tolerance * tolerance;
-        bool onRightStart = DistanceSquared(right.Ax, right.Ay, x, y) <= tolerance * tolerance;
-        bool onRightEnd = DistanceSquared(right.Bx, right.By, x, y) <= tolerance * tolerance;
+        bool onLeftStart = Geometry2D.DistanceSquared(left.Ax, left.Ay, x, y) <= tolerance * tolerance;
+        bool onLeftEnd = Geometry2D.DistanceSquared(left.Bx, left.By, x, y) <= tolerance * tolerance;
+        bool onRightStart = Geometry2D.DistanceSquared(right.Ax, right.Ay, x, y) <= tolerance * tolerance;
+        bool onRightEnd = Geometry2D.DistanceSquared(right.Bx, right.By, x, y) <= tolerance * tolerance;
 
         return (onLeftStart || onLeftEnd) && (onRightStart || onRightEnd);
     }
@@ -267,17 +269,5 @@ internal static class ConstraintConflictDiagnostics
     private static (double X, double Y) Lerp(double ax, double ay, double bx, double by, double t)
     {
         return (ax + ((bx - ax) * t), ay + ((by - ay) * t));
-    }
-
-    private static double Cross(double ax, double ay, double bx, double by)
-    {
-        return (ax * by) - (ay * bx);
-    }
-
-    private static double DistanceSquared(double ax, double ay, double bx, double by)
-    {
-        double dx = ax - bx;
-        double dy = ay - by;
-        return (dx * dx) + (dy * dy);
     }
 }

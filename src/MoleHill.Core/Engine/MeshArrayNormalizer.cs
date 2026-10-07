@@ -1,3 +1,5 @@
+using MoleHill.Core.Geometry;
+
 namespace MoleHill.Core.Engine;
 
 /// <summary>
@@ -441,15 +443,9 @@ public static class MeshArrayNormalizer
     /// <summary>The cap's two outer corners (its long edge) and the corner between them.</summary>
     private static bool TryOrderCap(double[] v, int a, int b, int c, out int p, out int q, out int r)
     {
-        double ab = DistanceSquared(v, a, b), bc = DistanceSquared(v, b, c), ca = DistanceSquared(v, c, a);
+        double ab = Geometry2D.DistanceSquared3(v, a, b), bc = Geometry2D.DistanceSquared3(v, b, c), ca = Geometry2D.DistanceSquared3(v, c, a);
         (p, q, r) = ab >= bc && ab >= ca ? (a, b, c) : bc >= ca ? (b, c, a) : (c, a, b);
-        return DistanceSquared(v, p, r) > 0.0 && DistanceSquared(v, r, q) > 0.0;
-    }
-
-    private static double DistanceSquared(double[] v, int a, int b)
-    {
-        double dx = v[a * 3] - v[b * 3], dy = v[a * 3 + 1] - v[b * 3 + 1], dz = v[a * 3 + 2] - v[b * 3 + 2];
-        return (dx * dx) + (dy * dy) + (dz * dz);
+        return Geometry2D.DistanceSquared3(v, p, r) > 0.0 && Geometry2D.DistanceSquared3(v, r, q) > 0.0;
     }
 
     /// <summary>

@@ -1,4 +1,5 @@
 using MoleHill.Core.Engine;
+using MoleHill.Core.Geometry;
 
 namespace MoleHill.Core.Grading;
 
@@ -521,10 +522,10 @@ public static partial class PadGrader
         double dy,
         double tolerance)
     {
-        if (DistanceSquaredXY(ax, ay, cx, cy) <= tolerance * tolerance ||
-            DistanceSquaredXY(ax, ay, dx, dy) <= tolerance * tolerance ||
-            DistanceSquaredXY(bx, by, cx, cy) <= tolerance * tolerance ||
-            DistanceSquaredXY(bx, by, dx, dy) <= tolerance * tolerance)
+        if (Geometry2D.DistanceSquared(ax, ay, cx, cy) <= tolerance * tolerance ||
+            Geometry2D.DistanceSquared(ax, ay, dx, dy) <= tolerance * tolerance ||
+            Geometry2D.DistanceSquared(bx, by, cx, cy) <= tolerance * tolerance ||
+            Geometry2D.DistanceSquared(bx, by, dx, dy) <= tolerance * tolerance)
         {
             return false;
         }
@@ -534,7 +535,7 @@ public static partial class PadGrader
         double o3 = Orientation(cx, cy, dx, dy, ax, ay);
         double o4 = Orientation(cx, cy, dx, dy, bx, by);
         double areaTolerance = Math.Max(tolerance, 1e-9) *
-            Math.Max(Math.Sqrt(DistanceSquaredXY(ax, ay, bx, by)), Math.Sqrt(DistanceSquaredXY(cx, cy, dx, dy)));
+            Math.Max(Math.Sqrt(Geometry2D.DistanceSquared(ax, ay, bx, by)), Math.Sqrt(Geometry2D.DistanceSquared(cx, cy, dx, dy)));
 
         if (Math.Abs(o1) <= areaTolerance && PointOnSegment(cx, cy, ax, ay, bx, by, tolerance))
             return true;
@@ -564,9 +565,9 @@ public static partial class PadGrader
             return false;
         }
 
-        double segmentLength = Math.Sqrt(DistanceSquaredXY(ax, ay, bx, by));
+        double segmentLength = Math.Sqrt(Geometry2D.DistanceSquared(ax, ay, bx, by));
         if (segmentLength <= tolerance)
-            return DistanceSquaredXY(px, py, ax, ay) <= tolerance * tolerance;
+            return Geometry2D.DistanceSquared(px, py, ax, ay) <= tolerance * tolerance;
 
         return Math.Abs(Orientation(ax, ay, bx, by, px, py)) <= tolerance * segmentLength;
     }

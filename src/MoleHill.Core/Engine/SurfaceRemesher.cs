@@ -433,7 +433,7 @@ public static class SurfaceRemesher
                 constraint.Points[endPointIndex * 3 + 1],
                 constraint.Points[endPointIndex * 3 + 2]);
 
-            double lengthSquared = DistanceSquared(segment.Ax, segment.Ay, segment.Bx, segment.By);
+            double lengthSquared = Geometry2D.DistanceSquared(segment.Ax, segment.Ay, segment.Bx, segment.By);
             if (lengthSquared <= 1e-18)
                 return;
 
@@ -1582,7 +1582,7 @@ public static class SurfaceRemesher
         double ay = guide.Points[startPointIndex * 3 + 1];
         double bx = guide.Points[endPointIndex * 3];
         double by = guide.Points[endPointIndex * 3 + 1];
-        double length = Math.Sqrt(DistanceSquared(ax, ay, bx, by));
+        double length = Math.Sqrt(Geometry2D.DistanceSquared(ax, ay, bx, by));
         if (length <= reuseTolerance)
             return;
 
@@ -1590,8 +1590,8 @@ public static class SurfaceRemesher
         for (int step = 0; step <= stepCount; step++)
         {
             double t = step / (double)stepCount;
-            double x = Lerp(ax, bx, t);
-            double y = Lerp(ay, by, t);
+            double x = Geometry2D.Lerp(ax, bx, t);
+            double y = Geometry2D.Lerp(ay, by, t);
             if (nearVertices.Find(x, y, reuseTolerance) >= 0)
                 continue;
 
@@ -1781,7 +1781,7 @@ public static class SurfaceRemesher
             double y0 = constraint.Points[(i - 1) * 3 + 1];
             double x1 = constraint.Points[i * 3];
             double y1 = constraint.Points[i * 3 + 1];
-            cumulative[i] = cumulative[i - 1] + Math.Sqrt(DistanceSquared(x0, y0, x1, y1));
+            cumulative[i] = cumulative[i - 1] + Math.Sqrt(Geometry2D.DistanceSquared(x0, y0, x1, y1));
         }
 
         return cumulative;
@@ -1799,7 +1799,7 @@ public static class SurfaceRemesher
     {
         SampleConstraintPoint(constraintA, pointCountA, cumulativeA, fraction, reverse: false, out double ax, out double ay);
         SampleConstraintPoint(constraintB, pointCountB, cumulativeB, fraction, reverseB, out double bx, out double by);
-        return Math.Sqrt(DistanceSquared(ax, ay, bx, by));
+        return Math.Sqrt(Geometry2D.DistanceSquared(ax, ay, bx, by));
     }
 
     private static void SampleConstraintPoint(
@@ -1840,8 +1840,8 @@ public static class SurfaceRemesher
         double ay = constraint.Points[(segmentIndex - 1) * 3 + 1];
         double bx = constraint.Points[segmentIndex * 3];
         double by = constraint.Points[segmentIndex * 3 + 1];
-        x = Lerp(ax, bx, t);
-        y = Lerp(ay, by, t);
+        x = Geometry2D.Lerp(ax, bx, t);
+        y = Geometry2D.Lerp(ay, by, t);
     }
 
     private static bool TryMatchOpenConstraintPair(
@@ -1867,10 +1867,10 @@ public static class SurfaceRemesher
             return false;
 
         // Determine relative orientation by comparing which end of B is nearer to A's start.
-        double startStartDist = DistanceSquared(
+        double startStartDist = Geometry2D.DistanceSquared(
             constraintA.Points[0], constraintA.Points[1],
             constraintB.Points[0], constraintB.Points[1]);
-        double startEndDist = DistanceSquared(
+        double startEndDist = Geometry2D.DistanceSquared(
             constraintA.Points[0], constraintA.Points[1],
             constraintB.Points[(pointCountB - 1) * 3],
             constraintB.Points[(pointCountB - 1) * 3 + 1]);
@@ -1920,7 +1920,7 @@ public static class SurfaceRemesher
             SampleConstraintPoint(constraintA, pointCountA, cumulativeA, fraction, reverse: false, out double ax, out double ay);
             SampleConstraintPoint(constraintB, pointCountB, cumulativeB, fraction, reverseB, out double bx, out double by);
 
-            double width = Math.Sqrt(DistanceSquared(ax, ay, bx, by));
+            double width = Math.Sqrt(Geometry2D.DistanceSquared(ax, ay, bx, by));
             if (width <= reuseTolerance * 2.0)
                 continue;
 
@@ -1928,8 +1928,8 @@ public static class SurfaceRemesher
             for (int row = 1; row <= rowCount; row++)
             {
                 double blend = row / (double)(rowCount + 1);
-                double x = Lerp(ax, bx, blend);
-                double y = Lerp(ay, by, blend);
+                double x = Geometry2D.Lerp(ax, bx, blend);
+                double y = Geometry2D.Lerp(ay, by, blend);
                 if (nearVertices.Find(x, y, reuseTolerance) >= 0)
                     continue;
 
@@ -1967,9 +1967,9 @@ public static class SurfaceRemesher
         for (int step = 1; step < segmentCount; step++)
         {
             double t = step / (double)segmentCount;
-            double x = Lerp(xyList[startIndex * 2], xyList[endIndex * 2], t);
-            double y = Lerp(xyList[startIndex * 2 + 1], xyList[endIndex * 2 + 1], t);
-            double z = Lerp(zList[startIndex], zList[endIndex], t);
+            double x = Geometry2D.Lerp(xyList[startIndex * 2], xyList[endIndex * 2], t);
+            double y = Geometry2D.Lerp(xyList[startIndex * 2 + 1], xyList[endIndex * 2 + 1], t);
+            double z = Geometry2D.Lerp(zList[startIndex], zList[endIndex], t);
 
             int newIndex = zList.Count;
             xyList.Add(x);
@@ -2022,10 +2022,10 @@ public static class SurfaceRemesher
         for (int step = 1; step < segmentCount; step++)
         {
             double t = step / (double)segmentCount;
-            double x = Lerp(startX, endX, t);
-            double y = Lerp(startY, endY, t);
+            double x = Geometry2D.Lerp(startX, endX, t);
+            double y = Geometry2D.Lerp(startY, endY, t);
             double z = constraint.PreserveInputElevation
-                ? Lerp(constraint.Points[startPointIndex * 3 + 2], constraint.Points[endPointIndex * 3 + 2], t)
+                ? Geometry2D.Lerp(constraint.Points[startPointIndex * 3 + 2], constraint.Points[endPointIndex * 3 + 2], t)
                 : InterpolateOriginalZ(faceGrid, originalVertices, originalFaces, faceCount, x, y);
 
             int newIndex = nearVertices.Find(x, y, exactReuseTolerance);
@@ -2185,7 +2185,7 @@ public static class SurfaceRemesher
             return false;
         }
 
-        z = Lerp(segment.Az, segment.Bz, t);
+        z = Geometry2D.Lerp(segment.Az, segment.Bz, t);
         return true;
     }
 
@@ -2224,13 +2224,6 @@ public static class SurfaceRemesher
             segmentCount--;
 
         return Math.Max(1, segmentCount);
-    }
-
-    private static double DistanceSquared(double ax, double ay, double bx, double by)
-    {
-        double dx = ax - bx;
-        double dy = ay - by;
-        return dx * dx + dy * dy;
     }
 
     private static bool PointInTriangle(
@@ -2301,6 +2294,4 @@ public static class SurfaceRemesher
 
     private static long PackCellKey(long cx, long cy) =>
         (cx * 0x100000001L) ^ (cy * 0x27d4eb2dL);
-
-    private static double Lerp(double a, double b, double t) => a + ((b - a) * t);
 }

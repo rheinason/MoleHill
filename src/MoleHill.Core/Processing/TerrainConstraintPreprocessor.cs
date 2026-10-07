@@ -1,3 +1,5 @@
+using MoleHill.Core.Geometry;
+
 namespace MoleHill.Core.Processing;
 
 /// <summary>
@@ -133,7 +135,7 @@ public static class TerrainConstraintPreprocessor
                     double remaining = length - position;
                     double t = position / length;
                     double spacing = Math.Max(
-                        index.Clearance(Lerp(start.X, end.X, t), Lerp(start.Y, end.Y, t), b, remaining),
+                        index.Clearance(Geometry2D.Lerp(start.X, end.X, t), Geometry2D.Lerp(start.Y, end.Y, t), b, remaining),
                         floor);
 
                     // Only split when the remainder holds at least one and a half stations, so the last
@@ -143,7 +145,7 @@ public static class TerrainConstraintPreprocessor
 
                     position += spacing;
                     t = position / length;
-                    AddVertex(output, new Vertex(Lerp(start.X, end.X, t), Lerp(start.Y, end.Y, t), Lerp(start.Z, end.Z, t)), tolerance);
+                    AddVertex(output, new Vertex(Geometry2D.Lerp(start.X, end.X, t), Geometry2D.Lerp(start.Y, end.Y, t), Geometry2D.Lerp(start.Z, end.Z, t)), tolerance);
                     budget--;
                     changed = true;
                 }
@@ -477,9 +479,9 @@ public static class TerrainConstraintPreprocessor
         {
             double t = step / (double)divisions;
             AddVertex(output, new Vertex(
-                Lerp(start.X, end.X, t),
-                Lerp(start.Y, end.Y, t),
-                Lerp(start.Z, end.Z, t)), tolerance);
+                Geometry2D.Lerp(start.X, end.X, t),
+                Geometry2D.Lerp(start.Y, end.Y, t),
+                Geometry2D.Lerp(start.Z, end.Z, t)), tolerance);
         }
     }
 
@@ -530,9 +532,9 @@ public static class TerrainConstraintPreprocessor
 
             double localT = (targetDistance - segmentStartDistance) / segmentLength;
             AddVertex(output, new Vertex(
-                Lerp(segmentStart.X, segmentEnd.X, localT),
-                Lerp(segmentStart.Y, segmentEnd.Y, localT),
-                Lerp(segmentStart.Z, segmentEnd.Z, localT)), tolerance);
+                Geometry2D.Lerp(segmentStart.X, segmentEnd.X, localT),
+                Geometry2D.Lerp(segmentStart.Y, segmentEnd.Y, localT),
+                Geometry2D.Lerp(segmentStart.Z, segmentEnd.Z, localT)), tolerance);
         }
     }
 
@@ -595,6 +597,4 @@ public static class TerrainConstraintPreprocessor
         double dy = b.Y - a.Y;
         return Math.Sqrt((dx * dx) + (dy * dy));
     }
-
-    private static double Lerp(double a, double b, double t) => a + ((b - a) * t);
 }

@@ -1,4 +1,5 @@
 ﻿using MoleHill.Core.Engine;
+using MoleHill.Core.Geometry;
 
 namespace MoleHill.Core.Grading;
 
@@ -858,19 +859,16 @@ public static class GradingWindows
 
         private static bool InTriangle(double px, double py, double ax, double ay, double bx, double by, double qx, double qy)
         {
-            double d1 = Cross(ax, ay, bx, by, px, py), d2 = Cross(bx, by, qx, qy, px, py), d3 = Cross(qx, qy, ax, ay, px, py);
+            double d1 = Geometry2D.Orient(ax, ay, bx, by, px, py), d2 = Geometry2D.Orient(bx, by, qx, qy, px, py), d3 = Geometry2D.Orient(qx, qy, ax, ay, px, py);
             bool negative = d1 < 0 || d2 < 0 || d3 < 0;
             bool positive = d1 > 0 || d2 > 0 || d3 > 0;
             return !(negative && positive);
         }
 
-        private static double Cross(double ax, double ay, double bx, double by, double px, double py) =>
-            ((bx - ax) * (py - ay)) - ((by - ay) * (px - ax));
-
         private static double SegmentSegmentDist2(double ax, double ay, double bx, double by, double cx, double cy, double dx, double dy)
         {
-            double d1 = Cross(cx, cy, dx, dy, ax, ay), d2 = Cross(cx, cy, dx, dy, bx, by);
-            double d3 = Cross(ax, ay, bx, by, cx, cy), d4 = Cross(ax, ay, bx, by, dx, dy);
+            double d1 = Geometry2D.Orient(cx, cy, dx, dy, ax, ay), d2 = Geometry2D.Orient(cx, cy, dx, dy, bx, by);
+            double d3 = Geometry2D.Orient(ax, ay, bx, by, cx, cy), d4 = Geometry2D.Orient(ax, ay, bx, by, dx, dy);
             if (((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0)))
                 return 0.0;
             return Math.Min(Math.Min(PointSegmentDist2(ax, ay, cx, cy, dx, dy), PointSegmentDist2(bx, by, cx, cy, dx, dy)),

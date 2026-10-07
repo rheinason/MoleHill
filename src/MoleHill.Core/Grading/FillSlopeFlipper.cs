@@ -1,4 +1,5 @@
 using MoleHill.Core.Engine;
+using MoleHill.Core.Geometry;
 
 namespace MoleHill.Core.Grading;
 
@@ -146,8 +147,7 @@ internal static class FillSlopeFlipper
     }
 
     private static double Orient(double[] p, int a, int b, int c) =>
-        ((p[b * 3] - p[a * 3]) * (p[(c * 3) + 1] - p[(a * 3) + 1])) -
-        ((p[(b * 3) + 1] - p[(a * 3) + 1]) * (p[c * 3] - p[a * 3]));
+        Geometry2D.Orient(p[a * 3], p[(a * 3) + 1], p[b * 3], p[(b * 3) + 1], p[c * 3], p[(c * 3) + 1]);
 
     /// <summary>Face slope from horizontal in degrees; 90 for a face with no plan area.</summary>
     private static double Slope(double[] p, int a, int b, int c)

@@ -1,4 +1,5 @@
 using MoleHill.Core.Grading;
+using MoleHill.Core.Geometry;
 
 namespace MoleHill.Core.Processing;
 
@@ -90,12 +91,12 @@ public static class RegionInputClipper
 
                 foreach ((double start, double end) in intervals)
                 {
-                    double sx = Lerp(polyline.Points[a], polyline.Points[b], start);
-                    double sy = Lerp(polyline.Points[a + 1], polyline.Points[b + 1], start);
-                    double sz = Lerp(polyline.Points[a + 2], polyline.Points[b + 2], start);
-                    double ex = Lerp(polyline.Points[a], polyline.Points[b], end);
-                    double ey = Lerp(polyline.Points[a + 1], polyline.Points[b + 1], end);
-                    double ez = Lerp(polyline.Points[a + 2], polyline.Points[b + 2], end);
+                    double sx = Geometry2D.Lerp(polyline.Points[a], polyline.Points[b], start);
+                    double sy = Geometry2D.Lerp(polyline.Points[a + 1], polyline.Points[b + 1], start);
+                    double sz = Geometry2D.Lerp(polyline.Points[a + 2], polyline.Points[b + 2], start);
+                    double ex = Geometry2D.Lerp(polyline.Points[a], polyline.Points[b], end);
+                    double ey = Geometry2D.Lerp(polyline.Points[a + 1], polyline.Points[b + 1], end);
+                    double ez = Geometry2D.Lerp(polyline.Points[a + 2], polyline.Points[b + 2], end);
 
                     if (current.Count == 0 || !SamePoint(current, sx, sy, sz, tolerance))
                     {
@@ -180,8 +181,6 @@ public static class RegionInputClipper
             result.Add(new InputPolyline(current.ToArray(), current.Count / 3, IsClosed: false));
         current.Clear();
     }
-
-    private static double Lerp(double a, double b, double t) => a + ((b - a) * t);
 
     private readonly record struct Bounds(double MinX, double MinY, double MaxX, double MaxY)
     {

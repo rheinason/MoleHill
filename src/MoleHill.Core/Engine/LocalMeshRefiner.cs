@@ -1,5 +1,7 @@
 ﻿using static MoleHill.Core.Engine.MeshFlipGeometry;
 
+using MoleHill.Core.Geometry;
+
 namespace MoleHill.Core.Engine;
 
 /// <summary>
@@ -329,7 +331,7 @@ public static class LocalMeshRefiner
     private static void EmitTwoSplit(List<double> verts, List<int> outTris, int a, int b, int c, int mAB, int mCA)
     {
         Emit(outTris, a, mAB, mCA);
-        if (DistanceSquared(verts, mAB, c) <= DistanceSquared(verts, b, mCA))
+        if (Geometry2D.DistanceSquared3(verts, mAB, c) <= Geometry2D.DistanceSquared3(verts, b, mCA))
         {
             Emit(outTris, mAB, b, c);
             Emit(outTris, mAB, c, mCA);
@@ -350,21 +352,13 @@ public static class LocalMeshRefiner
 
     private static long LongestEdgeKey(List<double> v, int a, int b, int c, out double longestSquared)
     {
-        double d0 = DistanceSquared(v, a, b);
-        double d1 = DistanceSquared(v, b, c);
-        double d2 = DistanceSquared(v, c, a);
+        double d0 = Geometry2D.DistanceSquared3(v, a, b);
+        double d1 = Geometry2D.DistanceSquared3(v, b, c);
+        double d2 = Geometry2D.DistanceSquared3(v, c, a);
         if (d0 >= d1 && d0 >= d2) { longestSquared = d0; return EdgeKey(a, b); }
         if (d1 >= d2) { longestSquared = d1; return EdgeKey(b, c); }
         longestSquared = d2;
         return EdgeKey(c, a);
-    }
-
-    private static double DistanceSquared(List<double> v, int a, int b)
-    {
-        double dx = v[a * 3] - v[b * 3];
-        double dy = v[a * 3 + 1] - v[b * 3 + 1];
-        double dz = v[a * 3 + 2] - v[b * 3 + 2];
-        return (dx * dx) + (dy * dy) + (dz * dz);
     }
 
     // === Phase 2: valence-regularizing flips =========================================================

@@ -1,4 +1,5 @@
 using MoleHill.Core.Engine;
+using MoleHill.Core.Geometry;
 
 namespace MoleHill.Core.Analysis;
 
@@ -336,13 +337,13 @@ public static class WaterflowTracer
             double by = vertices[(b * 3) + 1];
             double cx = vertices[c * 3];
             double cy = vertices[(c * 3) + 1];
-            double area = Cross(bx - ax, by - ay, cx - ax, cy - ay);
+            double area = Geometry2D.Cross(bx - ax, by - ay, cx - ax, cy - ay);
             if (Math.Abs(area) <= tolerance)
                 continue;
 
-            double ab = Cross(bx - ax, by - ay, x - ax, y - ay);
-            double bc = Cross(cx - bx, cy - by, x - bx, y - by);
-            double ca = Cross(ax - cx, ay - cy, x - cx, y - cy);
+            double ab = Geometry2D.Cross(bx - ax, by - ay, x - ax, y - ay);
+            double bc = Geometry2D.Cross(cx - bx, cy - by, x - bx, y - by);
+            double ca = Geometry2D.Cross(ax - cx, ay - cy, x - cx, y - cy);
             if ((ab >= -tolerance && bc >= -tolerance && ca >= -tolerance) ||
                 (ab <= tolerance && bc <= tolerance && ca <= tolerance))
                 return faceIndex;
@@ -423,14 +424,14 @@ public static class WaterflowTracer
             double by = vertices[(b * 3) + 1];
             double edgeX = bx - ax;
             double edgeY = by - ay;
-            double denominator = Cross(dx, dy, edgeX, edgeY);
+            double denominator = Geometry2D.Cross(dx, dy, edgeX, edgeY);
             if (Math.Abs(denominator) <= tolerance)
                 continue;
 
             double toEdgeX = ax - x;
             double toEdgeY = ay - y;
-            double t = Cross(toEdgeX, toEdgeY, edgeX, edgeY) / denominator;
-            double u = Cross(toEdgeX, toEdgeY, dx, dy) / denominator;
+            double t = Geometry2D.Cross(toEdgeX, toEdgeY, edgeX, edgeY) / denominator;
+            double u = Geometry2D.Cross(toEdgeX, toEdgeY, dx, dy) / denominator;
             if (t <= tolerance || u < -tolerance || u > 1.0 + tolerance || t >= bestT)
                 continue;
 
@@ -446,8 +447,6 @@ public static class WaterflowTracer
         distance = bestT * Math.Sqrt((dx * dx) + (dy * dy));
         return double.IsFinite(distance);
     }
-
-    private static double Cross(double ax, double ay, double bx, double by) => (ax * by) - (ay * bx);
 
     private readonly record struct Plane(double OriginX, double OriginY, double OriginZ, double GradientX, double GradientY)
     {

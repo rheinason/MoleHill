@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using MoleHill.Core.Geometry;
 
 namespace MoleHill.Core.Engine;
 
@@ -720,25 +721,20 @@ internal static class TriangleBoundaryCuller
     {
         const double eps = 1e-9;
 
-        double abC = Orient(ax, ay, bx, by, cx, cy);
-        double abD = Orient(ax, ay, bx, by, dx, dy);
+        double abC = Geometry2D.Orient(ax, ay, bx, by, cx, cy);
+        double abD = Geometry2D.Orient(ax, ay, bx, by, dx, dy);
         if (Math.Abs(abC) <= eps || Math.Abs(abD) <= eps)
             return false;
 
         if ((abC > 0) == (abD > 0))
             return false;
 
-        double cdA = Orient(cx, cy, dx, dy, ax, ay);
-        double cdB = Orient(cx, cy, dx, dy, bx, by);
+        double cdA = Geometry2D.Orient(cx, cy, dx, dy, ax, ay);
+        double cdB = Geometry2D.Orient(cx, cy, dx, dy, bx, by);
         if (Math.Abs(cdA) <= eps || Math.Abs(cdB) <= eps)
             return false;
 
         return (cdA > 0) != (cdB > 0);
-    }
-
-    private static double Orient(double ax, double ay, double bx, double by, double cx, double cy)
-    {
-        return (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
     }
 
     private sealed class ConstraintSpatialIndex

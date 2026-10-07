@@ -1,4 +1,5 @@
 using MoleHill.Core.Engine;
+using MoleHill.Core.Geometry;
 
 namespace MoleHill.Core.Analysis;
 
@@ -337,11 +338,11 @@ public static class DrainageBasinAnalyzer
             double ex = vertices[b * 3] - ax;
             double ey = vertices[(b * 3) + 1] - ay;
 
-            double denominator = Cross(ex, ey, dx, dy);
+            double denominator = Geometry2D.Cross(ex, ey, dx, dy);
             if (Math.Abs(denominator) <= 1e-15)
                 continue;
 
-            double s = Cross(cx - ax, cy - ay, dx, dy) / denominator;
+            double s = Geometry2D.Cross(cx - ax, cy - ay, dx, dy) / denominator;
             if (s < -1e-9 || s > 1.0 + 1e-9)
                 continue;
 
@@ -1099,6 +1100,4 @@ public static class DrainageBasinAnalyzer
 
         return basins;
     }
-
-    private static double Cross(double ax, double ay, double bx, double by) => (ax * by) - (ay * bx);
 }

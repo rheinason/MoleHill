@@ -1,4 +1,5 @@
 using MoleHill.Core.Engine;
+using MoleHill.Core.Geometry;
 
 namespace MoleHill.Core.Grading;
 
@@ -109,8 +110,8 @@ internal static class LawsonFlipper
         double qx = v[q * 3], qy = v[(q * 3) + 1];
 
         // Strictly convex quad: p and q on opposite sides of ab, a and b on opposite sides of pq.
-        double abp = Orient(ax, ay, bx, by, px, py), abq = Orient(ax, ay, bx, by, qx, qy);
-        double pqa = Orient(px, py, qx, qy, ax, ay), pqb = Orient(px, py, qx, qy, bx, by);
+        double abp = Geometry2D.Orient(ax, ay, bx, by, px, py), abq = Geometry2D.Orient(ax, ay, bx, by, qx, qy);
+        double pqa = Geometry2D.Orient(px, py, qx, qy, ax, ay), pqb = Geometry2D.Orient(px, py, qx, qy, bx, by);
         if (abp * abq >= 0.0 || pqa * pqb >= 0.0)
             return false;
 
@@ -124,9 +125,6 @@ internal static class LawsonFlipper
         double scale = Math.Max(Math.Max(Math.Abs(adx), Math.Abs(ady)), Math.Max(Math.Max(Math.Abs(bdx), Math.Abs(bdy)), Math.Max(Math.Abs(cdx), Math.Abs(cdy))));
         return det > 1e-12 * scale * scale * scale * scale;
     }
-
-    private static double Orient(double ax, double ay, double bx, double by, double cx, double cy) =>
-        ((bx - ax) * (cy - ay)) - ((by - ay) * (cx - ax));
 
     private static long EdgeKey(int a, int b) => IndexedMeshTools.GetEdgeKey(a, b);
 

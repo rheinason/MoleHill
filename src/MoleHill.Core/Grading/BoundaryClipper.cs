@@ -192,7 +192,7 @@ internal static class BoundaryClipper
         double aby = by - ay;
         double cdx = dx - cx;
         double cdy = dy - cy;
-        double denom = Cross(abx, aby, cdx, cdy);
+        double denom = Geometry2D.Cross(abx, aby, cdx, cdy);
         if (Math.Abs(denom) <= 1e-12)
         {
             t = 0.0;
@@ -202,8 +202,8 @@ internal static class BoundaryClipper
 
         double acx = cx - ax;
         double acy = cy - ay;
-        t = Cross(acx, acy, cdx, cdy) / denom;
-        u = Cross(acx, acy, abx, aby) / denom;
+        t = Geometry2D.Cross(acx, acy, cdx, cdy) / denom;
+        u = Geometry2D.Cross(acx, acy, abx, aby) / denom;
         return t >= -ParameterTolerance &&
                t <= 1.0 + ParameterTolerance &&
                u >= -ParameterTolerance &&
@@ -231,8 +231,8 @@ internal static class BoundaryClipper
         double acy = cy - ay;
         double adx = dx - ax;
         double ady = dy - ay;
-        if (Math.Abs(Cross(abx, aby, acx, acy)) > 1e-12 ||
-            Math.Abs(Cross(abx, aby, adx, ady)) > 1e-12)
+        if (Math.Abs(Geometry2D.Cross(abx, aby, acx, acy)) > 1e-12 ||
+            Math.Abs(Geometry2D.Cross(abx, aby, adx, ady)) > 1e-12)
         {
             return false;
         }
@@ -246,10 +246,5 @@ internal static class BoundaryClipper
         startT = Math.Max(0.0, Math.Min(tc, td));
         endT = Math.Min(1.0, Math.Max(tc, td));
         return endT - startT > ParameterTolerance;
-    }
-
-    private static double Cross(double ax, double ay, double bx, double by)
-    {
-        return (ax * by) - (ay * bx);
     }
 }

@@ -1,4 +1,5 @@
 using MoleHill.Core.Engine;
+using MoleHill.Core.Geometry;
 
 namespace MoleHill.Core.Grading;
 
@@ -234,19 +235,12 @@ internal sealed class SeamGraph
         double dy = by - ay;
         double lenSq = (dx * dx) + (dy * dy);
         if (lenSq <= 1e-16)
-            return DistanceSquaredXY(px, py, ax, ay);
+            return Geometry2D.DistanceSquared(px, py, ax, ay);
 
         double t = (((px - ax) * dx) + ((py - ay) * dy)) / lenSq;
         t = Math.Max(0.0, Math.Min(1.0, t));
         double qx = ax + (t * dx);
         double qy = ay + (t * dy);
-        return DistanceSquaredXY(px, py, qx, qy);
-    }
-
-    private static double DistanceSquaredXY(double ax, double ay, double bx, double by)
-    {
-        double dx = ax - bx;
-        double dy = ay - by;
-        return (dx * dx) + (dy * dy);
+        return Geometry2D.DistanceSquared(px, py, qx, qy);
     }
 }

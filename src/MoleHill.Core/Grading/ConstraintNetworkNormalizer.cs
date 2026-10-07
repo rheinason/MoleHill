@@ -1,4 +1,5 @@
 using MoleHill.Core.Engine;
+using MoleHill.Core.Geometry;
 
 namespace MoleHill.Core.Grading;
 
@@ -97,12 +98,12 @@ internal static class ConstraintNetworkNormalizer
                 if (current - previous <= 1e-9)
                     continue;
 
-                double ax = Lerp(segment.Ax, segment.Bx, previous);
-                double ay = Lerp(segment.Ay, segment.By, previous);
-                double az = Lerp(segment.Az, segment.Bz, previous);
-                double bx = Lerp(segment.Ax, segment.Bx, current);
-                double by = Lerp(segment.Ay, segment.By, current);
-                double bz = Lerp(segment.Az, segment.Bz, current);
+                double ax = Geometry2D.Lerp(segment.Ax, segment.Bx, previous);
+                double ay = Geometry2D.Lerp(segment.Ay, segment.By, previous);
+                double az = Geometry2D.Lerp(segment.Az, segment.Bz, previous);
+                double bx = Geometry2D.Lerp(segment.Ax, segment.Bx, current);
+                double by = Geometry2D.Lerp(segment.Ay, segment.By, current);
+                double bz = Geometry2D.Lerp(segment.Az, segment.Bz, current);
                 previous = current;
 
                 double dx = bx - ax;
@@ -226,10 +227,5 @@ internal static class ConstraintNetworkNormalizer
             return long.MinValue;
 
         return (long)Math.Round(scaled, MidpointRounding.AwayFromZero);
-    }
-
-    private static double Lerp(double a, double b, double t)
-    {
-        return a + ((b - a) * t);
     }
 }

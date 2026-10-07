@@ -1,4 +1,5 @@
 ﻿using MoleHill.Core.Engine;
+using MoleHill.Core.Geometry;
 
 namespace MoleHill.Core.Processing;
 
@@ -495,8 +496,8 @@ public static class TinInputCleaner
                     continue;
                 }
 
-                double leftZ = Lerp(vertices[left.A].Z, vertices[left.B].Z, leftT);
-                double rightZ = Lerp(vertices[right.A].Z, vertices[right.B].Z, rightT);
+                double leftZ = Geometry2D.Lerp(vertices[left.A].Z, vertices[left.B].Z, leftT);
+                double rightZ = Geometry2D.Lerp(vertices[right.A].Z, vertices[right.B].Z, rightT);
                 if (Math.Abs(leftZ - rightZ) > zTol)
                 {
                     intersectionConflictsDetected++;
@@ -812,8 +813,8 @@ public static class TinInputCleaner
         double sY = b1.Y - b0.Y;
         double qpX = b0.X - a0.X;
         double qpY = b0.Y - a0.Y;
-        double denom = Cross(rX, rY, sX, sY);
-        double collinear = Cross(qpX, qpY, rX, rY);
+        double denom = Geometry2D.Cross(rX, rY, sX, sY);
+        double collinear = Geometry2D.Cross(qpX, qpY, rX, rY);
         double eps = Math.Max(xyTol * 0.25, 1e-12);
 
         if (Math.Abs(denom) <= eps)
@@ -828,8 +829,8 @@ public static class TinInputCleaner
             return overlap ? SegmentIntersectionKind.Overlap : SegmentIntersectionKind.None;
         }
 
-        t = Cross(qpX, qpY, sX, sY) / denom;
-        u = Cross(qpX, qpY, rX, rY) / denom;
+        t = Geometry2D.Cross(qpX, qpY, sX, sY) / denom;
+        u = Geometry2D.Cross(qpX, qpY, rX, rY) / denom;
 
         double aTol = ParameterTolerance(rX, rY, xyTol);
         double bTol = ParameterTolerance(sX, sY, xyTol);
@@ -879,10 +880,6 @@ public static class TinInputCleaner
     {
         return left.A == right.A || left.A == right.B || left.B == right.A || left.B == right.B;
     }
-
-    private static double Lerp(double a, double b, double t) => a + (b - a) * t;
-
-    private static double Cross(double ax, double ay, double bx, double by) => ax * by - ay * bx;
 
     private static bool TryAddSegment(List<SegmentData> segments, HashSet<long> keys, int a, int b)
     {

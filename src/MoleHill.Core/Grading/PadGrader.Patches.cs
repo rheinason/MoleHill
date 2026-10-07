@@ -1,3 +1,5 @@
+using MoleHill.Core.Geometry;
+
 namespace MoleHill.Core.Grading;
 
 public static partial class PadGrader
@@ -108,7 +110,7 @@ public static partial class PadGrader
             bool found = false;
             for (int j = 0; j < rightCount; j++)
             {
-                if (DistanceSquaredXY(x, y, rightLoopXy[j * 2], rightLoopXy[(j * 2) + 1]) <= toleranceSquared)
+                if (Geometry2D.DistanceSquared(x, y, rightLoopXy[j * 2], rightLoopXy[(j * 2) + 1]) <= toleranceSquared)
                 {
                     found = true;
                     break;
@@ -145,7 +147,7 @@ public static partial class PadGrader
                 if (next == i)
                     break;
 
-                double distanceSquared = DistanceSquaredXY(
+                double distanceSquared = Geometry2D.DistanceSquared(
                     loopXy[i * 2],
                     loopXy[(i * 2) + 1],
                     loopXy[next * 2],
@@ -189,12 +191,5 @@ public static partial class PadGrader
         }
 
         return start;
-    }
-
-    private static double DistanceSquaredXY(double ax, double ay, double bx, double by)
-    {
-        double dx = ax - bx;
-        double dy = ay - by;
-        return (dx * dx) + (dy * dy);
     }
 }

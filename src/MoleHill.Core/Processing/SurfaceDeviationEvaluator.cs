@@ -1,4 +1,5 @@
 using MoleHill.Core.Engine;
+using MoleHill.Core.Geometry;
 
 namespace MoleHill.Core.Processing;
 
@@ -398,7 +399,7 @@ public static class SurfaceDeviationEvaluator
     }
 
     private static double Cross(Point2 a, Point2 b, Point2 c) =>
-        ((b.X - a.X) * (c.Y - a.Y)) - ((b.Y - a.Y) * (c.X - a.X));
+        Geometry2D.Orient(a.X, a.Y, b.X, b.Y, c.X, c.Y);
 
     private static double Distance(Point2 a, Point2 b)
     {
