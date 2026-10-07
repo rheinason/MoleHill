@@ -117,12 +117,124 @@ public class WallRailStationingTests
         Assert.Equal(b, result.Second);
     }
 
-    private static void AssertPartner(WallRailStationing.Result result, double x, double y, double partnerX, double partnerY)
+    [Fact]
+    public void Synchronize_DoubledVertex_LeavesNoZeroLengthSpan()
+    {
+        // The same point drawn twice gave two stations at one place: a zero-length loft span.
+        double[] a = { 0, 0, 0, 5, 0, 0, 5, 0, 0, 10, 0, 0 };
+        double[] b = { 0, 1, 1, 10, 1, 1 };
+
+        var result = WallRailStationing.Synchronize(a, b, false, .005);
+
+        Assert.Equal(new double[] { 0, 0, 0, 5, 0, 0, 10, 0, 0 }, result.First);
+        AssertStripDoesNotFold(result.First, result.Second);
+    }
+
+    [Fact]
+    public void Synchronize_ClosedRingWithSeamInsideFillet_PairsEveryCornerWithArcMiddle()
+    {
+        // A rounded-corner ring whose seam falls mid-fillet, inside a sharp rectangle. Runs do not wrap a
+        // seam, so that fillet was two partial bends that matched nothing.
+        double[] inside = { 0, 0, 0, 10, 0, 0, 10, 6, 0, 0, 6, 0 };
+        var outside = new List<double>();
+        (double X, double Y, double From)[] corners = { (10, 0, -90), (10, 6, 0), (0, 6, 90), (0, 0, 180) };
+        foreach (var corner in corners)
+        {
+            for (int i = 0; i <= 18; i++)
+            {
+                double angle = (corner.From + 5 * i) * Math.PI / 180;
+                outside.AddRange(new[] { corner.X + Math.Cos(angle), corner.Y + Math.Sin(angle), 2 });
+            }
+        }
+        double[] ring = outside.ToArray();
+        // Start the ring at the middle of the last fillet.
+        int startVertex = 3 * 19 + 9;
+        double[] rotated = new double[ring.Length];
+        for (int i = 0; i < ring.Length / 3; i++)
+            Array.Copy(ring, ((startVertex + i) % (ring.Length / 3)) * 3, rotated, i * 3, 3);
+
+        var result = WallRailStationing.Synchronize(inside, rotated, true, .005);
+
+        AssertStripDoesNotFold(result.First, result.Second, true);
+        AssertVerticesRetained(inside, result.First);
+        foreach (var corner in corners)
+        {
+            double middle = (corner.From + 45) * Math.PI / 180;
+            AssertPartner(result, corner.X, corner.Y, corner.X + Math.Cos(middle), corner.Y + Math.Sin(middle));
+        }
+    }
+
+    [Fact]
+    public void Synchronize_SmallKinkBeforeFillet_PairsTheArcsEndToEnd()
+    {
+        // Concentric quarter fillets (radius 10 and 9, centre (10, 10)) between straight legs. The outer rail
+        // also turns 1 degree half a metre before its arc, which joins its bend. Anchoring that rail's arc at
+        // the kink paired it with the inner rail's tangent point and sheared the leg.
+        static double[] Rail(double radius, bool kink)
+        {
+            double y = 10 - radius;
+            var points = new List<double> { 0, y, 0 };
+            if (kink)
+                points.AddRange(new[] { 9.5, y - 0.5 * Math.Tan(Math.PI / 180), 0 });
+            for (int i = 0; i <= 18; i++)
+            {
+                double angle = (-90 + 5 * i) * Math.PI / 180;
+                points.AddRange(new[] { 10 + radius * Math.Cos(angle), 10 + radius * Math.Sin(angle), 0 });
+            }
+            points.AddRange(new[] { 10 + radius, 20, 0 });
+            return points.ToArray();
+        }
+
+        var result = WallRailStationing.Synchronize(Rail(10, kink: true), Rail(9, kink: false), false, .005);
+
+        AssertStripDoesNotFold(result.First, result.Second);
+        double middle = -Math.PI / 4;
+        AssertPartner(result, 10 + 10 * Math.Cos(middle), 10 + 10 * Math.Sin(middle), 10 + 9 * Math.Cos(middle), 10 + 9 * Math.Sin(middle), within: 0.05);
+        AssertPartner(result, 20, 10, 19, 10, within: 0.1);
+        // The tangent point pairs within a few centimetres; anchored at the kink it was half a metre off.
+        for (int j = 0; j < result.First.Length; j += 3)
+            if (Math.Abs(result.First[j] - 10) < 1e-9 && Math.Abs(result.First[j + 1]) < 1e-9)
+                Assert.InRange(result.Second[j], 9.9, 10.1);
+    }
+
+    [Fact]
+    public void Synchronize_DenseCirclesWithOffsetSeams_StaysFastAndUnfolded()
+    {
+        // An evenly stepped ring has no gap to split at. Peeling an unmatched ring one vertex per round
+        // was O(n^2) on a dense planter wall.
+        static double[] Circle(double radius, int count, double phase)
+        {
+            var points = new double[count * 3];
+            for (int i = 0; i < count; i++)
+            {
+                double angle = phase + 2 * Math.PI * i / count;
+                points[i * 3] = radius * Math.Cos(angle);
+                points[i * 3 + 1] = radius * Math.Sin(angle);
+            }
+            return points;
+        }
+
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        var result = WallRailStationing.Synchronize(Circle(20, 2000, 0), Circle(19, 1500, 0.3), true, .005);
+        watch.Stop();
+
+        AssertStripDoesNotFold(result.First, result.Second, true);
+        Assert.True(watch.ElapsedMilliseconds < 2000, $"Took {watch.ElapsedMilliseconds} ms.");
+    }
+
+    private static void AssertPartner(
+        WallRailStationing.Result result, double x, double y, double partnerX, double partnerY, double within = 0)
     {
         for (int j = 0; j < result.First.Length; j += 3)
         {
             if (Math.Abs(result.First[j] - x) < 1e-9 && Math.Abs(result.First[j + 1] - y) < 1e-9)
             {
+                if (within > 0)
+                {
+                    Assert.InRange(result.Second[j], partnerX - within, partnerX + within);
+                    Assert.InRange(result.Second[j + 1], partnerY - within, partnerY + within);
+                    return;
+                }
                 Assert.Equal(partnerX, result.Second[j], 6);
                 Assert.Equal(partnerY, result.Second[j + 1], 6);
                 return;

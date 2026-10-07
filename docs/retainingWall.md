@@ -109,8 +109,8 @@ The wall solid uses shared rail stations and four continuous side bands:
 A bend is a run of same-direction turns within two wall widths, so a sharp corner, a chamfer and a
 tessellated fillet (the outside rail of a round-cornered Offset) are each one bend. Nearby bends with
 agreeing incoming/outgoing plan directions are matched in both directions and used as ordered anchors;
-a bend that matches nothing is split at its widest gap and matching is retried. Each bend anchors at
-its turn-weighted middle, and when both rails turn along arcs their starts and ends anchor too. Stations
+a bend that matches nothing is split at a gap clearly wider than its others (two bends merged across a short leg; an evenly stepped arc stays whole) and matching is retried. Closed rails seat both seams on the middle of the longest straight first, so no bend straddles a seam. Each bend anchors at
+its turn-weighted middle, and when both rails turn along arcs their starts and ends anchor too, taken where the turn reaches 5% and 95% so a stray small kink beside the arc does not move them. Stations
 closer than the tolerance on both rails merge, each rail keeping its own authored vertex. Between anchors, stations use the union of each rail's vertex plan-length
 fractions. Each rail retains its own Z, so a steep grade cannot shift the corresponding corner along
 the other rail. Extra collinear height vertices are retained without becoming corner anchors. Closed

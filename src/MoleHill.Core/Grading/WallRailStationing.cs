@@ -1,3 +1,5 @@
+using MoleHill.Core.Geometry;
+
 namespace MoleHill.Core.Grading;
 
 /// <summary>Synchronizes paired wall rails in plan, anchoring matching bends before sampling between them.</summary>
@@ -20,6 +22,9 @@ public static class WallRailStationing
     {
         if (first.Length < 6 || second.Length < 6 || first.Length % 3 != 0 || second.Length % 3 != 0)
             return new Result(Array.Empty<double>(), Array.Empty<double>());
+
+        if (closed)
+            (first, second) = SeatSeamsOnLongestSegment(first, second);
 
         List<(double A, double B)> positions = AnchorPositions(MatchBends(first, second, closed, tolerance), tolerance);
         int[] firstAnchors = InsertAnchors(ref first, closed, positions.Select(position => position.A).ToArray(), tolerance);
@@ -62,75 +67,145 @@ public static class WallRailStationing
                 continue;
             // Each interval owns its start; the last open interval also owns the endpoint.
             bool ownsEnd = !closed && k == anchors.Count - 1;
-            var stations = new List<(double Station, int A, int B)> { (0, start.A, start.B) };
+            var stations = new List<Station> { Station.At(0, start.A, start.B, first, second) };
             for (int i = start.A + 1; i < end.A; i++)
-                stations.Add(((aCum[i] - aCum[start.A]) / aSpan, i, -1));
+            {
+                double station = (aCum[i] - aCum[start.A]) / aSpan;
+                stations.Add(new Station(station, i, -1, Vertex(first, i), Sample(second, bCum, bCum[start.B] + station * bSpan)));
+            }
             for (int i = start.B + 1; i < end.B; i++)
-                stations.Add(((bCum[i] - bCum[start.B]) / bSpan, -1, i));
+            {
+                double station = (bCum[i] - bCum[start.B]) / bSpan;
+                stations.Add(new Station(station, -1, i, Sample(first, aCum, aCum[start.A] + station * aSpan), Vertex(second, i)));
+            }
             if (ownsEnd)
-                stations.Add((1, end.A, end.B));
-            stations.Sort((x, y) => x.Station.CompareTo(y.Station));
+                stations.Add(Station.At(1, end.A, end.B, first, second));
+            stations.Sort((x, y) => x.Fraction.CompareTo(y.Fraction));
 
             // Merge stations closer than the tolerance on both rails into one, so the loft gets no
             // micrometre span where one rail's vertex lands just beside the other's. Each rail keeps its
-            // own authored vertex; two vertices of one rail never merge (a vertical step stays a step).
-            int count = 0;
-            (double Station, int A, int B) pending = default;
-            foreach (var station in stations)
+            // own authored vertex. Two vertices of one rail merge only when they are the same point (a
+            // doubled vertex); a vertical step stays a step.
+            Station pending = stations[0];
+            for (int i = 1; i < stations.Count; i++)
             {
-                if (count > 0 && CanMerge(pending, station, first, second, aCum, bCum, start, aSpan, bSpan, tolerance))
+                Station next = stations[i];
+                if (CanMerge(pending, next, tolerance))
                 {
-                    pending = (pending.Station, pending.A >= 0 ? pending.A : station.A, pending.B >= 0 ? pending.B : station.B);
+                    pending = pending with
+                    {
+                        A = pending.A >= 0 ? pending.A : next.A,
+                        B = pending.B >= 0 ? pending.B : next.B,
+                        PointA = pending.A >= 0 ? pending.PointA : next.PointA,
+                        PointB = pending.B >= 0 ? pending.PointB : next.PointB,
+                    };
                     continue;
                 }
-                if (count++ > 0)
-                    EmitStation(aResult, bResult, first, second, aCum, bCum, start, aSpan, bSpan, pending);
-                pending = station;
+                Emit(aResult, pending.PointA);
+                Emit(bResult, pending.PointB);
+                pending = next;
             }
-            EmitStation(aResult, bResult, first, second, aCum, bCum, start, aSpan, bSpan, pending);
+            Emit(aResult, pending.PointA);
+            Emit(bResult, pending.PointB);
         }
         return new Result(aResult.ToArray(), bResult.ToArray());
     }
 
-    private static bool CanMerge(
-        (double Station, int A, int B) pending,
-        (double Station, int A, int B) next,
-        double[] first, double[] second, double[] aCum, double[] bCum,
-        (int A, int B) start, double aSpan, double bSpan, double tolerance)
+    // A station: its fraction of the interval, the authored vertex it carries on each rail (or -1), and
+    // its point on each rail - that vertex, or the plan-length sample.
+    private readonly record struct Station(double Fraction, int A, int B, Point PointA, Point PointB)
     {
-        if ((pending.A >= 0 && next.A >= 0) || (pending.B >= 0 && next.B >= 0))
+        public static Station At(double fraction, int a, int b, double[] first, double[] second) =>
+            new(fraction, a, b, Vertex(first, a), Vertex(second, b));
+    }
+
+    private readonly record struct Point(double X, double Y, double Z);
+
+    private static bool CanMerge(Station pending, Station next, double tolerance)
+    {
+        double a = Distance(pending.PointA, next.PointA), b = Distance(pending.PointB, next.PointB);
+        if ((pending.A >= 0 && next.A >= 0 && a > DuplicateDistance) ||
+            (pending.B >= 0 && next.B >= 0 && b > DuplicateDistance))
             return false;
-        return Distance(StationPoint(first, aCum, start.A, aSpan, pending.Station, pending.A),
-                        StationPoint(first, aCum, start.A, aSpan, next.Station, next.A)) <= tolerance &&
-               Distance(StationPoint(second, bCum, start.B, bSpan, pending.Station, pending.B),
-                        StationPoint(second, bCum, start.B, bSpan, next.Station, next.B)) <= tolerance;
+        return a <= tolerance && b <= tolerance;
     }
 
-    private static void EmitStation(
-        List<double> aResult, List<double> bResult, double[] first, double[] second, double[] aCum, double[] bCum,
-        (int A, int B) start, double aSpan, double bSpan, (double Station, int A, int B) station)
+    // Two authored vertices this close are one point drawn twice.
+    private const double DuplicateDistance = 1e-9;
+
+    private static void Emit(List<double> output, Point point)
     {
-        aResult.AddRange(StationPoint(first, aCum, start.A, aSpan, station.Station, station.A));
-        bResult.AddRange(StationPoint(second, bCum, start.B, bSpan, station.Station, station.B));
+        output.Add(point.X);
+        output.Add(point.Y);
+        output.Add(point.Z);
     }
 
-    // A station's point on one rail: the authored vertex when it has one, else the plan-length sample.
-    private static double[] StationPoint(double[] points, double[] cum, int startIndex, double span, double station, int vertex)
+    private static Point Vertex(double[] points, int vertex)
     {
-        if (vertex >= 0)
-        {
-            int v = vertex * 3 % points.Length;
-            return new[] { points[v], points[v + 1], points[v + 2] };
-        }
-        var sample = new List<double>(3);
-        AppendSample(sample, points, cum, cum[startIndex] + station * span);
-        return sample.ToArray();
+        int v = vertex * 3 % points.Length;
+        return new Point(points[v], points[v + 1], points[v + 2]);
     }
 
-    private static double Distance(double[] p, double[] q)
+    private static double Distance(Point p, Point q)
     {
-        double dx = p[0] - q[0], dy = p[1] - q[1], dz = p[2] - q[2];
+        double dx = p.X - q.X, dy = p.Y - q.Y, dz = p.Z - q.Z;
         return Math.Sqrt(dx * dx + dy * dy + dz * dz);
+    }
+
+    // Closed rails: put the first rail's seam at the middle of its longest segment and the second rail's
+    // at the nearest point to it, inserting both as vertices, so no bend straddles a seam. A run never wraps
+    // a seam, so a fillet the seam cut in two became two partial bends on one ring and matched nothing on
+    // the other; a seam on a corner vertex put the partner seam mid-fillet the same way.
+    private static (double[] First, double[] Second) SeatSeamsOnLongestSegment(double[] first, double[] second)
+    {
+        int count = first.Length / 3, longestSegment = 0;
+        double longest = -1;
+        for (int i = 0; i < count; i++)
+        {
+            int next = (i + 1) % count;
+            double length = Geometry2D.DistanceSquared(first[i * 3], first[i * 3 + 1], first[next * 3], first[next * 3 + 1]);
+            if (length > longest)
+            {
+                longest = length;
+                longestSegment = i;
+            }
+        }
+        first = SplitAndRotate(first, longestSegment, 0.5);
+
+        int partnerSegment = 0;
+        double partnerT = 0, nearest = double.PositiveInfinity;
+        int partnerCount = second.Length / 3;
+        for (int i = 0; i < partnerCount; i++)
+        {
+            int p = i * 3, q = (i + 1) % partnerCount * 3;
+            double t = Geometry2D.ParameterOnSegmentClamped(second[p], second[p + 1], second[q], second[q + 1], first[0], first[1]);
+            double distance = Geometry2D.DistanceSquared(
+                first[0], first[1], second[p] + t * (second[q] - second[p]), second[p + 1] + t * (second[q + 1] - second[p + 1]));
+            if (distance < nearest)
+            {
+                nearest = distance;
+                partnerSegment = i;
+                partnerT = t;
+            }
+        }
+        return (first, SplitAndRotate(second, partnerSegment, partnerT));
+    }
+
+    // The closed rail starting at parameter t on segment (segment, segment + 1); the start is inserted as a
+    // vertex unless t lands on an end.
+    private static double[] SplitAndRotate(double[] points, int segment, double t)
+    {
+        int count = points.Length / 3, next = (segment + 1) % count;
+        if (t <= 1e-9)
+            return Rotate(points, segment);
+        if (t >= 1 - 1e-9)
+            return Rotate(points, next);
+        var result = new double[points.Length + 3];
+        for (int axis = 0; axis < 3; axis++)
+            result[axis] = points[segment * 3 + axis] + t * (points[next * 3 + axis] - points[segment * 3 + axis]);
+        for (int i = 0; i < count; i++)
+            Array.Copy(points, (next + i) % count * 3, result, (i + 1) * 3, 3);
+        return result;
     }
 
     /// <summary>
@@ -153,7 +228,7 @@ public static class WallRailStationing
         {
             List<Bend> a = Bends(first, firstTurns, firstAlong, firstRuns);
             List<Bend> b = Bends(second, secondTurns, secondAlong, secondRuns);
-            List<(int A, int B)> matches = MatchBends(a, first, b, second, closed, tolerance);
+            List<(int A, int B)> matches = PairBends(a, first, b, second, closed, tolerance);
             bool split = SplitUnmatched(firstRuns, a, matches.Select(match => match.A), firstTurns, firstAlong);
             split |= SplitUnmatched(secondRuns, b, matches.Select(match => match.B), secondTurns, secondAlong);
             if (!split)
@@ -181,7 +256,7 @@ public static class WallRailStationing
         return positions;
     }
 
-    private static List<(int A, int B)> MatchBends(List<Bend> a, double[] first, List<Bend> b, double[] second, bool closed, double tolerance)
+    private static List<(int A, int B)> PairBends(List<Bend> a, double[] first, List<Bend> b, double[] second, bool closed, double tolerance)
     {
         var matches = new List<(int A, int B)>();
         if (a.Count == 0 || b.Count == 0)
@@ -239,8 +314,8 @@ public static class WallRailStationing
     }
 
     // Consecutive turns join one run when they turn the same way within two wall widths: a chamfer, or the
-    // steps of a fillet. Runs do not wrap a closed rail's seam; a bend split there anchors as two smaller
-    // bends or not at all, which is no worse than an unmatched corner.
+    // steps of a fillet. Runs do not wrap a closed rail's seam; SeatSeamsOnLongestSegment puts the seam
+    // where no bend is.
     private static List<(int Start, int End)> Runs(double[] turns, double[] along, double width)
     {
         var runs = new List<(int Start, int End)>();
@@ -272,16 +347,39 @@ public static class WallRailStationing
             if (Math.Abs(total) < CornerTurn)
                 continue;
             double middle = weighted / total;
-            var point = new List<double>(3);
-            AppendSample(point, points, along, middle);
+            Point point = Sample(points, along, middle);
             Direction(points, (start + count - 1) % count, start, out double ix, out double iy);
             Direction(points, end, (end + 1) % count, out double ox, out double oy);
-            bends.Add(new Bend(start, end, along[start], along[end], middle, point[0], point[1], ix, iy, ox, oy));
+
+            // The arc proper runs from where the turn reaches 5% of the bend to where it reaches 95%, so a
+            // stray small turn a wall width before or after the arc does not move its start or end anchor.
+            int arcStart = start, arcEnd = end;
+            double turned = 0;
+            bool started = false;
+            for (int i = start; i <= end; i++)
+            {
+                turned += turns[i];
+                if (!started && Math.Abs(turned) >= ArcTrim * Math.Abs(total))
+                {
+                    arcStart = i;
+                    started = true;
+                }
+                if (Math.Abs(turned) >= (1 - ArcTrim) * Math.Abs(total))
+                {
+                    arcEnd = i;
+                    break;
+                }
+            }
+            bends.Add(new Bend(start, end, along[arcStart], along[arcEnd], middle, point.X, point.Y, ix, iy, ox, oy));
         }
         return bends;
     }
 
-    // Splits each unmatched multi-vertex bend at its widest gap between turns. Returns whether any split.
+    private const double ArcTrim = 0.05;
+
+    // Splits each unmatched bend at a gap clearly wider than its others: two bends merged across a short
+    // leg. An evenly stepped arc has no such gap and stays whole; peeling it a vertex at a time cost
+    // O(n^2) and could whittle a correct fillet away. Returns whether any bend split.
     private static bool SplitUnmatched(
         List<(int Start, int End)> runs, List<Bend> bends, IEnumerable<int> matched, double[] turns, double[] along)
     {
@@ -293,19 +391,27 @@ public static class WallRailStationing
             if (isMatched.Contains(i) || bend.Start == bend.End)
                 continue;
             int previous = bend.Start, cutAfter = bend.Start, cutBefore = bend.End;
-            double widest = -1;
+            double widest = -1, secondWidest = 0;
             for (int v = bend.Start + 1; v <= bend.End; v++)
             {
                 if (Math.Abs(turns[v]) < MinimumTurn)
                     continue;
-                if (along[v] - along[previous] > widest)
+                double gap = along[v] - along[previous];
+                if (gap > widest)
                 {
-                    widest = along[v] - along[previous];
+                    secondWidest = Math.Max(secondWidest, widest);
+                    widest = gap;
                     cutAfter = previous;
                     cutBefore = v;
                 }
+                else
+                {
+                    secondWidest = Math.Max(secondWidest, gap);
+                }
                 previous = v;
             }
+            if (widest <= SplitGapRatio * secondWidest)
+                continue;
             int run = runs.IndexOf((bend.Start, bend.End));
             runs[run] = (bend.Start, cutAfter);
             runs.Insert(run + 1, (cutBefore, bend.End));
@@ -313,6 +419,8 @@ public static class WallRailStationing
         }
         return split;
     }
+
+    private const double SplitGapRatio = 1.5;
 
     // Inserts a vertex at each plan position (in any order), or reuses a vertex within the tolerance of
     // it, and returns each position's vertex index in the input order.
@@ -333,7 +441,7 @@ public static class WallRailStationing
             while (next < order.Length && positions[order[next]] < along[i] - snap)
             {
                 indices[order[next]] = output.Count / 3;
-                AppendSample(output, points, along, positions[order[next++]]);
+                Emit(output, Sample(points, along, positions[order[next++]]));
             }
             while (next < order.Length && positions[order[next]] <= along[i] + snap)
                 indices[order[next++]] = output.Count / 3;
@@ -343,7 +451,7 @@ public static class WallRailStationing
         {
             // Past the last vertex: only on a closed rail, on its closing segment.
             indices[order[next]] = output.Count / 3;
-            AppendSample(output, points, along, positions[order[next++]]);
+            Emit(output, Sample(points, along, positions[order[next++]]));
         }
         points = output.ToArray();
         return indices;
@@ -400,11 +508,9 @@ public static class WallRailStationing
         for (int j = 0; j < segments; j++)
         {
             int p = j * 3, q = (j + 1) * 3 % target.Length;
-            double dx = target[q] - target[p], dy = target[q + 1] - target[p + 1];
-            double lengthSquared = dx * dx + dy * dy;
-            double t = lengthSquared <= 1e-24 ? 0 : Math.Clamp(((x - target[p]) * dx + (y - target[p + 1]) * dy) / lengthSquared, 0, 1);
-            double ex = x - target[p] - t * dx, ey = y - target[p + 1] - t * dy;
-            nearest = Math.Min(nearest, ex * ex + ey * ey);
+            double t = Geometry2D.ParameterOnSegmentClamped(target[p], target[p + 1], target[q], target[q + 1], x, y);
+            nearest = Math.Min(nearest, Geometry2D.DistanceSquared(
+                x, y, target[p] + t * (target[q] - target[p]), target[p + 1] + t * (target[q + 1] - target[p + 1])));
         }
         return Math.Sqrt(nearest);
     }
@@ -436,19 +542,18 @@ public static class WallRailStationing
         return lengths;
     }
 
-    private static void AppendSample(List<double> output, double[] points, double[] lengths, double along)
+    // The point at plan position along: a vertex when it lands on one, else interpolated on its segment.
+    private static Point Sample(double[] points, double[] lengths, double along)
     {
         int found = Array.BinarySearch(lengths, along);
         if (found >= 0)
-        {
-            int vertex = found * 3 % points.Length;
-            output.Add(points[vertex]); output.Add(points[vertex + 1]); output.Add(points[vertex + 2]);
-            return;
-        }
+            return Vertex(points, found);
         int segment = Math.Clamp(~found - 1, 0, lengths.Length - 2);
         int p = segment * 3, q = (segment + 1) * 3 % points.Length;
         double t = (along - lengths[segment]) / (lengths[segment + 1] - lengths[segment]);
-        for (int axis = 0; axis < 3; axis++)
-            output.Add(points[p + axis] + t * (points[q + axis] - points[p + axis]));
+        return new Point(
+            points[p] + t * (points[q] - points[p]),
+            points[p + 1] + t * (points[q + 1] - points[p + 1]),
+            points[p + 2] + t * (points[q + 2] - points[p + 2]));
     }
 }
