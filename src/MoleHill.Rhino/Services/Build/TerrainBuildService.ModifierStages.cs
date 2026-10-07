@@ -47,24 +47,6 @@ internal sealed partial class TerrainBuildService
         c.CurrentMeshFingerprint = fingerprint;
     }
 
-    internal static void RunSmoothStage(ModifierBuildContext c)
-    {
-        var smooth = (SmoothModifierDefinition)c.Modifier;
-        c.UsedStageKeys.Add(TerrainStageKey.CreateSmoothPrepared(c.StageKey));
-        RhinoMesh? input = c.CurrentMesh;
-        c.CurrentMesh = ExecuteCachedMeshStage(
-            c.Build,
-            c.RuntimeCache,
-            c.StageKey,
-            "Smooth",
-            ComputeSmoothStageFingerprint(c.Snapshot, c.Terrain, smooth, c.Index, c.CurrentMeshFingerprint),
-            () => input == null ? WarnMissingMesh(c.Build, smooth.Label) : ApplySmooth(c.Snapshot, c.Terrain, input, smooth, c.Build, c.RuntimeCache, c.Index, c.StageKey, c.Mode),
-            result => DescribeModifierMeshResult(smooth.Label, result),
-            out ulong fingerprint,
-            c.ShouldCancel);
-        c.CurrentMeshFingerprint = fingerprint;
-    }
-
     internal static void RunGradePadStage(ModifierBuildContext c)
     {
         var gradePad = (GradePadModifierDefinition)c.Modifier;

@@ -271,7 +271,7 @@ internal sealed partial class TerrainBuildService
         return builder.ToUInt64();
     }
 
-    private static ulong ComputeMeshFingerprint(RhinoMesh? mesh)
+    internal static ulong ComputeMeshFingerprint(RhinoMesh? mesh)
     {
         if (mesh == null)
             return 0UL;

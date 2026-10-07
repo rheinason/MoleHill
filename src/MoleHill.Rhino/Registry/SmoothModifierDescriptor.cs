@@ -15,7 +15,7 @@ internal sealed class SmoothModifierDescriptor : ModifierTypeDescriptor
     public override int SortOrder => 3;
     public override string Subtitle => "Smooth heights, keep plan";
     public override ModifierDefinition Create(UnitSystem unitSystem) => new SmoothModifierDefinition();
-    public override void RunBuildStage(ModifierBuildContext context) => TerrainBuildService.RunSmoothStage(context);
+    public override void RunBuildStage(ModifierBuildContext context) => SmoothStage.Run(context);
 
     public override IReadOnlyList<ModifierParam> Parameters { get; } = new[]
     {
