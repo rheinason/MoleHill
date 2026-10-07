@@ -65,6 +65,72 @@ public class WallRailStationingTests
         AssertStripDoesNotFold(result.First, result.Second);
     }
 
+    [Fact]
+    public void Synchronize_RoundOffsetCornerAgainstSharpCorner_PairsCornerWithArcMiddle()
+    {
+        // Rhino's Offset with round corners: the inside rail keeps a sharp corner, the outside one gets an
+        // arc in 5-degree steps, none of which is a corner alone. Unanchored, the sharp corner paired with
+        // a point before the arc on this short-legged hairpin and the arc's cells crossed the next leg.
+        const double turn = 150 * Math.PI / 180;
+        double[] inside = { 0, 0, 0, 2, 0, 1, 2 + 16 * Math.Cos(turn), 16 * Math.Sin(turn), 2 };
+        var outside = new List<double> { 0, -0.5, 0 };
+        for (int i = 0; i <= 30; i++)
+        {
+            double angle = -Math.PI / 2 + turn * i / 30;
+            outside.AddRange(new[] { 2 + 0.5 * Math.Cos(angle), 0.5 * Math.Sin(angle), 1 });
+        }
+        outside.AddRange(new[] { 2 + 16 * Math.Cos(turn) + 0.5 * Math.Sin(turn), 16 * Math.Sin(turn) - 0.5 * Math.Cos(turn), 2 });
+
+        var result = WallRailStationing.Synchronize(inside, outside.ToArray(), false, .005);
+
+        AssertStripDoesNotFold(result.First, result.Second);
+        AssertVerticesRetained(inside, result.First);
+        AssertVerticesRetained(outside.ToArray(), result.Second);
+        double middle = -Math.PI / 2 + turn / 2;
+        AssertPartner(result, 2, 0, 2 + 0.5 * Math.Cos(middle), 0.5 * Math.Sin(middle));
+    }
+
+    [Fact]
+    public void Synchronize_ChamferAgainstSharpCorner_PairsCornerWithChamferMiddle()
+    {
+        // Two 45-degree vertices are one 90-degree bend; neither matched the sharp corner on its own.
+        double[] inside = { 0, 0, 0, 2, 0, 0, 2, 15, 0 };
+        double[] outside = { 0, -1, 1, 2.6, -1, 1, 3, -0.6, 1, 3, 15, 1 };
+
+        var result = WallRailStationing.Synchronize(inside, outside, false, .005);
+
+        AssertStripDoesNotFold(result.First, result.Second);
+        AssertVerticesRetained(outside, result.Second);
+        AssertPartner(result, 2, 0, 2.8, -0.8);
+    }
+
+    [Fact]
+    public void Synchronize_VertexJustBesidePartnerVertex_MergesSubToleranceSpan()
+    {
+        // Two micrometres apart, the rails' own vertices made a loft span far below the build tolerance.
+        double[] a = { 0, 0, 0, 5, 0, 0, 10, 0, 0 };
+        double[] b = { 0, 1, 1, 5.000002, 1, 1, 10, 1, 1 };
+
+        var result = WallRailStationing.Synchronize(a, b, false, .005);
+
+        Assert.Equal(a, result.First);
+        Assert.Equal(b, result.Second);
+    }
+
+    private static void AssertPartner(WallRailStationing.Result result, double x, double y, double partnerX, double partnerY)
+    {
+        for (int j = 0; j < result.First.Length; j += 3)
+        {
+            if (Math.Abs(result.First[j] - x) < 1e-9 && Math.Abs(result.First[j + 1] - y) < 1e-9)
+            {
+                Assert.Equal(partnerX, result.Second[j], 6);
+                Assert.Equal(partnerY, result.Second[j + 1], 6);
+                return;
+            }
+        }
+        Assert.Fail($"No station at ({x}, {y}).");
+    }
+
     internal static void AssertVerticesRetained(double[] source, double[] sampled)
     {
         for (int i = 0; i < source.Length; i += 3)

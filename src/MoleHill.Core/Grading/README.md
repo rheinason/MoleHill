@@ -5,8 +5,12 @@ spikes.** Pure, unit-tested. See `docs/architecture.md` for the tier cascade ove
 
 `WallRailStationing` synchronizes paired wall rails for solid generation. Corresponding plan bends
 anchor the mapping; stations between them use plan length and interpolate each rail's own elevation.
-It retains authored vertices with unequal sampling counts and aligns closed-ring seams at bends,
-avoiding corner folds caused by matching whole-rail 3D length fractions.
+A bend is a run of same-direction turns, so a sharp corner, a chamfer and a tessellated fillet (one
+rail of a round-cornered Offset) match each other; a run that matches nothing is split and retried.
+Bends anchor at their turn-weighted middle, and two arcs also anchor start to start and end to end.
+It retains authored vertices with unequal sampling counts, merges stations closer than the tolerance
+on both rails, and aligns closed-ring seams at bends, avoiding corner folds caused by matching
+whole-rail 3D length fractions. `WallRailStationingSweepTests` checks over 1,000 random offset walls.
 
 `BracketedVolumeSearch` implements the B7 bounded net cut/fill search: both endpoints are measured,
 an unbracketed target returns the nearer end, and bisection records every sample with distinct

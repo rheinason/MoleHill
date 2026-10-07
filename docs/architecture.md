@@ -137,6 +137,12 @@ Rail Z is sampled independently. Normalizing whole-rail 3D lengths mismatched co
 winding walls (the copied `3D Model 2028` case), folding the solid even though each input rail was valid.
 Closed rings put their shared station seam on corresponding bends. The shared Brep builder uses these
 stations for both its continuous loft bands and its mesh fallback; input curves stay joined.
+A bend is a *run* of same-direction turns, not one vertex: Rhino's Offset with round corners gives one
+rail a sharp corner and the other an arc of 5-degree steps, and matching single vertices found no bend
+on the arc, so about 15% of randomly drawn offset walls folded. Turns join generously and a bend that
+matches nothing is split at its widest gap, because a fixed join distance merges two bends on the
+longer outside rail and not on the inside one. Each bend anchors at its turn-weighted middle; when
+both rails turn along arcs, their starts and ends anchor too, or a tight fillet shears.
 
 Graded retaining-wall insertion tries a quality patch first. `MeshConstraintTopologyInserter.WallQuality.cs`
 expands a patch ring by ring until the stitched result clears a 5-degree floor, verifying achieved

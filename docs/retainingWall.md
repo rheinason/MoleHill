@@ -106,8 +106,12 @@ ids.
 
 The wall solid uses shared rail stations and four continuous side bands:
 
-Nearby corners with agreeing incoming/outgoing plan directions are matched in both directions and
-used as ordered anchors. Between anchors, stations use the union of each rail's vertex plan-length
+A bend is a run of same-direction turns within two wall widths, so a sharp corner, a chamfer and a
+tessellated fillet (the outside rail of a round-cornered Offset) are each one bend. Nearby bends with
+agreeing incoming/outgoing plan directions are matched in both directions and used as ordered anchors;
+a bend that matches nothing is split at its widest gap and matching is retried. Each bend anchors at
+its turn-weighted middle, and when both rails turn along arcs their starts and ends anchor too. Stations
+closer than the tolerance on both rails merge, each rail keeping its own authored vertex. Between anchors, stations use the union of each rail's vertex plan-length
 fractions. Each rail retains its own Z, so a steep grade cannot shift the corresponding corner along
 the other rail. Extra collinear height vertices are retained without becoming corner anchors. Closed
 rings move the station seam to a matching corner. A vertical step (two rail vertices at one plan position)
