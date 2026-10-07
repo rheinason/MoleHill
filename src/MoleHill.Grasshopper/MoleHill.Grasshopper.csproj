@@ -9,6 +9,7 @@
     <LangVersion>latest</LangVersion>
     <NoWarn>NU1701;CA1416;NETSDK1086</NoWarn>
     <EnableDynamicLoading>true</EnableDynamicLoading>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
     <ILRepackTargetsFile>$(MSBuildProjectDirectory)\ILRepackCustom.targets</ILRepackTargetsFile>
   </PropertyGroup>

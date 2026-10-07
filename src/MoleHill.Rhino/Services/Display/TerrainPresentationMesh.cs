@@ -1,5 +1,6 @@
 using System.Runtime.CompilerServices;
 using MoleHill.Core.Engine;
+using MoleHill.Shared;
 using Rhino;
 using Rhino.Geometry;
 

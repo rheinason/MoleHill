@@ -1,5 +1,6 @@
 using MoleHill.Rhino.Model;
 using MoleHill.Rhino.Registry;
+using MoleHill.Shared;
 using RhinoMesh = Rhino.Geometry.Mesh;
 
 namespace MoleHill.Rhino.Services;

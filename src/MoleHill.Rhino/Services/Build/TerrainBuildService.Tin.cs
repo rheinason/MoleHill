@@ -4,6 +4,7 @@ using MoleHill.Core.Grading;
 using MoleHill.Core.Processing;
 using MoleHill.Core.Retopo;
 using MoleHill.Rhino.Model;
+using MoleHill.Shared;
 using Rhino.Geometry;
 using RhinoMesh = Rhino.Geometry.Mesh;
 

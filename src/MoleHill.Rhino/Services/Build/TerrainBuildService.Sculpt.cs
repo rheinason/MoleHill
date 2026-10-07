@@ -1,5 +1,6 @@
 using MoleHill.Core.Sculpting;
 using MoleHill.Rhino.Model;
+using MoleHill.Shared;
 using RhinoMesh = Rhino.Geometry.Mesh;
 
 namespace MoleHill.Rhino.Services;

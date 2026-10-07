@@ -1,5 +1,6 @@
 using MoleHill.Core.Engine;
 using MoleHill.Core.Grading;
+using MoleHill.Shared;
 using RhinoMesh = Rhino.Geometry.Mesh;
 
 namespace MoleHill.Rhino.Services;

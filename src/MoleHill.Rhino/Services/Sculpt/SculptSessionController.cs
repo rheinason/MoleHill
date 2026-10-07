@@ -2,6 +2,7 @@ using Eto.Forms;
 using MoleHill.Core.Sculpting;
 using MoleHill.Rhino.Model;
 using MoleHill.Rhino.UI;
+using MoleHill.Shared;
 using Rhino;
 using Rhino.Display;
 using Rhino.Geometry;

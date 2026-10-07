@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using MoleHill.Rhino.Services;
+using MoleHill.Shared;
 
 namespace MoleHill.Rhino.Tests;
 

@@ -2,10 +2,9 @@
 using System.Runtime.CompilerServices;
 using MoleHill.Core.Engine;
 using MoleHill.Core.Grading;
-using MoleHill.Shared;
 using Rhino.Geometry;
 
-namespace MoleHill.Rhino.Services;
+namespace MoleHill.Shared;
 
 internal sealed class ExtractedMeshData
 {

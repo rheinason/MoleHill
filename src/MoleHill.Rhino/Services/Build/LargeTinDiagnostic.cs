@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using MoleHill.Core.Engine;
 using MoleHill.Core.Processing;
+using MoleHill.Shared;
 using Rhino.Geometry;
 
 namespace MoleHill.Rhino.Services;

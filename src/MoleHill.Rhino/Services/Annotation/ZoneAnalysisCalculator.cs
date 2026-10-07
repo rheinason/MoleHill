@@ -1,5 +1,6 @@
 using MoleHill.Core.Analysis;
 using MoleHill.Rhino.Model;
+using MoleHill.Shared;
 using Rhino.Geometry;
 
 namespace MoleHill.Rhino.Services;
