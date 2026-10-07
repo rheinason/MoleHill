@@ -16,7 +16,7 @@ internal sealed class GradePadModifierDescriptor : ModifierTypeDescriptor
     public override int SortOrder => 5;
     public override string Subtitle => "Level pad, batter to daylight";
     public override ModifierDefinition Create(UnitSystem unitSystem) => new GradePadModifierDefinition();
-    public override void RunBuildStage(ModifierBuildContext context) => TerrainBuildService.RunGradePadStage(context);
+    public override void RunBuildStage(ModifierBuildContext context) => GradePadStage.Run(context);
 
     public override string Summarize(ModifierDefinition modifier)
     {

@@ -19,7 +19,7 @@ internal sealed class SimplifyModifierDescriptor : ModifierTypeDescriptor
     {
         MaximumDeviation = ModelUnits.FromMeters(0.05, unitSystem)
     };
-    public override void RunBuildStage(ModifierBuildContext context) => TerrainBuildService.RunSimplifyStage(context);
+    public override void RunBuildStage(ModifierBuildContext context) => SimplifyStage.Run(context);
 
     public override string Summarize(ModifierDefinition modifier)
     {

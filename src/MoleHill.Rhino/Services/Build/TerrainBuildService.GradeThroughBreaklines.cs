@@ -12,14 +12,14 @@ namespace MoleHill.Rhino.Services;
 internal sealed partial class TerrainBuildService
 {
     /// <summary>The lines a grading card must respect: every upstream breakline, or none when it grades through them.</summary>
-    private static IReadOnlyList<ConstraintPolyline> UpstreamBreaklines(TerrainBuildResult build, bool gradeThrough) =>
+    internal static IReadOnlyList<ConstraintPolyline> UpstreamBreaklines(TerrainBuildResult build, bool gradeThrough) =>
         gradeThrough ? Array.Empty<ConstraintPolyline>() : build.PersistentHardConstraints;
 
     /// <summary>
     /// Cuts the persisted breaklines and contours down to where they still lie on the graded terrain. Call it
     /// after a successful grade and before the card adds its own lines.
     /// </summary>
-    private static void DropRegradedBreaklines(
+    internal static void DropRegradedBreaklines(
         TerrainBuildResult build,
         double[] vertices,
         int vertexCount,

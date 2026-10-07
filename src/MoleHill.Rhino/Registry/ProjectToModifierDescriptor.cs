@@ -21,7 +21,7 @@ internal sealed class ProjectToModifierDescriptor : ModifierTypeDescriptor
         FeatherDistance = ModelUnits.FromMeters(1.0, unitSystem)
     };
 
-    public override void RunBuildStage(ModifierBuildContext context) => TerrainBuildService.RunProjectToStage(context);
+    public override void RunBuildStage(ModifierBuildContext context) => ProjectToStage.Run(context);
 
     public override string Summarize(ModifierDefinition modifier)
     {

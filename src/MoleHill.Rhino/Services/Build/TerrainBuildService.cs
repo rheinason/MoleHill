@@ -11,7 +11,7 @@ namespace MoleHill.Rhino.Services;
 
 internal sealed partial class TerrainBuildService
 {
-    private const int StageTimingDiagnosticThresholdMs = 250;
+    internal const int StageTimingDiagnosticThresholdMs = 250;
 
     /// <summary>
     /// How much of the upstream vertex count a Retaining Wall constrained rebuild must retain to be
@@ -19,10 +19,8 @@ internal sealed partial class TerrainBuildService
     /// the boundary and discarded the interior. Generous, because legitimate tiny-face cleanup trims
     /// a handful: this is a floor against wholesale detail loss, not a quality measure.
     /// </summary>
-    private const double RetainingWallRebuildMinimumVertexRatio = 0.90;
-    private const double MinRepresentablePadPlaneNormalZ = 1e-3;
-    private const int TriangulateCacheVersion = 5;
-    private const int InSituStairTreadDepthWarningColorArgb = unchecked((int)0xFFFF0000);
+    internal const double RetainingWallRebuildMinimumVertexRatio = 0.90;
+    internal const int InSituStairTreadDepthWarningColorArgb = unchecked((int)0xFFFF0000);
 
     public TerrainBuildResult Build(
         RhinoDoc doc,
@@ -357,7 +355,7 @@ internal sealed partial class TerrainBuildService
         });
     }
 
-    private static RhinoMesh? ExecuteCachedMeshStage(
+    internal static RhinoMesh? ExecuteCachedMeshStage(
         TerrainBuildResult build,
         TerrainRuntimeCache runtimeCache,
         string stageKey,
@@ -591,13 +589,13 @@ internal sealed partial class TerrainBuildService
         build.RecordTiming(stageName, timer.Elapsed, detailFactory());
     }
 
-    private static RhinoMesh? WarnMissingMesh(TerrainBuildResult build, string modifierLabel)
+    internal static RhinoMesh? WarnMissingMesh(TerrainBuildResult build, string modifierLabel)
     {
         build.Diagnostics.Add($"{modifierLabel} requires a terrain mesh generated earlier in the stack.");
         return null;
     }
 
-    private static TerrainTolerancePolicy.Profile GetToleranceProfile(TerrainBuildSnapshot snapshot, TerrainDefinition terrain)
+    internal static TerrainTolerancePolicy.Profile GetToleranceProfile(TerrainBuildSnapshot snapshot, TerrainDefinition terrain)
     {
         return TerrainTolerancePolicy.Create(
             terrain.GlobalTolerance,
@@ -618,14 +616,14 @@ internal sealed partial class TerrainBuildService
             : $"{current} {next}";
     }
 
-    private static string? AppendCacheHitDetail(string? detail)
+    internal static string? AppendCacheHitDetail(string? detail)
     {
         return string.IsNullOrWhiteSpace(detail)
             ? "cache hit"
             : $"{detail}; cache hit";
     }
 
-    private static ulong ComputeModifierStageFingerprint(
+    internal static ulong ComputeModifierStageFingerprint(
         TerrainBuildSnapshot snapshot,
         TerrainDefinition terrain,
         ModifierDefinition modifier,
@@ -658,92 +656,6 @@ internal sealed partial class TerrainBuildService
         return builder.ToUInt64();
     }
 
-    private static ulong ComputeSmoothStageFingerprint(
-        TerrainBuildSnapshot snapshot,
-        TerrainDefinition terrain,
-        SmoothModifierDefinition modifier,
-        int modifierIndex,
-        ulong upstreamFingerprint)
-    {
-        var builder = new FingerprintBuilder();
-        builder.Add(ComputeModifierStageFingerprint(snapshot, terrain, modifier, upstreamFingerprint));
-        builder.Add(ComputeSelectedGradePathRoadBreaklinesFingerprint(snapshot, terrain, modifier, modifierIndex));
-        return builder.ToUInt64();
-    }
-
-    private static ulong ComputeSimplifyStageFingerprint(
-        TerrainBuildSnapshot snapshot,
-        TerrainDefinition terrain,
-        SimplifyModifierDefinition modifier,
-        ulong upstreamFingerprint,
-        IReadOnlyList<ConstraintPolyline> effectiveConstraints)
-    {
-        var builder = new FingerprintBuilder();
-        builder.Add("SurfaceSimplifierV1");
-        builder.Add(ComputeModifierStageFingerprint(snapshot, terrain, modifier, upstreamFingerprint));
-        builder.Add(ComputeConstraintsFingerprint(effectiveConstraints));
-        return builder.ToUInt64();
-    }
-
-    private static ulong ComputeTriangulatePreResolutionFingerprint(
-        TerrainBuildSnapshot snapshot,
-        TerrainDefinition terrain,
-        TriangulateModifierDefinition modifier)
-    {
-        var builder = new FingerprintBuilder();
-        builder.Add("Triangulate");
-        builder.Add(TriangulateCacheVersion);
-        builder.Add(snapshot.ModelAbsoluteTolerance);
-        builder.Add(terrain.GlobalTolerance);
-        AddTriangulationSettingsFingerprint(ref builder, modifier);
-        builder.Add(ComputeSourceSetFingerprint(snapshot, modifier.TinMesh));
-        builder.Add(ComputeSourceSetFingerprint(snapshot, modifier.DemSurface));
-        builder.Add(snapshot.DemFingerprints.GetValueOrDefault(modifier.Id));
-        builder.Add(ComputeSourceSetFingerprint(snapshot, modifier.Points));
-        builder.Add(ComputeSourceSetFingerprint(snapshot, modifier.Breaklines));
-        builder.Add(ComputeSourceSetFingerprint(snapshot, modifier.Contours));
-        builder.Add(ComputeSourceSetFingerprint(snapshot, modifier.DataClipBoundaries));
-        return builder.ToUInt64();
-    }
-
-    private static ulong ComputeTriangulateResolvedInputFingerprint(
-        TerrainDefinition terrain,
-        TriangulateModifierDefinition modifier,
-        double tolerance,
-        double[] xyCoords,
-        double[] zValues,
-        int[] segments,
-        IReadOnlyList<ConstraintPolyline> persistentHardConstraints,
-        IReadOnlyList<TinBoundaryPreparer.BoundaryPolyline> boundaryPolylines)
-    {
-        var builder = new FingerprintBuilder();
-        builder.Add("TriangulateResolved");
-        builder.Add(TriangulateCacheVersion);
-        builder.Add(terrain.GlobalTolerance);
-        builder.Add(tolerance);
-        AddTriangulationSettingsFingerprint(ref builder, modifier);
-        AddDoubleArrayFingerprint(ref builder, xyCoords);
-        AddDoubleArrayFingerprint(ref builder, zValues);
-        AddIntArrayFingerprint(ref builder, segments);
-        builder.Add(ComputeConstraintsFingerprint(persistentHardConstraints));
-        builder.Add(ComputeBoundaryPolylinesFingerprint(boundaryPolylines));
-        return builder.ToUInt64();
-    }
-
-    private static void AddTriangulationSettingsFingerprint(ref FingerprintBuilder builder, TriangulateModifierDefinition modifier)
-    {
-        builder.Add(modifier.Id);
-        builder.Add(modifier.IsEnabled);
-        builder.Add(modifier.Tolerance);
-        builder.Add(modifier.PeelBoundaryTriangles);
-        builder.Add(modifier.MaxBoundaryEdgeLength);
-        builder.Add(modifier.MaxBoundaryAngleDegrees);
-        builder.Add(modifier.MaxBoundarySlopeDegrees);
-        builder.Add(modifier.ContourMode);
-        builder.Add(modifier.DemElevationScale);
-        builder.Add(modifier.DemSourceFileName);
-    }
-
     private static ulong ComputeBoundaryRoleStageFingerprint(
         TerrainBuildSnapshot snapshot,
         TerrainDefinition terrain,
@@ -763,86 +675,6 @@ internal sealed partial class TerrainBuildService
         return builder.ToUInt64();
     }
 
-    private static ulong ComputeGradePadTopologyFingerprint(
-        ulong upstreamFingerprint,
-        double tolerance,
-        GradePadModifierDefinition modifier,
-        IReadOnlyList<PadGrader.PadBoundary> pads,
-        IReadOnlyList<PadGrader.LockCurve> lockCurves)
-    {
-        var builder = new FingerprintBuilder();
-        builder.Add("GradePadTopologyV4");
-        builder.Add(upstreamFingerprint);
-        builder.Add(tolerance);
-        builder.Add(modifier.SlopeAngle);
-        builder.Add(modifier.CutSlopeAngle);
-        builder.Add(modifier.MaxDistance);
-        builder.Add(pads.Count);
-        foreach (var pad in pads)
-        {
-            builder.Add(pad.VertexCount);
-            AddDoubleArrayFingerprint(ref builder, pad.XyVertices);
-            AddDoubleArrayFingerprint(ref builder, pad.BoundaryVertices);
-            builder.Add(pad.PlaneXCoeff);
-            builder.Add(pad.PlaneYCoeff);
-            builder.Add(pad.PlaneConstant);
-            builder.Add(pad.StitchApronDistance);
-        }
-
-        builder.Add(lockCurves.Count);
-        foreach (var lc in lockCurves)
-        {
-            builder.Add(lc.VertexCount);
-            AddDoubleArrayFingerprint(ref builder, lc.XyVertices);
-        }
-
-        return builder.ToUInt64();
-    }
-
-    private static ulong ComputeSmoothPreparedFingerprint(
-        TerrainBuildSnapshot snapshot,
-        TerrainDefinition terrain,
-        SmoothModifierDefinition modifier,
-        int modifierIndex,
-        ulong upstreamFingerprint)
-    {
-        var builder = new FingerprintBuilder();
-        builder.Add("SmoothPrepared");
-        builder.Add(upstreamFingerprint);
-        builder.Add(snapshot.ModelAbsoluteTolerance);
-        builder.Add(terrain.GlobalTolerance);
-        builder.Add(ComputeSourceSetFingerprint(snapshot, modifier.Boundaries));
-        builder.Add(ComputeSourceSetFingerprint(snapshot, modifier.Breaklines));
-        builder.Add(ComputeSelectedGradePathRoadBreaklinesFingerprint(snapshot, terrain, modifier, modifierIndex));
-        return builder.ToUInt64();
-    }
-
-    private static ulong ComputeGradePadResolvedInputFingerprint(
-        ulong topologyOutputFingerprint,
-        IReadOnlyList<PadGrader.PadBoundary> pads,
-        GradePadModifierDefinition modifier)
-    {
-        var builder = new FingerprintBuilder();
-        builder.Add("GradePadResolved");
-        builder.Add(topologyOutputFingerprint);
-        builder.Add(modifier.SlopeAngle);
-        builder.Add(modifier.CutSlopeAngle);
-        builder.Add(modifier.MaxDistance);
-        builder.Add(pads.Count);
-        foreach (var pad in pads)
-        {
-            builder.Add(pad.VertexCount);
-            AddDoubleArrayFingerprint(ref builder, pad.XyVertices);
-            AddDoubleArrayFingerprint(ref builder, pad.BoundaryVertices);
-            builder.Add(pad.PlaneXCoeff);
-            builder.Add(pad.PlaneYCoeff);
-            builder.Add(pad.PlaneConstant);
-            builder.Add(pad.StitchApronDistance);
-        }
-
-        return builder.ToUInt64();
-    }
-
     private static string DescribeBuildOutputs(TerrainBuildResult build)
     {
         return $"{DescribeMesh(build.PrimaryMesh) ?? "no mesh"}; " +
@@ -856,7 +688,7 @@ internal sealed partial class TerrainBuildService
         return build.ObjectPlacements.Sum(group => group.Placements.Count);
     }
 
-    private static string DescribeModifierMeshResult(string label, RhinoMesh? mesh)
+    internal static string DescribeModifierMeshResult(string label, RhinoMesh? mesh)
     {
         string meshDetail = DescribeMesh(mesh) ?? "no mesh";
         return string.IsNullOrWhiteSpace(label)

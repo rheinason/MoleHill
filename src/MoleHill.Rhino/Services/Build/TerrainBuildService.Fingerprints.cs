@@ -239,7 +239,7 @@ internal sealed partial class TerrainBuildService
         return builder.ToUInt64();
     }
 
-    private static ulong ComputeSourceSetFingerprint(TerrainBuildSnapshot snapshot, SourceReferenceSet sourceSet)
+    internal static ulong ComputeSourceSetFingerprint(TerrainBuildSnapshot snapshot, SourceReferenceSet sourceSet)
     {
         return TerrainBuildSnapshotResolver.GetSourceSetFingerprint(snapshot, sourceSet);
     }
@@ -254,7 +254,7 @@ internal sealed partial class TerrainBuildService
         return builder.ToUInt64();
     }
 
-    private static ulong ComputeGradingTopologyOutputFingerprint(
+    internal static ulong ComputeGradingTopologyOutputFingerprint(
         string graderKind,
         IReadOnlyList<double> vertices,
         int vertexCount,
@@ -271,7 +271,7 @@ internal sealed partial class TerrainBuildService
         return builder.ToUInt64();
     }
 
-    private static ulong ComputeMeshFingerprint(RhinoMesh? mesh)
+    internal static ulong ComputeMeshFingerprint(RhinoMesh? mesh)
     {
         if (mesh == null)
             return 0UL;
@@ -289,7 +289,7 @@ internal sealed partial class TerrainBuildService
 
     internal static ulong ComputeMeshFingerprintForDiagnostics(RhinoMesh? mesh) => ComputeMeshFingerprint(mesh);
 
-    private static ulong ComputeConstraintsFingerprint(IReadOnlyList<ConstraintPolyline> constraints)
+    internal static ulong ComputeConstraintsFingerprint(IReadOnlyList<ConstraintPolyline> constraints)
     {
         var builder = new FingerprintBuilder();
         builder.Add(constraints.Count);
@@ -299,20 +299,6 @@ internal sealed partial class TerrainBuildService
             builder.Add(constraint.IsClosed);
             builder.Add(constraint.PreserveInputElevation);
             AddDoubleArrayFingerprint(ref builder, constraint.Points);
-        }
-
-        return builder.ToUInt64();
-    }
-
-    private static ulong ComputeBoundaryPolylinesFingerprint(IReadOnlyList<TinBoundaryPreparer.BoundaryPolyline> boundaries)
-    {
-        var builder = new FingerprintBuilder();
-        builder.Add(boundaries.Count);
-        foreach (var boundary in boundaries)
-        {
-            builder.Add(boundary.PointCount);
-            builder.Add(boundary.IsClosed);
-            AddDoubleArrayFingerprint(ref builder, boundary.Points);
         }
 
         return builder.ToUInt64();
@@ -344,14 +330,14 @@ internal sealed partial class TerrainBuildService
         }
     }
 
-    private static void AddDoubleArrayFingerprint(ref FingerprintBuilder builder, IReadOnlyList<double> values)
+    internal static void AddDoubleArrayFingerprint(ref FingerprintBuilder builder, IReadOnlyList<double> values)
     {
         builder.Add(values.Count);
         for (int i = 0; i < values.Count; i++)
             builder.Add(values[i]);
     }
 
-    private static void AddIntArrayFingerprint(ref FingerprintBuilder builder, IReadOnlyList<int> values)
+    internal static void AddIntArrayFingerprint(ref FingerprintBuilder builder, IReadOnlyList<int> values)
     {
         builder.Add(values.Count);
         for (int i = 0; i < values.Count; i++)

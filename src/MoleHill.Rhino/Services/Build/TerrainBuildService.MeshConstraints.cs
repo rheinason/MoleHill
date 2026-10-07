@@ -11,7 +11,7 @@ namespace MoleHill.Rhino.Services;
 // Constraint and mesh-topology utilities: constraint preparation/insertion, boundary-loop analysis, tiny-face cleanup, and mesh remapping.
 internal sealed partial class TerrainBuildService
 {
-    private static bool IsTopologyInsertionBoundarySafe(
+    internal static bool IsTopologyInsertionBoundarySafe(
         MeshTopologyValidator.BoundaryGraphAnalysis inputBoundary,
         MeshTopologyValidator.BoundaryGraphAnalysis outputBoundary,
         out string message)
@@ -38,7 +38,7 @@ internal sealed partial class TerrainBuildService
         return true;
     }
 
-    private static bool TopologyChanged(
+    internal static bool TopologyChanged(
         double[] inputVertices,
         int inputVertexCount,
         int[] inputFaces,
@@ -180,14 +180,14 @@ internal sealed partial class TerrainBuildService
         return true;
     }
 
-    private static double DistanceSquared2D(Point3d a, Point3d b)
+    internal static double DistanceSquared2D(Point3d a, Point3d b)
     {
         double dx = a.X - b.X;
         double dy = a.Y - b.Y;
         return (dx * dx) + (dy * dy);
     }
 
-    private static RhinoMesh RebuildMeshWithConstraints(
+    internal static RhinoMesh RebuildMeshWithConstraints(
         TerrainBuildSnapshot snapshot,
         TerrainDefinition terrain,
         RhinoMesh mesh,
@@ -303,12 +303,12 @@ internal sealed partial class TerrainBuildService
         return cleanedMesh;
     }
 
-    private static string DescribeTopologyCounts(int inputVertexCount, int inputFaceCount, int outputVertexCount, int outputFaceCount)
+    internal static string DescribeTopologyCounts(int inputVertexCount, int inputFaceCount, int outputVertexCount, int outputFaceCount)
     {
         return $"{inputVertexCount:N0} verts/{inputFaceCount:N0} faces -> {outputVertexCount:N0} verts/{outputFaceCount:N0} faces";
     }
 
-    private static List<ConstraintPolyline> CombineConstraints(
+    internal static List<ConstraintPolyline> CombineConstraints(
         IReadOnlyList<ConstraintPolyline> persistentConstraints,
         IReadOnlyList<ConstraintPolyline> additionalConstraints)
     {
@@ -352,7 +352,7 @@ internal sealed partial class TerrainBuildService
             constraint.PreserveInputElevation);
     }
 
-    private static List<ConstraintPolyline> CreateConstraintPolylines(
+    internal static List<ConstraintPolyline> CreateConstraintPolylines(
         IReadOnlyList<Curve> curves,
         double tolerance,
         bool preserveInputElevation,
@@ -381,7 +381,7 @@ internal sealed partial class TerrainBuildService
         return result;
     }
 
-    private static List<ConstraintPolyline> CreateConstraintPolylines(
+    internal static List<ConstraintPolyline> CreateConstraintPolylines(
         IReadOnlyList<TerrainTriangulationInputBuilder.FlattenedPolyline> polylines,
         bool preserveInputElevation)
     {
@@ -405,7 +405,7 @@ internal sealed partial class TerrainBuildService
     /// Constraints from preprocessed points, keeping each source polyline's closed flag.
     /// <paramref name="processed"/> is aligned with <paramref name="sources"/>; a null entry was dropped.
     /// </summary>
-    private static List<ConstraintPolyline> CreateConstraintPolylines(
+    internal static List<ConstraintPolyline> CreateConstraintPolylines(
         IReadOnlyList<TerrainTriangulationInputBuilder.FlattenedPolyline> sources,
         IReadOnlyList<double[]?> processed,
         bool preserveInputElevation)
@@ -427,12 +427,12 @@ internal sealed partial class TerrainBuildService
         return result;
     }
 
-    private static List<double[]> CreateFlatPolylines(IReadOnlyList<Curve> curves, double tolerance)
+    internal static List<double[]> CreateFlatPolylines(IReadOnlyList<Curve> curves, double tolerance)
     {
         return TerrainTriangulationInputBuilder.CreateFlatPolylines(curves, tolerance);
     }
 
-    private static List<double[]> CreateFlatPolylines(IReadOnlyList<ConstraintPolyline> constraints)
+    internal static List<double[]> CreateFlatPolylines(IReadOnlyList<ConstraintPolyline> constraints)
     {
         var result = new List<double[]>(constraints.Count);
         foreach (var constraint in constraints)
@@ -451,7 +451,7 @@ internal sealed partial class TerrainBuildService
         return TerrainTriangulationInputBuilder.ToFlatPolyline(polyline);
     }
 
-    private static TinBoundaryPreparer.BoundaryPolyline[] CreateBoundaryPolylines(RhinoMesh mesh, double tolerance)
+    internal static TinBoundaryPreparer.BoundaryPolyline[] CreateBoundaryPolylines(RhinoMesh mesh, double tolerance)
     {
         var nakedEdges = mesh.GetNakedEdges();
         if (nakedEdges == null || nakedEdges.Length == 0)
@@ -470,25 +470,10 @@ internal sealed partial class TerrainBuildService
         return result.ToArray();
     }
 
-    private static TinBoundaryPreparer.BoundaryPolyline[] CombineBoundaryPolylines(
-        IReadOnlyList<TinBoundaryPreparer.BoundaryPolyline> primary,
-        IReadOnlyList<TinBoundaryPreparer.BoundaryPolyline> additional)
-    {
-        if (primary.Count == 0 && additional.Count == 0)
-            return Array.Empty<TinBoundaryPreparer.BoundaryPolyline>();
-
-        var result = new TinBoundaryPreparer.BoundaryPolyline[primary.Count + additional.Count];
-        for (int i = 0; i < primary.Count; i++)
-            result[i] = primary[i];
-        for (int i = 0; i < additional.Count; i++)
-            result[primary.Count + i] = additional[i];
-        return result;
-    }
-
-    private static RhinoMesh BuildMeshFromArrays(double[] vertices, int[] faces) =>
+    internal static RhinoMesh BuildMeshFromArrays(double[] vertices, int[] faces) =>
         RhinoGeometryConversions.BuildMesh(vertices, vertices.Length / 3, faces, faces.Length / 3);
 
-    private static RhinoMesh FinalizeGradingMesh(RhinoMesh mesh, string sourceLabel, TerrainBuildResult build)
+    internal static RhinoMesh FinalizeGradingMesh(RhinoMesh mesh, string sourceLabel, TerrainBuildResult build)
     {
         // Every caller passes BuildMesh output, which is normalized already. Normalizing again cannot
         // change it and cost a second UnifyNormals plus array read-back (~60 ms on 111k faces).
@@ -498,7 +483,7 @@ internal sealed partial class TerrainBuildService
         return mesh;
     }
 
-    private static RhinoMesh CleanTinyFaces(RhinoMesh mesh, double tolerance, string sourceLabel, TerrainBuildResult build)
+    internal static RhinoMesh CleanTinyFaces(RhinoMesh mesh, double tolerance, string sourceLabel, TerrainBuildResult build)
     {
         if (!RhinoGeometryConversions.TryExtractMeshData(mesh, out var vertices, out _, out var faces, out int faceCount, out _))
             return mesh;

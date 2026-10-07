@@ -14,85 +14,17 @@ namespace MoleHill.Rhino.Services;
 /// </summary>
 internal sealed partial class TerrainBuildService
 {
-    private static GradingResult? GradePadsWindowed(
-        double[] vertices,
-        int vertexCount,
-        int[] faces,
-        int faceCount,
-        PadGrader.PadBoundary[] pads,
-        PadGrader.LockCurve[] locks,
-        IReadOnlyList<ConstraintPolyline> hardConstraints,
-        double tolerance,
-        double detailSize,
-        TerrainRuntimeCache runtimeCache,
-        string memoKey,
-        List<string> diagnostics,
-        out string? warning,
-        out IReadOnlyList<OutputPolyline> failureOutputPolylines,
-        out IReadOnlyList<GradingDiagnostic> failureDiagnostics)
-    {
-        runtimeCache.GradingWindowMemos.TryGetValue(memoKey, out GradingWindows.Memo? previous);
-        var next = new GradingWindows.Memo();
-        GradeOutcome outcome = PadGrader.GradeWindowed(
-            new PadGradeRequest
-            {
-                Terrain = new IndexedTriMesh(vertices, vertexCount, faces, faceCount),
-                Pads = pads,
-                LockCurves = locks,
-                HardConstraints = hardConstraints,
-                ModelTolerance = tolerance,
-                TerrainDetailSize = detailSize
-            },
-            previous, next, diagnostics);
-        runtimeCache.GradingWindowMemos[memoKey] = next;
-        warning = outcome.ErrorMessage;
-        failureOutputPolylines = outcome.FailureOutputPolylines;
-        failureDiagnostics = outcome.FailureDiagnostics;
-        return outcome.Result;
-    }
-
-    private static GradingResult? GradePathsWindowed(
-        double[] vertices,
-        int vertexCount,
-        int[] faces,
-        int faceCount,
-        PathGrader.PathDefinition[] paths,
-        IReadOnlyList<ConstraintPolyline> hardConstraints,
-        double tolerance,
-        bool preferSplitKeep,
-        TerrainRuntimeCache runtimeCache,
-        string memoKey,
-        List<string> diagnostics,
-        out string? warning)
-    {
-        runtimeCache.GradingWindowMemos.TryGetValue(memoKey, out GradingWindows.Memo? previous);
-        var next = new GradingWindows.Memo();
-        GradeOutcome outcome = PathGrader.GradeWindowed(
-            new PathGradeRequest
-            {
-                Terrain = new IndexedTriMesh(vertices, vertexCount, faces, faceCount),
-                Paths = paths,
-                HardConstraints = hardConstraints,
-                ModelTolerance = tolerance,
-                PreferSplitKeep = preferSplitKeep
-            },
-            previous, next, diagnostics);
-        runtimeCache.GradingWindowMemos[memoKey] = next;
-        warning = outcome.ErrorMessage;
-        return outcome.Result;
-    }
-
     /// <summary>Faces of reach around a rail, in local face sizes: the quality patch grows up to six rings.</summary>
     private const double WallInsertRings = 8.0;
 
     /// <summary>
-    /// <see cref="InsertWallConstraintsCore"/> window by window: each rail's window is the faces within eight of
+    /// <see cref="RetainingWallStage.InsertWallConstraintsCore"/> window by window: each rail's window is the faces within eight of
     /// its local face sizes (the quality patch grows up to six rings of faces around the faces a rail crosses),
     /// and a window unchanged since the last build is reused. Returns false, with nothing written to
     /// <paramref name="build"/>, whenever it cannot stand in for the whole-mesh insertion exactly (a window that
     /// declines, or one that would not weld back), so the caller runs that insertion instead.
     /// </summary>
-    private static bool TryInsertWallConstraintsWindowed(
+    internal static bool TryInsertWallConstraintsWindowed(
         RhinoMesh mesh,
         IReadOnlyList<ConstraintPolyline> wallConstraints,
         double tolerance,
@@ -151,7 +83,7 @@ internal sealed partial class TerrainBuildService
                 failurePolylines = Array.Empty<OutputPolyline>();
                 failureDiagnostics = Array.Empty<GradingDiagnostic>();
                 var messages = new List<string>();
-                if (!InsertWallConstraintsCore(
+                if (!RetainingWallStage.InsertWallConstraintsCore(
                         wv, wvc, wf, wfc, Within(wallConstraints, box), qualityConstraints == null ? null : Within(qualityConstraints, box),
                         tolerance, afterCombinedRemeshFailed: false, messages, out double[] outV, out int[] outF))
                 {

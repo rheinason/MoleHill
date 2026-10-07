@@ -16,7 +16,7 @@ internal sealed class AddGeometryModifierDescriptor : ModifierTypeDescriptor
     public override int SortOrder => 1;
     public override string Subtitle => "Add points, breaklines and contours";
     public override ModifierDefinition Create(UnitSystem unitSystem) => new AddGeometryModifierDefinition();
-    public override void RunBuildStage(ModifierBuildContext context) => TerrainBuildService.RunAddGeometryStage(context);
+    public override void RunBuildStage(ModifierBuildContext context) => AddGeometryStage.Run(context);
 
     public override string Summarize(ModifierDefinition modifier)
     {

@@ -1,13 +1,36 @@
 using MoleHill.Core.Processing;
 using MoleHill.Rhino.Model;
+using MoleHill.Rhino.Registry;
 using MoleHill.Shared;
 using Rhino.Geometry;
 using RhinoMesh = Rhino.Geometry.Mesh;
 
 namespace MoleHill.Rhino.Services;
 
-internal sealed partial class TerrainBuildService
+/// <summary>
+/// Project To modifier build stage: Z-only conform of the incoming mesh to a target mesh or terrain, with boundary feathering.
+/// </summary>
+internal static class ProjectToStage
 {
+    internal static void Run(ModifierBuildContext c)
+    {
+        var projectTo = (ProjectToModifierDefinition)c.Modifier;
+        RhinoMesh? input = c.CurrentMesh;
+        c.CurrentMesh = TerrainBuildService.ExecuteCachedMeshStage(
+            c.Build,
+            c.RuntimeCache,
+            c.StageKey,
+            "Project To",
+            TerrainBuildService.ComputeModifierStageFingerprint(c.Snapshot, c.Terrain, projectTo, c.CurrentMeshFingerprint),
+            () => input == null
+                ? TerrainBuildService.WarnMissingMesh(c.Build, projectTo.Label)
+                : ApplyProjectTo(c.Snapshot, c.Terrain, input, projectTo, c.Build, c.ShouldCancel),
+            result => TerrainBuildService.DescribeModifierMeshResult(projectTo.Label, result),
+            out ulong fingerprint,
+            c.ShouldCancel);
+        c.CurrentMeshFingerprint = fingerprint;
+    }
+
     private static RhinoMesh ApplyProjectTo(
         TerrainBuildSnapshot snapshot,
         TerrainDefinition terrain,
@@ -38,7 +61,7 @@ internal sealed partial class TerrainBuildService
             return mesh;
         }
 
-        double tolerance = GetToleranceProfile(snapshot, terrain).CurveChordTolerance;
+        double tolerance = TerrainBuildService.GetToleranceProfile(snapshot, terrain).CurveChordTolerance;
         List<double[]> loops = ResolveProjectToBoundaryLoops(snapshot, modifier, tolerance);
         if (modifier.Boundaries.HasReferences && loops.Count == 0)
         {
@@ -60,7 +83,7 @@ internal sealed partial class TerrainBuildService
             shouldCancel,
             faces,
             faceCount,
-            RemeshWallFaceMinSlopeDeg);
+            TerrainBuildService.RemeshWallFaceMinSlopeDeg);
 
         if (conformed.Any(value => !double.IsFinite(value)))
         {

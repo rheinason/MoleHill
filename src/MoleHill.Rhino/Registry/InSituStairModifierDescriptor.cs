@@ -17,7 +17,7 @@ internal sealed class InSituStairModifierDescriptor : ModifierTypeDescriptor
     public override string Subtitle => "Stair solids on a support surface";
     public override ModifierDefinition Create(UnitSystem unitSystem) =>
         new InSituStairModifierDefinition { RiserHeight = ModelUnits.FromMeters(0.15, unitSystem) };
-    public override void RunBuildStage(ModifierBuildContext context) => TerrainBuildService.RunInSituStairStage(context);
+    public override void RunBuildStage(ModifierBuildContext context) => InSituStairStage.Run(context);
 
     public override string Summarize(ModifierDefinition modifier)
     {

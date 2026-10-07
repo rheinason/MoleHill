@@ -25,7 +25,7 @@ internal sealed class SculptModifierDescriptor : ModifierTypeDescriptor
         ConstraintFeather = ModelUnits.FromMeters(1.0, unitSystem),
     };
 
-    public override void RunBuildStage(ModifierBuildContext context) => TerrainBuildService.RunSculptStage(context);
+    public override void RunBuildStage(ModifierBuildContext context) => SculptStage.Run(context);
 
     public override string Summarize(ModifierDefinition modifier)
     {

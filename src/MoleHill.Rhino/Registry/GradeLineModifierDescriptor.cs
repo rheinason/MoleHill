@@ -16,7 +16,7 @@ internal sealed class GradeLineModifierDescriptor : ModifierTypeDescriptor
     public override int SortOrder => 7;
     public override string Subtitle => "Batter away from a design line";
     public override ModifierDefinition Create(UnitSystem unitSystem) => new GradeLineModifierDefinition();
-    public override void RunBuildStage(ModifierBuildContext context) => TerrainBuildService.RunGradeLineStage(context);
+    public override void RunBuildStage(ModifierBuildContext context) => GradeLineStage.Run(context);
 
     public override string Summarize(ModifierDefinition modifier)
     {
