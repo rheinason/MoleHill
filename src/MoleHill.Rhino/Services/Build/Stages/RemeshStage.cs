@@ -112,10 +112,10 @@ internal static class RemeshStage
         if (localConstraints.Count > 0)
         {
             if (MeshConstraintTopologyInserter.TryInsert(
-                    vertices, vertexCount, faces, faceCount, localConstraints, toleranceProfile.RemeshConstraintTolerance,
-                    out var insertedVertices, out int insertedVertexCount, out var insertedFaces, out int insertedFaceCount,
-                    out string? insertError))
+                    new IndexedTriMesh(vertices, vertexCount, faces, faceCount), localConstraints, toleranceProfile.RemeshConstraintTolerance,
+                    out IndexedTriMesh inserted, out string? insertError))
             {
+                (double[] insertedVertices, int insertedVertexCount, int[] insertedFaces, int insertedFaceCount) = inserted;
                 vertices = insertedVertices.Length == insertedVertexCount * 3
                     ? insertedVertices
                     : insertedVertices[..(insertedVertexCount * 3)];

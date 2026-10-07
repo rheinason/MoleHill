@@ -11,21 +11,14 @@ namespace MoleHill.Core.Grading;
 /// </summary>
 internal static partial class MeshConstraintTopologyInserter
 {
+    /// <summary>Inserts constraint segments into <paramref name="terrain"/>; <paramref name="output"/> is the result, or a copy of the input on failure.</summary>
     public static bool TryInsert(
-        double[] vertices,
-        int vertexCount,
-        int[] faces,
-        int faceCount,
+        IndexedTriMesh terrain,
         IReadOnlyList<ConstraintPolyline> constraints,
         double tolerance,
-        out double[] outputVertices,
-        out int outputVertexCount,
-        out int[] outputFaces,
-        out int outputFaceCount,
+        out IndexedTriMesh output,
         out string? errorMessage) =>
-        TryInsert(
-            vertices, vertexCount, faces, faceCount, constraints, Array.Empty<double>(), tolerance,
-            out outputVertices, out outputVertexCount, out outputFaces, out outputFaceCount, out _, out errorMessage);
+        TryInsert(terrain, constraints, Array.Empty<double>(), tolerance, out output, out _, out errorMessage);
 
     /// <summary>What happened to the isolated points handed to the point-aware <c>TryInsert</c>.</summary>
     internal readonly record struct PointPlacement(int Inserted, int OnExistingVertex, int OutsideMesh);
@@ -38,6 +31,24 @@ internal static partial class MeshConstraintTopologyInserter
     /// face they land in — the caller assigns data elevations afterwards.
     /// </summary>
     internal static bool TryInsert(
+        IndexedTriMesh terrain,
+        IReadOnlyList<ConstraintPolyline> constraints,
+        double[] pointXy,
+        double tolerance,
+        out IndexedTriMesh output,
+        out PointPlacement pointPlacement,
+        out string? errorMessage)
+    {
+        (double[] vertices, int vertexCount, int[] faces, int faceCount) = terrain;
+        bool inserted = TryInsertCore(
+            vertices, vertexCount, faces, faceCount, constraints, pointXy, tolerance,
+            out double[] outputVertices, out int outputVertexCount, out int[] outputFaces, out int outputFaceCount,
+            out pointPlacement, out errorMessage);
+        output = new IndexedTriMesh(outputVertices, outputVertexCount, outputFaces, outputFaceCount);
+        return inserted;
+    }
+
+    private static bool TryInsertCore(
         double[] vertices,
         int vertexCount,
         int[] faces,

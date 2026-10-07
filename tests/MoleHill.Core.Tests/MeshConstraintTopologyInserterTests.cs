@@ -18,17 +18,15 @@ public class MeshConstraintTopologyInserterTests
         (double[] vertices, int[] faces) = BuildGrid(2, 2);
 
         bool ok = MeshConstraintTopologyInserter.TryInsert(
-            vertices,
-            vertices.Length / 3,
-            faces,
-            faces.Length / 3,
+            new IndexedTriMesh(vertices, vertices.Length / 3, faces, faces.Length / 3),
             Array.Empty<ConstraintPolyline>(),
             Tolerance,
-            out double[] outVertices,
-            out int outVertexCount,
-            out int[] outFaces,
-            out int outFaceCount,
+            out IndexedTriMesh insertedMesh,
             out string? error);
+        double[] outVertices = insertedMesh.Vertices;
+        int outVertexCount = insertedMesh.VertexCount;
+        int[] outFaces = insertedMesh.Faces;
+        int outFaceCount = insertedMesh.FaceCount;
 
         Assert.True(ok);
         Assert.Null(error);
@@ -168,16 +166,10 @@ public class MeshConstraintTopologyInserterTests
     public void TryInsert_EmptyMesh_ReportsAnError()
     {
         bool ok = MeshConstraintTopologyInserter.TryInsert(
-            Array.Empty<double>(),
-            0,
-            Array.Empty<int>(),
-            0,
+            new IndexedTriMesh(Array.Empty<double>(), 0, Array.Empty<int>(), 0),
             new[] { Open(0.0, 0.0, 1.0, 1.0) },
             Tolerance,
-            out _,
-            out _,
-            out _,
-            out _,
+            out IndexedTriMesh insertedMesh2,
             out string? error);
 
         Assert.False(ok);
@@ -193,18 +185,16 @@ public class MeshConstraintTopologyInserterTests
         out int[] outFaces,
         out string? error)
     {
-        return MeshConstraintTopologyInserter.TryInsert(
-            vertices,
-            vertices.Length / 3,
-            faces,
-            faces.Length / 3,
+        bool inserted3 = MeshConstraintTopologyInserter.TryInsert(
+            new IndexedTriMesh(vertices, vertices.Length / 3, faces, faces.Length / 3),
             constraints,
             Tolerance,
-            out outVertices,
-            out _,
-            out outFaces,
-            out outFaceCount,
+            out IndexedTriMesh insertedMesh3,
             out error);
+        outVertices = insertedMesh3.Vertices;
+        outFaces = insertedMesh3.Faces;
+        outFaceCount = insertedMesh3.FaceCount;
+        return inserted3;
     }
 
     private static ConstraintPolyline Open(params double[] xy)

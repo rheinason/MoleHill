@@ -20,8 +20,14 @@ public class MeshConstraintInserterFaceCutParityTests
         var constraint = new ConstraintPolyline(new[] { 0.3, 0.2, 0.0, 2.7, 2.6, 0.0 }, 2, false);
 
         bool ok = MeshConstraintTopologyInserter.TryInsert(
-            vertices, vertices.Length / 3, faces, faces.Length / 3, new[] { constraint }, 1e-6,
-            out double[] outVertices, out _, out int[] outFaces, out int outFaceCount, out string? error);
+            new IndexedTriMesh(vertices, vertices.Length / 3, faces, faces.Length / 3),
+            new[] { constraint },
+            1e-6,
+            out IndexedTriMesh insertedMesh,
+            out string? error);
+        double[] outVertices = insertedMesh.Vertices;
+        int[] outFaces = insertedMesh.Faces;
+        int outFaceCount = insertedMesh.FaceCount;
 
         Assert.True(ok, error);
         Assert.True(outFaceCount > faces.Length / 3, "the constraint should have split faces");
@@ -47,9 +53,16 @@ public class MeshConstraintInserterFaceCutParityTests
         var constraint = new ConstraintPolyline(new[] { -1.0, 0.5, 0.0, 2.0, 0.5, 0.0 }, 2, false);
 
         bool ok = MeshConstraintTopologyInserter.TryInsert(
-            vertices, 4, faces, 2, new[] { constraint }, new[] { 0.1876, 0.75 }, tolerance,
-            out double[] outVertices, out _, out int[] outFaces, out int outFaceCount,
-            out MeshConstraintTopologyInserter.PointPlacement placement, out string? error);
+            new IndexedTriMesh(vertices, 4, faces, 2),
+            new[] { constraint },
+            new[] { 0.1876, 0.75 },
+            tolerance,
+            out IndexedTriMesh insertedMesh2,
+            out MeshConstraintTopologyInserter.PointPlacement placement,
+            out string? error);
+        double[] outVertices = insertedMesh2.Vertices;
+        int[] outFaces = insertedMesh2.Faces;
+        int outFaceCount = insertedMesh2.FaceCount;
 
         Assert.True(ok, error);
         Assert.Equal(1, placement.Inserted);
@@ -74,8 +87,12 @@ public class MeshConstraintInserterFaceCutParityTests
         var constraint = new ConstraintPolyline(new[] { 0.5, -0.8, 0.0, 0.5, 0.8, 0.0 }, 2, false);
 
         bool ok = MeshConstraintTopologyInserter.TryInsert(
-            vertices, 5, faces, 4, new[] { constraint }, 1e-6,
-            out _, out _, out _, out int outFaceCount, out string? error);
+            new IndexedTriMesh(vertices, 5, faces, 4),
+            new[] { constraint },
+            1e-6,
+            out IndexedTriMesh insertedMesh3,
+            out string? error);
+        int outFaceCount = insertedMesh3.FaceCount;
 
         Assert.True(ok, error);
         Assert.True(outFaceCount > 4);
