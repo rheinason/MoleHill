@@ -1,3 +1,4 @@
+using Grasshopper.Kernel;
 using MoleHill.Core.Engine;
 using MoleHill.Grasshopper.Registry;
 using MoleHill.Shared;
@@ -7,7 +8,9 @@ using Rhino.Geometry;
 namespace MoleHill.Grasshopper.Components;
 
 /// <summary>
-/// Refine a triangle mesh by re-triangulating with quality constraints. Spec-driven
+/// Refine a triangle mesh. Two modes, the same two the Remesh card offers: <c>rebuild</c> re-triangulates with
+/// quality constraints (<see cref="SurfaceRemesher"/>, the default here so saved definitions keep their output),
+/// and <c>isotropic</c> runs the card's default engine through <see cref="IsotropicRemeshPipeline"/>. Spec-driven
 /// (<see cref="RegistryTerrainComponent"/>): parameter registration + mesh/curve plumbing are shared; only
 /// the remesh-specific solve body lives here.
 /// </summary>
@@ -30,7 +33,7 @@ public sealed class RemeshComponent : RegistryTerrainComponent
     {
         Name = "Remesh",
         Nick = "Remesh",
-        Description = "Refine a triangle mesh with quality constraints. Adds vertices to improve triangle shape and density.",
+        Description = "Refine a triangle mesh. Mode \"rebuild\" re-triangulates with quality constraints; \"isotropic\" is the Remesh card's default engine (even edge lengths, creases and walls kept).",
         SubCategory = "Surface",
         Inputs = new[]
         {
@@ -40,6 +43,9 @@ public sealed class RemeshComponent : RegistryTerrainComponent
             GhPort.Number("Max Area", "A", "Maximum triangle area. 0 = no constraint. Overrides Edge Length if both set.", @default: 0.0),
             GhPort.Number("Min Angle", "N", "Minimum triangle angle in degrees. 0 = no constraint.", @default: 20.0),
             GhPort.Generic("Terrain", "T", "Optional typed Terrain input; its metadata is carried to the appended Terrain output.", optional: true),
+            // Appended after Terrain so saved definitions keep their port indices.
+            GhPort.Text("Mode", "Md", "\"rebuild\" (default: classic constrained re-triangulation, uses Max Area / Min Angle) or \"isotropic\" (the Remesh card's default engine: Edge Length target, 0 = keep density; uses Crease Angle).", access: GH_ParamAccess.item, optional: true),
+            GhPort.Number("Crease Angle", "Ca", "Isotropic mode: folds at or above this dihedral angle (degrees) are kept as edges. 0 disables.", @default: 0.0),
         },
         Outputs = new[]
         {
@@ -64,6 +70,20 @@ public sealed class RemeshComponent : RegistryTerrainComponent
         double edgeLength = ctx.GetNumber(2, 0.0);
         double maxArea = ctx.GetNumber(3, 0.0);
         double minAngle = ctx.GetNumber(4, 20.0);
+        string mode = ctx.GetText(6, "rebuild").Trim().ToLowerInvariant();
+        if (mode.Length == 0)
+            mode = "rebuild";
+        if (mode != "rebuild" && mode != "isotropic")
+        {
+            ctx.Error($"Unknown Mode \"{mode}\". Use \"rebuild\" or \"isotropic\".");
+            return;
+        }
+
+        if (mode == "isotropic")
+        {
+            SolveIsotropic(ctx, mesh, constraints, edgeLength, ctx.GetNumber(7, 0.0), sourceTerrain);
+            return;
+        }
 
         // Convert edge length to max area (equilateral triangle: area = edge^2 * sqrt(3) / 4)
         if (edgeLength > 0 && maxArea <= 0)
@@ -136,6 +156,62 @@ public sealed class RemeshComponent : RegistryTerrainComponent
         ctx.SetData(0, outMesh);
         ctx.SetData(1, remeshResult.Faces.Length / 3);
         ctx.SetData(2, remeshResult.Vertices.Length / 3);
+        EmitTerrain(ctx, sourceTerrain, outMesh);
+    }
+
+    /// <summary>The Remesh card's isotropic engine, through the pipeline the card itself uses.</summary>
+    private static void SolveIsotropic(
+        GhSolveContext ctx,
+        Mesh mesh,
+        IReadOnlyList<Curve> curves,
+        double edgeLength,
+        double creaseAngle,
+        MoleHillTerrainData? sourceTerrain)
+    {
+        if (!ctx.TryExtractMesh(mesh, out var extracted))
+            return;
+
+        double tolerance = ctx.Tolerance;
+        var constraints = new List<ConstraintPolyline>();
+        foreach (var crv in curves)
+        {
+            if (crv == null)
+                continue;
+
+            if (AdaptivePolylineBuilder.TryGetPolyline(crv, tolerance, requireClosed: false, edgeLength, 0.0, out var polyline))
+                constraints.Add(RhinoGeometryConversions.ToConstraintPolyline(polyline, crv.IsClosed));
+        }
+
+        IsotropicRemeshPipeline.Outcome outcome = IsotropicRemeshPipeline.Run(new IsotropicRemeshPipeline.Request
+        {
+            Terrain = extracted,
+            InsertedConstraints = constraints,
+            PinnedConstraints = constraints,
+            EdgeLength = edgeLength,
+            CreaseAngleDeg = creaseAngle,
+            Tolerance = tolerance
+        });
+
+        string? failure = outcome.InsertError != null
+            ? $"Breaklines could not be inserted: {outcome.InsertError}"
+            : outcome.Remesh == null
+                ? "Could not derive a target edge length."
+                : outcome.Success ? null : outcome.Remesh.Warning ?? "Remesh kept the input mesh unchanged.";
+        if (failure != null)
+        {
+            ctx.Warn(failure + " Output equals input mesh.");
+            ctx.SetData(0, mesh);
+            ctx.SetData(1, mesh.Faces.Count);
+            ctx.SetData(2, mesh.Vertices.Count);
+            EmitTerrain(ctx, sourceTerrain, mesh);
+            return;
+        }
+
+        var outMesh = GhSolveContext.BuildMesh(outcome.Vertices, outcome.Faces);
+        ctx.Remark($"Isotropic remesh at target edge {outcome.Target:0.###}.");
+        ctx.SetData(0, outMesh);
+        ctx.SetData(1, outcome.Faces.Length / 3);
+        ctx.SetData(2, outcome.Vertices.Length / 3);
         EmitTerrain(ctx, sourceTerrain, outMesh);
     }
 

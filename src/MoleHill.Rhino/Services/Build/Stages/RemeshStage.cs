@@ -107,74 +107,47 @@ internal static class RemeshStage
 
         // The isotropic remesher only PINS constraints that already run along mesh edges; it never inserts
         // one. Upstream constraints are embedded by the stage that made them, but this card's own
-        // Constraints input is not, so without this step they were silently ignored. Insert them into the
-        // existing faces (draped: Z comes from the terrain) so the remesher sees them as edges to keep.
-        if (localConstraints.Count > 0)
+        // Constraints input is not, so the pipeline inserts them first (draped: Z comes from the terrain).
+        // Tiles whose input is unchanged since the last run come from the memo, exactly as a cold run would
+        // make them; only the tiles an edit touched are remeshed.
+        TiledIsotropicRemesher.TiledRemeshMemo? previousMemo = null;
+        if (tiled && runtimeCache != null && stageKey != null)
+            runtimeCache.RemeshMemos.TryGetValue(stageKey, out previousMemo);
+        IsotropicRemeshPipeline.Outcome outcome = IsotropicRemeshPipeline.Run(new IsotropicRemeshPipeline.Request
         {
-            if (MeshConstraintTopologyInserter.TryInsert(
-                    new IndexedTriMesh(vertices, vertexCount, faces, faceCount), localConstraints, toleranceProfile.RemeshConstraintTolerance,
-                    out IndexedTriMesh inserted, out string? insertError))
-            {
-                (double[] insertedVertices, int insertedVertexCount, int[] insertedFaces, int insertedFaceCount) = inserted;
-                vertices = insertedVertices.Length == insertedVertexCount * 3
-                    ? insertedVertices
-                    : insertedVertices[..(insertedVertexCount * 3)];
-                faces = insertedFaces.Length == insertedFaceCount * 3
-                    ? insertedFaces
-                    : insertedFaces[..(insertedFaceCount * 3)];
-            }
-            else
-            {
-                build.Diagnostics.Add($"Remesh skipped because its breaklines could not be inserted: {insertError}");
-                return RhinoGeometryConversions.DuplicateWithCachedData(mesh);
-            }
+            Terrain = new IndexedTriMesh(vertices, vertexCount, faces, faceCount),
+            InsertedConstraints = localConstraints,
+            PinnedConstraints = constraints,
+            EdgeLength = edgeLength,
+            AutoTargetScale = mode == TerrainBuildMode.Preview && modifier.EdgeLength <= 0 ? 2.0 : 1.0,
+            CreaseAngleDeg = modifier.CreaseAngle,
+            Tolerance = toleranceProfile.RemeshConstraintTolerance,
+            WallFaceMinSlopeDeg = TerrainBuildService.RemeshWallFaceMinSlopeDeg,
+            Iterations = mode == TerrainBuildMode.Preview || modifier.EdgeLength <= 0 ? 3 : 5,
+            Tiled = tiled,
+            PreviousMemo = previousMemo,
+
+            // A rebuild the user has already superseded should stop inside the remesh, not after
+            // it: this is the longest-running Core stage in the pipeline.
+            ShouldCancel = shouldCancel
+        });
+        if (tiled && outcome.Memo != null && runtimeCache != null && stageKey != null)
+            runtimeCache.RemeshMemos[stageKey] = outcome.Memo;
+
+        if (outcome.InsertError != null)
+        {
+            build.Diagnostics.Add($"Remesh skipped because its breaklines could not be inserted: {outcome.InsertError}");
+            return RhinoGeometryConversions.DuplicateWithCachedData(mesh);
         }
 
-        // EdgeLength 0 = preserve the mesh's approximate global plan density. A median edge badly
-        // over-refines terrains that mix dense feature sampling with large sparse outer faces.
-        double target = edgeLength > 0
-            ? edgeLength
-            : IsotropicRemesher.EstimateFaceCountPreservingTarget(vertices, faces);
-        if (mode == TerrainBuildMode.Preview && modifier.EdgeLength <= 0)
-            target *= 2.0;
-        if (tiled && edgeLength <= 0)
-            target = TiledIsotropicRemesher.RoundedTarget(target);
-        if (target <= 0)
+        if (outcome.Remesh == null)
         {
             build.Diagnostics.Add("Remesh skipped: could not derive a target edge length.");
             return RhinoGeometryConversions.DuplicateWithCachedData(mesh);
         }
 
-        var remeshOptions = new IsotropicRemesher.Options
-            {
-                TargetEdgeLength = target,
-                CreaseAngleDeg = modifier.CreaseAngle,
-                Tolerance = toleranceProfile.RemeshConstraintTolerance,
-                WallFaceMinSlopeDeg = TerrainBuildService.RemeshWallFaceMinSlopeDeg,
-                Iterations = mode == TerrainBuildMode.Preview || modifier.EdgeLength <= 0 ? 3 : 5,
-
-                // A rebuild the user has already superseded should stop inside the remesh, not after
-                // it: this is the longest-running Core stage in the pipeline.
-                ShouldCancel = shouldCancel
-            };
-        IsotropicRemesher.Result result;
-        if (tiled)
-        {
-            // Tiles whose input is unchanged since the last run come from its memo, exactly as a cold run
-            // would make them; only the tiles an edit touched are remeshed.
-            TiledIsotropicRemesher.TiledRemeshMemo? previousMemo = null;
-            if (runtimeCache != null && stageKey != null)
-                runtimeCache.RemeshMemos.TryGetValue(stageKey, out previousMemo);
-            result = TiledIsotropicRemesher.Remesh(vertices, faces, constraints, remeshOptions, 0.0, previousMemo, out TiledIsotropicRemesher.TiledRemeshMemo memo);
-            if (runtimeCache != null && stageKey != null)
-                runtimeCache.RemeshMemos[stageKey] = memo;
-        }
-        else
-        {
-            result = IsotropicRemesher.Remesh(vertices, faces, constraints, remeshOptions);
-        }
-
-        if (!result.Success)
+        IsotropicRemesher.Result result = outcome.Remesh;
+        if (!outcome.Success)
         {
             build.Diagnostics.Add((result.Warning ?? "Remesh kept the incoming mesh unchanged.") + $" [{result.Timing}]");
             return RhinoGeometryConversions.DuplicateWithCachedData(mesh);
@@ -182,20 +155,17 @@ internal static class RemeshStage
 
         build.Diagnostics.Add(
             $"Remesh {(tiled ? "tiled" : "isotropic")}: {result.Splits:N0} splits, {result.Collapses:N0} collapses, " +
-            $"{result.Flips:N0} flips at target {target:0.###} " +
+            $"{result.Flips:N0} flips at target {outcome.Target:0.###} " +
             $"({result.Faces.Length / 3:N0} faces; features and walls pinned) [{result.Timing}].");
 
-        // The hand-off welds vertices that share a float position, blindly. A remesh can leave pairs a micron
-        // apart, and welding those dropped faces and made edges shared by four (FloatCoincidentEdgeCollapser).
-        (double[] outVertices, int[] outFaces) = FloatCoincidentEdgeCollapser.Collapse(
-            result.Vertices, result.Faces, out int collapsed, out int separated);
-        if (collapsed + separated > 0)
+        if (outcome.CollapsedEdges + outcome.SeparatedVertices > 0)
         {
             build.Diagnostics.Add(
-                $"Remesh collapsed {collapsed:N0} edge(s) and separated {separated:N0} vertex(es) shorter than float precision, " +
+                $"Remesh collapsed {outcome.CollapsedEdges:N0} edge(s) and separated {outcome.SeparatedVertices:N0} vertex(es) shorter than float precision, " +
                 "which the mesh hand-off would otherwise have welded into folds.");
         }
 
+        (double[] outVertices, int[] outFaces) = (outcome.Vertices, outcome.Faces);
         return TerrainBuildService.BuildMeshFromArrays(outVertices, outFaces);
     }
 

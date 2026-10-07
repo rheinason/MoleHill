@@ -75,8 +75,11 @@ Key files:
   type. Used by constraint insertion in the Rhino build (`TerrainBuildService.MeshConstraints`),
   `MeshAreaSplitter`, the GH Remesh and Retaining Wall components, and the Remesh modifier's **Full
   Rebuild** mode (`RemeshModifierDefinition.Mode == "rebuild"`, classic/wall-safe, coarser triangle
-  shapes). The GH Remesh component exposes only this mode; the card's default isotropic engine has no
-  GH route yet (see `docs/gh-modifier-parity-matrix.md`).
+  shapes). The GH Remesh component's default `rebuild` mode.
+- `IsotropicRemeshPipeline.cs` — the isotropic Remesh as both hosts run it: insert the card's own
+  breaklines, derive the target (0 = keep density, tiled targets snapped by `RoundedTarget`), run the tiled
+  or global remesher, collapse float-coincident edges. The Remesh card (`RemeshStage`) and the GH Remesh
+  component's `isotropic` mode call it, so the two cannot drift.
 - `MeshFeatureDetection.cs` — `DetectCreaseEdges`: interior edges whose faces meet at or past a dihedral
   threshold. Shared by `SurfaceRemesher`, `LocalMeshRefiner`, `FeaturePolylineGraph` and Retopo's
   `CrossFieldSolver`.
