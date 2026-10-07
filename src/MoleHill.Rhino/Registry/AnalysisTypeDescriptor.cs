@@ -72,4 +72,20 @@ internal abstract class AnalysisTypeDescriptor
     /// asking for something it does not need.
     /// </summary>
     public virtual string? DescribeBasis(TerrainDefinition terrain, AnalysisDefinition analysis) => null;
+
+    /// <summary>
+    /// Computes this analysis's summary (and emits any generated objects onto <c>context.Build</c>) during
+    /// the analysis pass, or returns null when the type produces nothing there. The pass has already
+    /// checked <c>IsEnabled</c>, consulted the stage cache and prepared the mesh arrays on the context.
+    /// </summary>
+    public virtual TerrainAnalysisSummary? Build(AnalysisBuildContext context, AnalysisDefinition analysis) => null;
+
+    /// <summary>
+    /// The rows this analysis's card shows for what the last build measured, as data. Empty when there is
+    /// nothing to say (the default). Rows keep their order; the panel draws them after the schema rows.
+    /// Anything that needs a live Eto control (an insertion-origin picker, a range editor) is not a row
+    /// and stays in the panel.
+    /// </summary>
+    public virtual IReadOnlyList<ResultRow> DescribeResult(AnalysisDefinition analysis, TerrainAnalysisSummary? summary, ResultFormatter format) =>
+        Array.Empty<ResultRow>();
 }

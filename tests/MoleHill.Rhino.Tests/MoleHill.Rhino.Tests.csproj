@@ -51,6 +51,7 @@
     <!-- One benchmark gate for every lane, so a performance run states what it actually executed.
          Linked rather than copied: two gates would drift and a skipped body reads as a pass. -->
     <Compile Include="..\MoleHill.Core.Tests\PerformanceLane.cs" Link="PerformanceLane.cs" />
+    <Compile Include="..\MoleHill.Core.Tests\RepositoryPaths.cs" Link="RepositoryPaths.cs" />
     <Compile Include="..\..\src\MoleHill.Rhino\Model\*.cs" LinkBase="Model" />
     <Compile Include="..\..\src\MoleHill.Rhino\Registry\*.cs" LinkBase="Registry" />
     <Compile Include="..\..\src\MoleHill.Rhino\Services\**\*.cs" LinkBase="Services"

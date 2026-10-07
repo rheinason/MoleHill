@@ -70,6 +70,12 @@ public sealed partial class MoleHillPanel
         }
     }
 
+    /// <summary>
+    /// What follows the schema rows. The insertion-origin pickers are the escape hatch: each needs an
+    /// interactive GetPoint and, for the Legend, a <c>refreshOnly</c> callback, so they are real controls
+    /// and cannot be rows. Everything the last build measured is data on the descriptor
+    /// (<see cref="AnnotationTypeDescriptor.DescribeResult"/>) and is drawn generically below.
+    /// </summary>
     private void AppendBespokeAnnotationRowsAfter(DynamicLayout layout, TerrainDefinition terrain, AnnotationDefinition annotation, TerrainAnalysisSummary? summary)
     {
         switch (annotation)
@@ -101,19 +107,6 @@ public sealed partial class MoleHillPanel
                         if (item is ReportTableAnnotationDefinition table)
                             table.HasInsertionPlane = false;
                     }));
-
-                layout.AddRow(summary != null
-                    ? CreateReadOnlyValueRow(
-                        "Drawn",
-                        summary.ReportRowCount > 0
-                            ? $"{summary.ReportTableCount} table(s) | {summary.ReportRowCount} row(s)"
-                            : "Nothing measured yet",
-                        "Tables and data rows drawn by the last build. A section that measured nothing is not drawn.")
-                    : CreateSelectableSummaryEditor(
-                        "Summary",
-                        "Rebuild required",
-                        "Rebuild the terrain to draw the report table.",
-                        minHeight: 42));
                 break;
             }
 
@@ -147,255 +140,26 @@ public sealed partial class MoleHillPanel
                     refreshOnly: true));
                 break;
             }
+        }
 
-            case CurveElevationLabelAnnotationDefinition curveElevation:
-            {
-                if (summary != null)
-                {
-                    layout.AddRow(CreateReadOnlyValueRow(
-                        "Curves / Labels",
-                        $"{summary.SampleSourceCount} curve(s) -> {summary.GeneratedOutputCount} label(s)",
-                        "Curve sources resolved and elevation annotation blocks emitted by the last build."));
-                    layout.AddRow(CreateReadOnlyValueRow(
-                        "Min / Max",
-                        summary.GeneratedOutputCount > 0
-                            ? $"{FormatAnalysisValue(summary.SampleMinValue, curveElevation.ValueFormat)} / {FormatAnalysisValue(summary.SampleMaxValue, curveElevation.ValueFormat)}"
-                            : "No samples",
-                        "Terrain elevations sampled along the source curves during the last build."));
-                }
-                else
-                {
-                    layout.AddRow(CreateSelectableSummaryEditor(
-                        "Summary",
-                        "Rebuild required",
-                        "Rebuild the terrain to generate curve elevation annotation blocks.",
-                        minHeight: 42));
-                }
+        AddResultRows(
+            layout,
+            AnnotationTypeRegistry.ForType(annotation.GetType())?.DescribeResult(annotation, summary, ResultFormats));
+    }
 
-                break;
-            }
+    /// <summary>The unit-aware formatters result rows need, bound to the active document and the user's slope unit.</summary>
+    private static readonly ResultFormatter ResultFormats = new(FormatArea, FormatVolume, FormatZoneLength, FormatSlopeDegrees);
 
-            case CurveSlopeLabelAnnotationDefinition curveSlope:
-            {
-                if (summary != null)
-                {
-                    layout.AddRow(CreateReadOnlyValueRow(
-                        "Curves / Labels",
-                        $"{summary.SampleSourceCount} curve(s) -> {summary.GeneratedOutputCount} label(s)",
-                        "Curve sources resolved and annotation blocks emitted by the last build."));
-                    layout.AddRow(CreateReadOnlyValueRow(
-                        "Min / Avg / Max",
-                        summary.GeneratedOutputCount > 0
-                            ? $"{FormatSlopeValue(summary.SampleMinValue, curveSlope.Unit)} / {FormatSlopeValue(summary.SampleAverageValue, curveSlope.Unit)} / {FormatSlopeValue(summary.SampleMaxValue, curveSlope.Unit)}"
-                            : "No samples",
-                        "Terrain-projected curve slope values from the last build."));
-                }
-                else
-                {
-                    layout.AddRow(CreateSelectableSummaryEditor(
-                        "Summary",
-                        "Rebuild required",
-                        "Rebuild the terrain to generate curve slope annotation blocks.",
-                        minHeight: 42));
-                }
+    private void AddResultRows(DynamicLayout layout, IReadOnlyList<ResultRow>? rows)
+    {
+        if (rows == null)
+            return;
 
-                break;
-            }
-
-            case ProjectedElevationLabelAnnotationDefinition projectedElevation:
-            {
-                if (summary != null)
-                {
-                    layout.AddRow(CreateReadOnlyValueRow(
-                        "Sources / Labels",
-                        $"{summary.SampleSourceCount} source(s) -> {summary.GeneratedOutputCount} label(s)",
-                        "Point and curve sources resolved and annotation blocks emitted by the last build."));
-                    layout.AddRow(CreateReadOnlyValueRow(
-                        "Min / Max",
-                        summary.GeneratedOutputCount > 0
-                            ? $"{FormatAnalysisValue(summary.SampleMinValue, projectedElevation.ValueFormat)} / {FormatAnalysisValue(summary.SampleMaxValue, projectedElevation.ValueFormat)}"
-                            : "No samples",
-                        "Projected terrain elevations from the last build."));
-                }
-                else
-                {
-                    layout.AddRow(CreateSelectableSummaryEditor(
-                        "Summary",
-                        "Rebuild required",
-                        "Rebuild the terrain to generate projected elevation annotation blocks.",
-                        minHeight: 42));
-                }
-
-                break;
-            }
-
-            case PointSlopeLabelAnnotationDefinition pointSlope:
-            {
-                if (summary != null)
-                {
-                    layout.AddRow(CreateReadOnlyValueRow(
-                        "Points / Labels",
-                        $"{summary.SampleSourceCount} point(s) -> {summary.GeneratedOutputCount} label(s)",
-                        "Point sources resolved and annotation blocks emitted by the last build."));
-                    layout.AddRow(CreateReadOnlyValueRow(
-                        "Min / Avg / Max",
-                        summary.GeneratedOutputCount > 0
-                            ? $"{FormatSlopeValue(summary.SampleMinValue, pointSlope.Unit)} / {FormatSlopeValue(summary.SampleAverageValue, pointSlope.Unit)} / {FormatSlopeValue(summary.SampleMaxValue, pointSlope.Unit)}"
-                            : "No samples",
-                        "Local terrain slope values sampled at the projected points."));
-                }
-                else
-                {
-                    layout.AddRow(CreateSelectableSummaryEditor(
-                        "Summary",
-                        "Rebuild required",
-                        "Rebuild the terrain to generate point slope annotation blocks.",
-                        minHeight: 42));
-                }
-
-                break;
-            }
-
-            case SlopeArrowAnnotationDefinition slopeArrows:
-            {
-
-                if (summary != null)
-                {
-                    layout.AddRow(CreateReadOnlyValueRow(
-                        "Arrows",
-                        $"{summary.GeneratedOutputCount} arrow(s)",
-                        "Flow arrows emitted across the terrain by the last build."));
-                    layout.AddRow(CreateReadOnlyValueRow(
-                        "Min / Avg / Max",
-                        summary.GeneratedOutputCount > 0
-                            ? $"{FormatSlopeValue(summary.SampleMinValue, slopeArrows.Unit)} / {FormatSlopeValue(summary.SampleAverageValue, slopeArrows.Unit)} / {FormatSlopeValue(summary.SampleMaxValue, slopeArrows.Unit)}"
-                            : "No samples",
-                        "Slope magnitudes sampled across the grid during the last build."));
-                }
-                else
-                {
-                    layout.AddRow(CreateSelectableSummaryEditor(
-                        "Summary",
-                        "Rebuild required",
-                        "Rebuild the terrain to generate flow arrows.",
-                        minHeight: 42));
-                }
-
-                break;
-            }
-
-            case GradeBetweenPointsAnnotationDefinition gradeCallout:
-            {
-                if (summary != null)
-                {
-                    layout.AddRow(CreateReadOnlyValueRow(
-                        "Lines / Callouts",
-                        $"{summary.SampleSourceCount} line(s) -> {summary.GeneratedOutputCount} callout(s)",
-                        "Source lines resolved and grade callouts emitted by the last build."));
-                    layout.AddRow(CreateReadOnlyValueRow(
-                        "Min / Avg / Max %",
-                        summary.GeneratedOutputCount > 0
-                            ? $"{FormatAnalysisValue(summary.SampleMinValue, gradeCallout.ValueFormat)} / {FormatAnalysisValue(summary.SampleAverageValue, gradeCallout.ValueFormat)} / {FormatAnalysisValue(summary.SampleMaxValue, gradeCallout.ValueFormat)}"
-                            : "No samples",
-                        "Grade percentages computed for the source lines during the last build."));
-                }
-                else
-                {
-                    layout.AddRow(CreateSelectableSummaryEditor(
-                        "Summary",
-                        "Rebuild required",
-                        "Rebuild the terrain to generate grade callouts.",
-                        minHeight: 42));
-                }
-
-                break;
-            }
-
-            case ContourAnnotationDefinition contour:
-            {
-                if (summary != null)
-                {
-                    layout.AddRow(CreateReadOnlyValueRow(
-                        "Curves",
-                        $"{summary.ContourCurveCount} curve(s) across {summary.ContourLevelCount} level(s)",
-                        "Contour output generated from the last terrain build."));
-                    layout.AddRow(CreateReadOnlyValueRow(
-                        "Levels",
-                        summary.ContourLevelCount > 0
-                            ? $"{summary.ContourFirstLevel:G4} to {summary.ContourLastLevel:G4}"
-                            : "No contour levels intersected the terrain",
-                        "First and last contour elevations emitted by the last build."));
-                }
-                else
-                {
-                    layout.AddRow(CreateSelectableSummaryEditor(
-                        "Summary",
-                        "Rebuild required",
-                        "Rebuild the terrain to generate contour curves.",
-                        minHeight: 42));
-                }
-                break;
-            }
-
-            case TerrainSectionAnnotationDefinition:
-            {
-                if (summary != null)
-                {
-                    layout.AddRow(CreateReadOnlyValueRow(
-                        "Cuts / Terrains / C-F",
-                        $"{summary.SampleSourceCount} / {summary.SectionTerrainCount} / {summary.SectionCutRegionCount}-{summary.SectionFillRegionCount}",
-                        $"Cut curves, available terrain profiles, and cut-fill regions from the last build ({summary.GeneratedOutputCount} objects)."));
-                }
-                else
-                {
-                    layout.AddRow(CreateSelectableSummaryEditor(
-                        "Summary",
-                        "Rebuild required",
-                        "Rebuild the terrain to generate the section profile.",
-                        minHeight: 42));
-                }
-                break;
-            }
-
-            case CrossSectionStationAnnotationDefinition:
-            {
-                if (summary != null)
-                {
-                    layout.AddRow(CreateReadOnlyValueRow(
-                        "Alignments / Terrains / C-F",
-                        $"{summary.SampleSourceCount} / {summary.SectionTerrainCount} / {summary.SectionCutRegionCount}-{summary.SectionFillRegionCount}",
-                        $"Alignments, available terrain profiles, and cut-fill regions from the last build ({summary.GeneratedOutputCount} objects)."));
-                }
-                else
-                {
-                    layout.AddRow(CreateSelectableSummaryEditor(
-                        "Summary",
-                        "Rebuild required",
-                        "Rebuild the terrain to generate cross-sections.",
-                        minHeight: 42));
-                }
-                break;
-            }
-
-            case LongitudinalSectionAnnotationDefinition:
-            {
-                if (summary != null)
-                {
-                    layout.AddRow(CreateReadOnlyValueRow(
-                        "Curves / Terrains / C-F",
-                        $"{summary.SampleSourceCount} / {summary.SectionTerrainCount} / {summary.SectionCutRegionCount}-{summary.SectionFillRegionCount}",
-                        $"Curves, available terrain profiles, and cut-fill regions from the last build ({summary.GeneratedOutputCount} objects)."));
-                }
-                else
-                {
-                    layout.AddRow(CreateSelectableSummaryEditor(
-                        "Summary",
-                        "Rebuild required",
-                        "Rebuild the terrain to generate the longitudinal section.",
-                        minHeight: 42));
-                }
-                break;
-            }
+        foreach (ResultRow row in rows)
+        {
+            layout.AddRow(row.Kind == ResultRowKind.SelectableSummary
+                ? CreateSelectableSummaryEditor(row.Label, row.Value, row.Help, row.MinHeight)
+                : CreateReadOnlyValueRow(row.Label, row.Value, row.Help));
         }
     }
 

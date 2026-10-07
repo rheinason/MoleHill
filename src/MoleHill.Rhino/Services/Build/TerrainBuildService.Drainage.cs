@@ -23,7 +23,7 @@ internal readonly record struct BasinGraphCacheKey(double FlatSlopeRatio, double
 
 internal sealed partial class TerrainBuildService
 {
-    private static TerrainAnalysisSummary BuildCatchmentSummary(
+    internal static TerrainAnalysisSummary BuildCatchmentSummary(
         TerrainBuildSnapshot snapshot,
         double[] vertices,
         int[] faces,
@@ -224,7 +224,7 @@ internal sealed partial class TerrainBuildService
         return drawn;
     }
 
-    private static TerrainAnalysisSummary BuildPondingSummary(
+    internal static TerrainAnalysisSummary BuildPondingSummary(
         TerrainBuildSnapshot snapshot,
         double[] vertices,
         int[] faces,
