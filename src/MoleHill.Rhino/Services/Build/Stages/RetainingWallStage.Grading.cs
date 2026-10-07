@@ -17,7 +17,7 @@ namespace MoleHill.Rhino.Services;
 /// never has terrain pushed through it. That direction is not the rail curve's own plan normal, so it
 /// is handed to Core explicitly rather than derived.
 /// </remarks>
-internal sealed partial class TerrainBuildService
+internal static partial class RetainingWallStage
 {
     private static RhinoMesh ApplyRetainingWallGrading(
         TerrainBuildSnapshot snapshot,
@@ -99,7 +99,7 @@ internal sealed partial class TerrainBuildService
 
         if (gradingResult == null)
         {
-            build.RecordTiming("Retaining Wall Grading", coreTimer.Elapsed, "failed", StageTimingDiagnosticThresholdMs);
+            build.RecordTiming("Retaining Wall Grading", coreTimer.Elapsed, "failed", TerrainBuildService.StageTimingDiagnosticThresholdMs);
             build.Diagnostics.Add(warning ?? "Retaining Wall grading failed; the wall breaklines were kept.");
             return mesh;
         }
@@ -107,13 +107,13 @@ internal sealed partial class TerrainBuildService
         build.RecordTiming(
             "Retaining Wall Grading",
             coreTimer.Elapsed,
-            DescribeTopologyCounts(vertexCount, faceCount, gradingResult.VertexCount, gradingResult.FaceCount),
-            StageTimingDiagnosticThresholdMs);
+            TerrainBuildService.DescribeTopologyCounts(vertexCount, faceCount, gradingResult.VertexCount, gradingResult.FaceCount),
+            TerrainBuildService.StageTimingDiagnosticThresholdMs);
         if (!string.IsNullOrWhiteSpace(warning))
             build.Diagnostics.Add(warning);
         build.AddGradingDiagnostics(gradingResult);
 
-        return FinalizeGradingMesh(
+        return TerrainBuildService.FinalizeGradingMesh(
             RhinoGeometryConversions.BuildMesh(gradingResult.Vertices, gradingResult.VertexCount, gradingResult.Faces, gradingResult.FaceCount),
             "Retaining Wall",
             build);

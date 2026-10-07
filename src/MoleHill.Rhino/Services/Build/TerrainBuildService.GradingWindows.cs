@@ -86,13 +86,13 @@ internal sealed partial class TerrainBuildService
     private const double WallInsertRings = 8.0;
 
     /// <summary>
-    /// <see cref="InsertWallConstraintsCore"/> window by window: each rail's window is the faces within eight of
+    /// <see cref="RetainingWallStage.InsertWallConstraintsCore"/> window by window: each rail's window is the faces within eight of
     /// its local face sizes (the quality patch grows up to six rings of faces around the faces a rail crosses),
     /// and a window unchanged since the last build is reused. Returns false, with nothing written to
     /// <paramref name="build"/>, whenever it cannot stand in for the whole-mesh insertion exactly (a window that
     /// declines, or one that would not weld back), so the caller runs that insertion instead.
     /// </summary>
-    private static bool TryInsertWallConstraintsWindowed(
+    internal static bool TryInsertWallConstraintsWindowed(
         RhinoMesh mesh,
         IReadOnlyList<ConstraintPolyline> wallConstraints,
         double tolerance,
@@ -151,7 +151,7 @@ internal sealed partial class TerrainBuildService
                 failurePolylines = Array.Empty<OutputPolyline>();
                 failureDiagnostics = Array.Empty<GradingDiagnostic>();
                 var messages = new List<string>();
-                if (!InsertWallConstraintsCore(
+                if (!RetainingWallStage.InsertWallConstraintsCore(
                         wv, wvc, wf, wfc, Within(wallConstraints, box), qualityConstraints == null ? null : Within(qualityConstraints, box),
                         tolerance, afterCombinedRemeshFailed: false, messages, out double[] outV, out int[] outF))
                 {

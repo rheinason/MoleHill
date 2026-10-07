@@ -16,7 +16,7 @@ internal sealed class RetainingWallModifierDescriptor : ModifierTypeDescriptor
     public override string Subtitle => "Wall breaklines, optional batter";
     public override ModifierDefinition Create(UnitSystem unitSystem) =>
         new RetainingWallModifierDefinition { MaxWallWidth = ModelUnits.FromMeters(1.0, unitSystem) };
-    public override void RunBuildStage(ModifierBuildContext context) => TerrainBuildService.RunRetainingWallStage(context);
+    public override void RunBuildStage(ModifierBuildContext context) => RetainingWallStage.Run(context);
 
     public override string? InertReason(ModifierDefinition modifier, TerrainBuildSnapshot snapshot) =>
         modifier is RetainingWallModifierDefinition m && NoneResolve(snapshot, m.WallCurves) ? "Not applied — no wall curves selected." : null;

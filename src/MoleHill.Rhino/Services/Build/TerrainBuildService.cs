@@ -19,7 +19,7 @@ internal sealed partial class TerrainBuildService
     /// the boundary and discarded the interior. Generous, because legitimate tiny-face cleanup trims
     /// a handful: this is a floor against wholesale detail loss, not a quality measure.
     /// </summary>
-    private const double RetainingWallRebuildMinimumVertexRatio = 0.90;
+    internal const double RetainingWallRebuildMinimumVertexRatio = 0.90;
     private const double MinRepresentablePadPlaneNormalZ = 1e-3;
     private const int TriangulateCacheVersion = 5;
     private const int InSituStairTreadDepthWarningColorArgb = unchecked((int)0xFFFF0000);
@@ -618,7 +618,7 @@ internal sealed partial class TerrainBuildService
             : $"{current} {next}";
     }
 
-    private static string? AppendCacheHitDetail(string? detail)
+    internal static string? AppendCacheHitDetail(string? detail)
     {
         return string.IsNullOrWhiteSpace(detail)
             ? "cache hit"

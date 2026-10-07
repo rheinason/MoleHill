@@ -362,8 +362,8 @@ public static class WallGradeProbe
         }
         var raw = new List<ConstraintPolyline>();
         foreach (var planned in plan.Walls)
-            raw.AddRange((ConstraintPolyline[])service.GetMethod("BuildWallConstraintCurves", flags)!.Invoke(null, new object[] { planned.Rails, tolerance })!);
-        var prepared = (List<ConstraintPolyline>)service.GetMethod("PrepareWallConstraintsForRemesh", flags)!
+            raw.AddRange((ConstraintPolyline[])typeof(RetainingWallStage).GetMethod("BuildWallConstraintCurves", flags)!.Invoke(null, new object[] { planned.Rails, tolerance })!);
+        var prepared = (List<ConstraintPolyline>)typeof(RetainingWallStage).GetMethod("PrepareWallConstraintsForRemesh", flags)!
             .Invoke(null, new object[] { gradedMesh, raw, tolerance })!;
 
         if (!RhinoGeometryConversions.TryExtractMeshData(gradedMesh, out double[] v1, out int vc1, out int[] f1, out int fc1, out extractError))

@@ -11,7 +11,7 @@ namespace MoleHill.Rhino.Services;
 // Constraint and mesh-topology utilities: constraint preparation/insertion, boundary-loop analysis, tiny-face cleanup, and mesh remapping.
 internal sealed partial class TerrainBuildService
 {
-    private static bool IsTopologyInsertionBoundarySafe(
+    internal static bool IsTopologyInsertionBoundarySafe(
         MeshTopologyValidator.BoundaryGraphAnalysis inputBoundary,
         MeshTopologyValidator.BoundaryGraphAnalysis outputBoundary,
         out string message)
@@ -38,7 +38,7 @@ internal sealed partial class TerrainBuildService
         return true;
     }
 
-    private static bool TopologyChanged(
+    internal static bool TopologyChanged(
         double[] inputVertices,
         int inputVertexCount,
         int[] inputFaces,
@@ -180,14 +180,14 @@ internal sealed partial class TerrainBuildService
         return true;
     }
 
-    private static double DistanceSquared2D(Point3d a, Point3d b)
+    internal static double DistanceSquared2D(Point3d a, Point3d b)
     {
         double dx = a.X - b.X;
         double dy = a.Y - b.Y;
         return (dx * dx) + (dy * dy);
     }
 
-    private static RhinoMesh RebuildMeshWithConstraints(
+    internal static RhinoMesh RebuildMeshWithConstraints(
         TerrainBuildSnapshot snapshot,
         TerrainDefinition terrain,
         RhinoMesh mesh,

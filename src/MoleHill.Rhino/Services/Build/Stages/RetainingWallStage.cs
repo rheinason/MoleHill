@@ -2,6 +2,7 @@ using System.Diagnostics;
 using MoleHill.Core.Engine;
 using MoleHill.Core.Grading;
 using MoleHill.Rhino.Model;
+using MoleHill.Rhino.Registry;
 using MoleHill.Shared;
 using Rhino.Geometry;
 using RhinoMesh = Rhino.Geometry.Mesh;
@@ -9,8 +10,25 @@ using RhinoMesh = Rhino.Geometry.Mesh;
 namespace MoleHill.Rhino.Services;
 
 // Retaining-wall stage: planning walls from curve pairs, wall-strip usability, and rail-constraint insertion.
-internal sealed partial class TerrainBuildService
+internal static partial class RetainingWallStage
 {
+    internal static void Run(ModifierBuildContext c)
+    {
+        var retainingWall = (RetainingWallModifierDefinition)c.Modifier;
+        RhinoMesh? input = c.CurrentMesh;
+        c.CurrentMesh = TerrainBuildService.ExecuteCachedMeshStage(
+            c.Build,
+            c.RuntimeCache,
+            c.StageKey,
+            "Retaining Wall",
+            TerrainBuildService.ComputeModifierStageFingerprint(c.Snapshot, c.Terrain, retainingWall, c.CurrentMeshFingerprint),
+            () => input == null ? TerrainBuildService.WarnMissingMesh(c.Build, retainingWall.Label) : ApplyRetainingWalls(c.Snapshot, c.Terrain, input, retainingWall, c.Build, c.Mode, c.RuntimeCache, c.StageKey, c.ShouldCancel),
+            result => TerrainBuildService.DescribeModifierMeshResult(retainingWall.Label, result),
+            out ulong fingerprint,
+            c.ShouldCancel);
+        c.CurrentMeshFingerprint = fingerprint;
+    }
+
     private static RhinoMesh ApplyRetainingWalls(
         TerrainBuildSnapshot snapshot,
         TerrainDefinition terrain,
@@ -22,7 +40,7 @@ internal sealed partial class TerrainBuildService
         string stageKey,
         Func<bool>? shouldCancel)
     {
-        TerrainTolerancePolicy.Profile toleranceProfile = GetToleranceProfile(snapshot, terrain);
+        TerrainTolerancePolicy.Profile toleranceProfile = TerrainBuildService.GetToleranceProfile(snapshot, terrain);
         double wallTolerance = toleranceProfile.RetainingWallTolerance(modifier.MaxWallWidth);
         double maxWallWidth = Math.Max(wallTolerance, modifier.MaxWallWidth);
         double railCleanupTolerance = Math.Max(
@@ -36,7 +54,7 @@ internal sealed partial class TerrainBuildService
             "Retaining Wall Resolve",
             resolveTimer.Elapsed,
             $"{wallCurves.Count:N0} curve inputs",
-            StageTimingDiagnosticThresholdMs);
+            TerrainBuildService.StageTimingDiagnosticThresholdMs);
         ThrowIfCancellationRequested(shouldCancel);
         if (wallCurves.Count == 0)
         {
@@ -94,9 +112,9 @@ internal sealed partial class TerrainBuildService
                 ? planTimer.Elapsed
                 : plan.Timing.Total > TimeSpan.Zero ? plan.Timing.Total : planTimer.Elapsed,
             planFromCache
-                ? AppendCacheHitDetail($"{plan.Walls.Count:N0} planned walls")
+                ? TerrainBuildService.AppendCacheHitDetail($"{plan.Walls.Count:N0} planned walls")
                 : DescribeRetainingWallPlanTiming(plan.Timing, plan.Walls.Count),
-            StageTimingDiagnosticThresholdMs);
+            TerrainBuildService.StageTimingDiagnosticThresholdMs);
         foreach (var entry in plan.Report)
         {
             build.Diagnostics.Add(entry.ToString());
@@ -175,12 +193,12 @@ internal sealed partial class TerrainBuildService
             "Retaining Wall Outputs",
             wallOutputTimer.Elapsed,
             $"{wallBrepOutputCount:N0} Brep outputs from {usableWallCount:N0} usable walls",
-            StageTimingDiagnosticThresholdMs);
+            TerrainBuildService.StageTimingDiagnosticThresholdMs);
         build.RecordTiming(
             "Retaining Wall Constraint Curves",
             constraintCurveTimer.Elapsed,
             $"{wallConstraints.Count:N0} raw rail constraints from {usableWallCount:N0} usable walls",
-            StageTimingDiagnosticThresholdMs);
+            TerrainBuildService.StageTimingDiagnosticThresholdMs);
 
         // Grade before the rails go in. Insertion forces the terrain to the rail elevations, so a batter
         // measured after it starts with zero height difference at its own foot, reports Flat, and emits
@@ -200,7 +218,7 @@ internal sealed partial class TerrainBuildService
             "Retaining Wall Constraint Prep",
             prepareTimer.Elapsed,
             $"{rawConstraintCount:N0} raw -> {wallConstraints.Count:N0} prepared constraints",
-            StageTimingDiagnosticThresholdMs);
+            TerrainBuildService.StageTimingDiagnosticThresholdMs);
 
         if (wallConstraints.Count == 0)
         {
@@ -218,10 +236,10 @@ internal sealed partial class TerrainBuildService
                 "Retaining Wall Adopt Graded Rails",
                 adoptTimer.Elapsed,
                 adopted ? $"{tracedRails.Count:N0} rails already in the graded terrain" : "not all rails traced; inserting",
-                StageTimingDiagnosticThresholdMs);
+                TerrainBuildService.StageTimingDiagnosticThresholdMs);
             if (adopted)
             {
-                List<ConstraintPolyline> mergedConstraints = CombineConstraints(build.PersistentHardConstraints, tracedRails);
+                List<ConstraintPolyline> mergedConstraints = TerrainBuildService.CombineConstraints(build.PersistentHardConstraints, tracedRails);
                 build.PersistentHardConstraints.Clear();
                 build.PersistentHardConstraints.AddRange(mergedConstraints);
                 return adoptedMesh;
@@ -229,7 +247,7 @@ internal sealed partial class TerrainBuildService
         }
 
         var topologyTimer = Stopwatch.StartNew();
-        bool inserted = TryInsertWallConstraintsWindowed(
+        bool inserted = TerrainBuildService.TryInsertWallConstraintsWindowed(
                             mesh,
                             wallConstraints,
                             wallTolerance,
@@ -252,12 +270,12 @@ internal sealed partial class TerrainBuildService
             "Retaining Wall Topology Insert",
             topologyTimer.Elapsed,
             inserted ? $"{insertedMesh.Vertices.Count:N0} verts, {insertedMesh.Faces.Count:N0} faces" : "not inserted; trying constrained rebuild",
-            StageTimingDiagnosticThresholdMs);
+            TerrainBuildService.StageTimingDiagnosticThresholdMs);
 
         if (inserted)
         {
             var persistTimer = Stopwatch.StartNew();
-            List<ConstraintPolyline> mergedConstraints = CombineConstraints(build.PersistentHardConstraints, wallConstraints);
+            List<ConstraintPolyline> mergedConstraints = TerrainBuildService.CombineConstraints(build.PersistentHardConstraints, wallConstraints);
             build.PersistentHardConstraints.Clear();
             build.PersistentHardConstraints.AddRange(mergedConstraints);
             persistTimer.Stop();
@@ -265,7 +283,7 @@ internal sealed partial class TerrainBuildService
                 "Retaining Wall Persist Constraints",
                 persistTimer.Elapsed,
                 $"{mergedConstraints.Count:N0} hard constraints",
-                StageTimingDiagnosticThresholdMs);
+                TerrainBuildService.StageTimingDiagnosticThresholdMs);
             return insertedMesh;
         }
 
@@ -277,7 +295,7 @@ internal sealed partial class TerrainBuildService
         {
             List<BreaklineHeightConflicts.Conflict> conflicts = BreaklineHeightConflicts.Find(
                 wallConstraints,
-                CombineConstraints(build.PersistentHardConstraints, build.PersistentElevationConstraints),
+                TerrainBuildService.CombineConstraints(build.PersistentHardConstraints, build.PersistentElevationConstraints),
                 wallTolerance);
             if (conflicts.Count > 0)
             {
@@ -310,19 +328,19 @@ internal sealed partial class TerrainBuildService
 
         var combineTimer = Stopwatch.StartNew();
         List<ConstraintPolyline> terrainElevationConstraints =
-            CombineConstraints(build.PersistentHardConstraints, build.PersistentElevationConstraints);
+            TerrainBuildService.CombineConstraints(build.PersistentHardConstraints, build.PersistentElevationConstraints);
         List<ConstraintPolyline> remeshConstraints =
-            CombineConstraints(terrainElevationConstraints, wallConstraints);
+            TerrainBuildService.CombineConstraints(terrainElevationConstraints, wallConstraints);
         combineTimer.Stop();
         build.RecordTiming(
             "Retaining Wall Constraint Merge",
             combineTimer.Elapsed,
             $"{build.PersistentHardConstraints.Count:N0} hard + {build.PersistentElevationConstraints.Count:N0} elevation + {wallConstraints.Count:N0} wall -> {remeshConstraints.Count:N0} remesh constraints",
-            StageTimingDiagnosticThresholdMs);
+            TerrainBuildService.StageTimingDiagnosticThresholdMs);
 
         ThrowIfCancellationRequested(shouldCancel);
         var remeshTimer = Stopwatch.StartNew();
-        var remeshed = RebuildMeshWithConstraints(
+        var remeshed = TerrainBuildService.RebuildMeshWithConstraints(
             snapshot,
             terrain,
             mesh,
@@ -350,14 +368,14 @@ internal sealed partial class TerrainBuildService
             keptInputMesh
                 ? "kept upstream mesh"
                 : ReferenceEquals(remeshed, mesh) ? "returned upstream mesh" : $"{remeshed.Vertices.Count:N0} verts, {remeshed.Faces.Count:N0} faces",
-            StageTimingDiagnosticThresholdMs);
+            TerrainBuildService.StageTimingDiagnosticThresholdMs);
 
         // Inserting breaklines ADDS vertices; it never removes the terrain. A rebuild that comes back
         // with markedly fewer is one that reseeded from the boundary and threw the interior away, and
         // shipping it silently destroys an upstream Remesh — measured on this stage at 2,828 faces down
         // to 249. Losing the wall breaklines is recoverable and visible; losing the terrain is neither.
         if (!ReferenceEquals(remeshed, mesh) && !keptInputMesh &&
-            remeshed.Vertices.Count < mesh.Vertices.Count * RetainingWallRebuildMinimumVertexRatio)
+            remeshed.Vertices.Count < mesh.Vertices.Count * TerrainBuildService.RetainingWallRebuildMinimumVertexRatio)
         {
             build.Diagnostics.Add(
                 $"Retaining Wall constrained rebuild discarded terrain detail " +
@@ -400,7 +418,7 @@ internal sealed partial class TerrainBuildService
         if (!ReferenceEquals(remeshed, mesh))
         {
             var persistTimer = Stopwatch.StartNew();
-            List<ConstraintPolyline> mergedConstraints = CombineConstraints(build.PersistentHardConstraints, wallConstraints);
+            List<ConstraintPolyline> mergedConstraints = TerrainBuildService.CombineConstraints(build.PersistentHardConstraints, wallConstraints);
             build.PersistentHardConstraints.Clear();
             build.PersistentHardConstraints.AddRange(mergedConstraints);
             persistTimer.Stop();
@@ -408,7 +426,7 @@ internal sealed partial class TerrainBuildService
                 "Retaining Wall Persist Constraints",
                 persistTimer.Elapsed,
                 $"{mergedConstraints.Count:N0} hard constraints",
-                StageTimingDiagnosticThresholdMs);
+                TerrainBuildService.StageTimingDiagnosticThresholdMs);
             return remeshed;
         }
 
@@ -427,7 +445,7 @@ internal sealed partial class TerrainBuildService
     /// <summary>
     /// Everything <see cref="RetainingWallPlannerCore.Plan"/> reads, and nothing else. Deliberately
     /// excludes the upstream mesh: that is the whole reason this key exists separately from
-    /// <c>ComputeModifierStageFingerprint</c>. Adding an input to the planner means adding it here.
+    /// <c>TerrainBuildService.ComputeModifierStageFingerprint</c>. Adding an input to the planner means adding it here.
     /// </summary>
     private static ulong ComputeRetainingWallPlanFingerprint(
         TerrainBuildSnapshot snapshot,
@@ -438,7 +456,7 @@ internal sealed partial class TerrainBuildService
     {
         var builder = new FingerprintBuilder();
         builder.Add(nameof(ComputeRetainingWallPlanFingerprint));
-        builder.Add(ComputeSourceSetFingerprint(snapshot, modifier.WallCurves));
+        builder.Add(TerrainBuildService.ComputeSourceSetFingerprint(snapshot, modifier.WallCurves));
         builder.Add(maxWallWidth);
         builder.Add(wallTolerance);
         builder.Add(railCleanupTolerance);
@@ -688,7 +706,7 @@ internal sealed partial class TerrainBuildService
         for (int i = 0; i < railPoints.Length; i++)
         {
             Point3d point = railPoints[i];
-            if (points.Count > 0 && DistanceSquared2D(points[^1], point) <= tolSq)
+            if (points.Count > 0 && TerrainBuildService.DistanceSquared2D(points[^1], point) <= tolSq)
             {
                 points[^1] = point;
                 continue;
@@ -697,7 +715,7 @@ internal sealed partial class TerrainBuildService
             points.Add(point);
         }
 
-        if (isClosed && points.Count > 1 && DistanceSquared2D(points[0], points[^1]) <= tolSq)
+        if (isClosed && points.Count > 1 && TerrainBuildService.DistanceSquared2D(points[0], points[^1]) <= tolSq)
             points.RemoveAt(points.Count - 1);
 
         if (points.Count < minimum)
@@ -759,7 +777,7 @@ internal sealed partial class TerrainBuildService
                 prepared.Add(cleaned);
         }
 
-        return CombineConstraints(Array.Empty<ConstraintPolyline>(), prepared);
+        return TerrainBuildService.CombineConstraints(Array.Empty<ConstraintPolyline>(), prepared);
     }
 
     private static ConstraintPolyline CleanWallConstraintPolyline(
@@ -844,8 +862,8 @@ internal sealed partial class TerrainBuildService
             tracedRails.Add(WithElevationsAlong(traced[c], wallConstraints[c]));
 
         var before = MeshTopologyValidator.AnalyzeBoundaryGraph(faces, faceCount);
-        ApplyPreservedConstraintElevations(vertices, tracedRails, tolerance);
-        adoptedMesh = BuildMeshFromArrays(vertices, faces);
+        TerrainBuildService.ApplyPreservedConstraintElevations(vertices, tracedRails, tolerance);
+        adoptedMesh = TerrainBuildService.BuildMeshFromArrays(vertices, faces);
         build.Diagnostics.Add(
             $"Retaining Wall rails were conformed by the grade itself ({tracedRails.Count} traced within {traceRadius * 1000.0:0.#} mm); " +
             $"kept without re-insertion ({before.BoundaryComponentCount} boundary loop(s)).");
@@ -902,7 +920,7 @@ internal sealed partial class TerrainBuildService
         }
 
         IReadOnlyList<ConstraintPolyline>? qualityConstraints = useQualityPatch
-            ? CombineConstraints(CombineConstraints(build.PersistentHardConstraints, build.PersistentElevationConstraints), wallConstraints)
+            ? TerrainBuildService.CombineConstraints(TerrainBuildService.CombineConstraints(build.PersistentHardConstraints, build.PersistentElevationConstraints), wallConstraints)
             : null;
         var messages = new List<string>();
         bool inserted = InsertWallConstraintsCore(
@@ -913,7 +931,7 @@ internal sealed partial class TerrainBuildService
         if (!inserted)
             return false;
 
-        insertedMesh = BuildMeshFromArrays(outputVertices, outputFaces);
+        insertedMesh = TerrainBuildService.BuildMeshFromArrays(outputVertices, outputFaces);
         return true;
     }
 
@@ -969,12 +987,12 @@ internal sealed partial class TerrainBuildService
         {
             rejection = topologyError ?? "Retaining Wall topology insertion could not insert wall breaklines into the existing mesh.";
         }
-        else if (!TopologyChanged(vertices, vertexCount, faces, faceCount, outputVertices, outputVertexCount, outputFaces, outputFaceCount, tolerance))
+        else if (!TerrainBuildService.TopologyChanged(vertices, vertexCount, faces, faceCount, outputVertices, outputVertexCount, outputFaces, outputFaceCount, tolerance))
         {
             messages.Add("Retaining Wall topology insertion found no terrain faces crossed by wall breaklines.");
             return false;
         }
-        else if (!IsTopologyInsertionBoundarySafe(
+        else if (!TerrainBuildService.IsTopologyInsertionBoundarySafe(
                      inputBoundary, MeshTopologyValidator.AnalyzeBoundaryGraph(outputFaces, outputFaceCount), out string boundaryMessage))
         {
             rejection = $"Retaining Wall topology insertion rejected: {boundaryMessage}";
@@ -992,19 +1010,19 @@ internal sealed partial class TerrainBuildService
             if (!MeshConstraintTopologyInserter.TryInsertByLocalTriangulation(
                     vertices, vertexCount, faces, faceCount, wallConstraints, tolerance,
                     out outputVertices, out outputVertexCount, out outputFaces, out outputFaceCount, out string? localError) ||
-                !IsTopologyInsertionBoundarySafe(
+                !TerrainBuildService.IsTopologyInsertionBoundarySafe(
                     inputBoundary, MeshTopologyValidator.AnalyzeBoundaryGraph(outputFaces, outputFaceCount), out _))
             {
                 messages.Add($"Retaining Wall local re-triangulation declined: {localError ?? "it would change the terrain boundary"}.");
                 return false;
             }
 
-            ApplyPreservedConstraintElevations(outputVertices, wallConstraints, tolerance);
+            TerrainBuildService.ApplyPreservedConstraintElevations(outputVertices, wallConstraints, tolerance);
             messages.Add("Retaining Wall inserted its breaklines by re-triangulating their neighbourhood as one piece.");
             return true;
         }
 
-        ApplyPreservedConstraintElevations(outputVertices, wallConstraints, tolerance);
+        TerrainBuildService.ApplyPreservedConstraintElevations(outputVertices, wallConstraints, tolerance);
         if (qualityInserted)
         {
             messages.Add(qualityMessage!);
@@ -1021,4 +1039,11 @@ internal sealed partial class TerrainBuildService
         return true;
     }
 
+    // Same body as TerrainBuildService.ThrowIfCancellationRequested (Analysis.cs, which was off limits for this
+    // move); fold the two together once that file is free.
+    private static void ThrowIfCancellationRequested(Func<bool>? shouldCancel)
+    {
+        if (shouldCancel?.Invoke() == true)
+            throw new OperationCanceledException("Terrain rebuild cancelled.");
+    }
 }

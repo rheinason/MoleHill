@@ -239,7 +239,7 @@ internal sealed partial class TerrainBuildService
         return builder.ToUInt64();
     }
 
-    private static ulong ComputeSourceSetFingerprint(TerrainBuildSnapshot snapshot, SourceReferenceSet sourceSet)
+    internal static ulong ComputeSourceSetFingerprint(TerrainBuildSnapshot snapshot, SourceReferenceSet sourceSet)
     {
         return TerrainBuildSnapshotResolver.GetSourceSetFingerprint(snapshot, sourceSet);
     }
