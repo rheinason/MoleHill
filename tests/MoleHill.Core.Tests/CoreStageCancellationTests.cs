@@ -125,10 +125,7 @@ public class CoreStageCancellationTests
         var areas = new[] { Boundary(5.0, 5.0, 25.0, 25.0) };
 
         Assert.Throws<OperationCanceledException>(() => MeshAreaSplitter.SplitPreservingTopology(
-            vertices,
-            vertices.Length / 3,
-            faces,
-            faces.Length / 3,
+            IndexedTriMesh.FromArrays(vertices, faces),
             areas,
             1e-6,
             out _,
@@ -142,9 +139,9 @@ public class CoreStageCancellationTests
         var areas = new[] { Boundary(5.0, 5.0, 25.0, 25.0) };
 
         MeshAreaSplitter.SplitResult? withProbe = MeshAreaSplitter.SplitPreservingTopology(
-            vertices, vertices.Length / 3, faces, faces.Length / 3, areas, 1e-6, out _, () => false);
+            IndexedTriMesh.FromArrays(vertices, faces), areas, 1e-6, out _, () => false);
         MeshAreaSplitter.SplitResult? withoutProbe = MeshAreaSplitter.SplitPreservingTopology(
-            vertices, vertices.Length / 3, faces, faces.Length / 3, areas, 1e-6, out _);
+            IndexedTriMesh.FromArrays(vertices, faces), areas, 1e-6, out _);
 
         Assert.NotNull(withProbe);
         Assert.NotNull(withoutProbe);

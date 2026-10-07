@@ -121,8 +121,7 @@ public sealed class MeshAreasComponent : RegistryTerrainComponent
         }
 
         var result = MeshAreaSplitter.Split(
-            vertices, vertexCount,
-            faces, faceCount,
+            new IndexedTriMesh(vertices, vertexCount, faces, faceCount),
             areas.ToArray(),
             Array.Empty<ConstraintPolyline>(),
             tolerance,

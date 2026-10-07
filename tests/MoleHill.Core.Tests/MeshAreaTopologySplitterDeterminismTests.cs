@@ -1,5 +1,6 @@
 using MoleHill.Core.Grading;
 using Xunit;
+using MoleHill.Core.Engine;
 
 namespace MoleHill.Core.Tests;
 
@@ -53,7 +54,7 @@ public class MeshAreaTopologySplitterDeterminismTests
         };
 
         MeshAreaSplitter.SplitResult? Run() => MeshAreaSplitter.SplitPreservingTopology(
-            verts, verts.Length / 3, faces, faces.Length / 3, areas, 0.1, out _);
+            IndexedTriMesh.FromArrays(verts, faces), areas, 0.1, out _);
 
         var baseline = Run();
         Assert.NotNull(baseline);
@@ -78,7 +79,7 @@ public class MeshAreaTopologySplitterDeterminismTests
         var areas = new[] { DenseStar(500, 500, 380, 160, 71) };
 
         var result = MeshAreaSplitter.SplitPreservingTopology(
-            verts, verts.Length / 3, faces, faces.Length / 3, areas, 0.1, out _);
+            IndexedTriMesh.FromArrays(verts, faces), areas, 0.1, out _);
         Assert.NotNull(result);
 
         // Single-use edges must lie on the original perimeter; interior single-use edges
@@ -106,28 +107,18 @@ public class MeshAreaTopologySplitterDeterminismTests
     }
 
     [Fact]
-    public void SplitPreservingTopology_CountsExceedArrays_ReturnsDiagnosisInsteadOfThrowing()
+    public void SplitPreservingTopology_CountsExceedArrays_IsRejectedBeforeSplitting()
     {
         BuildGrid(20, 1000.0, out var verts, out var faces);
-        var areas = new[] { DenseStar(500, 500, 380, 160, 41) };
 
         int realFaceCount = faces.Length / 3;
         int realVertexCount = verts.Length / 3;
 
         // Exactly the shape of the Zones regression: arrays from a normalized copy of the mesh, counts
-        // taken from the larger un-normalized original.
-        var result = MeshAreaSplitter.SplitPreservingTopology(
-            verts, realVertexCount, faces, realFaceCount + 500, areas, 0.1, out string? error);
-
-        Assert.Null(result);
-        Assert.NotNull(error);
-        Assert.Contains("inconsistent", error!, StringComparison.OrdinalIgnoreCase);
-
-        var vertexResult = MeshAreaSplitter.SplitPreservingTopology(
-            verts, realVertexCount + 500, faces, realFaceCount, areas, 0.1, out string? vertexError);
-
-        Assert.Null(vertexResult);
-        Assert.NotNull(vertexError);
-        Assert.Contains("inconsistent", vertexError!, StringComparison.OrdinalIgnoreCase);
+        // taken from the larger un-normalized original. The mesh value refuses it before any split runs.
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => new IndexedTriMesh(verts, realVertexCount, faces, realFaceCount + 500));
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => new IndexedTriMesh(verts, realVertexCount + 500, faces, realFaceCount));
     }
 }

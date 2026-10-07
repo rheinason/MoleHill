@@ -11,10 +11,7 @@ public class MeshAreaSplitterTests
     public void Split_SingleInnerArea_LeavesOutsideFacesUnassigned()
     {
         var result = MeshAreaSplitter.Split(
-            CreatePlanarMeshVertices(),
-            4,
-            CreateMeshFaces(),
-            2,
+            new IndexedTriMesh(CreatePlanarMeshVertices(), 4, CreateMeshFaces(), 2),
             new[]
             {
                 new MeshAreaSplitter.AreaBoundary(
@@ -43,10 +40,7 @@ public class MeshAreaSplitterTests
             4);
 
         var result = MeshAreaSplitter.Split(
-            CreatePlanarMeshVertices(),
-            4,
-            CreateMeshFaces(),
-            2,
+            new IndexedTriMesh(CreatePlanarMeshVertices(), 4, CreateMeshFaces(), 2),
             new[] { outer, inner },
             Array.Empty<ConstraintPolyline>(),
             0.001,
@@ -89,10 +83,7 @@ public class MeshAreaSplitterTests
         };
 
         var result = MeshAreaSplitter.Split(
-            vertices,
-            4,
-            CreateMeshFaces(),
-            2,
+            new IndexedTriMesh(vertices, 4, CreateMeshFaces(), 2),
             new[]
             {
                 new MeshAreaSplitter.AreaBoundary(
@@ -127,10 +118,7 @@ public class MeshAreaSplitterTests
             PreserveInputElevation: true);
 
         var result = MeshAreaSplitter.Split(
-            CreatePlanarMeshVertices(),
-            4,
-            CreateMeshFaces(),
-            2,
+            new IndexedTriMesh(CreatePlanarMeshVertices(), 4, CreateMeshFaces(), 2),
             new[]
             {
                 new MeshAreaSplitter.AreaBoundary(
@@ -173,18 +161,12 @@ public class MeshAreaSplitterTests
             4);
 
         var strict = MeshAreaSplitter.Classify(
-            vertices,
-            4,
-            faces,
-            2,
+            new IndexedTriMesh(vertices, 4, faces, 2),
             new[] { boundary },
             0.0,
             out _);
         var tolerant = MeshAreaSplitter.Classify(
-            vertices,
-            4,
-            faces,
-            2,
+            new IndexedTriMesh(vertices, 4, faces, 2),
             new[] { boundary },
             0.01,
             out _);

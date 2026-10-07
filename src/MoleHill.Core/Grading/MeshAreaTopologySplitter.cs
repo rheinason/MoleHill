@@ -104,20 +104,14 @@ internal static class MeshAreaTopologySplitter
     }
 
     public static MeshAreaSplitter.SplitResult? Split(
-        double[] vertices,
-        int vertexCount,
-        int[] faces,
-        int faceCount,
+        IndexedTriMesh mesh,
         MeshAreaSplitter.AreaBoundary[] areas,
         double boundaryTolerance,
         out string? errorMessage,
         Func<bool>? shouldCancel = null)
     {
         return Split(
-            vertices,
-            vertexCount,
-            faces,
-            faceCount,
+            mesh,
             areas,
             boundaryTolerance,
             out errorMessage,
@@ -126,16 +120,15 @@ internal static class MeshAreaTopologySplitter
     }
 
     internal static MeshAreaSplitter.SplitResult? Split(
-        double[] vertices,
-        int vertexCount,
-        int[] faces,
-        int faceCount,
+        IndexedTriMesh mesh,
         MeshAreaSplitter.AreaBoundary[] areas,
         double boundaryTolerance,
         out string? errorMessage,
         PerformanceTimings? performanceTimings,
         Func<bool>? shouldCancel = null)
     {
+        (double[] vertices, int vertexCount, int[] faces, int faceCount) = mesh;
+
         errorMessage = null;
 
         // A superseded build must stop here rather than finish mapping and re-triangulating millions of
@@ -153,20 +146,6 @@ internal static class MeshAreaTopologySplitter
         if (vertexCount == 0 || faceCount == 0)
         {
             errorMessage = "Input mesh has no usable triangles.";
-            return null;
-        }
-
-        // The counts must actually describe the arrays. Rhino mesh extraction normalizes a COPY of the
-        // mesh (quads split, identical vertices combined, degenerate faces culled), so a caller that
-        // pairs the extracted arrays with the original mesh's Vertices.Count/Faces.Count overruns them.
-        // Report that as a diagnosis rather than letting it surface as an IndexOutOfRangeException on a
-        // worker thread, where the stack says nothing about which caller mismatched.
-        if ((long)faceCount * 3 > faces.Length || (long)vertexCount * 3 > vertices.Length)
-        {
-            errorMessage =
-                $"Mesh data is inconsistent: caller reported {faceCount:N0} faces and {vertexCount:N0} " +
-                $"vertices, but the arrays hold {faces.Length / 3:N0} faces and {vertices.Length / 3:N0} " +
-                "vertices. The counts must come from the same extraction as the arrays.";
             return null;
         }
 
@@ -207,7 +186,7 @@ internal static class MeshAreaTopologySplitter
             // Exact topology split should classify strictly by area ownership rather than
             // inflating the inside region by boundary tolerance, which can steal outside
             // seam-adjacent faces and leave the extracted outside mesh open.
-            return MeshAreaSplitter.Classify(vertices, vertexCount, faces, faceCount, areas, 0.0, out errorMessage);
+            return MeshAreaSplitter.Classify(new IndexedTriMesh(vertices, vertexCount, faces, faceCount), areas, 0.0, out errorMessage);
         }
 
         cancellation.ThrowIfCancelled();
@@ -232,7 +211,7 @@ internal static class MeshAreaTopologySplitter
         }
 
         if (!hasTopologyEdits)
-            return MeshAreaSplitter.Classify(vertices, vertexCount, faces, faceCount, areas, 0.0, out errorMessage);
+            return MeshAreaSplitter.Classify(new IndexedTriMesh(vertices, vertexCount, faces, faceCount), areas, 0.0, out errorMessage);
 
         // Conforming guarantee: every cut point that lands on a terrain edge is registered against
         // that edge (keyed by its two global vertex ids, shared by the two adjacent faces). Both
@@ -344,10 +323,7 @@ internal static class MeshAreaTopologySplitter
 
         cancellation.ThrowIfCancelled();
         MeshAreaSplitter.SplitResult? result = MeshAreaSplitter.Classify(
-            globalVertices.ToArray(),
-            globalVertices.Count / 3,
-            outputFaces.ToArray(),
-            outputFaces.Count / 3,
+            new IndexedTriMesh(globalVertices.ToArray(), globalVertices.Count / 3, outputFaces.ToArray(), outputFaces.Count / 3),
             areas,
             0.0,
             out string? classifyMessage);

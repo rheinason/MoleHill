@@ -22,7 +22,7 @@ public sealed class ZoneSplitSliverCaseTests
         var areas = zones.Select(xy => new MeshAreaSplitter.AreaBoundary(xy, xy.Length / 2)).ToArray();
 
         MeshAreaSplitter.SplitResult? result = MeshAreaSplitter.SplitPreservingTopology(
-            vertices, vertices.Length / 3, faces, faces.Length / 3, areas, 0.0125, out string? error);
+            IndexedTriMesh.FromArrays(vertices, faces), areas, 0.0125, out string? error);
 
         Assert.NotNull(result);
         var uses = IndexedMeshTools.CreateEdgeKeyMap<int>(result!.FaceCount * 3);

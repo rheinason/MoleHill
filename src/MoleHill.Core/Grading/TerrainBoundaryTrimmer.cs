@@ -44,7 +44,7 @@ public static class TerrainBoundaryTrimmer
         }
 
         MeshAreaSplitter.SplitResult? split = MeshAreaSplitter.SplitPreservingTopology(
-            vertices, vertexCount, faces, faceCount, all.ToArray(), tolerance, out errorMessage, shouldCancel);
+            new IndexedTriMesh(vertices, vertexCount, faces, faceCount), all.ToArray(), tolerance, out errorMessage, shouldCancel);
         if (split == null)
             return null;
 
@@ -105,7 +105,7 @@ public static class TerrainBoundaryTrimmer
         // centroid came within it as inside - on RiR Master 002, ten whole triangles beyond a Hide curve,
         // which broke the trimmed border into open chains, so the trim was rejected and Hide did nothing.
         MeshAreaSplitter.SplitResult classified = MeshAreaSplitter.Classify(
-            split.Vertices, split.VertexCount, split.Faces, split.FaceCount,
+            new IndexedTriMesh(split.Vertices, split.VertexCount, split.Faces, split.FaceCount),
             areas.ToArray(), 0.0, out _)!;
         var result = new bool[split.FaceCount];
         for (int i = 0; i < result.Length; i++)

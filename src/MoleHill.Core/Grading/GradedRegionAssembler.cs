@@ -125,18 +125,12 @@ internal static class GradedRegionAssembler
         MeshAreaSplitter.AreaBoundary[] areaArray = areas.ToArray();
         MeshAreaSplitter.SplitResult? handRolled = performanceTimings == null
             ? MeshAreaSplitter.SplitPreservingTopology(
-                terrainVertices,
-                terrainVertexCount,
-                terrainFaces,
-                terrainFaceCount,
+                new IndexedTriMesh(terrainVertices, terrainVertexCount, terrainFaces, terrainFaceCount),
                 areaArray,
                 tolerance,
                 out _)
             : MeshAreaSplitter.SplitPreservingTopology(
-                terrainVertices,
-                terrainVertexCount,
-                terrainFaces,
-                terrainFaceCount,
+                new IndexedTriMesh(terrainVertices, terrainVertexCount, terrainFaces, terrainFaceCount),
                 areaArray,
                 tolerance,
                 out _,
@@ -543,7 +537,7 @@ internal static class GradedRegionAssembler
             return new SplitOutsideResult { Success = false, Warning = "No usable daylight loops." };
 
         MeshAreaSplitter.SplitResult? split = MeshAreaSplitter.SplitPreservingTopology(
-            terrainVertices, terrainVertexCount, terrainFaces, terrainFaceCount, areas.ToArray(), tolerance, out string? warning);
+            new IndexedTriMesh(terrainVertices, terrainVertexCount, terrainFaces, terrainFaceCount), areas.ToArray(), tolerance, out string? warning);
 
         string handRolledFailure = warning ?? "Terrain split failed.";
         if (split is not null)
