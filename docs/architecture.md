@@ -836,6 +836,13 @@ not care — the build stage runner, fingerprinting, the legacy layer-routing wa
 Anything that needs to know what the content *means* still matches the concrete family type, and
 `RegistryGuardTests.AnalysisAndAnnotationFamilies_AreDisjoint` pins that the two stay apart.
 
+What a type *does* is on its descriptor, not in a switch: `Build(AnalysisBuildContext, …)` computes it in
+`TerrainBuildService.BuildAnalyses` (which owns only the scaffolding: enabled check, fingerprint, stage cache,
+timing) and `DescribeResult(…)` returns its card readout as `ResultRow` data. `ContentTypeSwitchGuardTests`
+keeps concrete-type switches out of everything but `Registry/` and `Model/`, with a shrinking exemption list.
+`TerrainAnalysisAnnotationBuilder` is a partial class in three files: labels and callouts, the section family,
+and the shared emit helpers.
+
 **Discriminators were not renamed.** `contour`, `terrain-section`, `longitudinal-section` and the rest
 mean what they always did, so the move is invisible to saved documents. `TerrainSerializer.SplitLegacyAnnotations`
 rewrites a pre-31 document's single `analyses` array into the two arrays *before* the envelope binds —

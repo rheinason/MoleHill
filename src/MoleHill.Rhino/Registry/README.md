@@ -14,10 +14,18 @@ There are four parallel families, each with a `*TypeDescriptor` base + reflectio
 - **Analyses** — `AnalysisTypeDescriptor`/`AnalysisTypeRegistry` (factory + menu grouping + card chrome +
   `Parameters` schema cards, same shape as modifiers). Per-type collapsed summary, computed
   summaries/legends, and the slope-unit-with-range-conversion editor aren't schema-expressible and stay
-  bespoke in `MoleHillPanel.Analysis.cs` (`AppendBespokeAnalysisRowsBefore`/`After`).
+  bespoke in `MoleHillPanel.Analysis.cs` (`AppendBespokeAnalysisRowsBefore`). Two further hooks live on
+  the descriptor: `Build(AnalysisBuildContext, definition)` runs the type in the analysis pass (returning
+  null means "nothing built here"), and `DescribeResult(definition, summary, ResultFormatter)` returns the
+  card's read-only "what the last build measured" rows as `ResultRow` data, which the panel draws
+  generically (`AddResultRows`). Rows are data so a test can assert the text.
 - **Annotations** — `AnnotationTypeDescriptor`/`AnnotationTypeRegistry`, the same shape against
   `AnnotationDefinition`. Its bespoke rows (section sources, insertion-origin picker, comparison terrains)
-  live in `MoleHillPanel.Annotations.cs` (`AppendBespokeAnnotationRowsBefore`/`After`). There is no
+  live in `MoleHillPanel.Annotations.cs` (`AppendBespokeAnnotationRowsBefore`/`After`; the After hook keeps
+  only the insertion-origin pickers, which need a live GetPoint). `Build` and `DescribeResult` mirror the
+  analysis side; the Legend (drawn by the preview) and the Report Table (needs the zone schedule) return
+  null from `Build` on purpose. `ContentTypeSwitchGuardTests` fails on a concrete-type switch outside
+  `Registry/` and `Model/` unless the file is in its exemption list. There is no
   `IsAnnotation` flag any more: which family a type belongs to is settled by which descriptor base it
   derives from, so the two cannot disagree. Analyses evaluate the terrain, annotations describe it — see
   `docs/architecture.md` → "Analysis vs annotation".
