@@ -1,5 +1,6 @@
 ﻿using System.Diagnostics;
 using MoleHill.Core.Analysis;
+using MoleHill.Core.Engine;
 using MoleHill.Rhino.Model;
 using MoleHill.Rhino.Registry;
 using MoleHill.Shared;
@@ -52,20 +53,11 @@ internal sealed partial class TerrainBuildService
 
             // The counts must come from the same extraction as the arrays: TryExtractMeshData normalizes
             // a copy, so currentMesh.Vertices.Count/Faces.Count can describe a different mesh.
-            if (!RhinoGeometryConversions.TryExtractMeshData(
-                    currentMesh,
-                    out double[] vertices,
-                    out int vertexCount,
-                    out int[] faces,
-                    out int faceCount,
-                    out _))
+            if (!RhinoGeometryConversions.TryExtractMesh(currentMesh, out IndexedTriMesh extracted, out _))
                 return false;
 
-            context.Vertices = vertices;
-            context.Faces = faces;
-            context.VertexCount = vertexCount;
-            context.FaceCount = faceCount;
-            GetElevationRange(vertices, vertexCount, out double elevMinZ, out double elevMaxZ);
+            context.Mesh = extracted;
+            GetElevationRange(extracted.Vertices, extracted.VertexCount, out double elevMinZ, out double elevMaxZ);
             context.ElevationMinZ = elevMinZ;
             context.ElevationMaxZ = elevMaxZ;
             context.SurfaceArea = AreaMassProperties.Compute(currentMesh)?.Area ?? 0.0;
@@ -174,10 +166,7 @@ internal sealed partial class TerrainBuildService
     }
 
     internal static TerrainAnalysisSummary BuildSlopeSummary(
-        double[] currentVertices,
-        int currentVertexCount,
-        int[] currentFaces,
-        int currentFaceCount,
+        IndexedTriMesh currentMesh,
         SlopeAnalysisDefinition analysis,
         double surfaceArea)
     {
@@ -186,10 +175,7 @@ internal sealed partial class TerrainBuildService
         double lowPercent = ConvertSlopeUnitToPercent(analysis.RangeLow, analysis.Unit);
         double highPercent = ConvertSlopeUnitToPercent(analysis.RangeHigh, analysis.Unit);
         var slope = SlopeAnalyzer.Summarize(
-            currentVertices,
-            currentVertexCount,
-            currentFaces,
-            currentFaceCount,
+            currentMesh,
             SlopeAnalyzer.SlopeUnit.Percent,
             analysis.AutoColorRange,
             Math.Max(0.0, lowPercent),
@@ -214,16 +200,12 @@ internal sealed partial class TerrainBuildService
     /// </summary>
     internal static TerrainAnalysisSummary BuildAspectSummary(
         TerrainBuildSnapshot snapshot,
-        double[] currentVertices,
-        int[] currentFaces,
+        IndexedTriMesh currentMesh,
         AspectAnalysisDefinition analysis,
         double surfaceArea)
     {
         var aspect = AspectAnalyzer.Summarize(
-            currentVertices,
-            currentVertices.Length / 3,
-            currentFaces,
-            currentFaces.Length / 3,
+            currentMesh,
             snapshot.NorthAzimuthDegrees,
             SlopeAnalyzer.ConvertUnitToRatio(analysis.FlatSlopeThresholdDegrees, SlopeAnalyzer.SlopeUnit.Degrees));
 
@@ -451,7 +433,7 @@ internal sealed partial class TerrainBuildService
             return 0;
 
         var contourLevels = ContourGenerator.Generate(
-            vertices, vertexCount, faces, faceCount, field, levels, tolerance);
+            new IndexedTriMesh(vertices, vertexCount, faces, faceCount), levels, tolerance, field);
 
         string layerPath = roles.Path(role);
         int curveCount = 0;
@@ -586,15 +568,15 @@ internal sealed partial class TerrainBuildService
         double firstLevel = 0.0;
         double lastLevel = 0.0;
 
-        if (RhinoGeometryConversions.TryExtractMeshData(mesh, out var vertices, out int vertexCount, out var faces, out int faceCount, out _))
+        if (RhinoGeometryConversions.TryExtractMesh(mesh, out IndexedTriMesh extracted, out _))
         {
+            (double[] vertices, int vertexCount, int[] faces, int faceCount) = extracted;
             double effectiveTolerance = Math.Max(Math.Abs(tolerance), double.Epsilon);
             var levels = BuildContourLevels(elevMinZ, elevMaxZ, analysis.StartZ, Math.Max(analysis.Interval, effectiveTolerance));
 
             // Single pass over the faces (marching triangles) instead of one mesh-plane intersection
             // per level. Each triangle only contributes to the levels inside its own Z-span.
-            var contourLevels = ContourGenerator.Generate(
-                vertices, vertexCount, faces, faceCount, levels, effectiveTolerance);
+            var contourLevels = ContourGenerator.Generate(extracted, levels, effectiveTolerance);
 
             int everyNth = Math.Max(1, analysis.LabelEveryNth);
             bool wantLabels = analysis.ShowLabels && analysis.IsEnabled;

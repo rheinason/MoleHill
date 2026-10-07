@@ -1,3 +1,4 @@
+using MoleHill.Core.Engine;
 using MoleHill.Core.Analysis;
 using Xunit;
 using Verdict = MoleHill.Core.Analysis.GradientComplianceAnalyzer.FaceVerdict;
@@ -53,13 +54,7 @@ public class GradientComplianceAnalyzerTests
         IReadOnlyList<double[]> areas,
         double limit = OneIn48,
         double measurementLength = 0.0) =>
-        GradientComplianceAnalyzer.EvaluateLevelAreas(
-            mesh.Vertices,
-            mesh.VertexCount,
-            mesh.Faces,
-            mesh.FaceCount,
-            areas,
-            new GradientComplianceAnalyzer.Options
+        GradientComplianceAnalyzer.EvaluateLevelAreas(new IndexedTriMesh(mesh.Vertices, mesh.VertexCount, mesh.Faces, mesh.FaceCount), areas, new GradientComplianceAnalyzer.Options
             {
                 LevelAreaMaxSlopeRatio = limit,
                 MeasurementLength = measurementLength,
@@ -192,13 +187,7 @@ public class GradientComplianceAnalyzerTests
         double width = 2.0,
         double measurementLength = 0.0,
         double cross = OneIn48) =>
-        GradientComplianceAnalyzer.EvaluateRoutes(
-            mesh.Vertices,
-            mesh.VertexCount,
-            mesh.Faces,
-            mesh.FaceCount,
-            new[] { route },
-            new GradientComplianceAnalyzer.RouteOptions
+        GradientComplianceAnalyzer.EvaluateRoutes(new IndexedTriMesh(mesh.Vertices, mesh.VertexCount, mesh.Faces, mesh.FaceCount), new[] { route }, new GradientComplianceAnalyzer.RouteOptions
             {
                 WalkMaxRunningRatio = 1.0 / 20.0,
                 RampMaxRunningRatio = 1.0 / 12.0,

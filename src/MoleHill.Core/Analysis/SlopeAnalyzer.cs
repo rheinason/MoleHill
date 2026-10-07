@@ -1,3 +1,5 @@
+using MoleHill.Core.Engine;
+
 namespace MoleHill.Core.Analysis;
 
 /// <summary>
@@ -132,15 +134,13 @@ public static class SlopeAnalyzer
     /// <param name="autoRange">Fit the display range to the slope distribution rather than to
     /// <paramref name="requestedLow"/>/<paramref name="requestedHigh"/>. See <see cref="AnalysisRange"/>.</param>
     public static SlopeSummary Summarize(
-        double[] vertices,
-        int vertexCount,
-        int[] faces,
-        int faceCount,
+        IndexedTriMesh terrain,
         SlopeUnit unit,
         bool autoRange = true,
         double requestedLow = 0,
         double requestedHigh = 0)
     {
+        (double[] vertices, _, int[] faces, int faceCount) = terrain;
         // Fitting the range needs the distribution, so the slopes and plan areas are collected for the
         // auto path only. With explicit bounds this stays the allocation-free summary it was.
         double[]? slopes = autoRange ? new double[faceCount] : null;
@@ -157,10 +157,7 @@ public static class SlopeAnalyzer
     /// <summary>
     /// Compute per-face slopes for a triangle mesh.
     /// </summary>
-    /// <param name="vertices">Flat XYZ: [x0,y0,z0, x1,y1,z1, ...]</param>
-    /// <param name="vertexCount">Number of vertices.</param>
-    /// <param name="faces">Triangle indices: [i0,i1,i2, ...]</param>
-    /// <param name="faceCount">Number of triangles.</param>
+    /// <param name="terrain">The triangle mesh to measure.</param>
     /// <param name="unit">Slope unit (ratio, percent, degrees).</param>
     /// <param name="autoRange">Fit the display range to the slope distribution rather than to the
     /// requested bounds.</param>
@@ -170,10 +167,7 @@ public static class SlopeAnalyzer
     /// <param name="mode">Smooth gradient or stepped bands.</param>
     /// <param name="interval">Band width in the chosen unit for stepped mode; 0 picks a readable step.</param>
     public static SlopeResult Analyze(
-        double[] vertices,
-        int vertexCount,
-        int[] faces,
-        int faceCount,
+        IndexedTriMesh terrain,
         SlopeUnit unit,
         bool autoRange = true,
         double requestedLow = 0,
@@ -182,6 +176,7 @@ public static class SlopeAnalyzer
         AnalysisColorMapper.Mode mode = AnalysisColorMapper.Mode.Gradient,
         double interval = 0.0)
     {
+        (double[] vertices, _, int[] faces, int faceCount) = terrain;
         var slopes = new double[faceCount];
         var planAreas = new double[faceCount];
         SlopeAccumulator accumulator = faceCount >= ParallelSlopeThreshold

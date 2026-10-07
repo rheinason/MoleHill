@@ -1,3 +1,4 @@
+using MoleHill.Core.Engine;
 using MoleHill.Core.Analysis;
 using Xunit;
 
@@ -19,8 +20,7 @@ public class ContourStitchingTests
         // A cone: any level between its rim and apex crosses as one closed ring.
         (double[] vertices, int[] faces) = Cone(24, radius: 10.0, height: 10.0);
 
-        List<ContourLevel> levels = ContourGenerator.Generate(
-            vertices, vertices.Length / 3, faces, faces.Length / 3, new[] { 5.0 }, Weld);
+        List<ContourLevel> levels = ContourGenerator.Generate(new IndexedTriMesh(vertices, vertices.Length / 3, faces, faces.Length / 3), new[] { 5.0 }, Weld);
 
         ContourPolyline ring = Assert.Single(Assert.Single(levels).Polylines);
         Assert.True(ring.IsClosed);
@@ -40,8 +40,7 @@ public class ContourStitchingTests
         // A plane tilted in X only: each level is one straight line right across the sheet.
         (double[] vertices, int[] faces) = Sheet(20, (x, _) => x);
 
-        List<ContourLevel> levels = ContourGenerator.Generate(
-            vertices, vertices.Length / 3, faces, faces.Length / 3, new[] { 9.5 }, Weld);
+        List<ContourLevel> levels = ContourGenerator.Generate(new IndexedTriMesh(vertices, vertices.Length / 3, faces, faces.Length / 3), new[] { 9.5 }, Weld);
 
         ContourPolyline line = Assert.Single(Assert.Single(levels).Polylines);
         Assert.False(line.IsClosed);
@@ -63,8 +62,7 @@ public class ContourStitchingTests
         (double[] vertices, int[] faces) = Sheet(40, (x, y) => (Math.Sin(x * 0.3) * 6.0) + (Math.Cos(y * 0.22) * 5.0));
         var requested = new[] { -6.0, -2.0, 0.0, 3.0, 7.0 };
 
-        List<ContourLevel> levels = ContourGenerator.Generate(
-            vertices, vertices.Length / 3, faces, faces.Length / 3, requested, Weld);
+        List<ContourLevel> levels = ContourGenerator.Generate(new IndexedTriMesh(vertices, vertices.Length / 3, faces, faces.Length / 3), requested, Weld);
 
         Assert.NotEmpty(levels);
         foreach (ContourLevel level in levels)
@@ -87,10 +85,8 @@ public class ContourStitchingTests
         for (double z = -10.0; z <= 10.0; z += 0.5)
             requested.Add(z);
 
-        List<ContourLevel> first = ContourGenerator.Generate(
-            vertices, vertices.Length / 3, faces, faces.Length / 3, requested, Weld);
-        List<ContourLevel> second = ContourGenerator.Generate(
-            vertices, vertices.Length / 3, faces, faces.Length / 3, requested, Weld);
+        List<ContourLevel> first = ContourGenerator.Generate(new IndexedTriMesh(vertices, vertices.Length / 3, faces, faces.Length / 3), requested, Weld);
+        List<ContourLevel> second = ContourGenerator.Generate(new IndexedTriMesh(vertices, vertices.Length / 3, faces, faces.Length / 3), requested, Weld);
 
         Assert.Equal(first.Count, second.Count);
         for (int levelIndex = 0; levelIndex < first.Count; levelIndex++)
@@ -112,8 +108,7 @@ public class ContourStitchingTests
     {
         (double[] vertices, int[] faces) = Sheet(10, (_, _) => 0.0);
 
-        List<ContourLevel> levels = ContourGenerator.Generate(
-            vertices, vertices.Length / 3, faces, faces.Length / 3, new[] { -100.0, 100.0 }, Weld);
+        List<ContourLevel> levels = ContourGenerator.Generate(new IndexedTriMesh(vertices, vertices.Length / 3, faces, faces.Length / 3), new[] { -100.0, 100.0 }, Weld);
 
         Assert.All(levels, level => Assert.Empty(level.Polylines));
     }

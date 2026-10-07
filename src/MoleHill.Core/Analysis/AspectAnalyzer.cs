@@ -1,3 +1,5 @@
+using MoleHill.Core.Engine;
+
 namespace MoleHill.Core.Analysis;
 
 /// <summary>
@@ -102,13 +104,11 @@ public static class AspectAnalyzer
     /// Rhino's <c>Sun.North</c> holds and <c>mhSetSunNorth</c> writes.</param>
     /// <param name="flatSlopeRatio">Faces whose slope (rise over run) is at or below this have no aspect.</param>
     public static AspectSummary Summarize(
-        double[] vertices,
-        int vertexCount,
-        int[] faces,
-        int faceCount,
+        IndexedTriMesh terrain,
         double northAzimuthDegrees,
         double flatSlopeRatio)
     {
+        (double[] vertices, _, int[] faces, int faceCount) = terrain;
         var bearings = new double[faceCount];
         var planAreas = new double[faceCount];
         return Accumulate(vertices, faces, faceCount, northAzimuthDegrees, flatSlopeRatio, bearings, planAreas);
@@ -126,10 +126,7 @@ public static class AspectAnalyzer
     /// <param name="interval">Band width in degrees, for stepped mode only; 0 picks a readable step.</param>
     /// <param name="flatColor">Colour for faces with no aspect. Null takes a neutral grey.</param>
     public static AspectResult Analyze(
-        double[] vertices,
-        int vertexCount,
-        int[] faces,
-        int faceCount,
+        IndexedTriMesh terrain,
         double northAzimuthDegrees,
         double flatSlopeRatio,
         IReadOnlyList<SlopeAnalyzer.ColorStop>? palette = null,
@@ -137,6 +134,7 @@ public static class AspectAnalyzer
         double interval = 0.0,
         SlopeAnalyzer.ColorStop? flatColor = null)
     {
+        (double[] vertices, _, int[] faces, int faceCount) = terrain;
         var bearings = new double[faceCount];
         var planAreas = new double[faceCount];
         AspectSummary summary = Accumulate(

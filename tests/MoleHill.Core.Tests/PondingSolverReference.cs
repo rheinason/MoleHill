@@ -301,8 +301,7 @@ internal static class PondingSolverReference
             }
         }
 
-        List<ContourLevel> levels = ContourGenerator.Generate(
-            vertices, vertexCount, faces, graph.FaceCount, field, new[] { 0.0 }, settings.Tolerance);
+        List<ContourLevel> levels = ContourGenerator.Generate(new IndexedTriMesh(vertices, vertexCount, faces, graph.FaceCount), new[] { 0.0 }, settings.Tolerance, field: field);
 
         var outlines = new List<double[]>();
         foreach (ContourLevel level in levels)

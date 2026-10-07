@@ -377,7 +377,7 @@ public static class PondingSolver
         }
 
         List<ContourLevel> levels = ContourGenerator.Generate(
-            vertices, vertexCount, localFaces, candidates.Count, field, new[] { 0.0 }, settings.Tolerance);
+            new IndexedTriMesh(vertices, vertexCount, localFaces, candidates.Count), new[] { 0.0 }, settings.Tolerance, field);
 
         foreach (int vertex in marked)
             field[vertex] = double.NaN;

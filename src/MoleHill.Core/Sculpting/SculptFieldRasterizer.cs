@@ -1,3 +1,4 @@
+using MoleHill.Core.Engine;
 using MoleHill.Core.Grading;
 
 namespace MoleHill.Core.Sculpting;
@@ -14,10 +15,7 @@ namespace MoleHill.Core.Sculpting;
 public static class SculptFieldRasterizer
 {
     public static void Rasterize(
-        double[] vertices,
-        int vertexCount,
-        int[] faces,
-        int faceCount,
+        IndexedTriMesh terrain,
         double[] baseZ,
         SculptDisplacementField field,
         double dirtyMinX,
@@ -26,6 +24,7 @@ public static class SculptFieldRasterizer
         double dirtyMaxY,
         SculptConstraintMask? constraintMask = null)
     {
+        (double[] vertices, int vertexCount, int[] faces, int faceCount) = terrain;
         if (vertexCount == 0 || faceCount == 0 || dirtyMinX > dirtyMaxX || dirtyMinY > dirtyMaxY)
             return;
 

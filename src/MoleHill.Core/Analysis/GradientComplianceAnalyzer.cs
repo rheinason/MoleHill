@@ -171,21 +171,15 @@ public static class GradientComplianceAnalyzer
     /// reading Project To's boundaries use.
     /// </param>
     public static Result EvaluateLevelAreas(
-        double[] vertices,
-        int vertexCount,
-        int[] faces,
-        int faceCount,
+        IndexedTriMesh terrain,
         IReadOnlyList<double[]> levelAreaLoops,
         Options options)
     {
+        (double[] vertices, _, int[] faces, int faceCount) = terrain;
         ArgumentNullException.ThrowIfNull(vertices);
         ArgumentNullException.ThrowIfNull(faces);
         ArgumentNullException.ThrowIfNull(levelAreaLoops);
         ArgumentNullException.ThrowIfNull(options);
-        if (faceCount < 0 || faces.Length < faceCount * 3)
-            throw new ArgumentException("Face array is shorter than the face count.", nameof(faces));
-        if (vertexCount < 0 || vertices.Length < vertexCount * 3)
-            throw new ArgumentException("Vertex array is shorter than the vertex count.", nameof(vertices));
 
         Result empty = Result.Empty(faceCount);
         if (faceCount == 0 || levelAreaLoops.Count == 0)
@@ -263,21 +257,15 @@ public static class GradientComplianceAnalyzer
     /// </remarks>
     /// <param name="routes">Route centrelines as flat XY arrays (<c>[x0, y0, x1, y1, …]</c>).</param>
     public static RouteResult EvaluateRoutes(
-        double[] vertices,
-        int vertexCount,
-        int[] faces,
-        int faceCount,
+        IndexedTriMesh terrain,
         IReadOnlyList<double[]> routes,
         RouteOptions options)
     {
+        (double[] vertices, _, int[] faces, int faceCount) = terrain;
         ArgumentNullException.ThrowIfNull(vertices);
         ArgumentNullException.ThrowIfNull(faces);
         ArgumentNullException.ThrowIfNull(routes);
         ArgumentNullException.ThrowIfNull(options);
-        if (faceCount < 0 || faces.Length < faceCount * 3)
-            throw new ArgumentException("Face array is shorter than the face count.", nameof(faces));
-        if (vertexCount < 0 || vertices.Length < vertexCount * 3)
-            throw new ArgumentException("Vertex array is shorter than the vertex count.", nameof(vertices));
 
         RouteResult result = RouteResult.Empty(faceCount);
         double halfWidth = Math.Max(0.0, options.Width) * 0.5;

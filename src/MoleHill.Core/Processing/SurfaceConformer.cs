@@ -1,4 +1,5 @@
 using MoleHill.Core.Analysis;
+using MoleHill.Core.Engine;
 using MoleHill.Core.Grading;
 
 namespace MoleHill.Core.Processing;
@@ -11,22 +12,22 @@ namespace MoleHill.Core.Processing;
 /// </summary>
 public static class SurfaceConformer
 {
+    /// <param name="terrain">The mesh to conform. Its faces are only read to find steep wall faces,
+    /// whose vertices stay put when <paramref name="wallFaceMinSlopeDeg"/> is positive; pass a mesh with
+    /// no faces to conform every vertex.</param>
+    /// <param name="target">The mesh to conform toward.</param>
     public static double[] Conform(
-        double[] vertices,
-        int vertexCount,
-        double[] targetVertices,
-        int targetVertexCount,
-        int[] targetFaces,
-        int targetFaceCount,
+        IndexedTriMesh terrain,
+        IndexedTriMesh target,
         IReadOnlyList<double[]> boundaryLoops,
         double strength,
         double featherDistance,
         double tolerance,
         Func<bool>? shouldCancel = null,
-        int[]? faces = null,
-        int faceCount = 0,
         double wallFaceMinSlopeDeg = 0.0)
     {
+        (double[] vertices, int vertexCount, int[] faces, int faceCount) = terrain;
+        (double[] targetVertices, int targetVertexCount, int[] targetFaces, int targetFaceCount) = target;
         ArgumentNullException.ThrowIfNull(vertices);
         ArgumentNullException.ThrowIfNull(targetVertices);
         ArgumentNullException.ThrowIfNull(targetFaces);

@@ -26,7 +26,7 @@ internal sealed class EarthworkAnalysisDescriptor : AnalysisTypeDescriptor
     public override AnalysisDefinition Create() => new EarthworkAnalysisDefinition();
 
     public override TerrainAnalysisSummary? Build(AnalysisBuildContext c, AnalysisDefinition analysis) =>
-        TerrainBuildService.BuildEarthworkSummary(c.Snapshot, c.FallbackBaseMesh, c.CurrentMesh, c.Vertices, c.Faces, (EarthworkAnalysisDefinition)analysis, c.SurfaceArea, c.ElevationMinZ, c.ElevationMaxZ, c.Build, c.ReferenceComparisonCache, c.ReferenceProjectionCache, c.ShouldCancel);
+        TerrainBuildService.BuildEarthworkSummary(c.Snapshot, c.FallbackBaseMesh, c.CurrentMesh, c.Mesh.Vertices, c.Mesh.Faces, (EarthworkAnalysisDefinition)analysis, c.SurfaceArea, c.ElevationMinZ, c.ElevationMaxZ, c.Build, c.ReferenceComparisonCache, c.ReferenceProjectionCache, c.ShouldCancel);
 
     public override IReadOnlyList<ResultRow> DescribeResult(AnalysisDefinition analysis, TerrainAnalysisSummary? summary, ResultFormatter format)
     {
@@ -90,7 +90,7 @@ internal sealed class SlopeAnalysisDescriptor : AnalysisTypeDescriptor
     public override AnalysisDefinition Create() => new SlopeAnalysisDefinition();
 
     public override TerrainAnalysisSummary? Build(AnalysisBuildContext c, AnalysisDefinition analysis) =>
-        TerrainBuildService.BuildSlopeSummary(c.Vertices, c.VertexCount, c.Faces, c.FaceCount, (SlopeAnalysisDefinition)analysis, c.SurfaceArea);
+        TerrainBuildService.BuildSlopeSummary(c.Mesh, (SlopeAnalysisDefinition)analysis, c.SurfaceArea);
 
     public override IReadOnlyList<ResultRow> DescribeResult(AnalysisDefinition analysis, TerrainAnalysisSummary? summary, ResultFormatter format)
     {
@@ -130,7 +130,7 @@ internal sealed class AspectAnalysisDescriptor : AnalysisTypeDescriptor
     public override AnalysisDefinition Create() => new AspectAnalysisDefinition();
 
     public override TerrainAnalysisSummary? Build(AnalysisBuildContext c, AnalysisDefinition analysis) =>
-        TerrainBuildService.BuildAspectSummary(c.Snapshot, c.Vertices, c.Faces, (AspectAnalysisDefinition)analysis, c.SurfaceArea);
+        TerrainBuildService.BuildAspectSummary(c.Snapshot, c.Mesh, (AspectAnalysisDefinition)analysis, c.SurfaceArea);
 
     public override IReadOnlyList<ResultRow> DescribeResult(AnalysisDefinition analysis, TerrainAnalysisSummary? summary, ResultFormatter format)
     {
@@ -221,7 +221,7 @@ internal sealed class CutFillAnalysisDescriptor : AnalysisTypeDescriptor
     public override AnalysisDefinition Create() => new CutFillAnalysisDefinition();
 
     public override TerrainAnalysisSummary? Build(AnalysisBuildContext c, AnalysisDefinition analysis) =>
-        TerrainBuildService.BuildCutFillSummary(c.Snapshot, c.FallbackBaseMesh, c.CurrentMesh, c.Vertices, c.Faces, (CutFillAnalysisDefinition)analysis, c.SurfaceArea, c.ElevationMinZ, c.ElevationMaxZ, c.Build, c.ReferenceComparisonCache, c.ReferenceProjectionCache, c.ShouldCancel);
+        TerrainBuildService.BuildCutFillSummary(c.Snapshot, c.FallbackBaseMesh, c.CurrentMesh, c.Mesh.Vertices, c.Mesh.Faces, (CutFillAnalysisDefinition)analysis, c.SurfaceArea, c.ElevationMinZ, c.ElevationMaxZ, c.Build, c.ReferenceComparisonCache, c.ReferenceProjectionCache, c.ShouldCancel);
 
     public override IReadOnlyList<ResultRow> DescribeResult(AnalysisDefinition analysis, TerrainAnalysisSummary? summary, ResultFormatter format)
     {
@@ -337,7 +337,7 @@ internal sealed class WaterflowAnalysisDescriptor : AnalysisTypeDescriptor
     public override AnalysisDefinition Create() => new WaterflowAnalysisDefinition();
 
     public override TerrainAnalysisSummary? Build(AnalysisBuildContext c, AnalysisDefinition analysis) =>
-        TerrainBuildService.BuildWaterflowSummary(c.Snapshot, c.Vertices, c.VertexCount, c.Faces, c.FaceCount, (WaterflowAnalysisDefinition)analysis, c.Build, c.ShouldCancel);
+        TerrainBuildService.BuildWaterflowSummary(c.Snapshot, c.Mesh.Vertices, c.Mesh.VertexCount, c.Mesh.Faces, c.Mesh.FaceCount, (WaterflowAnalysisDefinition)analysis, c.Build, c.ShouldCancel);
 
     public override IReadOnlyList<ResultRow> DescribeResult(AnalysisDefinition analysis, TerrainAnalysisSummary? summary, ResultFormatter format)
     {
@@ -414,7 +414,7 @@ internal sealed class CatchmentAnalysisDescriptor : AnalysisTypeDescriptor
     public override AnalysisDefinition Create() => new CatchmentAnalysisDefinition();
 
     public override TerrainAnalysisSummary? Build(AnalysisBuildContext c, AnalysisDefinition analysis) =>
-        TerrainBuildService.BuildCatchmentSummary(c.Snapshot, c.Vertices, c.Faces, (CatchmentAnalysisDefinition)analysis, c.Build, c.BasinGraphCache, c.ShouldCancel);
+        TerrainBuildService.BuildCatchmentSummary(c.Snapshot, c.Mesh.Vertices, c.Mesh.Faces, (CatchmentAnalysisDefinition)analysis, c.Build, c.BasinGraphCache, c.ShouldCancel);
 
     public override IReadOnlyList<ResultRow> DescribeResult(AnalysisDefinition analysis, TerrainAnalysisSummary? summary, ResultFormatter format)
     {
@@ -534,7 +534,7 @@ internal sealed class PondingAnalysisDescriptor : AnalysisTypeDescriptor
     public override AnalysisDefinition Create() => new PondingAnalysisDefinition();
 
     public override TerrainAnalysisSummary? Build(AnalysisBuildContext c, AnalysisDefinition analysis) =>
-        TerrainBuildService.BuildPondingSummary(c.Snapshot, c.Vertices, c.Faces, (PondingAnalysisDefinition)analysis, c.Build, c.BasinGraphCache, c.ShouldCancel);
+        TerrainBuildService.BuildPondingSummary(c.Snapshot, c.Mesh.Vertices, c.Mesh.Faces, (PondingAnalysisDefinition)analysis, c.Build, c.BasinGraphCache, c.ShouldCancel);
 
     public override IReadOnlyList<ResultRow> DescribeResult(AnalysisDefinition analysis, TerrainAnalysisSummary? summary, ResultFormatter format)
     {
@@ -649,7 +649,7 @@ internal sealed class GradientComplianceAnalysisDescriptor : AnalysisTypeDescrip
     public override AnalysisDefinition Create() => new GradientComplianceAnalysisDefinition();
 
     public override TerrainAnalysisSummary? Build(AnalysisBuildContext c, AnalysisDefinition analysis) =>
-        TerrainBuildService.BuildGradientComplianceSummary(c.Snapshot, c.Vertices, c.VertexCount, c.Faces, c.FaceCount, (GradientComplianceAnalysisDefinition)analysis, c.ShouldCancel);
+        TerrainBuildService.BuildGradientComplianceSummary(c.Snapshot, c.Mesh, (GradientComplianceAnalysisDefinition)analysis, c.ShouldCancel);
 
     public override IReadOnlyList<ResultRow> DescribeResult(AnalysisDefinition analysis, TerrainAnalysisSummary? summary, ResultFormatter format)
     {

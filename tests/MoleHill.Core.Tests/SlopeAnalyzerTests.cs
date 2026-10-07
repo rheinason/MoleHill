@@ -1,3 +1,4 @@
+using MoleHill.Core.Engine;
 using MoleHill.Core.Analysis;
 using Xunit;
 
@@ -8,16 +9,7 @@ public class SlopeAnalyzerTests
     [Fact]
     public void Analyze_CustomPalette_InterpolatesAcrossStops()
     {
-        var result = SlopeAnalyzer.Analyze(
-            CreateHalfSlopeVertices(),
-            vertexCount: 3,
-            new[] { 0, 1, 2 },
-            faceCount: 1,
-            SlopeAnalyzer.SlopeUnit.Percent,
-            autoRange: false,
-            requestedLow: 0.0,
-            requestedHigh: 100.0,
-            palette: new[]
+        var result = SlopeAnalyzer.Analyze(new IndexedTriMesh(CreateHalfSlopeVertices(), vertexCount: 3, new[] { 0, 1, 2 }, faceCount: 1), SlopeAnalyzer.SlopeUnit.Percent, autoRange: false, requestedLow: 0.0, requestedHigh: 100.0, palette: new[]
             {
                 new SlopeAnalyzer.ColorStop(0.0, 0, 0, 0),
                 new SlopeAnalyzer.ColorStop(1.0, 255, 255, 255)
@@ -33,12 +25,7 @@ public class SlopeAnalyzerTests
     [Fact]
     public void Analyze_AutoRange_FitsTheSlopeDistributionFromZero()
     {
-        var result = SlopeAnalyzer.Analyze(
-            CreateHalfSlopeVertices(),
-            vertexCount: 3,
-            new[] { 0, 1, 2 },
-            faceCount: 1,
-            SlopeAnalyzer.SlopeUnit.Percent);
+        var result = SlopeAnalyzer.Analyze(new IndexedTriMesh(CreateHalfSlopeVertices(), vertexCount: 3, new[] { 0, 1, 2 }, faceCount: 1), SlopeAnalyzer.SlopeUnit.Percent);
 
         Assert.InRange(result.Max, 49.999, 50.001);
         // Auto-fit starts a slope ramp at flat ground and rounds the top to a readable number.
@@ -50,17 +37,12 @@ public class SlopeAnalyzerTests
     [Fact]
     public void Analyze_FlatMesh_FallsBackToUnitColorRange()
     {
-        var result = SlopeAnalyzer.Analyze(
-            new[]
+        var result = SlopeAnalyzer.Analyze(new IndexedTriMesh(new[]
             {
                 0.0, 0.0, 0.0,
                 1.0, 0.0, 0.0,
                 0.0, 1.0, 0.0
-            },
-            vertexCount: 3,
-            new[] { 0, 1, 2 },
-            faceCount: 1,
-            SlopeAnalyzer.SlopeUnit.Percent);
+            }, vertexCount: 3, new[] { 0, 1, 2 }, faceCount: 1), SlopeAnalyzer.SlopeUnit.Percent);
 
         Assert.Equal(0.0, result.ColorLow);
         Assert.Equal(1.0, result.ColorHigh);
@@ -72,21 +54,12 @@ public class SlopeAnalyzerTests
     [Fact]
     public void Analyze_VerticalFace_ClampsToHighEndColor()
     {
-        var result = SlopeAnalyzer.Analyze(
-            new[]
+        var result = SlopeAnalyzer.Analyze(new IndexedTriMesh(new[]
             {
                 0.0, 0.0, 0.0,
                 0.0, 1.0, 0.0,
                 0.0, 0.0, 1.0
-            },
-            vertexCount: 3,
-            new[] { 0, 1, 2 },
-            faceCount: 1,
-            SlopeAnalyzer.SlopeUnit.Percent,
-            autoRange: false,
-            requestedLow: 0.0,
-            requestedHigh: 100.0,
-            palette: new[]
+            }, vertexCount: 3, new[] { 0, 1, 2 }, faceCount: 1), SlopeAnalyzer.SlopeUnit.Percent, autoRange: false, requestedLow: 0.0, requestedHigh: 100.0, palette: new[]
             {
                 new SlopeAnalyzer.ColorStop(0.0, 10, 20, 30),
                 new SlopeAnalyzer.ColorStop(1.0, 200, 210, 220)
@@ -127,10 +100,10 @@ public class SlopeAnalyzerTests
         };
         int[] faces = { 0, 1, 2 };
 
-        var percent = SlopeAnalyzer.Analyze(vertices, 3, faces, 1, SlopeAnalyzer.SlopeUnit.Percent);
-        var promille = SlopeAnalyzer.Analyze(vertices, 3, faces, 1, SlopeAnalyzer.SlopeUnit.Promille);
-        var degrees = SlopeAnalyzer.Analyze(vertices, 3, faces, 1, SlopeAnalyzer.SlopeUnit.Degrees);
-        var ratio = SlopeAnalyzer.Analyze(vertices, 3, faces, 1, SlopeAnalyzer.SlopeUnit.Ratio);
+        var percent = SlopeAnalyzer.Analyze(new IndexedTriMesh(vertices, 3, faces, 1), SlopeAnalyzer.SlopeUnit.Percent);
+        var promille = SlopeAnalyzer.Analyze(new IndexedTriMesh(vertices, 3, faces, 1), SlopeAnalyzer.SlopeUnit.Promille);
+        var degrees = SlopeAnalyzer.Analyze(new IndexedTriMesh(vertices, 3, faces, 1), SlopeAnalyzer.SlopeUnit.Degrees);
+        var ratio = SlopeAnalyzer.Analyze(new IndexedTriMesh(vertices, 3, faces, 1), SlopeAnalyzer.SlopeUnit.Ratio);
 
         Assert.InRange(percent.Slopes[0], 99.999, 100.001);
         Assert.InRange(promille.Slopes[0], 999.999, 1000.001);
@@ -154,8 +127,8 @@ public class SlopeAnalyzerTests
             1, 3, 2
         };
 
-        var summary = SlopeAnalyzer.Summarize(vertices, 4, faces, 2, SlopeAnalyzer.SlopeUnit.Percent);
-        var analyze = SlopeAnalyzer.Analyze(vertices, 4, faces, 2, SlopeAnalyzer.SlopeUnit.Percent);
+        var summary = SlopeAnalyzer.Summarize(new IndexedTriMesh(vertices, 4, faces, 2), SlopeAnalyzer.SlopeUnit.Percent);
+        var analyze = SlopeAnalyzer.Analyze(new IndexedTriMesh(vertices, 4, faces, 2), SlopeAnalyzer.SlopeUnit.Percent);
 
         Assert.Equal(analyze.Min, summary.Min, precision: 12);
         Assert.Equal(analyze.Max, summary.Max, precision: 12);
@@ -168,12 +141,7 @@ public class SlopeAnalyzerTests
     [Fact]
     public void Summarize_DoesNotExposeFaceColors()
     {
-        var summary = SlopeAnalyzer.Summarize(
-            CreateHalfSlopeVertices(),
-            vertexCount: 3,
-            new[] { 0, 1, 2 },
-            faceCount: 1,
-            SlopeAnalyzer.SlopeUnit.Percent);
+        var summary = SlopeAnalyzer.Summarize(new IndexedTriMesh(CreateHalfSlopeVertices(), vertexCount: 3, new[] { 0, 1, 2 }, faceCount: 1), SlopeAnalyzer.SlopeUnit.Percent);
 
         Assert.DoesNotContain(
             summary.GetType().GetProperties(),

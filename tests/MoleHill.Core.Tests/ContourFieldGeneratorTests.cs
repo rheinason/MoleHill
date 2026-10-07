@@ -1,3 +1,4 @@
+using MoleHill.Core.Engine;
 using MoleHill.Core.Analysis;
 using Xunit;
 
@@ -33,8 +34,8 @@ public class ContourFieldGeneratorTests
         var (vertices, faces) = LevelQuad();
         var field = new[] { -2.0, -2.0, 3.0, 3.0 };
 
-        var byElevation = ContourGenerator.Generate(vertices, 4, faces, 2, new[] { 0.0 }, 0.001);
-        var byField = ContourGenerator.Generate(vertices, 4, faces, 2, field, new[] { 0.0 }, 0.001);
+        var byElevation = ContourGenerator.Generate(new IndexedTriMesh(vertices, 4, faces, 2), new[] { 0.0 }, 0.001);
+        var byField = ContourGenerator.Generate(new IndexedTriMesh(vertices, 4, faces, 2), new[] { 0.0 }, 0.001, field: field);
 
         Assert.Empty(byElevation);
         ContourLevel level = Assert.Single(byField);
@@ -50,7 +51,7 @@ public class ContourFieldGeneratorTests
         var field = new[] { -2.0, -2.0, 3.0, 3.0 };
 
         ContourLevel level = Assert.Single(
-            ContourGenerator.Generate(vertices, 4, faces, 2, field, new[] { 0.0 }, 0.001));
+            ContourGenerator.Generate(new IndexedTriMesh(vertices, 4, faces, 2), new[] { 0.0 }, 0.001, field: field));
 
         foreach (var polyline in level.Polylines)
         {
@@ -72,7 +73,7 @@ public class ContourFieldGeneratorTests
         var field = new[] { -2.0, -2.0, 3.0, double.NaN };
 
         ContourLevel level = Assert.Single(
-            ContourGenerator.Generate(vertices, 4, faces, 2, field, new[] { 0.0 }, 0.001));
+            ContourGenerator.Generate(new IndexedTriMesh(vertices, 4, faces, 2), new[] { 0.0 }, 0.001, field: field));
 
         // Only the first triangle contributes, so the result is a single unstitched segment.
         Assert.Single(level.Polylines);
@@ -86,7 +87,7 @@ public class ContourFieldGeneratorTests
         var (vertices, faces) = LevelQuad();
         var field = new[] { 1.0, 1.5, 2.0, 2.5 };
 
-        Assert.Empty(ContourGenerator.Generate(vertices, 4, faces, 2, field, new[] { 0.0 }, 0.001));
+        Assert.Empty(ContourGenerator.Generate(new IndexedTriMesh(vertices, 4, faces, 2), new[] { 0.0 }, 0.001, field: field));
     }
 
     /// <summary>Several depths in one pass, the way a delta contour set is drawn.</summary>
@@ -96,8 +97,7 @@ public class ContourFieldGeneratorTests
         var (vertices, faces) = LevelQuad();
         var field = new[] { -3.0, -3.0, 3.0, 3.0 };
 
-        var levels = ContourGenerator.Generate(
-            vertices, 4, faces, 2, field, new[] { -2.0, 0.0, 2.0 }, 0.001);
+        var levels = ContourGenerator.Generate(new IndexedTriMesh(vertices, 4, faces, 2), new[] { -2.0, 0.0, 2.0 }, 0.001, field: field);
 
         Assert.Equal(3, levels.Count);
         Assert.Equal(new[] { -2.0, 0.0, 2.0 }, levels.Select(level => level.Z));
@@ -120,8 +120,8 @@ public class ContourFieldGeneratorTests
         var faces = new[] { 0, 1, 2, 0, 2, 3 };
         var levels = new[] { 2.5, 5.0, 7.5 };
 
-        var viaOverload = ContourGenerator.Generate(vertices, 4, faces, 2, levels, 0.001);
-        var viaNullField = ContourGenerator.Generate(vertices, 4, faces, 2, null, levels, 0.001);
+        var viaOverload = ContourGenerator.Generate(new IndexedTriMesh(vertices, 4, faces, 2), levels, 0.001);
+        var viaNullField = ContourGenerator.Generate(new IndexedTriMesh(vertices, 4, faces, 2), levels, 0.001);
 
         Assert.Equal(viaOverload.Count, viaNullField.Count);
         for (int i = 0; i < viaOverload.Count; i++)

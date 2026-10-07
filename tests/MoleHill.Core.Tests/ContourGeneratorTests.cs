@@ -1,3 +1,4 @@
+using MoleHill.Core.Engine;
 using System.Linq;
 using MoleHill.Core.Analysis;
 using Xunit;
@@ -19,7 +20,7 @@ public class ContourGeneratorTests
         };
         int[] faces = { 0, 1, 2, 0, 2, 3 };
 
-        var levels = ContourGenerator.Generate(vertices, 4, faces, 2, new[] { 5.0 }, 0.001);
+        var levels = ContourGenerator.Generate(new IndexedTriMesh(vertices, 4, faces, 2), new[] { 5.0 }, 0.001);
 
         Assert.Single(levels);
         ContourLevel level = levels[0];
@@ -53,7 +54,7 @@ public class ContourGeneratorTests
         };
         int[] faces = { 0, 1, 4, 1, 2, 4, 2, 3, 4, 3, 0, 4 };
 
-        var levels = ContourGenerator.Generate(vertices, 5, faces, 4, new[] { 5.0 }, 0.001);
+        var levels = ContourGenerator.Generate(new IndexedTriMesh(vertices, 5, faces, 4), new[] { 5.0 }, 0.001);
 
         Assert.Single(levels);
         Assert.Single(levels[0].Polylines);
@@ -70,7 +71,7 @@ public class ContourGeneratorTests
         double[] vertices = { 0, 0, 0, 10, 0, 10, 10, 10, 10, 0, 10, 0 };
         int[] faces = { 0, 1, 2, 0, 2, 3 };
 
-        var levels = ContourGenerator.Generate(vertices, 4, faces, 2, new[] { 2.5, 5.0, 7.5 }, 0.001);
+        var levels = ContourGenerator.Generate(new IndexedTriMesh(vertices, 4, faces, 2), new[] { 2.5, 5.0, 7.5 }, 0.001);
 
         Assert.Equal(3, levels.Count);
         Assert.Equal(new[] { 2.5, 5.0, 7.5 }, levels.Select(l => l.Z));
@@ -83,7 +84,7 @@ public class ContourGeneratorTests
         double[] vertices = { 0, 0, 0, 10, 0, 0, 10, 10, 0, 0, 10, 0 };
         int[] faces = { 0, 1, 2, 0, 2, 3 };
 
-        var levels = ContourGenerator.Generate(vertices, 4, faces, 2, new[] { 0.0, 1.0 }, 0.001);
+        var levels = ContourGenerator.Generate(new IndexedTriMesh(vertices, 4, faces, 2), new[] { 0.0, 1.0 }, 0.001);
 
         Assert.Empty(levels);
     }
@@ -104,7 +105,7 @@ public class ContourGeneratorTests
         };
         int[] faces = { 0, 2, 1, 1, 2, 3 };
 
-        var levels = ContourGenerator.Generate(vertices, 4, faces, 2, new[] { 5.0 }, 0.001);
+        var levels = ContourGenerator.Generate(new IndexedTriMesh(vertices, 4, faces, 2), new[] { 5.0 }, 0.001);
 
         Assert.Single(levels);
         ContourLevel level = levels[0];
@@ -129,7 +130,7 @@ public class ContourGeneratorTests
         double[] vertices = { 0, 0, 0, 10, 0, 10, 10, 10, 10, 0, 10, 0 };
         int[] faces = { 0, 1, 2, 0, 2, 3 };
 
-        var levels = ContourGenerator.Generate(vertices, 4, faces, 2, new[] { 50.0 }, 0.001);
+        var levels = ContourGenerator.Generate(new IndexedTriMesh(vertices, 4, faces, 2), new[] { 50.0 }, 0.001);
 
         Assert.Empty(levels);
     }

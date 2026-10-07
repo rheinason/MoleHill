@@ -1,3 +1,4 @@
+using MoleHill.Core.Engine;
 using MoleHill.Core.Analysis;
 using Xunit;
 
@@ -39,8 +40,7 @@ public class AspectAnalyzerTests
     {
         var (vertices, faces) = TiltedTriangle(descentX, descentY);
 
-        AspectAnalyzer.AspectResult result = AspectAnalyzer.Analyze(
-            vertices, 3, faces, 1, NorthIsPlusY, flatSlopeRatio: 0.0);
+        AspectAnalyzer.AspectResult result = AspectAnalyzer.Analyze(new IndexedTriMesh(vertices, 3, faces, 1), NorthIsPlusY, flatSlopeRatio: 0.0);
 
         Assert.Equal(expectedBearing, result.Bearings[0], 6);
     }
@@ -55,8 +55,8 @@ public class AspectAnalyzerTests
         var (vertices, faces) = TiltedTriangle(1.0, 0.0);
         var reversed = new[] { faces[0], faces[2], faces[1] };
 
-        double forward = AspectAnalyzer.Analyze(vertices, 3, faces, 1, NorthIsPlusY, 0.0).Bearings[0];
-        double backward = AspectAnalyzer.Analyze(vertices, 3, reversed, 1, NorthIsPlusY, 0.0).Bearings[0];
+        double forward = AspectAnalyzer.Analyze(new IndexedTriMesh(vertices, 3, faces, 1), NorthIsPlusY, 0.0).Bearings[0];
+        double backward = AspectAnalyzer.Analyze(new IndexedTriMesh(vertices, 3, reversed, 1), NorthIsPlusY, 0.0).Bearings[0];
 
         Assert.Equal(forward, backward, 6);
     }
@@ -67,8 +67,8 @@ public class AspectAnalyzerTests
     {
         var (vertices, faces) = TiltedTriangle(1.0, 0.5);
 
-        double atDefault = AspectAnalyzer.Analyze(vertices, 3, faces, 1, NorthIsPlusY, 0.0).Bearings[0];
-        double atRotated = AspectAnalyzer.Analyze(vertices, 3, faces, 1, NorthIsPlusY + 30.0, 0.0).Bearings[0];
+        double atDefault = AspectAnalyzer.Analyze(new IndexedTriMesh(vertices, 3, faces, 1), NorthIsPlusY, 0.0).Bearings[0];
+        double atRotated = AspectAnalyzer.Analyze(new IndexedTriMesh(vertices, 3, faces, 1), NorthIsPlusY + 30.0, 0.0).Bearings[0];
 
         Assert.Equal(AspectAnalyzer.Normalize360(atDefault + 30.0), atRotated, 6);
     }
@@ -83,8 +83,7 @@ public class AspectAnalyzerTests
         var vertices = new[] { 0.0, 0.0, 4.0, 10.0, 0.0, 4.0, 0.0, 10.0, 4.0 };
         var faces = new[] { 0, 1, 2 };
 
-        AspectAnalyzer.AspectResult result = AspectAnalyzer.Analyze(
-            vertices, 3, faces, 1, NorthIsPlusY, flatSlopeRatio: 0.01);
+        AspectAnalyzer.AspectResult result = AspectAnalyzer.Analyze(new IndexedTriMesh(vertices, 3, faces, 1), NorthIsPlusY, flatSlopeRatio: 0.01);
 
         Assert.True(double.IsNaN(result.Bearings[0]));
         Assert.Equal(1, result.Summary.FlatFaceCount);
@@ -99,9 +98,9 @@ public class AspectAnalyzerTests
         var (vertices, faces) = TiltedTriangle(0.005, 0.0);
 
         Assert.True(double.IsNaN(
-            AspectAnalyzer.Analyze(vertices, 3, faces, 1, NorthIsPlusY, flatSlopeRatio: 0.01).Bearings[0]));
+            AspectAnalyzer.Analyze(new IndexedTriMesh(vertices, 3, faces, 1), NorthIsPlusY, flatSlopeRatio: 0.01).Bearings[0]));
         Assert.False(double.IsNaN(
-            AspectAnalyzer.Analyze(vertices, 3, faces, 1, NorthIsPlusY, flatSlopeRatio: 0.001).Bearings[0]));
+            AspectAnalyzer.Analyze(new IndexedTriMesh(vertices, 3, faces, 1), NorthIsPlusY, flatSlopeRatio: 0.001).Bearings[0]));
     }
 
     /// <summary>A vertical face has an infinite slope and a perfectly well-defined aspect all the same.</summary>
@@ -112,8 +111,7 @@ public class AspectAnalyzerTests
         var vertices = new[] { 0.0, 0.0, 0.0, 10.0, 0.0, 0.0, 0.0, 0.0, 5.0 };
         var faces = new[] { 0, 1, 2 };
 
-        double bearing = AspectAnalyzer.Analyze(
-            vertices, 3, faces, 1, NorthIsPlusY, flatSlopeRatio: 0.5).Bearings[0];
+        double bearing = AspectAnalyzer.Analyze(new IndexedTriMesh(vertices, 3, faces, 1), NorthIsPlusY, flatSlopeRatio: 0.5).Bearings[0];
 
         Assert.False(double.IsNaN(bearing));
         Assert.True(bearing is 0.0 or 180.0, $"Expected a due north or south wall face, got {bearing}.");
@@ -133,8 +131,7 @@ public class AspectAnalyzerTests
         var vertices = v1.Concat(v2).ToArray();
         var faces = new[] { f1[0], f1[1], f1[2], f2[0] + 3, f2[1] + 3, f2[2] + 3 };
 
-        AspectAnalyzer.AspectSummary summary = AspectAnalyzer.Summarize(
-            vertices, 6, faces, 2, NorthIsPlusY, flatSlopeRatio: 0.0);
+        AspectAnalyzer.AspectSummary summary = AspectAnalyzer.Summarize(new IndexedTriMesh(vertices, 6, faces, 2), NorthIsPlusY, flatSlopeRatio: 0.0);
 
         Assert.NotNull(summary.DominantBearing);
         double dominant = summary.DominantBearing.Value;
@@ -189,8 +186,7 @@ public class AspectAnalyzerTests
         var vertices = sloping.Concat(level).ToArray();
         var faces = new[] { slopingFaces[0], slopingFaces[1], slopingFaces[2], 3, 4, 5 };
 
-        AspectAnalyzer.AspectResult result = AspectAnalyzer.Analyze(
-            vertices, 6, faces, 2, NorthIsPlusY, flatSlopeRatio: 0.01);
+        AspectAnalyzer.AspectResult result = AspectAnalyzer.Analyze(new IndexedTriMesh(vertices, 6, faces, 2), NorthIsPlusY, flatSlopeRatio: 0.01);
 
         Assert.NotEqual(
             (result.FaceColors[0], result.FaceColors[1], result.FaceColors[2]),

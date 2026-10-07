@@ -1,3 +1,4 @@
+using MoleHill.Core.Engine;
 using MoleHill.Core.Processing;
 using Xunit;
 
@@ -81,8 +82,8 @@ public sealed class SurfaceConformerTests
         ];
 
         double[] result = SurfaceConformer.Conform(
-            vertices, 8, TargetVertices, 4, TargetFaces, 2, [], 1.0, 0.0, 1e-6,
-            faces: faces, faceCount: 6, wallFaceMinSlopeDeg: 70.0);
+            new IndexedTriMesh(vertices, 8, faces, 6), new IndexedTriMesh(TargetVertices, 4, TargetFaces, 2),
+            [], 1.0, 0.0, 1e-6, wallFaceMinSlopeDeg: 70.0);
 
         Assert.Equal(1.0, result[(1 * 3) + 2], 10);
         Assert.Equal(0.0, result[(2 * 3) + 2], 10);
@@ -99,8 +100,8 @@ public sealed class SurfaceConformerTests
         int[] faces = [0, 1, 2];
 
         double[] result = SurfaceConformer.Conform(
-            vertices, 3, TargetVertices, 4, TargetFaces, 2, [], 1.0, 0.0, 1e-6,
-            faces: faces, faceCount: 1, wallFaceMinSlopeDeg: 0.0);
+            new IndexedTriMesh(vertices, 3, faces, 1), new IndexedTriMesh(TargetVertices, 4, TargetFaces, 2),
+            [], 1.0, 0.0, 1e-6, wallFaceMinSlopeDeg: 0.0);
 
         Assert.All([result[2], result[5], result[8]], z => Assert.Equal(10.0, z, 10));
     }
@@ -140,12 +141,8 @@ public sealed class SurfaceConformerTests
 
     private static double[] Conform(double[] vertices, IReadOnlyList<double[]> loops, double strength, double feather) =>
         SurfaceConformer.Conform(
-            vertices,
-            vertices.Length / 3,
-            TargetVertices,
-            TargetVertices.Length / 3,
-            TargetFaces,
-            TargetFaces.Length / 3,
+            new IndexedTriMesh(vertices, vertices.Length / 3, Array.Empty<int>(), 0),
+            IndexedTriMesh.FromArrays(TargetVertices, TargetFaces),
             loops,
             strength,
             feather,
