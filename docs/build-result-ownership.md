@@ -6,10 +6,26 @@ code has no obvious endpoint. This is R05's first deliverable from
 table *before* any ownership object is introduced, because the failure mode being guarded against is a
 `Dispose()` on something that was only borrowed.
 
-Status: **characterization only.** Nothing in this document has been changed in code. It is written
-from the current sources (`TerrainRuntimeCache`, `TerrainController`, `TerrainController.Build`,
-`TerrainBuildService.Cache`) so the gaps below are claims about code that can be checked, not
-speculation.
+## Current contract (as of 2026-10-07)
+
+This block is authoritative. The sections below it are the analysis and the dated history that led here;
+where they say "not yet implemented" or "characterization only", this block supersedes them.
+
+- **Borrowed stage meshes are protected.** `CreateWorkerCopy` records the `MeshOutput`s it borrowed from
+  the main cache; nothing disposes them from a worker.
+- **Worker-owned stage meshes are discarded** on every non-merge exit (`DiscardOwnedMeshOutputs`:
+  completion, superseded, document/terrain gone, retired worker). A merge hands them to the main cache.
+  Never call `Clear()` on a worker copy.
+- **Anything reachable from a `TerrainDisplayState` is GC-owned and is never explicitly disposed**:
+  display meshes (including the interim copy), preview and analysis-preview meshes, generated objects and
+  their preview caches, region curves, runtime overlays and wall plan Breps. Their readers (conduit, RDK
+  render meshes, bake, Sculpt, the Grasshopper bridge) are not scheduled by MoleHill. Two native soaks
+  (2026-10-05) showed no growing retained-memory trend. That is evidence for those two fixtures, not for
+  every workload.
+- **No ownership object (`Transfer`/`Discard`) is planned.** "The shape of the fix" below records an
+  option that measurement made unnecessary; do not build it without new evidence of a leak.
+- **Open:** nothing in ownership itself. The scheduler's integrated behaviour is covered by the soak but
+  has no deterministic sequence tests (review F06).
 
 ## The two caches
 
@@ -90,7 +106,7 @@ Worth stating, because the fix must not regress it:
   outputs and invalidates the shared `TinEngine` — doing that from a worker would corrupt the main
   cache's live meshes and the engine both workers share.
 
-## The shape of the fix (not yet implemented)
+## The shape of the fix (historical option, not pursued)
 
 The review's proposal, restated against this table:
 
@@ -270,5 +286,4 @@ Two deliberate choices:
   risk tearing a live draw to reclaim one transient mesh per slow build. Bounded, not a leak in the
   unbounded sense: at most one live per terrain, replaced on the next publication.
 
-This is characterization, matching the rest of this document. If the ownership object with
-`Transfer`/`Discard` (R05 stage 2) is built, this mesh is a fifth case for it.
+This mesh is GC-owned under the current contract above.

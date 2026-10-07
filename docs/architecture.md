@@ -1706,13 +1706,15 @@ single-precision read-back was. When windings would need unifying, Rhino still n
 A background build runs against a *worker copy* of the terrain's runtime cache. The copy is shallow
 where it matters: the `TinEngine` is shared deliberately, and stage meshes and generated-object lists
 are carried over by reference. So a worker cache mixes **borrowed** entries with entries it produced
-itself, and nothing in the type distinguishes the two — which is exactly why `PruneUnused` removes
-without disposing, and why `Clear()` must never be called on a worker copy.
+itself. `CreateWorkerCopy` records the borrowed `MeshOutput`s, and `DiscardOwnedMeshOutputs` disposes
+only the worker's own stage meshes on every non-merge exit. `PruneUnused` removes without disposing, and
+`Clear()` must never be called on a worker copy. Everything reachable from a `TerrainDisplayState` is
+GC-owned and never explicitly disposed, because the conduit, render engine, bake and the Grasshopper
+bridge read it on their own schedule.
 
-[build-result-ownership.md](build-result-ownership.md) is the ownership table: who holds each piece of
-geometry, who may dispose it, and the four places that currently have no obvious endpoint. Read it
-before changing anything in `TerrainRuntimeCache` or the worker retirement paths. It is
-characterization, not yet a contract — R05 of the 2026-09-19 review.
+[build-result-ownership.md](build-result-ownership.md) opens with the current contract and keeps the
+analysis and dated history behind it. Read it before changing `TerrainRuntimeCache` or the worker
+retirement paths.
 
 ## Core: spatial index capacity
 
