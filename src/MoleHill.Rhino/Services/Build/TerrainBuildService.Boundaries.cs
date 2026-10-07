@@ -146,7 +146,7 @@ internal sealed partial class TerrainBuildService
         TriangulateModifierDefinition? owner = GetBoundaryOwner(terrain);
         if (owner == null || (!owner.OuterBoundaries.HasReferences && !owner.HideBoundaries.HasReferences && !owner.ShowBoundaries.HasReferences))
             return RhinoGeometryConversions.DuplicateWithCachedData(mesh);
-        if (!RhinoGeometryConversions.TryExtractMeshData(mesh, out double[] vertices, out int[] faces, out string? extractionError))
+        if (!RhinoGeometryConversions.TryExtractMeshData(mesh, out double[] vertices, out _, out int[] faces, out _, out string? extractionError))
         {
             build.Diagnostics.Add(extractionError ?? "Could not extract terrain mesh for boundary trimming.");
             return RhinoGeometryConversions.DuplicateWithCachedData(mesh);

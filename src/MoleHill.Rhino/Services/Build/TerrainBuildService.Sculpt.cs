@@ -27,7 +27,7 @@ internal sealed partial class TerrainBuildService
             return mesh;
         SculptConstraintMask constraintMask = SculptConstraintMaskBuilder.Build(snapshot, terrain, modifier);
 
-        if (!RhinoGeometryConversions.TryExtractMeshData(mesh, out var vertices, out var faces, out var errorMessage))
+        if (!RhinoGeometryConversions.TryExtractMeshData(mesh, out var vertices, out _, out var faces, out _, out var errorMessage))
         {
             build.Diagnostics.Add(errorMessage ?? "Could not extract mesh data for sculpting.");
             return mesh;

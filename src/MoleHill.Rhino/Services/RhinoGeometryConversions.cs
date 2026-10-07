@@ -15,6 +15,9 @@ internal sealed class ExtractedMeshData
     public required int[] Faces { get; init; }
 
     public required int FaceCount { get; init; }
+
+    /// <summary>The arrays and their counts as one value.</summary>
+    public IndexedTriMesh Mesh => new(Vertices, VertexCount, Faces, FaceCount);
 }
 
 internal static class RhinoGeometryConversions
@@ -107,15 +110,17 @@ internal static class RhinoGeometryConversions
         return true;
     }
 
-    public static bool TryExtractMeshData(Mesh mesh, out double[] vertices, out int[] faces, out string? errorMessage)
+    /// <summary>
+    /// Extracts the mesh as an <see cref="IndexedTriMesh"/>: arrays and counts from the same normalized
+    /// copy, which cannot be paired with the Rhino mesh's own counts by mistake.
+    /// </summary>
+    public static bool TryExtractMesh(Mesh mesh, out IndexedTriMesh extracted, out string? errorMessage)
     {
-        vertices = Array.Empty<double>();
-        faces = Array.Empty<int>();
+        extracted = IndexedTriMesh.Empty;
         if (!TryGetMeshData(mesh, out var data, out errorMessage))
             return false;
 
-        vertices = data.Vertices;
-        faces = data.Faces;
+        extracted = data.Mesh;
         return true;
     }
 

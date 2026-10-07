@@ -659,7 +659,7 @@ internal static class TerrainAnalysisPreviewBuilder
 
     internal static MeshHeightProjector? CreateReferenceProjector(RhinoMesh referenceMesh)
     {
-        return RhinoGeometryConversions.TryExtractMeshData(referenceMesh, out var vertices, out var faces, out _)
+        return RhinoGeometryConversions.TryExtractMeshData(referenceMesh, out var vertices, out _, out var faces, out _, out _)
             ? new MeshHeightProjector(vertices, vertices.Length / 3, faces, faces.Length / 3)
             : null;
     }

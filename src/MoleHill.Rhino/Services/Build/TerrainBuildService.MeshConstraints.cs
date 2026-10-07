@@ -207,7 +207,7 @@ internal sealed partial class TerrainBuildService
         double preserveCreaseAngleDeg = 0.0)
     {
         keptInputMesh = false;
-        if (!RhinoGeometryConversions.TryExtractMeshData(mesh, out var originalVertices, out var originalFaces, out var errorMessage))
+        if (!RhinoGeometryConversions.TryExtractMeshData(mesh, out var originalVertices, out _, out var originalFaces, out _, out var errorMessage))
         {
             build.Diagnostics.Add(errorMessage ?? $"Could not extract mesh data for {label.ToLowerInvariant()}.");
             return mesh;

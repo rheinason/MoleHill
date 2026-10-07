@@ -146,7 +146,7 @@ internal sealed class SculptSessionController
                 return false;
         }
 
-        if (!RhinoGeometryConversions.TryExtractMeshData(stageMesh, out var vertices, out var faces, out _))
+        if (!RhinoGeometryConversions.TryExtractMeshData(stageMesh, out var vertices, out _, out var faces, out _, out _))
             return false;
 
         int vertexCount = vertices.Length / 3;

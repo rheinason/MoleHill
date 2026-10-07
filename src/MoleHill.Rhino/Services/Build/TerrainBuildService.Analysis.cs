@@ -1050,7 +1050,7 @@ internal sealed partial class TerrainBuildService
     private static ReferenceProjectionContext CreateReferenceProjectionContext(RhinoMesh baseMesh)
     {
         MeshHeightProjector? projector = null;
-        if (RhinoGeometryConversions.TryExtractMeshData(baseMesh, out var baseVertices, out var baseFaces, out _))
+        if (RhinoGeometryConversions.TryExtractMeshData(baseMesh, out var baseVertices, out _, out var baseFaces, out _, out _))
             projector = new MeshHeightProjector(baseVertices, baseVertices.Length / 3, baseFaces, baseFaces.Length / 3);
 
         return new ReferenceProjectionContext

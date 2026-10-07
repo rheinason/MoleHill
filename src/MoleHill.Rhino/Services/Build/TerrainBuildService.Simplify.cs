@@ -16,7 +16,7 @@ internal sealed partial class TerrainBuildService
         TerrainBuildResult build,
         Func<bool>? shouldCancel)
     {
-        if (!RhinoGeometryConversions.TryExtractMeshData(mesh, out double[] vertices, out int[] faces, out string? extractionError))
+        if (!RhinoGeometryConversions.TryExtractMeshData(mesh, out double[] vertices, out _, out int[] faces, out _, out string? extractionError))
         {
             build.Diagnostics.Add(extractionError ?? "Could not extract mesh data for simplification.");
             return mesh;

@@ -173,7 +173,7 @@ internal sealed partial class TerrainBuildService
             {
                 foreach (RhinoMesh zoneMesh in meshes)
                 {
-                    if (!RhinoGeometryConversions.TryExtractMeshData(zoneMesh, out double[] zoneVertices, out int[] zoneFaces, out _))
+                    if (!RhinoGeometryConversions.TryExtractMeshData(zoneMesh, out double[] zoneVertices, out _, out int[] zoneFaces, out _, out _))
                         continue;
 
                     ReferenceComparisonStats stats = ComputeReferenceComparisonStats(

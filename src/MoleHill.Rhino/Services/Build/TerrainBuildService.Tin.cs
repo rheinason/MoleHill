@@ -63,7 +63,7 @@ internal sealed partial class TerrainBuildService
             RhinoMesh exactTin = exactTinMeshes[0].DuplicateMesh(); // plain: it is mutated below, so nothing cached may ride along
             if (exactTin.Faces.QuadCount > 0)
                 exactTin.Faces.ConvertQuadsToTriangles();
-            if (!RhinoGeometryConversions.TryExtractMeshData(exactTin, out _, out _, out string? exactTinError))
+            if (!RhinoGeometryConversions.TryExtractMeshData(exactTin, out _, out _, out _, out _, out string? exactTinError))
             {
                 exactTin.Dispose();
                 build.Diagnostics.Add(exactTinError ?? "The exact TIN mesh is invalid.");
@@ -1063,7 +1063,7 @@ internal sealed partial class TerrainBuildService
         double tolerance,
         TerrainBuildResult build)
     {
-        if (!RhinoGeometryConversions.TryExtractMeshData(mesh, out var vertices, out var faces, out var errorMessage))
+        if (!RhinoGeometryConversions.TryExtractMeshData(mesh, out var vertices, out _, out var faces, out _, out var errorMessage))
         {
             build.Diagnostics.Add(errorMessage ?? "Could not extract mesh data for remesh.");
             return RhinoGeometryConversions.DuplicateWithCachedData(mesh);
@@ -1112,7 +1112,7 @@ internal sealed partial class TerrainBuildService
     {
         TerrainTolerancePolicy.Profile toleranceProfile = GetToleranceProfile(snapshot, terrain);
 
-        if (!RhinoGeometryConversions.TryExtractMeshData(mesh, out var vertices, out var faces, out var errorMessage))
+        if (!RhinoGeometryConversions.TryExtractMeshData(mesh, out var vertices, out _, out var faces, out _, out var errorMessage))
         {
             build.Diagnostics.Add(errorMessage ?? "Could not extract mesh data for retopo.");
             return RhinoGeometryConversions.DuplicateWithCachedData(mesh);
@@ -1268,7 +1268,7 @@ internal sealed partial class TerrainBuildService
     {
         TerrainTolerancePolicy.Profile toleranceProfile = GetToleranceProfile(snapshot, terrain);
 
-        if (!RhinoGeometryConversions.TryExtractMeshData(mesh, out var vertices, out var faces, out var errorMessage))
+        if (!RhinoGeometryConversions.TryExtractMeshData(mesh, out var vertices, out _, out var faces, out _, out var errorMessage))
         {
             build.Diagnostics.Add(errorMessage ?? "Could not extract mesh data for retopo field preview.");
             return;
