@@ -1019,6 +1019,9 @@ internal static class GeometryCommandAlgorithms
         IReadOnlyList<BoundingBox> boundaryBoxes,
         double tolerance)
     {
+        if (boundaryBoxes.Count != boundaries.Count)
+            throw new ArgumentException("Each boundary needs its own box, index for index.", nameof(boundaryBoxes));
+
         int containmentCount = 0;
         for (int i = 0; i < boundaries.Count; i++)
         {

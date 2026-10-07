@@ -1625,6 +1625,9 @@ internal static class GeometryCommandService
         IReadOnlyList<BoundingBox> boundaryBoxes,
         double tolerance)
     {
+        if (boundaryBoxes.Count != boundaries.Count)
+            throw new ArgumentException("Each boundary needs its own box, index for index.", nameof(boundaryBoxes));
+
         var parameters = new List<double>();
         Interval domain = projectedCurve.Domain;
         // The fast box encloses the curve (control hull), so it only ever over-admits a boundary.
