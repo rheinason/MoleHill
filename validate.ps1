@@ -297,6 +297,11 @@ try {
         $commit = (& git rev-parse --short HEAD) 2>$null
         if ((& git status --porcelain) 2>$null) { $commit = "$commit+dirty" }
 
+        # Assigned outside the hashtable: `$( )` unrolls a one-element array to a string, which Windows
+        # PowerShell then writes as "Scenarios": "name" and the lane cannot read.
+        $scenarios = $null
+        if ($Scenario) { $scenarios = [string[]]$Scenario }
+
         $request = [ordered]@{
             ResultPath   = $resultPath
             BaselinePath = $(if ($UpdateBaseline -or -not (Test-Path $baselinePath)) { $null } else { (Resolve-Path $baselinePath).Path })
@@ -305,7 +310,7 @@ try {
             Margin       = $Margin
             FloorMs      = $FloorMs
             Commit       = $commit
-            Scenarios    = $(if ($Scenario) { @($Scenario) } else { $null })
+            Scenarios    = $scenarios
         }
         ($request | ConvertTo-Json) | Set-Content -Encoding utf8 -Path $requestPath
 
