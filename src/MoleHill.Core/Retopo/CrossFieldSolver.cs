@@ -88,7 +88,7 @@ public static class CrossFieldSolver
         if (options.CreaseAngleDeg > 0)
         {
             double cosThreshold = Math.Cos(Math.Clamp(options.CreaseAngleDeg, 1.0, 179.0) * Math.PI / 180.0);
-            foreach ((int a, int b) in SurfaceRemesher.DetectCreaseEdges(vertices, faces, faceCount, cosThreshold))
+            foreach ((int a, int b) in MeshFeatureDetection.DetectCreaseEdges(vertices, faces, faceCount, cosThreshold))
                 AccumulateFeatureEdge(vertices, a, b, accumX, accumY);
         }
 

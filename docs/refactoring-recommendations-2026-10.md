@@ -17,6 +17,7 @@ referenced rather than restated.
 | 7 | Grader request objects | **Done.** `PadGradeRequest` / `PathGradeRequest` / `GradeOutcome` are the only entry points. |
 | 8 | Shared conversion layer | **Partial.** Small Rhino/GH helper copies merged; moving `RhinoGeometryConversions` to Shared (quad-mesh parity in GH) is open. |
 | 10 | Services sub-folders | **Done.** |
+| 9 | Remesher roles | **Done** (docs + `MeshFeatureDetection`). The GH Remesh divergence is the card's Full Rebuild mode vs its default isotropic one; adding a Mode input to GH is a feature decision, left open. |
 | 15 | Shared test meshes | **Done** for Core tests (`TestMeshes`). |
 | 17 | Stray temp files | **Done.** |
 | 5, 6, 9, 11–14, 16 | | Open. |

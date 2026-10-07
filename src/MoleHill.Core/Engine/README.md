@@ -71,9 +71,15 @@ Key files:
   optionally retains a dense-id/native-reference adjacency view and validates reciprocal shared edges.
 - `SurfaceRemesher.cs` — global **constrained-Delaunay** rebuild with constraints. Rebuilds the region
   from scratch (every constraint incl. wall rails becomes a hard edge — structurally cannot cross a
-  wall); also home of the shared `DetectCreaseEdges`. Used by grading rebuilds, the GH Remesh component,
-  and the Remesh modifier's **Full Rebuild** mode (`RemeshModifierDefinition.Mode == "rebuild"`, classic/
-  wall-safe, coarser triangle shapes).
+  wall). Its job is constrained re-triangulation, and its `ConstraintPolyline` input is now a top-level
+  type. Used by constraint insertion in the Rhino build (`TerrainBuildService.MeshConstraints`),
+  `MeshAreaSplitter`, the GH Remesh and Retaining Wall components, and the Remesh modifier's **Full
+  Rebuild** mode (`RemeshModifierDefinition.Mode == "rebuild"`, classic/wall-safe, coarser triangle
+  shapes). The GH Remesh component exposes only this mode; the card's default isotropic engine has no
+  GH route yet (see `docs/gh-modifier-parity-matrix.md`).
+- `MeshFeatureDetection.cs` — `DetectCreaseEdges`: interior edges whose faces meet at or past a dihedral
+  threshold. Shared by `SurfaceRemesher`, `LocalMeshRefiner`, `FeaturePolylineGraph` and Retopo's
+  `CrossFieldSolver`.
 - `IsotropicRemesher.cs` — the Remesh modifier's default engine (`Mode == "isotropic"`): full incremental
   **isotropic remeshing** (split long / collapse short / Lawson flips / tangential relax /
   back-project). 2.5D makes the loop safe: every moved or added vertex re-samples Z from the ORIGINAL

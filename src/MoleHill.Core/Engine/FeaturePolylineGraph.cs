@@ -154,7 +154,7 @@ internal sealed class FeaturePolylineGraph
         {
             double cosThreshold = Math.Cos(Math.Clamp(creaseAngleDeg, 1.0, 179.0) * Math.PI / 180.0);
             var creaseEdges = new HashSet<long>(IndexedMeshTools.EdgeKeyComparer.Instance);
-            foreach ((int a, int b) in SurfaceRemesher.DetectCreaseEdges(vertices, faces, faceCount, cosThreshold))
+            foreach ((int a, int b) in MeshFeatureDetection.DetectCreaseEdges(vertices, faces, faceCount, cosThreshold))
             {
                 long key = EdgeKey(a, b);
                 if (!featureEdges.Contains(key))
