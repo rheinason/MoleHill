@@ -1,5 +1,6 @@
 using MoleHill.Core.Grading;
 using Xunit;
+using MoleHill.Core.Engine;
 
 namespace MoleHill.Core.Tests;
 
@@ -25,10 +26,7 @@ public class MeshSmootherTests
         };
 
         var smoothed = MeshSmoother.Smooth(
-            vertices,
-            5,
-            faces,
-            4,
+            new IndexedTriMesh(vertices, 5, faces, 4),
             Array.Empty<(double[] xyVerts, int vertCount, double strength)>(),
             1.0,
             Array.Empty<(double[] xyPts, int ptCount)>(),
@@ -59,10 +57,7 @@ public class MeshSmootherTests
         };
 
         var onePass = MeshSmoother.Smooth(
-            vertices,
-            5,
-            faces,
-            4,
+            new IndexedTriMesh(vertices, 5, faces, 4),
             Array.Empty<(double[] xyVerts, int vertCount, double strength)>(),
             0.2,
             Array.Empty<(double[] xyPts, int ptCount)>(),
@@ -71,10 +66,7 @@ public class MeshSmootherTests
             1);
 
         var threePasses = MeshSmoother.Smooth(
-            vertices,
-            5,
-            faces,
-            4,
+            new IndexedTriMesh(vertices, 5, faces, 4),
             Array.Empty<(double[] xyVerts, int vertCount, double strength)>(),
             0.2,
             Array.Empty<(double[] xyPts, int ptCount)>(),
@@ -110,10 +102,7 @@ public class MeshSmootherTests
         };
 
         var direct = MeshSmoother.Smooth(
-            vertices,
-            5,
-            faces,
-            4,
+            new IndexedTriMesh(vertices, 5, faces, 4),
             Array.Empty<(double[] xyVerts, int vertCount, double strength)>(),
             0.35,
             Array.Empty<(double[] xyPts, int ptCount)>(),
@@ -122,10 +111,7 @@ public class MeshSmootherTests
             2);
 
         var prepared = MeshSmoother.Prepare(
-            vertices,
-            5,
-            faces,
-            4,
+            new IndexedTriMesh(vertices, 5, faces, 4),
             Array.Empty<(double[] xyVerts, int vertCount)>(),
             Array.Empty<(double[] xyPts, int ptCount)>(),
             1e-6);
@@ -166,19 +152,13 @@ public class MeshSmootherTests
         };
 
         var preparedWithoutBreaklines = MeshSmoother.Prepare(
-            vertices,
-            5,
-            faces,
-            4,
+            new IndexedTriMesh(vertices, 5, faces, 4),
             Array.Empty<(double[] xyVerts, int vertCount)>(),
             Array.Empty<(double[] xyPts, int ptCount)>(),
             1e-6);
 
         var preparedWithBreaklines = MeshSmoother.Prepare(
-            vertices,
-            5,
-            faces,
-            4,
+            new IndexedTriMesh(vertices, 5, faces, 4),
             Array.Empty<(double[] xyVerts, int vertCount)>(),
             breaklines,
             1e-6);
@@ -233,10 +213,7 @@ public class MeshSmootherTests
         };
 
         var direct = MeshSmoother.Smooth(
-            vertices,
-            5,
-            faces,
-            4,
+            new IndexedTriMesh(vertices, 5, faces, 4),
             boundaryWithStrength,
             1.0,
             breaklines,
@@ -245,10 +222,7 @@ public class MeshSmootherTests
             2);
 
         var prepared = MeshSmoother.Prepare(
-            vertices,
-            5,
-            faces,
-            4,
+            new IndexedTriMesh(vertices, 5, faces, 4),
             boundary,
             breaklines,
             1e-6);
@@ -285,10 +259,7 @@ public class MeshSmootherTests
         };
 
         var prepared = MeshSmoother.Prepare(
-            vertices,
-            5,
-            faces,
-            4,
+            new IndexedTriMesh(vertices, 5, faces, 4),
             Array.Empty<(double[] xyVerts, int vertCount)>(),
             Array.Empty<(double[] xyPts, int ptCount)>(),
             1e-6);
@@ -330,10 +301,7 @@ public class MeshSmootherTests
         };
 
         var prepared = MeshSmoother.Prepare(
-            vertices,
-            6,
-            faces,
-            6,
+            new IndexedTriMesh(vertices, 6, faces, 6),
             Array.Empty<(double[] xyVerts, int vertCount)>(),
             breaklines,
             1e-6);

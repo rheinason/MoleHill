@@ -3,6 +3,7 @@ using MoleHill.Core.Grading;
 using MoleHill.Grasshopper.Registry;
 using MoleHill.Grasshopper.Types;
 using Rhino.Geometry;
+using MoleHill.Core.Engine;
 
 namespace MoleHill.Grasshopper.Components;
 
@@ -171,8 +172,7 @@ public sealed class MeshSmoothComponent : RegistryTerrainComponent
         }
 
         var smoothed = MeshSmoother.Smooth(
-            vertices, vertexCount,
-            faces, faceCount,
+            new IndexedTriMesh(vertices, vertexCount, faces, faceCount),
             boundaries.ToArray(),
             globalStrength,
             breaklineData.ToArray(),

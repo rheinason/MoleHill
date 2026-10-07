@@ -34,10 +34,7 @@ public static class MeshSmoother
     /// If no boundaries are provided, globalStrength is applied to all interior vertices.
     /// Breakline vertices can be held rigid via breaklineFixity.
     /// </summary>
-    /// <param name="vertices">Flat XYZ: [x0,y0,z0, ...]</param>
-    /// <param name="vertexCount">Number of vertices.</param>
-    /// <param name="faces">Triangle indices: [i0,i1,i2, ...]</param>
-    /// <param name="faceCount">Number of faces.</param>
+    /// <param name="mesh">The triangle mesh (flat vertices and faces with their counts).</param>
     /// <param name="boundaries">Closed polygon boundaries with per-boundary strength. Empty = smooth whole interior.</param>
     /// <param name="globalStrength">Smoothing strength used when no boundaries are provided (0-1).</param>
     /// <param name="breaklines">XY flat arrays of breakline polylines whose vertices should resist smoothing.</param>
@@ -46,8 +43,7 @@ public static class MeshSmoother
     /// <param name="iterations">Number of smoothing passes.</param>
     /// <returns>New vertex array with smoothed Z values.</returns>
     public static double[] Smooth(
-        double[] vertices, int vertexCount,
-        int[] faces, int faceCount,
+        IndexedTriMesh mesh,
         (double[] xyVerts, int vertCount, double strength)[] boundaries,
         double globalStrength,
         (double[] xyPts, int ptCount)[] breaklines,
@@ -56,10 +52,7 @@ public static class MeshSmoother
         int iterations)
     {
         return Smooth(
-            vertices,
-            vertexCount,
-            faces,
-            faceCount,
+            mesh,
             boundaries,
             globalStrength,
             ToBreaklinePolylines(breaklines),
@@ -69,8 +62,7 @@ public static class MeshSmoother
     }
 
     public static double[] Smooth(
-        double[] vertices, int vertexCount,
-        int[] faces, int faceCount,
+        IndexedTriMesh mesh,
         (double[] xyVerts, int vertCount, double strength)[] boundaries,
         double globalStrength,
         BreaklinePolyline[] breaklines,
@@ -78,6 +70,8 @@ public static class MeshSmoother
         double snapTolerance,
         int iterations)
     {
+        (double[] vertices, int vertexCount, int[] faces, int faceCount) = mesh;
+
         if (iterations <= 0)
             return (double[])vertices.Clone();
 
@@ -132,33 +126,26 @@ public static class MeshSmoother
     }
 
     public static PreparedSmoothingData Prepare(
-        double[] vertices,
-        int vertexCount,
-        int[] faces,
-        int faceCount,
+        IndexedTriMesh mesh,
         (double[] xyVerts, int vertCount)[] boundaries,
         (double[] xyPts, int ptCount)[] breaklines,
         double snapTolerance)
     {
         return Prepare(
-            vertices,
-            vertexCount,
-            faces,
-            faceCount,
+            mesh,
             boundaries,
             ToBreaklinePolylines(breaklines),
             snapTolerance);
     }
 
     public static PreparedSmoothingData Prepare(
-        double[] vertices,
-        int vertexCount,
-        int[] faces,
-        int faceCount,
+        IndexedTriMesh mesh,
         (double[] xyVerts, int vertCount)[] boundaries,
         BreaklinePolyline[] breaklines,
         double snapTolerance)
     {
+        (double[] vertices, int vertexCount, int[] faces, int faceCount) = mesh;
+
         BuildNeighborGraph(vertexCount, faces, faceCount, out var neighborOffsets, out var neighborIndices, out var isMeshBoundary);
 
         var insideBoundaries = BuildInsideBoundaryMask(vertices, vertexCount, boundaries);

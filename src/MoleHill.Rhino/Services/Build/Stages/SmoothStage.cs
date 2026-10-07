@@ -164,10 +164,7 @@ internal static class SmoothStage
         else
         {
             prepared = MeshSmoother.Prepare(
-                vertices,
-                vertexCount,
-                faces,
-                faceCount,
+                new IndexedTriMesh(vertices, vertexCount, faces, faceCount),
                 boundaries.ToArray(),
                 breaklines.ToArray(),
                 tolerance);
