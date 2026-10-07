@@ -58,6 +58,11 @@ internal abstract class ModifierTypeDescriptor
     /// </summary>
     public virtual string? InertReason(ModifierDefinition modifier, TerrainBuildSnapshot snapshot) => null;
 
+    /// <summary>
+    /// The one-line text shown on the collapsed card (source counts, key values). Empty when a type has none.
+    /// </summary>
+    public virtual string Summarize(ModifierDefinition modifier) => string.Empty;
+
     /// <summary>True when every one of <paramref name="sets"/> resolves to no objects.</summary>
     protected static bool NoneResolve(TerrainBuildSnapshot snapshot, params SourceReferenceSet[] sets) =>
         sets.All(set => TerrainBuildSnapshotResolver.ResolveObjects(snapshot, set).Count == 0);

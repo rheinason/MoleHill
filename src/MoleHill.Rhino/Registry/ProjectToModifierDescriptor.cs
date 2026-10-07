@@ -1,3 +1,4 @@
+using static MoleHill.Rhino.Registry.ModifierSummaryFormatting;
 using MoleHill.Rhino.Model;
 using MoleHill.Rhino.Services;
 using Rhino;
@@ -21,6 +22,15 @@ internal sealed class ProjectToModifierDescriptor : ModifierTypeDescriptor
     };
 
     public override void RunBuildStage(ModifierBuildContext context) => TerrainBuildService.RunProjectToStage(context);
+
+    public override string Summarize(ModifierDefinition modifier)
+    {
+        var projectTo = (ProjectToModifierDefinition)modifier;
+        string target = projectTo.TargetMesh.HasReferences
+            ? "target mesh"
+            : projectTo.TargetTerrainId.HasValue ? "target terrain" : "no target";
+        return $"{target} | {CountSources(projectTo.Boundaries)} boundaries | Strength {projectTo.Strength:G3}";
+    }
 
     public override string? InertReason(ModifierDefinition modifier, TerrainBuildSnapshot snapshot) =>
         modifier is ProjectToModifierDefinition m && NoneResolve(snapshot, m.TargetMesh) && m.TargetTerrainId == null ? "Not applied — no target selected." : null;

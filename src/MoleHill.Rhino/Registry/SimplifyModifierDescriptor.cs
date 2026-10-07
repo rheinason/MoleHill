@@ -1,3 +1,4 @@
+using static MoleHill.Rhino.Registry.ModifierSummaryFormatting;
 using MoleHill.Rhino.Model;
 using MoleHill.Rhino.Services;
 using Rhino;
@@ -19,6 +20,17 @@ internal sealed class SimplifyModifierDescriptor : ModifierTypeDescriptor
         MaximumDeviation = ModelUnits.FromMeters(0.05, unitSystem)
     };
     public override void RunBuildStage(ModifierBuildContext context) => TerrainBuildService.RunSimplifyStage(context);
+
+    public override string Summarize(ModifierDefinition modifier)
+    {
+        var simplify = (SimplifyModifierDefinition)modifier;
+        return simplify.Mode switch
+        {
+            SimplifyModifierDefinition.TargetVertexCountMode => $"At most {simplify.TargetVertexCount:N0} vertices",
+            SimplifyModifierDefinition.RetainPercentageMode => $"Retain {simplify.RetainPercentage:G4}%",
+            _ => $"Max Deviation {simplify.MaximumDeviation:G4}"
+        };
+    }
 
     public override IReadOnlyList<ModifierParam> Parameters { get; } = new[]
     {

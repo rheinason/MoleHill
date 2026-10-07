@@ -1,3 +1,4 @@
+using static MoleHill.Rhino.Registry.ModifierSummaryFormatting;
 using MoleHill.Rhino.Model;
 using MoleHill.Rhino.Services;
 using Rhino;
@@ -17,6 +18,15 @@ internal sealed class InSituStairModifierDescriptor : ModifierTypeDescriptor
     public override ModifierDefinition Create(UnitSystem unitSystem) =>
         new InSituStairModifierDefinition { RiserHeight = ModelUnits.FromMeters(0.15, unitSystem) };
     public override void RunBuildStage(ModifierBuildContext context) => TerrainBuildService.RunInSituStairStage(context);
+
+    public override string Summarize(ModifierDefinition modifier)
+    {
+        var stair = (InSituStairModifierDefinition)modifier;
+        int refs = CountSources(stair.ReferenceSurface);
+        return !string.IsNullOrWhiteSpace(stair.ComputedTreadDepthSummary)
+            ? $"{stair.ComputedSurfaceCount ?? refs} surfaces | Tread Depth {stair.ComputedTreadDepthSummary}"
+            : $"{refs} reference surfaces | Riser Height {stair.RiserHeight:G4}";
+    }
 
     public override string? InertReason(ModifierDefinition modifier, TerrainBuildSnapshot snapshot) =>
         modifier is InSituStairModifierDefinition m && NoneResolve(snapshot, m.ReferenceSurface) ? "Not applied — no reference surface selected." : null;

@@ -1,3 +1,4 @@
+using static MoleHill.Rhino.Registry.ModifierSummaryFormatting;
 using MoleHill.Rhino.Model;
 using MoleHill.Rhino.Services;
 using Rhino;
@@ -23,6 +24,13 @@ internal sealed class TriangulateModifierDescriptor : ModifierTypeDescriptor
     public override string Subtitle => "Terrain geometry";
     public override ModifierDefinition Create(UnitSystem unitSystem) => new TriangulateModifierDefinition();
     public override void RunBuildStage(ModifierBuildContext context) => TerrainBuildService.RunTriangulateStage(context);
+
+    public override string Summarize(ModifierDefinition modifier)
+    {
+        var t = (TriangulateModifierDefinition)modifier;
+        return $"{CountSources(t.DemSurface)} DEM | {CountSources(t.Points)} points | " +
+            $"{CountSources(t.Breaklines)} breaklines | {CountSources(t.Contours)} contours";
+    }
 
     // Source rows first, then settings. The panel defers Contour Mode and the boundary-peel rows to its
     // own positions; the schema order remains the shared contract for non-panel consumers.

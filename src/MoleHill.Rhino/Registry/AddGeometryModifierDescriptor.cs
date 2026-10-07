@@ -1,3 +1,4 @@
+using static MoleHill.Rhino.Registry.ModifierSummaryFormatting;
 using MoleHill.Rhino.Model;
 using MoleHill.Rhino.Services;
 using Rhino;
@@ -16,6 +17,13 @@ internal sealed class AddGeometryModifierDescriptor : ModifierTypeDescriptor
     public override string Subtitle => "Add points, breaklines and contours";
     public override ModifierDefinition Create(UnitSystem unitSystem) => new AddGeometryModifierDefinition();
     public override void RunBuildStage(ModifierBuildContext context) => TerrainBuildService.RunAddGeometryStage(context);
+
+    public override string Summarize(ModifierDefinition modifier)
+    {
+        var a = (AddGeometryModifierDefinition)modifier;
+        return $"{CountSources(a.Points)} points | {CountSources(a.Breaklines)} breaklines | " +
+            $"{CountSources(a.Contours)} contours";
+    }
 
     public override string? InertReason(ModifierDefinition modifier, TerrainBuildSnapshot snapshot) =>
         modifier is AddGeometryModifierDefinition m && NoneResolve(snapshot, m.EnumerateSourceSets().ToArray()) ? "Not applied — no geometry selected." : null;

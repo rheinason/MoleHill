@@ -1,3 +1,4 @@
+using static MoleHill.Rhino.Registry.ModifierSummaryFormatting;
 using MoleHill.Rhino.Model;
 using MoleHill.Rhino.Services;
 using Rhino;
@@ -16,6 +17,12 @@ internal sealed class SmoothModifierDescriptor : ModifierTypeDescriptor
     public override string Subtitle => "Smooth heights, keep plan";
     public override ModifierDefinition Create(UnitSystem unitSystem) => new SmoothModifierDefinition();
     public override void RunBuildStage(ModifierBuildContext context) => TerrainBuildService.RunSmoothStage(context);
+
+    public override string Summarize(ModifierDefinition modifier)
+    {
+        var s = (SmoothModifierDefinition)modifier;
+        return $"{s.Iterations} iterations | Strength {s.Strength:G3} | {CountSources(s.Breaklines)} protect curves";
+    }
 
     public override IReadOnlyList<ModifierParam> Parameters { get; } = new[]
     {
