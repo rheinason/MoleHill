@@ -1384,6 +1384,8 @@ internal static class GeometryCommandService
         if (boundaryCurves.Count == 0)
             return Result.Nothing;
 
+        var boundaryBoxes = boundaryCurves.Select(boundary => boundary.GetBoundingBox(true)).ToList();
+
         var curvesToDelete = new List<Guid>();
         var curvesToAdd = new List<(Curve Curve, ObjectAttributes Attributes)>();
 
@@ -1399,7 +1401,7 @@ internal static class GeometryCommandService
             if (projectedSource == null)
                 continue;
 
-            double[] splitParameters = GetUniqueSplitParameters(projectedSource, boundaryCurves, tolerance);
+            double[] splitParameters = GetUniqueSplitParameters(projectedSource, boundaryCurves, boundaryBoxes, tolerance);
             Curve[] segments = splitParameters.Length > 0
                 ? sourceCurve.Split(splitParameters)
                 : new[] { sourceCurve.DuplicateCurve() };
@@ -1416,7 +1418,7 @@ internal static class GeometryCommandService
                 Point3d projectedMidPoint = activePlane.ClosestPoint(midPoint);
                 projectedMidPoint.Transform(toWorldXY);
 
-                bool inside = GeometryCommandAlgorithms.IsPointInsideNestedBoundaries(projectedMidPoint, boundaryCurves, tolerance);
+                bool inside = GeometryCommandAlgorithms.IsPointInsideNestedBoundaries(projectedMidPoint, boundaryCurves, boundaryBoxes, tolerance);
                 bool deleteSegment = (inside && trimInside) || (!inside && !trimInside);
                 if (deleteSegment)
                     continue;
@@ -1613,20 +1615,25 @@ internal static class GeometryCommandService
     private static Curve? ProjectCurveToWorldXY(Curve curve, Plane plane, Transform toWorldXY)
     {
         Curve? projectedCurve = Curve.ProjectToPlane(curve, plane);
-        if (projectedCurve == null)
-            return null;
-
-        Curve duplicate = projectedCurve.DuplicateCurve();
-        duplicate.Transform(toWorldXY);
-        return duplicate;
+        projectedCurve?.Transform(toWorldXY);
+        return projectedCurve;
     }
 
-    private static double[] GetUniqueSplitParameters(Curve projectedCurve, IReadOnlyList<Curve> boundaries, double tolerance)
+    private static double[] GetUniqueSplitParameters(
+        Curve projectedCurve,
+        IReadOnlyList<Curve> boundaries,
+        IReadOnlyList<BoundingBox> boundaryBoxes,
+        double tolerance)
     {
         var parameters = new List<double>();
         Interval domain = projectedCurve.Domain;
+        // The fast box encloses the curve (control hull), so it only ever over-admits a boundary.
+        BoundingBox curveBox = projectedCurve.GetBoundingBox(false);
         for (int boundaryIndex = 0; boundaryIndex < boundaries.Count; boundaryIndex++)
         {
+            if (!GeometryCommandAlgorithms.OverlapsXY(curveBox, boundaryBoxes[boundaryIndex], tolerance))
+                continue;
+
             CurveIntersections intersections = Intersection.CurveCurve(projectedCurve, boundaries[boundaryIndex], tolerance, tolerance);
             for (int i = 0; i < intersections.Count; i++)
             {

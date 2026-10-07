@@ -1013,17 +1013,41 @@ internal static class GeometryCommandAlgorithms
         return (dx * dx) + (dy * dy) < radius * radius;
     }
 
-    public static bool IsPointInsideNestedBoundaries(Point3d point, IReadOnlyList<Curve> boundaries, double tolerance)
+    public static bool IsPointInsideNestedBoundaries(
+        Point3d point,
+        IReadOnlyList<Curve> boundaries,
+        IReadOnlyList<BoundingBox> boundaryBoxes,
+        double tolerance)
     {
         int containmentCount = 0;
         for (int i = 0; i < boundaries.Count; i++)
         {
+            // Curve.Contains is costly; a point outside the boundary's XY box cannot be inside or on it.
+            if (!ContainsXY(boundaryBoxes[i], point, tolerance))
+                continue;
+
             PointContainment containment = boundaries[i].Contains(point, Plane.WorldXY, tolerance);
             if (containment == PointContainment.Inside || containment == PointContainment.Coincident)
                 containmentCount++;
         }
 
         return containmentCount % 2 == 1;
+    }
+
+    public static bool ContainsXY(BoundingBox box, Point3d point, double tolerance)
+    {
+        return point.X >= box.Min.X - tolerance &&
+               point.X <= box.Max.X + tolerance &&
+               point.Y >= box.Min.Y - tolerance &&
+               point.Y <= box.Max.Y + tolerance;
+    }
+
+    public static bool OverlapsXY(BoundingBox a, BoundingBox b, double tolerance)
+    {
+        return a.Min.X <= b.Max.X + tolerance &&
+               b.Min.X <= a.Max.X + tolerance &&
+               a.Min.Y <= b.Max.Y + tolerance &&
+               b.Min.Y <= a.Max.Y + tolerance;
     }
 
     public static double GetSignedOffsetDistanceForSide(bool isLeftSide, double offsetDistance)
