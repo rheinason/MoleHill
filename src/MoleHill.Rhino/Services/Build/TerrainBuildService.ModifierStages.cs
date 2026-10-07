@@ -14,19 +14,4 @@ namespace MoleHill.Rhino.Services;
 /// descriptor can own its build step (Blender-style "register a type, it builds itself").
 /// </summary>
 internal sealed partial class TerrainBuildService
-{
-    internal static void RunTriangulateStage(ModifierBuildContext c)
-    {
-        var triangulate = (TriangulateModifierDefinition)c.Modifier;
-        c.CurrentMesh = BuildTinMesh(c.Snapshot, c.Terrain, triangulate, c.Build, c.RuntimeCache, c.StageKey, out ulong fingerprint, c.ShouldCancel, c.ReportProgress);
-        c.CurrentMeshFingerprint = fingerprint;
-        if (c.CurrentMesh != null && c.BaseMesh == null)
-        {
-            var progress = new TerrainBuildProgressReporter(c.ReportProgress);
-            progress.Start("Base-mesh duplicate");
-            c.BaseMesh = RhinoGeometryConversions.DuplicateWithCachedData(c.CurrentMesh);
-            progress.Complete("Base-mesh duplicate", $"{c.BaseMesh.Vertices.Count:N0} vertices, {c.BaseMesh.Faces.Count:N0} faces");
-            c.BaseMeshFingerprint = ComputeMeshFingerprint(c.BaseMesh);
-        }
-    }
-}
+{}

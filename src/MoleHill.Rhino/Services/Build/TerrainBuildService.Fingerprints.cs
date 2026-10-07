@@ -304,20 +304,6 @@ internal sealed partial class TerrainBuildService
         return builder.ToUInt64();
     }
 
-    private static ulong ComputeBoundaryPolylinesFingerprint(IReadOnlyList<TinBoundaryPreparer.BoundaryPolyline> boundaries)
-    {
-        var builder = new FingerprintBuilder();
-        builder.Add(boundaries.Count);
-        foreach (var boundary in boundaries)
-        {
-            builder.Add(boundary.PointCount);
-            builder.Add(boundary.IsClosed);
-            AddDoubleArrayFingerprint(ref builder, boundary.Points);
-        }
-
-        return builder.ToUInt64();
-    }
-
     private static void AddSerializedFingerprint(ref FingerprintBuilder builder, object value, Type type)
     {
         builder.AddBytes(JsonSerializer.SerializeToUtf8Bytes(value, type, FingerprintJsonOptions));
@@ -351,7 +337,7 @@ internal sealed partial class TerrainBuildService
             builder.Add(values[i]);
     }
 
-    private static void AddIntArrayFingerprint(ref FingerprintBuilder builder, IReadOnlyList<int> values)
+    internal static void AddIntArrayFingerprint(ref FingerprintBuilder builder, IReadOnlyList<int> values)
     {
         builder.Add(values.Count);
         for (int i = 0; i < values.Count; i++)

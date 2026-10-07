@@ -22,7 +22,7 @@ internal sealed class TriangulateModifierDescriptor : ModifierTypeDescriptor
     public override bool CanCreateFromMenu => false; // pinned base modifier
     public override string Subtitle => "Terrain geometry";
     public override ModifierDefinition Create(UnitSystem unitSystem) => new TriangulateModifierDefinition();
-    public override void RunBuildStage(ModifierBuildContext context) => TerrainBuildService.RunTriangulateStage(context);
+    public override void RunBuildStage(ModifierBuildContext context) => TriangulateStage.Run(context);
 
     // Source rows first, then settings. The panel defers Contour Mode and the boundary-peel rows to its
     // own positions; the schema order remains the shared contract for non-panel consumers.
