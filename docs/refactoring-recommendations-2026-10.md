@@ -11,7 +11,7 @@ referenced rather than restated.
 | # | Item | State |
 |---|---|---|
 | 1 | Face-cut kernel | **Done.** `Grading/FaceCut/`; the inserter also got the splitter's three repairs (clockwise winding, corner protection, degenerate faces), each with a test. |
-| 2 | `IndexedTriMesh` | **Started.** Type added; the count-less Rhino extraction is gone; graders and GH extraction take it. Remaining: the other ~45 public Core entry points. |
+| 2 | `IndexedTriMesh` | **Done.** The graders, `MeshConstraintTopologyInserter.TryInsert` (in and out), the area splitters, smoother, strip grader, boundary trimmer, grading windows, balancer, constraint tracer, slope/aspect/contour/gradient analyzers, sculpt rasterizer and conformer all take the mesh as one value; the count-less Rhino extraction is gone. Array kernels stay raw on purpose (`MeshArrayNormalizer`, `IndexedMeshTools`, `MeshTopologyOperations.MergeMeshes`/`TryFillSmallBranchedBoundaryLoops`, grader-internal `ApplyGradingZ`/`CreateConstraints`). |
 | 3 | `ConstraintPolyline` top-level | **Done.** |
 | 4 | `Geometry2D` kernel | **Done.** 35 private copies removed, `PadGrader.Spatial` wrappers retired, `Geometry2DGuardTests` stops new copies. GH/Shared copies remain (can't see Core internals). |
 | 5 | Spatial indexes | **Done, smaller than claimed.** Six of the "13 private indexes" already wrap `SpatialHashGrid2D`. The only true duplicate (`VertexHashGrid` in `LocalMeshRefiner` and `CrossFieldSolver`) is shared; the other point hashes differ in tie rule on purpose (documented on `VertexHashGrid`). |
@@ -20,7 +20,7 @@ referenced rather than restated.
 | 8 | Shared conversion layer | **Done.** `RhinoGeometryConversions` and `ToConstraintPolyline` live in `MoleHill.Shared`; GH components extract through `GhSolveContext.TryExtractMesh` (quad meshes now accepted). Slope Analysis keeps its raw read because its per-face output is index-aligned with the input. |
 | 9 | Remesher roles | **Done** (docs + `MeshFeatureDetection`). The GH Remesh divergence is the card's Full Rebuild mode vs its default isotropic one; adding a Mode input to GH is a feature decision, left open. |
 | 10 | Services sub-folders | **Done.** |
-| 11 | Build stages | In progress. |
+| 11 | Build stages | **Done.** All 13 modifier stages are `Services/Build/Stages/XxxStage` classes; the ~60 helpers they share are now `internal static` on `TerrainBuildService` (listed in `Services/README.md`). |
 | 12 | Annotation builder split | **Done** as three partial files (labels, sections, emit); separate classes were not worth it because the private helpers are shared. |
 | 13 | Schema migrations | **Done.** `TerrainSchemaMigrations`: ordered version steps (22, 23, 25, 27, 29, 31, 32) plus an unversioned legacy phase; per-type load normalization is `NormalizeAfterLoad` on the definitions; 18 characterization tests written against the old code first. |
 | 14 | Pure logic out of the host | **Done** for the GeoTIFF tag/metadata/unit readers, `RasterGeoreference`, `CurveReviewRules`, `SectionProfileComparer` (now `MoleHill.Core.IO` / `Core.Analysis`). Kept in the host: `GeoTiffElevationReader` (LibTiff), `TerrainReportBuilder`, `CurveReviewPalette`. |
