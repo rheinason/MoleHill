@@ -90,10 +90,12 @@ public sealed class GradeLineComponent : RegistryTerrainComponent
             return;
         }
 
-        var vertices = GhSolveContext.ToFlatVertices(mesh);
-        int vertexCount = mesh.Vertices.Count;
-        if (!ctx.TryToFlatFaces(mesh, out var faces))
+        if (!ctx.TryExtractMesh(mesh, out var extracted))
             return;
+        double[] vertices = extracted.Vertices;
+        int vertexCount = extracted.VertexCount;
+        int[] faces = extracted.Faces;
+        faceCount = extracted.FaceCount;
 
         var lineDefs = new List<PathGrader.PathDefinition>();
         int lineIdx = 0;

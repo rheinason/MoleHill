@@ -99,16 +99,13 @@ public sealed class InSituStairComponent : RegistryTerrainComponent
             return;
         }
 
-        if (!TryExtractMesh(mesh, out var vertices, out var faces, out errorMessage))
-        {
-            ctx.Error(errorMessage ?? "Could not extract terrain mesh data.");
+        if (!ctx.TryExtractMesh(mesh, out var extracted))
             return;
-        }
 
-        double[] currentVertices = vertices;
-        int currentVertexCount = mesh.Vertices.Count;
-        int[] currentFaces = faces;
-        int currentFaceCount = mesh.Faces.Count;
+        double[] currentVertices = extracted.Vertices;
+        int currentVertexCount = extracted.VertexCount;
+        int[] currentFaces = extracted.Faces;
+        int currentFaceCount = extracted.FaceCount;
         double cutVolume = 0.0;
         double fillVolume = 0.0;
         var warnings = new List<string>(stairBuild!.Warnings);
@@ -160,47 +157,6 @@ public sealed class InSituStairComponent : RegistryTerrainComponent
                 sourceTerrain.HasProjectBaseTransform);
             ctx.SetData(8, new MoleHillTerrainGoo(terrain));
         }
-    }
-
-    private static bool TryExtractMesh(Mesh mesh, out double[] vertices, out int[] faces, out string? errorMessage)
-    {
-        vertices = Array.Empty<double>();
-        faces = Array.Empty<int>();
-        errorMessage = null;
-
-        int vertexCount = mesh.Vertices.Count;
-        int faceCount = mesh.Faces.Count;
-        if (faceCount == 0)
-        {
-            errorMessage = "Input mesh has no faces.";
-            return false;
-        }
-
-        vertices = new double[vertexCount * 3];
-        for (int i = 0; i < vertexCount; i++)
-        {
-            var pt = mesh.Vertices[i];
-            vertices[i * 3] = pt.X;
-            vertices[i * 3 + 1] = pt.Y;
-            vertices[i * 3 + 2] = pt.Z;
-        }
-
-        faces = new int[faceCount * 3];
-        for (int i = 0; i < faceCount; i++)
-        {
-            var face = mesh.Faces[i];
-            if (face.IsQuad)
-            {
-                errorMessage = "Mesh contains quad faces. Only triangle meshes are supported.";
-                return false;
-            }
-
-            faces[i * 3] = face.A;
-            faces[i * 3 + 1] = face.B;
-            faces[i * 3 + 2] = face.C;
-        }
-
-        return true;
     }
 
     private static IEnumerable<Mesh> ToReferenceMeshes(GeometryBase? geometry)

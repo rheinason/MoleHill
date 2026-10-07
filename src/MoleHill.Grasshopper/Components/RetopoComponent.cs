@@ -42,10 +42,9 @@ public sealed class RetopoComponent : RegistryTerrainComponent
     private static void Solve(GhSolveContext ctx)
     {
         if (!ctx.TryGetMesh(0, out var mesh)) return;
-        if (!ctx.TryToFlatFaces(mesh, out var faces)) return;
-        if (mesh.Faces.Count == 0) { ctx.Error("Input mesh has no faces."); return; }
-
-        var vertices = GhSolveContext.ToFlatVertices(mesh);
+        if (!ctx.TryExtractMesh(mesh, out var extracted)) return;
+        int[] faces = extracted.Faces;
+        double[] vertices = extracted.Vertices;
         var constraints = new List<ConstraintPolyline>();
         foreach (var curve in ctx.GetCurves(1))
         {

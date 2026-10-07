@@ -55,19 +55,15 @@ public sealed class MeshSimplifyComponent : RegistryTerrainComponent
             return;
         }
         mesh ??= sourceTerrain!.Mesh.DuplicateMesh();
-        if (!ctx.TryToFlatFaces(mesh, out int[] faces)) return;
-        if (faces.Length == 0)
-        {
-            ctx.Error("Input mesh has no triangular faces.");
-            return;
-        }
+        if (!ctx.TryExtractMesh(mesh, out var extracted)) return;
+        int[] faces = extracted.Faces;
 
         string modeText = ctx.GetText(1, "Maximum deviation");
         bool countMode = modeText.Contains("count", StringComparison.OrdinalIgnoreCase);
         double deviation = Math.Max(0.0, ctx.GetNumber(2));
         int target = ctx.GetInt(3);
         double retainPercentage = ctx.GetNumber(5, 50.0);
-        double[] vertices = GhSolveContext.ToFlatVertices(mesh);
+        double[] vertices = extracted.Vertices;
         var required = new List<int>();
         foreach (Curve curve in ctx.GetCurves(4))
         {

@@ -89,9 +89,10 @@ public sealed class RemeshComponent : RegistryTerrainComponent
             return;
         }
 
-        var origVerts = GhSolveContext.ToFlatVertices(mesh);
-        if (!ctx.TryToFlatFaces(mesh, out var origFaces))
+        if (!ctx.TryExtractMesh(mesh, out var extracted))
             return;
+        double[] origVerts = extracted.Vertices;
+        int[] origFaces = extracted.Faces;
 
         var remeshConstraints = new List<ConstraintPolyline>();
         foreach (var crv in constraints)

@@ -44,13 +44,10 @@ public sealed class ProjectToComponent : RegistryTerrainComponent
         bool hasMesh = ctx.TryGetMesh(0, out Mesh input);
         if (!hasMesh && sourceTerrain == null) return;
         input ??= sourceTerrain!.Mesh.DuplicateMesh();
-        if (!ctx.TryGetMesh(1, out Mesh target) || !ctx.TryToFlatFaces(target, out int[] targetFaces))
+        if (!ctx.TryGetMesh(1, out Mesh target) || !ctx.TryExtractMesh(target, out var targetMesh))
             return;
-        if (!ctx.TryToFlatFaces(input, out int[] inputFaces) || targetFaces.Length == 0 || inputFaces.Length == 0)
-        {
-            ctx.Error("Input and target meshes must contain triangular faces.");
+        if (!ctx.TryExtractMesh(input, out var inputMesh))
             return;
-        }
 
         var loops = new List<double[]>();
         foreach (Curve curve in ctx.GetCurves(4))
@@ -70,14 +67,13 @@ public sealed class ProjectToComponent : RegistryTerrainComponent
             loops.Add(xy);
         }
 
-        double[] vertices = GhSolveContext.ToFlatVertices(input);
-        double[] targetVertices = GhSolveContext.ToFlatVertices(target);
-        double[] projected = SurfaceConformer.Conform(vertices, input.Vertices.Count, targetVertices, target.Vertices.Count,
-            targetFaces, targetFaces.Length / 3, loops, ctx.GetNumber(2, 1.0), ctx.GetNumber(3), ctx.Tolerance);
+        double[] vertices = inputMesh.Vertices;
+        double[] projected = SurfaceConformer.Conform(vertices, inputMesh.VertexCount, targetMesh.Vertices, targetMesh.VertexCount,
+            targetMesh.Faces, targetMesh.FaceCount, loops, ctx.GetNumber(2, 1.0), ctx.GetNumber(3), ctx.Tolerance);
         int changed = 0;
         for (int i = 0; i < vertices.Length; i += 3)
             if (Math.Abs(projected[i + 2] - vertices[i + 2]) > ctx.Tolerance) changed++;
-        Mesh output = GhSolveContext.BuildMesh(projected, inputFaces);
+        Mesh output = GhSolveContext.BuildMesh(projected, inputMesh.Faces);
         ctx.SetData(0, output);
         ctx.SetData(1, changed);
         if (sourceTerrain != null)

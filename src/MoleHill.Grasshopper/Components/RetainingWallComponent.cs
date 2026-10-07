@@ -84,11 +84,10 @@ public sealed class RetainingWallComponent : RegistryTerrainComponent
             return;
         }
 
-        if (!TryExtractTriangleMesh(mesh, out double[] vertices, out int[] faces, out string? meshError))
-        {
-            ctx.Error(meshError ?? "Could not extract a triangle mesh.");
+        if (!ctx.TryExtractMesh(mesh, out var extracted))
             return;
-        }
+        double[] vertices = extracted.Vertices;
+        int[] faces = extracted.Faces;
 
         double modelTolerance = ctx.Tolerance;
         var plan = RetainingWallPlannerCore.Plan(
@@ -203,13 +202,12 @@ public sealed class RetainingWallComponent : RegistryTerrainComponent
         if (railGrades.Count == 0)
             return mesh;
 
-        var vertices = GhSolveContext.ToFlatVertices(mesh);
-        if (!ctx.TryToFlatFaces(mesh, out var faces))
+        if (!ctx.TryExtractMesh(mesh, out var gradeTerrain))
             return mesh;
 
         GradeOutcome gradeOutcome = PathGrader.Grade(new PathGradeRequest
         {
-            Terrain = new IndexedTriMesh(vertices, mesh.Vertices.Count, faces, mesh.Faces.Count),
+            Terrain = gradeTerrain,
             Paths = railGrades.ToArray(),
         });
         string? errorMessage = gradeOutcome.ErrorMessage;
@@ -260,45 +258,6 @@ public sealed class RetainingWallComponent : RegistryTerrainComponent
             source.Name, source.Key, source.Revision, source.Diagnostics, source.UnitSystem,
             source.MetersPerModelUnit, source.LocalToWorld, source.HasProjectBaseTransform);
         ctx.SetData(4, new MoleHillTerrainGoo(terrain));
-    }
-
-    private static bool TryExtractTriangleMesh(Mesh mesh, out double[] vertices, out int[] faces, out string? error)
-    {
-        error = null;
-        vertices = Array.Empty<double>();
-        faces = Array.Empty<int>();
-        if (mesh.Faces.Count == 0)
-        {
-            error = "Input mesh has no faces.";
-            return false;
-        }
-
-        int vertexCount = mesh.Vertices.Count;
-        int faceCount = mesh.Faces.Count;
-        vertices = new double[vertexCount * 3];
-        for (int i = 0; i < vertexCount; i++)
-        {
-            vertices[i * 3] = mesh.Vertices[i].X;
-            vertices[i * 3 + 1] = mesh.Vertices[i].Y;
-            vertices[i * 3 + 2] = mesh.Vertices[i].Z;
-        }
-
-        faces = new int[faceCount * 3];
-        for (int i = 0; i < faceCount; i++)
-        {
-            MeshFace face = mesh.Faces[i];
-            if (face.IsQuad)
-            {
-                error = "Mesh contains quad faces. Only triangle meshes are supported.";
-                return false;
-            }
-
-            faces[i * 3] = face.A;
-            faces[i * 3 + 1] = face.B;
-            faces[i * 3 + 2] = face.C;
-        }
-
-        return true;
     }
 
     private static void AddWallConstraints(List<ConstraintPolyline> constraints, RetainingWallPlannerCore.WallRails rails)

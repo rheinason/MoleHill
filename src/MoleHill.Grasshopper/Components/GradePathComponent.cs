@@ -87,10 +87,12 @@ public sealed class GradePathComponent : RegistryTerrainComponent
             return;
         }
 
-        var vertices = GhSolveContext.ToFlatVertices(mesh);
-        int vertexCount = mesh.Vertices.Count;
-        if (!ctx.TryToFlatFaces(mesh, out var faces))
+        if (!ctx.TryExtractMesh(mesh, out var extracted))
             return;
+        double[] vertices = extracted.Vertices;
+        int vertexCount = extracted.VertexCount;
+        int[] faces = extracted.Faces;
+        faceCount = extracted.FaceCount;
 
         // Convert path curves to PathDefinitions
         var pathDefs = new List<PathGrader.PathDefinition>();
