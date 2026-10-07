@@ -1,4 +1,5 @@
 using MoleHill.Rhino.Services;
+using MoleHill.Shared;
 
 namespace MoleHill.Rhino.Tests;
 

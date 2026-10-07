@@ -1,5 +1,6 @@
 using MoleHill.Core.Engine;
 using MoleHill.Rhino.Services;
+using MoleHill.Shared;
 using Rhino.Geometry;
 using Xunit;
 

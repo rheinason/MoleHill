@@ -21,7 +21,7 @@ file that needs Rhino's runtime must be added to that `Exclude` at its new path.
 | `CurveReview/` | The curve-review conduit, form, rules, labeller and analysis |
 | `Sculpt/` | The sculpt session controller and its field codec, mask builder, live contours, normal patcher, colouriser and zone follower |
 | `Commands/` | `*CommandService` / `*CommandAlgorithms` backing the `mh*` commands, script runner, option cache, toolbar installer |
-| (root) | Shared utilities: `RhinoGeometryConversions`, `RhinoSourceResolver`, `TerrainMeshProjection`, `ModelUnits`, `ModelUnitGuard`, `SlopeUnitPreference`, `ReferenceEqualityComparer`, `ResolvedSourceObject`, `TerrainRegionState` |
+| (root) | Shared utilities: `RhinoSourceResolver`, `TerrainMeshProjection`, `ModelUnits`, `ModelUnitGuard`, `SlopeUnitPreference`, `ReferenceEqualityComparer`, `ResolvedSourceObject`, `TerrainRegionState` |
 
 ## Build pipeline
 - Isotropic Remesh embeds the card's own constraints before refinement; insertion failure skips remeshing.
@@ -352,7 +352,7 @@ layer table, dimension styles, and layouts can act on. See `docs/architecture.md
   shown; the analysis preview and the baked-object display both call it so they cannot disagree.
 - `GeometryCommandService.cs`, `TerrainInputCommandService.cs`, `TerrainInputCommandAlgorithms.cs`,
   `BlockCommandService.cs`, `RhinoSourceResolver.cs`,
-  `RhinoGeometryConversions.cs` - command/geometry helpers. Terrain input commands are intentionally
+  command/geometry helpers (`RhinoGeometryConversions` now lives in `MoleHill.Shared`). Terrain input commands are intentionally
   document-scoped and selected-only: validation edits selected points/curves, intersection splitting
   edits selected curves, draping samples a selected mesh/surface, and wall creation generates two
   ordinary open polylines. Validation replaces surviving objects in place so their ids and attributes

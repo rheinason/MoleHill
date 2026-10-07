@@ -290,7 +290,7 @@ public class TinFromPointsAndBreaklines : GH_Component
 
         try
         {
-            mesh = RhinoConverter.ToRhinoMesh(result);
+            mesh = RhinoGeometryConversions.ToRhinoMesh(result);
         }
         catch (Exception ex)
         {

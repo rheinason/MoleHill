@@ -123,6 +123,14 @@ new surface if assignment fails. CRS reprojection remains out of scope.
 
 ## Two hosts, one core
 
+Both hosts convert Rhino geometry through one layer, `MoleHill.Shared/RhinoGeometryConversions.cs`.
+Extraction normalizes a *copy* of the mesh (quads to triangles, identical vertices combined, unused
+vertices and degenerate faces culled) and returns arrays with the counts that describe them
+(`TryExtractMesh`, `TryExtractMeshData`); Polyline to `ConstraintPolyline` is `ToConstraintPolyline`.
+Grasshopper components reach it through `GhSolveContext.TryExtractMesh`, so a quad mesh or one with
+duplicate vertices behaves the same in a component as in the panel. Slope Analysis is the exception: its
+per-face `Slopes` output is index-aligned with the input faces, so it keeps a raw, quad-rejecting read.
+
 Wall solids synchronize rails through Core's `WallRailStationing`: nearby matching plan bends anchor
 the correspondence, with plan-length interpolation between them and every authored vertex retained.
 Rail Z is sampled independently. Normalizing whole-rail 3D lengths mismatched corners on graded,

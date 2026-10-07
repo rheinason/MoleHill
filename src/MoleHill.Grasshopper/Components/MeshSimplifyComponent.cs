@@ -2,6 +2,7 @@ using MoleHill.Core.Engine;
 using MoleHill.Core.Processing;
 using MoleHill.Grasshopper.Registry;
 using MoleHill.Grasshopper.Types;
+using MoleHill.Shared;
 using Rhino.Geometry;
 
 namespace MoleHill.Grasshopper.Components;
@@ -54,19 +55,15 @@ public sealed class MeshSimplifyComponent : RegistryTerrainComponent
             return;
         }
         mesh ??= sourceTerrain!.Mesh.DuplicateMesh();
-        if (!ctx.TryToFlatFaces(mesh, out int[] faces)) return;
-        if (faces.Length == 0)
-        {
-            ctx.Error("Input mesh has no triangular faces.");
-            return;
-        }
+        if (!ctx.TryExtractMesh(mesh, out var extracted)) return;
+        int[] faces = extracted.Faces;
 
         string modeText = ctx.GetText(1, "Maximum deviation");
         bool countMode = modeText.Contains("count", StringComparison.OrdinalIgnoreCase);
         double deviation = Math.Max(0.0, ctx.GetNumber(2));
         int target = ctx.GetInt(3);
         double retainPercentage = ctx.GetNumber(5, 50.0);
-        double[] vertices = GhSolveContext.ToFlatVertices(mesh);
+        double[] vertices = extracted.Vertices;
         var required = new List<int>();
         foreach (Curve curve in ctx.GetCurves(4))
         {
@@ -99,7 +96,7 @@ public sealed class MeshSimplifyComponent : RegistryTerrainComponent
                 if (breakline == null || !breakline.TryGetPolyline(out Polyline polyline) || polyline.Count < 2)
                     continue;
                 candidates.Add(breakline);
-                constraints.Add(ToConstraintPolyline(polyline, breakline.IsClosed));
+                constraints.Add(RhinoGeometryConversions.ToConstraintPolyline(polyline, breakline.IsClosed));
             }
 
             required.AddRange(SurfaceConstraintEdgeResolver.ResolveEach(
@@ -144,19 +141,6 @@ public sealed class MeshSimplifyComponent : RegistryTerrainComponent
                 sourceTerrain.HasProjectBaseTransform);
             ctx.SetData(4, new MoleHillTerrainGoo(terrain));
         }
-    }
-
-    private static ConstraintPolyline ToConstraintPolyline(Polyline polyline, bool isClosed)
-    {
-        var points = new double[polyline.Count * 3];
-        for (int i = 0; i < polyline.Count; i++)
-        {
-            points[i * 3] = polyline[i].X;
-            points[i * 3 + 1] = polyline[i].Y;
-            points[i * 3 + 2] = polyline[i].Z;
-        }
-
-        return new ConstraintPolyline(points, polyline.Count, isClosed);
     }
 
     private static int NearestVertex(double[] vertices, Point3d point, double tolerance)

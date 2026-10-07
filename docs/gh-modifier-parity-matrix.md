@@ -6,6 +6,11 @@ all 18 MoleHill components listed by the router. "Existing mesh tool" means a co
 metadata. It is not a completed B7 parity entry. Every fixture below still needs a matched Rhino/GH
 result, including constraint and zone checks.
 
+Mesh input handling is now shared: every GH mesh component extracts through
+`RhinoGeometryConversions` (via `GhSolveContext.TryExtractMesh`), so quad faces are accepted and normalized
+and duplicate vertices are combined exactly as in the panel. Slope Analysis keeps the raw triangle-only read
+because its per-face output is index-aligned with the input faces.
+
 | Native modifier | GH route | Current state | First matched fixture / gap |
 | --- | --- | --- | --- |
 | Triangulate, including boundary roles | Construct Terrain | Partial | Same point/curve/boundary roles; current Construct does not expose native boundary roles. |

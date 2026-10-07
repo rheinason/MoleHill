@@ -7,6 +7,8 @@ using MoleHill.Core.Processing;
 using MoleHill.Grasshopper.Types;
 using MoleHill.Grasshopper.Utilities;
 using Rhino.Geometry;
+using MoleHill.Core.Engine;
+using MoleHill.Shared;
 
 namespace MoleHill.Grasshopper.Components;
 
@@ -120,19 +122,15 @@ public sealed class PartitionTerrainComponent : GH_Component
             }),
             region.UseInputElevationForPriority));
 
-        if (!TerrainPartitionGeometry.TryExtractTriangleMesh(
-                terrain.Mesh,
-                out double[] vertices,
-                out int[] faces,
-                out string? meshWarning))
+        if (!RhinoGeometryConversions.TryExtractMesh(terrain.Mesh, out IndexedTriMesh extracted, out string? meshError))
         {
-            AddRuntimeMessage(GH_RuntimeMessageLevel.Error, meshWarning ?? "Could not read the terrain mesh.");
+            AddRuntimeMessage(GH_RuntimeMessageLevel.Error, meshError ?? "Could not read the terrain mesh.");
             return;
         }
 
+        double[] vertices = extracted.Vertices;
+        int[] faces = extracted.Faces;
         var report = new List<string>();
-        if (!string.IsNullOrWhiteSpace(meshWarning))
-            report.Add(meshWarning);
 
         var boundaries = new List<MeshAreaSplitter.AreaBoundary>();
         foreach (RegionInput region in regions)
@@ -176,9 +174,9 @@ public sealed class PartitionTerrainComponent : GH_Component
 
         MeshAreaSplitter.SplitResult? result = MeshAreaSplitter.SplitPreservingTopology(
             vertices,
-            vertices.Length / 3,
+            extracted.VertexCount,
             faces,
-            faces.Length / 3,
+            extracted.FaceCount,
             boundaries.ToArray(),
             tolerance,
             out string? splitWarning);

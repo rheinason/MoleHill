@@ -113,7 +113,7 @@ public sealed class BalanceGradePadComponent : RegistryTerrainComponent
             ctx.Error(warning ?? "Boundary did not define a stable pad plane.");
             return;
         }
-        if (!ctx.TryToFlatFaces(mesh, out int[] faces))
+        if (!ctx.TryExtractMesh(mesh, out var extracted))
             return;
 
         PadGrader.LockCurve[] locks = ConvertLocks(ctx.GetCurves(10), tolerance, out int ignoredLocks);
@@ -126,8 +126,8 @@ public sealed class BalanceGradePadComponent : RegistryTerrainComponent
         try
         {
             result = PadElevationBalancer.Balance(
-                GhSolveContext.ToFlatVertices(mesh), mesh.Vertices.Count,
-                faces, mesh.Faces.Count, pad!, locks,
+                extracted.Vertices, extracted.VertexCount,
+                extracted.Faces, extracted.FaceCount, pad!, locks,
                 minimum, maximum, targetNet, volumeTolerance, iterationCap,
                 modelTolerance: tolerance);
         }

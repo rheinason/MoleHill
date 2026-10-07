@@ -8,58 +8,6 @@ namespace MoleHill.Grasshopper.Utilities;
 // Rhino mesh/curve conversions for Core's topology-preserving terrain partitioner.
 internal static class TerrainPartitionGeometry
 {
-    public static bool TryExtractTriangleMesh(
-        Mesh source,
-        out double[] vertices,
-        out int[] faces,
-        out string? warning)
-    {
-        warning = null;
-        vertices = Array.Empty<double>();
-        faces = Array.Empty<int>();
-
-        if (source == null || source.Vertices.Count < 3 || source.Faces.Count == 0)
-        {
-            warning = "Terrain mesh is empty.";
-            return false;
-        }
-
-        Mesh mesh = source.DuplicateMesh();
-        if (mesh.Faces.QuadCount > 0)
-        {
-            mesh.Faces.ConvertQuadsToTriangles();
-            warning = "Terrain quads were converted to triangles before partitioning.";
-        }
-
-        vertices = new double[mesh.Vertices.Count * 3];
-        for (int i = 0; i < mesh.Vertices.Count; i++)
-        {
-            Point3f point = mesh.Vertices[i];
-            vertices[i * 3] = point.X;
-            vertices[i * 3 + 1] = point.Y;
-            vertices[i * 3 + 2] = point.Z;
-        }
-
-        faces = new int[mesh.Faces.Count * 3];
-        for (int i = 0; i < mesh.Faces.Count; i++)
-        {
-            MeshFace face = mesh.Faces[i];
-            if (!face.IsTriangle)
-            {
-                warning = "Terrain contains a non-triangular face that could not be converted.";
-                vertices = Array.Empty<double>();
-                faces = Array.Empty<int>();
-                return false;
-            }
-
-            faces[i * 3] = face.A;
-            faces[i * 3 + 1] = face.B;
-            faces[i * 3 + 2] = face.C;
-        }
-
-        return true;
-    }
-
     public static bool TryCreateBoundary(
         Curve curve,
         double tolerance,

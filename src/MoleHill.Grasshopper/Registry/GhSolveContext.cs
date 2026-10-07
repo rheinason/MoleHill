@@ -1,5 +1,6 @@
 using Grasshopper.Kernel;
 using Grasshopper.Kernel.Types;
+using MoleHill.Core.Engine;
 using MoleHill.Shared;
 using Rhino.Geometry;
 using RhinoMesh = Rhino.Geometry.Mesh;
@@ -148,6 +149,32 @@ public sealed class GhSolveContext
     public void Remark(string message) => _component.AddRuntimeMessage(GH_RuntimeMessageLevel.Remark, message);
 
     // ── shared geometry plumbing ──────────────────────────────────────────
+    /// <summary>
+    /// Extracts a mesh through <see cref="RhinoGeometryConversions"/>, the extraction the Rhino panel uses:
+    /// quads become triangles, identical vertices are combined, unused vertices and degenerate faces are
+    /// culled. The arrays and counts describe that normalized copy, not the input mesh, so they are exact-length
+    /// and must not be paired with <c>mesh.Vertices.Count</c>/<c>mesh.Faces.Count</c>. Reports an error and
+    /// returns false when nothing triangular remains.
+    /// </summary>
+    public bool TryExtractMesh(RhinoMesh mesh, out IndexedTriMesh extracted)
+    {
+        if (!RhinoGeometryConversions.TryExtractMesh(mesh, out extracted, out string? errorMessage))
+        {
+            Error(errorMessage ?? "Could not extract the mesh.");
+            return false;
+        }
+
+        // Array-only Core APIs read the array lengths, so hand them arrays that are exactly the counts.
+        if (extracted.Vertices.Length != extracted.VertexCount * 3 || extracted.Faces.Length != extracted.FaceCount * 3)
+        {
+            extracted = new IndexedTriMesh(
+                extracted.Vertices.AsSpan(0, extracted.VertexCount * 3).ToArray(), extracted.VertexCount,
+                extracted.Faces.AsSpan(0, extracted.FaceCount * 3).ToArray(), extracted.FaceCount);
+        }
+
+        return true;
+    }
+
     public static double[] ToFlatVertices(RhinoMesh mesh)
     {
         int count = mesh.Vertices.Count;

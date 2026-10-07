@@ -3,6 +3,7 @@ using System.Runtime;
 using System.Text.Json;
 using MoleHill.Rhino.Model;
 using MoleHill.Rhino.Services;
+using MoleHill.Shared;
 using Rhino;
 using Rhino.Geometry;
 

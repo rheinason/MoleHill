@@ -2,6 +2,7 @@
 using MoleHill.Core.Engine;
 using MoleHill.Core.Grading;
 using MoleHill.Rhino.Model;
+using MoleHill.Shared;
 using Rhino.Geometry;
 using RhinoMesh = Rhino.Geometry.Mesh;
 
@@ -374,7 +375,7 @@ internal sealed partial class TerrainBuildService
             if (!RhinoSourceResolver.TryGetPolyline(curve, tolerance, requireClosed: false, requestedEdgeLength, maxArea, out var polyline))
                 continue;
 
-            result.Add(ToConstraintPolyline(polyline, curve.IsClosed, preserveInputElevation));
+            result.Add(RhinoGeometryConversions.ToConstraintPolyline(polyline, curve.IsClosed, preserveInputElevation));
         }
 
         return result;
@@ -443,19 +444,6 @@ internal sealed partial class TerrainBuildService
         }
 
         return result;
-    }
-
-    private static ConstraintPolyline ToConstraintPolyline(Polyline polyline, bool isClosed, bool preserveInputElevation = false)
-    {
-        var points = new double[polyline.Count * 3];
-        for (int i = 0; i < polyline.Count; i++)
-        {
-            points[i * 3] = polyline[i].X;
-            points[i * 3 + 1] = polyline[i].Y;
-            points[i * 3 + 2] = polyline[i].Z;
-        }
-
-        return new ConstraintPolyline(points, polyline.Count, isClosed, preserveInputElevation);
     }
 
     private static double[] ToFlatPolyline(Polyline polyline)

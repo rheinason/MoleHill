@@ -84,9 +84,12 @@ public sealed class MeshSmoothComponent : RegistryTerrainComponent
         if (!mesh.IsValid)
             ctx.Warn("Input mesh is already invalid (likely degenerate faces from triangulation). Smoothing will not fix this.");
 
-        var vertices = GhSolveContext.ToFlatVertices(mesh);
-        if (!ctx.TryToFlatFaces(mesh, out var faces))
+        if (!ctx.TryExtractMesh(mesh, out var extracted))
             return;
+        double[] vertices = extracted.Vertices;
+        vertexCount = extracted.VertexCount;
+        int[] faces = extracted.Faces;
+        faceCount = extracted.FaceCount;
 
         // Convert boundary curves with per-boundary strength
         var boundaries = new List<(double[] xyVerts, int vertCount, double strength)>();

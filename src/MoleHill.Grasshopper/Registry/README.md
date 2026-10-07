@@ -10,8 +10,10 @@ the mesh/curve conversion plumbing the hand-written components each used to copy
   Port types: Mesh, Curve, Number, Integer, Boolean, Brep, Line, Text, Geometry.
 - `GhSolveContext.cs` — per-solve `IGH_DataAccess` wrapper: typed getters/setters
   (`TryGetMesh`/`GetCurves`/`GetNumber(s)`/`GetInt(s)`/`GetGeometry`/`SetData`/`SetDataList`), messages
-  (`Warn`/`Error`/`Remark`), and shared geometry plumbing (`ToFlatVertices`, `TryToFlatFaces`,
-  `BuildMesh`, repeat-last `ListValue`). It also exposes the shared `ModelUnitContext`, model tolerance,
+  (`Warn`/`Error`/`Remark`), and shared geometry plumbing (`TryExtractMesh`, which goes through
+  `MoleHill.Shared.RhinoGeometryConversions` and so accepts quads and welds duplicate vertices like the panel;
+  the raw `ToFlatVertices`/`TryToFlatFaces` remain only for Slope Analysis, whose per-face output must align
+  with the input faces; `BuildMesh`, repeat-last `ListValue`). It also exposes the shared `ModelUnitContext`, model tolerance,
   and metre-to-document conversion used by physical defaults.
 - `RegistryTerrainComponent.cs` — the generic base. `RegisterInputParams`/`RegisterOutputParams` walk the
   spec's ports; `SolveInstance` rejects `None`/`Unset` document units before calling `spec.Solve`.

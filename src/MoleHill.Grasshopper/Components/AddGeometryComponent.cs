@@ -78,7 +78,7 @@ public sealed class AddGeometryComponent : GH_Component
         if (merged.VertexCount < 3) { AddRuntimeMessage(GH_RuntimeMessageLevel.Error, "Added geometry leaves fewer than three unique points."); return; }
         TinResult? result = _engine.Build(merged.XyCoords, merged.ZValues, merged.Segments, QualitySettings.None, out string? error, useConvexHull: !hasBoundary, boundaryPeelSettings: BoundaryTrianglePeelSettings.Disabled);
         if (result == null) { AddRuntimeMessage(GH_RuntimeMessageLevel.Error, error ?? "Add Geometry triangulation failed."); return; }
-        Mesh output = RhinoConverter.ToRhinoMesh(result);
+        Mesh output = RhinoGeometryConversions.ToRhinoMesh(result);
         da.SetData(0, output);
         da.SetData(1, Math.Max(0, merged.VertexCount - mesh.Vertices.Count));
         if (sourceTerrain != null)

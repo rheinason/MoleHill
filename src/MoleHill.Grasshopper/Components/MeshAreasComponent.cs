@@ -68,10 +68,12 @@ public sealed class MeshAreasComponent : RegistryTerrainComponent
             return;
         }
 
-        var vertices = GhSolveContext.ToFlatVertices(mesh);
-        int vertexCount = mesh.Vertices.Count;
-        if (!ctx.TryToFlatFaces(mesh, out var faces))
+        if (!ctx.TryExtractMesh(mesh, out var extracted))
             return;
+        double[] vertices = extracted.Vertices;
+        int vertexCount = extracted.VertexCount;
+        int[] faces = extracted.Faces;
+        faceCount = extracted.FaceCount;
 
         // Convert boundary curves
         var areas = new List<MeshAreaSplitter.AreaBoundary>();

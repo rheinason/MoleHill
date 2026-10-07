@@ -2,10 +2,9 @@
 using System.Runtime.CompilerServices;
 using MoleHill.Core.Engine;
 using MoleHill.Core.Grading;
-using MoleHill.Shared;
 using Rhino.Geometry;
 
-namespace MoleHill.Rhino.Services;
+namespace MoleHill.Shared;
 
 internal sealed class ExtractedMeshData
 {
@@ -50,6 +49,20 @@ internal static class RhinoGeometryConversions
 
         FinalizeKnownTriangleMesh(mesh);
         return mesh;
+    }
+
+    /// <summary>A polyline as a Core <see cref="ConstraintPolyline"/> (flat XYZ points).</summary>
+    public static ConstraintPolyline ToConstraintPolyline(Polyline polyline, bool isClosed, bool preserveInputElevation = false)
+    {
+        var points = new double[polyline.Count * 3];
+        for (int i = 0; i < polyline.Count; i++)
+        {
+            points[i * 3] = polyline[i].X;
+            points[i * 3 + 1] = polyline[i].Y;
+            points[i * 3 + 2] = polyline[i].Z;
+        }
+
+        return new ConstraintPolyline(points, polyline.Count, isClosed, preserveInputElevation);
     }
 
     public static bool TryGetMeshData(Mesh mesh, out ExtractedMeshData data, out string? errorMessage)

@@ -89,9 +89,10 @@ public sealed class RemeshComponent : RegistryTerrainComponent
             return;
         }
 
-        var origVerts = GhSolveContext.ToFlatVertices(mesh);
-        if (!ctx.TryToFlatFaces(mesh, out var origFaces))
+        if (!ctx.TryExtractMesh(mesh, out var extracted))
             return;
+        double[] origVerts = extracted.Vertices;
+        int[] origFaces = extracted.Faces;
 
         var remeshConstraints = new List<ConstraintPolyline>();
         foreach (var crv in constraints)
@@ -102,7 +103,7 @@ public sealed class RemeshComponent : RegistryTerrainComponent
             if (!AdaptivePolylineBuilder.TryGetPolyline(crv, tolerance, requireClosed: false, edgeLength, maxArea, out var polyline))
                 continue;
 
-            remeshConstraints.Add(ToConstraintPolyline(polyline, crv.IsClosed));
+            remeshConstraints.Add(RhinoGeometryConversions.ToConstraintPolyline(polyline, crv.IsClosed));
         }
 
         var remeshResult = SurfaceRemesher.Remesh(
@@ -145,18 +146,5 @@ public sealed class RemeshComponent : RegistryTerrainComponent
             source.Name, source.Key, source.Revision, source.Diagnostics, source.UnitSystem,
             source.MetersPerModelUnit, source.LocalToWorld, source.HasProjectBaseTransform);
         ctx.SetData(3, new MoleHillTerrainGoo(terrain));
-    }
-
-    private static ConstraintPolyline ToConstraintPolyline(Polyline polyline, bool isClosed)
-    {
-        var points = new double[polyline.Count * 3];
-        for (int i = 0; i < polyline.Count; i++)
-        {
-            points[i * 3] = polyline[i].X;
-            points[i * 3 + 1] = polyline[i].Y;
-            points[i * 3 + 2] = polyline[i].Z;
-        }
-
-        return new ConstraintPolyline(points, polyline.Count, isClosed);
     }
 }

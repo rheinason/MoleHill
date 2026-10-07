@@ -16,6 +16,13 @@ Key files:
 - `SplitResultMeshBuilder.cs` - a run of `MeshAreaSplitter.SplitResult` faces as a Rhino mesh, with one
   vertex remap reused across areas. Grasshopper takes the oriented result; the Rhino host normalizes the
   unfinished one.
+- `RhinoGeometryConversions.cs` - the one conversion layer between Rhino meshes/polylines and Core's flat
+  arrays, used by both hosts: extraction from a **normalized copy** with matching counts
+  (`TryExtractMesh` -> `IndexedTriMesh`, `TryExtractMeshData`; quads become triangles, identical vertices
+  combine, unused vertices and degenerate faces are culled), mesh construction (`BuildMesh`,
+  `ToRhinoMesh`) and `ToConstraintPolyline`. Do not add a per-host extraction; it is what let a quad mesh
+  work in the panel and fail in Grasshopper. It compiles with unsafe blocks, so every importing project
+  sets `AllowUnsafeBlocks`.
 - `ModelUnitContext.cs` - the single model-unit boundary for both hosts.
 - `RetainingWallPlannerCore.cs`, `RetainingWallGradePlanner.cs`, `RetainingWallBrepBuilder.cs` -
   retaining-wall planning and solids. The solid builder calls Core's `WallRailStationing` to match

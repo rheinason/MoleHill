@@ -1,6 +1,5 @@
 using Rhino.Geometry;
 using MoleHill.Core.Engine;
-using MoleHill.Shared;
 
 namespace MoleHill.Grasshopper.Utilities;
 
@@ -9,41 +8,6 @@ namespace MoleHill.Grasshopper.Utilities;
 /// </summary>
 public static class RhinoConverter
 {
-    /// <summary>
-    /// Convert a TinResult to a Rhino Mesh.
-    /// </summary>
-    public static Mesh ToRhinoMesh(TinResult result)
-    {
-        var mesh = new Mesh();
-
-        // Preallocate capacity
-        mesh.Vertices.Capacity = result.VertexCount;
-        mesh.Faces.Capacity = result.FaceCount;
-
-        // Add vertices
-        for (int i = 0; i < result.VertexCount; i++)
-        {
-            mesh.Vertices.Add(
-                result.Vertices[i * 3],
-                result.Vertices[i * 3 + 1],
-                result.Vertices[i * 3 + 2]);
-        }
-
-        // Add faces
-        for (int i = 0; i < result.FaceCount; i++)
-        {
-            mesh.Faces.AddFace(
-                result.Faces[i * 3],
-                result.Faces[i * 3 + 1],
-                result.Faces[i * 3 + 2]);
-        }
-
-        MeshNormalOrientation.UnifyAndComputeNormals(mesh);
-        mesh.Compact();
-
-        return mesh;
-    }
-
     /// <summary>
     /// Extract edge lines from a TinResult.
     /// </summary>
