@@ -58,6 +58,21 @@ public static partial class PathGrader
     /// Overlapping paths are blended by proximity so junction behavior is stable
     /// regardless of the input order.
     /// </summary>
+    /// <summary>
+    /// Grades <see cref="PathGradeRequest.Terrain"/> along <see cref="PathGradeRequest.Paths"/> (a path of width
+    /// zero is a Grade Line). Fails cleanly - a null <see cref="GradeOutcome.Result"/> with a reason - rather
+    /// than return topology worse than its input.
+    /// </summary>
+    public static GradeOutcome Grade(PathGradeRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        (double[] vertices, int vertexCount, int[] faces, int faceCount) = request.Terrain;
+        GradingResult? result = Grade(
+            vertices, vertexCount, faces, faceCount, request.Paths, request.HardConstraints,
+            out string? errorMessage, request.ModelTolerance, request.PreferSplitKeep);
+        return new GradeOutcome { Result = result, ErrorMessage = errorMessage };
+    }
+
     public static GradingResult? Grade(
         double[] vertices, int vertexCount,
         int[] faces, int faceCount,

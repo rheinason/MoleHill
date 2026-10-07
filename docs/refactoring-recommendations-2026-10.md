@@ -186,9 +186,12 @@ Lock it in with a guard test: no `case XxxDefinition` / `is XxxDefinition` outsi
 
 ### 7. Request/result objects for the graders
 
-`PadGrader` has **7** `Grade*` overloads and `PathGrader` has **10**. Each one adds an `out`
-parameter or a defaulted trailing argument (`PadGrader.cs:19-79`: `out errorMessage`, then
-`out failureOutputPolylines`, then `out failureStructuredDiagnostics`, then `hardConstraints`).
+`PadGrader` has three public `Grade` overloads plus `GradeWindowed`, and `PathGrader` has two plus
+`GradeWindowed`. (An earlier draft of this doc said 7 and 10; that count included internal tier
+helpers.) Each Pad overload adds an `out` parameter or a defaulted trailing argument
+(`PadGrader.cs:19-79`: `out errorMessage`, then `out failureOutputPolylines`, then
+`out failureStructuredDiagnostics`, then `hardConstraints`). The two graders are also inconsistent:
+Pad reports failure polylines and structured diagnostics, Path only a message.
 `PathGrader.ApplyZ.cs` repeats the pattern with 5 `ApplyGradingZ` overloads, 2
 `ValidateApplyGradingZInputs` and 4 `TryFindClosestPathLocation`.
 

@@ -12,6 +12,30 @@ public static partial class PadGrader
     public const double DefaultStitchApronDistance = 0.0;
 
     /// <summary>
+    /// Grades <see cref="PadGradeRequest.Terrain"/> under <see cref="PadGradeRequest.Pads"/>: each pad carries
+    /// its own slope and reach, and later pads win where they overlap. Fails cleanly - a null
+    /// <see cref="GradeOutcome.Result"/> with a reason - rather than return a non-watertight mesh.
+    /// </summary>
+    public static GradeOutcome Grade(PadGradeRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        (double[] vertices, int vertexCount, int[] faces, int faceCount) = request.Terrain;
+        GradingResult? result = Grade(
+            vertices, vertexCount, faces, faceCount, request.Pads, request.LockCurves,
+            out string? errorMessage,
+            out IReadOnlyList<OutputPolyline> failureOutputPolylines,
+            out IReadOnlyList<GradingDiagnostic> failureDiagnostics,
+            request.ModelTolerance, request.TerrainDetailSize, request.HardConstraints);
+        return new GradeOutcome
+        {
+            Result = result,
+            ErrorMessage = errorMessage,
+            FailureOutputPolylines = failureOutputPolylines,
+            FailureDiagnostics = failureDiagnostics
+        };
+    }
+
+    /// <summary>
     /// Apply pad grading to a terrain mesh.
     /// Each pad carries its own slope angle and max distance.
     /// Later pads in the array override earlier ones in overlapping zones.

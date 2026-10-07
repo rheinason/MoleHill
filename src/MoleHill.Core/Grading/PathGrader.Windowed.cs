@@ -12,6 +12,25 @@ public static partial class PathGrader
     /// Connected paths share one window, but the land between them is not in it, so an edit there reuses it.
     /// Falls back to grading the whole terrain when a window would not weld.
     /// </summary>
+    /// <summary>
+    /// <see cref="Grade(PathGradeRequest)"/> restricted to the windows that changed since
+    /// <paramref name="previous"/>; <paramref name="next"/> records this run for the following one.
+    /// </summary>
+    public static GradeOutcome GradeWindowed(
+        PathGradeRequest request,
+        GradingWindows.Memo? previous,
+        GradingWindows.Memo next,
+        List<string> notes)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        (double[] vertices, int vertexCount, int[] faces, int faceCount) = request.Terrain;
+        GradingResult? result = GradeWindowed(
+            vertices, vertexCount, faces, faceCount, request.Paths, request.HardConstraints,
+            request.ModelTolerance, request.PreferSplitKeep, previous, next, notes,
+            out string? errorMessage);
+        return new GradeOutcome { Result = result, ErrorMessage = errorMessage };
+    }
+
     public static GradingResult? GradeWindowed(
         double[] vertices,
         int vertexCount,

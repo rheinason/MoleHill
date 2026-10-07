@@ -12,6 +12,33 @@ public static partial class PadGrader
     /// A pad's reach is its outline grown by its max distance, or, with none, by how far its batter can run
     /// before it meets the terrain. Falls back to grading the whole terrain when a window would not weld.
     /// </summary>
+    /// <summary>
+    /// <see cref="Grade(PadGradeRequest)"/> restricted to the windows that changed since
+    /// <paramref name="previous"/>; <paramref name="next"/> records this run for the following one.
+    /// </summary>
+    public static GradeOutcome GradeWindowed(
+        PadGradeRequest request,
+        GradingWindows.Memo? previous,
+        GradingWindows.Memo next,
+        List<string> notes)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        (double[] vertices, int vertexCount, int[] faces, int faceCount) = request.Terrain;
+        GradingResult? result = GradeWindowed(
+            vertices, vertexCount, faces, faceCount, request.Pads, request.LockCurves, request.HardConstraints,
+            request.ModelTolerance, request.TerrainDetailSize, previous, next, notes,
+            out string? errorMessage,
+            out IReadOnlyList<OutputPolyline> failureOutputPolylines,
+            out IReadOnlyList<GradingDiagnostic> failureDiagnostics);
+        return new GradeOutcome
+        {
+            Result = result,
+            ErrorMessage = errorMessage,
+            FailureOutputPolylines = failureOutputPolylines,
+            FailureDiagnostics = failureDiagnostics
+        };
+    }
+
     public static GradingResult? GradeWindowed(
         double[] vertices,
         int vertexCount,
