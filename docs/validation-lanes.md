@@ -85,7 +85,9 @@ process (see "Known broken" below). So this lane runs them **inside** a disposab
 6. The result is compared with `tests/perf-baselines/hosted-perf.json`. A metric **regresses** when its
    median is both more than `-Margin` (20%) slower and more than `-FloorMs` (25 ms) slower. The relative
    test alone fails on 2 ms stages; the absolute test alone misses a 20% loss in a 100 ms stage. Any
-   regression fails the lane. Improvements, new metrics and missing metrics (a renamed stage) are reported
+   regression fails the lane, as does evidence that cannot support a verdict (zero samples, no metrics,
+   an unoptimized Core), a baseline metric missing from a scenario that ran (override: `-AllowMissingMetrics`)
+   and changed finished meshes (override: `-AcceptOutputChanges`). Improvements and new metrics are reported
    but do not fail.
 
 | Scenario | Fixture | Phases |

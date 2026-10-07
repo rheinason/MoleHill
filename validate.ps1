@@ -62,7 +62,15 @@ param(
     # hosted-perf: judge an existing result instead of building and spawning. For a host whose shell may
     # not spawn Rhino (breakaway denied): run `tools/rhino-hosted-perf.py --print-script` in a slot you
     # drive, then pass the result file here.
-    [string]$HostedResult
+    [string]$HostedResult,
+
+    # hosted-perf: a metric the baseline had in a scenario that ran, but this run lacks (a renamed or
+    # removed stage), fails the lane. Pass this when that loss is deliberate, then re-baseline.
+    [switch]$AllowMissingMetrics,
+
+    # hosted-perf: finished meshes that differ from the baseline fail the lane. Pass this when the
+    # geometry change is intended, then re-baseline and say why in the commit.
+    [switch]$AcceptOutputChanges
 )
 
 $ErrorActionPreference = 'Stop'
@@ -347,6 +355,16 @@ try {
             throw "The hosted run failed inside Rhino: $($result.Error)"
         }
 
+        # Evidence must be able to support a verdict before it is allowed to produce one.
+        $samples = if ($result.PSObject.Properties['SamplesPerScenario']) { $result.SamplesPerScenario } else { 0 }
+        if (-not ($samples -is [ValueType]) -or $samples -lt 1) {
+            throw "The result carries no measured samples (SamplesPerScenario = '$samples'), so it cannot support a verdict."
+        }
+        $metricCount = if ($result.PSObject.Properties['Metrics'] -and $result.Metrics) { @($result.Metrics.PSObject.Properties).Count } else { 0 }
+        if ($metricCount -eq 0) { throw 'The result contains no metrics, so it cannot support a verdict.' }
+        if (-not $result.PSObject.Properties['Scenarios'] -or @($result.Scenarios).Count -eq 0) { throw 'The result does not name the scenarios it ran.' }
+        if (-not $result.Environment.CoreOptimized) { throw 'The result was measured against an unoptimized Core build; timings from it are not evidence.' }
+
         Write-Host ''
         Write-Host "Measured in Rhino $($result.Environment.RhinoVersion), $($result.Environment.Runtime), $($result.SamplesPerScenario) samples per scenario"
         Write-Host "Core: $($result.Environment.CoreAssembly) (optimized: $($result.Environment.CoreOptimized))"
@@ -418,6 +436,13 @@ try {
         $regressed = @($comparison.Metrics | Where-Object { $_.Verdict -eq 'Regressed' })
         if ($regressed.Count -gt 0) {
             throw "$($regressed.Count) metric(s) regressed beyond the margin. If the slowdown is intended, re-baseline with -UpdateBaseline and say why in the commit."
+        }
+        $missing = @($comparison.Metrics | Where-Object { $_.Verdict -eq 'Missing' })
+        if ($missing.Count -gt 0 -and -not $AllowMissingMetrics) {
+            throw "$($missing.Count) baseline metric(s) are absent from this run, so their regressions would go unreported. If a stage was renamed or removed on purpose, pass -AllowMissingMetrics and re-baseline."
+        }
+        if ($outputChanges.Count -gt 0 -and -not $AcceptOutputChanges) {
+            throw "Finished meshes changed in $($outputChanges.Count) build phase(s). If the geometry change is intended, pass -AcceptOutputChanges and re-baseline with the reason."
         }
         if (@($comparison.Metrics | Where-Object { $_.Verdict -eq 'Improved' }).Count -gt 0) {
             Write-Host 'Improvements beyond the margin: re-baseline with -UpdateBaseline to lock the gain in.' -ForegroundColor Green
