@@ -3,6 +3,31 @@
 Released through Rhino's Package Manager (Yak) as `MoleHill`. Versions before 1.0.0 were
 beta prereleases. Earlier versions are recorded only in the git history.
 
+## 1.3.3-beta — 2026-10-07
+
+A beta that stops the viewport going blank after long editing sessions and stops round-cornered
+retaining walls folding at their corners.
+
+**Viewport**
+- The perspective viewport no longer goes empty while a terrain is shown. Every rebuild used to grow
+  the terrain's reported extents a little, so after a long editing session Rhino's clipping planes were
+  fitted to an area thousands of times the site and nothing was drawn. Reset Build was the only cure.
+
+**Retaining walls**
+- Walls whose rails have round, chamfered or filleted corners (for example one rail offset from the
+  other with round corners) no longer fold where they turn: each bend is matched as a whole, whatever
+  it is made of. Points closer together than the tolerance no longer leave hairline slivers in the solid.
+
+**Grasshopper**
+- Remesh has Mode and Crease Angle inputs and can run the same isotropic remesh as the Remesh card.
+  Existing definitions keep their output.
+- Grasshopper terrain components accept quad meshes and combine duplicate vertices before grading, as
+  the Rhino panel does.
+
+**Units and speed**
+- Ponding's Ignore Below and the pond and catchment results follow a change of model units.
+- Hide and Show boundaries trim large contour sets about three times faster.
+
 ## 1.3.2-beta — 2026-10-06
 
 A beta that stops terrains tearing where new data, zones or boundaries cross thin triangles, and makes
