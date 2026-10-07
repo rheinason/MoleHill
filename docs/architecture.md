@@ -1513,9 +1513,14 @@ map remains the description of what the code does today.
 
 ## Rhino: edit-to-visible latency
 
-`Rebuild total` measures from the snapshot onward, so it cannot see the largest part of the wait. The
-latency trace (`TerrainLatencyTrace`, `TerrainLatencyReport`, command `mhLatencyTrace`) records the
-whole path instead, from the edit that caused the rebuild to the redraw that shows it:
+This section states the rules the build and display path follows and why. The measurements that
+established them (2026-09-19 to 2026-10-02) are in git history and in `tests/perf-baselines/`; quote
+current numbers from the `hosted-perf` lane (`docs/validation-lanes.md`), never from this file.
+
+### Measuring the whole wait
+
+`Rebuild total` starts at the snapshot, so it cannot see most of the wait. The latency trace
+(`TerrainLatencyTrace`, `TerrainLatencyReport`, command `mhLatencyTrace`) records the whole path:
 
 ```
 edit -> due -> dispatch -> snapshot -> clone -> worker queue -> geometry-ready
@@ -1523,937 +1528,163 @@ edit -> due -> dispatch -> snapshot -> clone -> worker queue -> geometry-ready
      -> wake/idle pickup -> merge -> display -> object sync -> save -> redraw -> closed
 ```
 
-Timestamps are monotonic `Stopwatch` ticks so UI-thread and worker marks are comparable. The report
-differences *consecutive* events, so intervals partition a request completely and a pair with no agreed
-name prints as `unclassified` rather than being folded into a neighbour. Superseded requests are kept
-and reported as abandoned worker time. The trace is off by default and costs one volatile read per site.
-
-**Measured 2026-09-19** on the trailer-ramp fixture (Triangulate + Retaining Wall + Remesh, 2.4k-5.1k
-faces, one analysis), Rhino 8 in a headless `rhino-mcp` slot:
-
-| Scenario | edit to visible | geometry | dependent outputs |
-|---|---|---|---|
-| Cold first build | 1,218 ms | 384 ms | 36 ms |
-| Unchanged rebuild (all stages cached) | 1,087 ms | 2.5 ms | 0.5 ms |
-| Remesh parameter edit | 1,306 ms | 117 ms | 5 ms |
-| Five rapid edits (slider drag) | 2,364 ms for the surviving edit | 191 ms | 9 ms |
-
-The computation is not the wait. On the unchanged rebuild, **97% of 1,087 ms was scheduling**: 530 ms
-debounce and 524 ms waiting for the finished result to be picked up, against 3 ms of real work.
-Debounce coalescing is sound - the five-edit burst discarded **zero** worker time.
-
-**A heavy terrain inverts this.** Same trace, a synthetic 122,500-point survey (244,476 faces) with six
-analyses enabled:
-
-| Interval | Time | Share |
-|---|---|---|
-| Analyses (dependent outputs) | 5,144 ms | 68.9% |
-| Redraw | 1,066 ms | 14.3% |
-| Geometry (modifiers) | 698 ms | 9.3% |
-| Display publish | 431 ms | 5.8% |
-| Debounce | 119 ms | 1.6% |
-| **edit to visible** | **7,464 ms** | |
-
-So the shape of the wait depends entirely on scale, and **each scale wants a different fix**. Small
-terrain: the scheduling constants. Large terrain: the dependent outputs.
-
-The 5.1 s is not "analyses are slow" - it is two of them. Per-analysis, on that mesh: Slope 0.12 s,
-Aspect 0.01 s, Elevation and Waterflow under 0.01 s, **Catchments 1.40 s** and **Ponding 3.72 s**, the
-latter two also emitting 2,449 generated objects between them. The per-face analyses handle 244k faces
-in 0.13 s combined. Whether Ponding's 3.72 s is itself reducible is open and unmeasured.
-
-**Re-measured 2026-09-26 by the `hosted-perf` lane** (`docs/validation-lanes.md`), on a reconstructed
-fixture (the traced one was not saved): 122,500 points, 243,602 faces, Release Core inside Rhino 8.35,
-median of 5. A sweep over surface roughness first showed that each drainage analysis's cost depends on
-a different property of the terrain, and not on face count alone:
-
-| Analysis | Cost driver found by the sweep | Baseline fixture (cold / point edit) |
-|---|---|---|
-| Ponding | number of ponds: ~150 ms at 11-38, ~1 s at 1,000-1,900 | **991 / 971 ms** (1,874 ponds) |
-| Waterflow from Points | **fixed** once there is a source: 1.13 s for 4 sources or 25, 0 ms for none | **1,176 / 1,126 ms** |
-| Catchments | falls as basin count rises: 219 ms for 60 basins, 69 ms for 1,621 | 65 / 79 ms |
-| Slope, Aspect, Elevation | faces | 105, 9, 0 ms |
-
-Two corrections to the reading above follow. **Waterflow is not cheap.** The trace's "under 10 ms" had
-no sources, and the ~1.1 s it costs with any source at all is fixed setup, not path tracing. That makes
-it the same size of target as Ponding. **Catchments' 1.40 s did not reproduce** on any surface swept
-(at most ~220 ms), so its traced cost belonged to that fixture's basin structure or has since changed.
-The lane now gates all of them, so a fix is measured rather than argued.
-
-**Fixed 2026-09-26, and the cause was mostly not the drainage code.** Profiling the phases outside Rhino
-(`DrainageAnalysisBenchmarkTests`) put Waterflow's fixed cost almost entirely in the `SpatialHashGrid2D`
-it builds to find its start faces. The grid itself was fine; its cell dictionary was not. The packed
-cell key `(cx * 0x100000001) ^ (cy * K)` writes `cx` into both halves of the `long`, and the default
-`long` hash XORs the halves, so `cx` cancelled and 250k cells shared about 500 hash codes. The same
-flaw sat in 14 other cell-keyed dictionaries, all exempted from the edge-key guard as "already mixed".
-They now take `IndexedMeshTools.CellKeyComparer`, and the guard no longer exempts cell keys. Ponding
-was a separate problem: every sink rescanned the whole terrain three times and contoured all of it to
-draw one shoreline. It now walks its own basin's faces, with output bit-identical to the old solver
-(`PondingSolverEquivalenceTests`). Its preview also caches the solve per mesh, so a colour edit only
-recolours.
-
-Measured by the `hosted-perf` lane, median of 5, against the baseline above:
-
-| Build | Before | After |
-|---|---|---|
-| Analysis-heavy, point edit | 2,475 ms | **515 ms** |
-| -> Ponding | 971 ms | 90 ms |
-| -> Waterflow from Points | 1,126 ms | 63 ms |
-| Geometry-heavy, Grade Pad edit | 2,872 ms | **1,646 ms** |
-| -> Remesh | 1,689 ms | 891 ms |
-| -> Grade Pad / Grade Path constraints | 126 / 99 ms | 38 / 28 ms |
-| Interactive, 100k faces, warm wall edit | 465 ms | **203 ms** |
-
-The Remesh halving says the projection-grid cost recorded below was largely this hash, not the cell
-size. Re-measure before acting on the cell-size table there.
-
-### Grade Pad after the 2026-09-26 round
-
-Profiled with `dotnet-trace` on a Core harness of the geometry-heavy pad, then verified in the lane
-against output hashes: every build phase's finished mesh stayed byte-identical. On the pad edit:
-
-| Grade Pad stage row | Before | After | What it was |
-|---|---|---|---|
-| Stage total | ~380 ms | **~195 ms** | (the old "Grade Pad" row, 503 ms, also summed the grader's own row, which shared its name; now `Grade Pad Topology`) |
-| Inputs | 110 ms | 39 ms | stage-cache clones dropped their extracted arrays, so extraction re-normalized a normalized mesh |
-| Topology (`PadGrader.Grade`) | ~160 ms | ~85-120 ms | daylight rays gathered every face in the ray's bounding box and sorted them all; now a corridor of cells and only faces the ray crosses. The welded mesh's boundary was also analysed twice. |
-| Output Mesh | 150 ms | 37 ms | `FinalizeGradingMesh` normalized `BuildMesh` output a second time; `UnifyNormals` (~40 ms) ran on meshes already consistently wound |
-
-The normalization fixes apply to every mesh-producing stage, so Grade Path (278 -> 161 ms), Smooth
-(84 -> 46 ms) and Triangulate gained too. The interactive 100k-face warm wall edit went 203 -> ~90 ms,
-and the geometry-heavy pad edit 1,645 -> ~1,320 ms, now dominated by Remesh (~880 ms).
-
-What remains in `PadGrader.Grade`, by the last profile: `SplitOutside` ~40% (the area-topology splitter
-~19%, the terrain outline ~9%, outside-region extraction ~9%), the weld ~16%, the hole fill ~10%, and
-the input terrain's boundary analysis ~8%. The input terrain's boundary is still computed twice, once
-for the outline and once for the post-weld comparison. It is left alone for now because the outline's
-loop start and direction follow the edge-dictionary insertion order, so sharing a sorted analysis
-would move them.
-
-### The geometry-heavy case is a different problem
-
-A terrain with a long geometric modifier stack and **no** analyses behaves nothing like the
-analysis-heavy one. Measured 2026-09-19 on a synthetic 62,500-point survey (124,621 faces) running
-Triangulate -> Grade Pad -> Grade Path -> Smooth -> Remesh, no analyses or annotations:
-
-| Owner | Time | Share |
-|---|---|---|
-| MoleHill working | 5,127 ms | 98.5% |
-| Rhino redrawing | 73 ms | 1.4% |
-| Debounce | 2 ms | 0.0% |
-| Waiting for the host | 1 ms | 0.0% |
-
-Three things follow, and they are the pitfalls of this shape:
-
-- **Early publication does nothing here, and correctly declines.** There are no dependent outputs to get
-  ahead of, so there is no earlier moment to publish. The whole wait *is* the geometry.
-- **Editing a modifier near the top of the stack re-runs everything below it.** A Grade Pad slope nudge
-  cost 5.12 s against 6.28 s cold: only Triangulate's 0.38 s was reused. Stage caching is per-modifier
-  and strictly sequential, so cache depth is worth nothing for an early edit.
-- **Remesh decimates 124k faces to 49k at the *end* of the chain.** Every upstream modifier pays full
-  price on 111-124k faces to produce a mesh that is then thrown away down to 49k. Reordering changes
-  results, so this is a design question rather than a free win - but it is why redraw is 73 ms here and
-  1,048 ms on the analysis fixture: redraw tracks the *final* face count.
-
-**Stage scaffolding can cost more than the algorithm it wraps.** Grade Pad's stage was 2.97 s against
-1.36 s of `PadGrader.Grade`. Splitting it found the rest is not what it looks like:
-
-| Grade Pad sub-stage | Time |
-|---|---|
-| `Grade Pad Resolve` (`ResolveGradePadInputs`) | **1.42 s** |
-| `PadGrader.Grade` (topology) | 1.36 s |
-| Output mesh (`BuildMesh` + normalize) | 0.17 s |
-| Locks, dirty scan, fingerprints | ~0 s |
-
-Resolving **one rectangular boundary** costs more than grading against it, and the cost is all in one
-place. Drilling down:
-
-| Step | Time | Producing |
-|---|---|---|
-| `PadGrader.CreateConstraints` | 1.28 s | 3 constraint polylines |
-| -> `ConstraintCoincidenceSnapper` ctor | 1.00 s | |
-| -> -> `SpatialHashGrid2D.Build` over mesh **edges** | **0.91 s** | 186,501 edges indexed |
-| -> -> `SpatialHashGrid2D.Build` over mesh vertices | 0.10 s | 62,500 vertices indexed |
-| `TryBuildBoundaryLoop` | 9 ms | |
-| `ValidateTerrainMesh` | 0.6 ms | |
-
-`Grade Path` shows the same shape: `PathGrader.CreateConstraints` is 0.72 s of a 1.72 s stage, for
-47 constraints over 55,822 vertices.
-
-So **the largest single cost in a geometry-heavy build is indexing every edge of the terrain in order to
-snap a handful of constraint points onto it.** Three things make it worse than it needs to be, all
-visible in the grid's own `BuildStatistics` (added by R04):
-
-- **The index covers the whole terrain**, not the pad's influence envelope. The pad occupies roughly 8%
-  of this survey's area, and the code already computes a transition distance per pad.
-- **Each edge lands in ~4.4 cells** - 815,328 memberships for 186,501 edges, because the chosen cell
-  size (1.15) is below the typical edge length (2.0). `MaxCellOccupancy` is 8, so the grid is not
-  degenerate; it is simply indexing a lot of straddling edges.
-- **It is rebuilt per grading modifier**, over a nearly identical mesh, with no sharing between the
-  Grade Pad and Grade Path stages of the same build.
-
-**Addressed 2026-09-19 (first bullet only).** `ConstraintCoincidenceSnapper` now takes an
-optional region and indexes only the vertices and edges that meet it, and both graders build the snapper
-*after* their constraint list exists rather than at the top of the method — so the region is the
-constraints' own tolerance-expanded bounds, exact by construction, with no influence envelope to
-estimate. Clipping is safe rather than approximate: a query whose tolerance box lies inside the region
-can only be won by a member that met the region, and a query that escapes the region discards it and
-rebuilds over the whole mesh (`RegionWasAbandoned`), so a badly chosen region costs speed and never
-geometry. The cell-size and cross-stage-sharing bullets are untouched.
-
-Measured by `ConstraintCoincidenceSnapperScalingBenchmarkTests` (`MOLEHILL_PERF=1`) on a synthetic grid
-of 188,000 edges, within a couple of percent of the fixture's 186,501:
-
-| Case | Whole-mesh index | Clipped index |
-|---|---|---|
-| Pad over 8% of the terrain | 1,138 ms (188,000 edges) | **8.4 ms** (1,408 edges) |
-| Pad over 90% of the terrain | 1,138 ms | 852 ms |
-
-The 1,138 ms baseline reproduces the 0.91 s the end-to-end trace attributed to this constructor, so the
-benchmark is measuring the same cost; and the 90% case shows clipping has no losing case.
-`ConstraintCoincidenceSnapperRegionTests` covers equivalence separately — a speed number is not a
-correctness argument.
-
-**Measured through the whole build, 2026-09-19.** The micro-benchmark above left one gap: what the
-geometry-heavy build itself becomes. `GeometryHeavyStackBenchmark` runs the same stack through the real
-`TerrainBuildService`, so the Rhino stage around the Core graders is included. Two runs, Release, on a
-reconstruction of the traced fixture (62,500 points, 124,002 faces after Triangulate):
-
-| Stage, on the Grade Pad edit | Before the clip | After |
-|---|---|---|
-| `Grade Pad` (whole stage) | 2,970 ms | **622-852 ms** |
-| -> `Grade Pad Constraints` | 1,280 ms | **126-162 ms** |
-| `Grade Path` (whole stage) | 1,720 ms | **505-536 ms** |
-| -> `Grade Path Constraints` | 720 ms | **97-108 ms** |
-| Edit to finished mesh | 5,120 ms | **2,909-3,249 ms** |
-
-**The rank has changed, and that is the finding.** Grading is no longer the largest item in a
-geometry-heavy build - **`Remesh` is, at ~1,700 ms of a ~3,050 ms edit (56%)**, against roughly 1.2 s
-for both grading stages together. The two snapper bullets left above now govern ~250 ms combined and
-should be ranked accordingly.
-
-The fixture is a **reconstruction** - the original was not saved - so only the stages whose inputs match
-are comparable: Triangulate reproduces at 390 ms against 380 ms and the face counts land within 0.5%,
-which is what licenses the grading rows. `Remesh` is **not** comparable across the two traces:
-`EdgeLength 0` derives its target from plan area per input face, and this fixture's spacing makes it
-decimate 116k faces to 110k where the original went 124k to 49k. So the Remesh figure is this fixture's,
-and the share it takes of this build is the claim - not that Remesh regressed.
-
-### Inside Remesh: the projection grid is 39% of it
-
-`IsotropicRemesher` reported only its four operator phases plus the feature graph, which summed to 68%
-of the stage and left the rest unattributed - so the largest item in the largest stage was invisible.
-It now times every interval and carries an explicit `other` remainder. Measured on the same edit
-(Release, two runs):
-
-| Remesh phase | Time | Share of stage |
-|---|---|---|
-| `BuildProjectionGrid` (`grid`) | **677-679 ms** | **39%** |
-| `FlipForQuality` | 417-422 ms | 24% |
-| `RelaxAndProject` | 301 ms | 17% |
-| `CollapseShortEdges` | 140-144 ms | 8% |
-| `SplitLongEdges` | 79 ms | 5% |
-| `FeaturePolylineGraph.Build` | 16-17 ms | 1% |
-| input topology / `ToResult` / `MeshState` | 20-22 ms | 1% |
-| `other` (unclassified) | **0 ms** | - |
-| Remesher total | 1,652-1,661 ms | |
-| Stage total | 1,730-1,739 ms | (the ~78 ms difference is mesh marshalling) |
-
-**The largest single cost in a geometry-heavy build is again a spatial index whose cell is far smaller
-than the geometry it indexes** - the same shape as the grading snapper finding above, in a second
-place. `BuildProjectionGrid` uses `TargetEdgeLength * 0.5`, and the comment says why: so back-projection
-queries in dense graded corridors stay near-constant time. Measured directly over a 125,000-face grid at
-the fixture's scale (target 1.112):
-
-| Cell size | Build | Memberships | Per face |
-|---|---|---|---|
-| 0.556 (target x 0.5, today) | 758 ms | 977,202 | 7.8x |
-| 1.112 (target) | 182 ms | 449,352 | 3.6x |
-| 2.224 (target x 2) | 58 ms | 262,088 | 2.1x |
-| 4.448 (target x 4) | 20 ms | 187,272 | 1.5x |
-
-**This is not yet a fix, and the constant must not simply be changed.** Build time and query time trade
-against each other here: a coarser cell scans more faces per back-projection query, and back-projection
-is what `relax` (301 ms) and `split` (79 ms) spend their time on. The experiment above measures only the
-build side. What settles it is the *sum* across a real remesh at each cell size, which nothing has
-measured. Whoever takes this should also note the grid is rebuilt per Remesh stage over a mesh the
-previous stage already indexed - the same cross-stage sharing question the snapper has.
-
-Two other explanations were measured and **disproved** first, and are recorded so they are not
-re-investigated: `TryExtractMeshData` is 67 ms on a 124k-face mesh, and the whole per-stage mesh
-marshalling round trip (extract, `BuildMesh`, normalize, cache clone) is ~113 ms on 110k faces.
-
-### Remesh flip phase: an index, not a dictionary (2026-09-29)
-
-At park scale the flip phase was most of Remesh: 122 s of a 164 s Remesh on a 5.2M-face terrain (the
-park-scale stress probe, `docs/validation-lanes.md`). Each of up to 16 Lawson sweeps per iteration
-rebuilt an edge → faces `Dictionary` over the whole mesh and re-derived every quad's angles, although
-late sweeps flip a few thousand edges out of millions. Three changes, **none of which changes a flip**:
-
-- `FlipEdgeIndex` replaces the dictionary with a counting sort over half-edges. The dictionary visited
-  edges in first-insertion order, which is each edge's first half-edge in face order. The index visits
-  them in that order too, so the sweep is the same sequence of decisions.
-- A geometry rejection is remembered while both faces of the quad are unchanged. No vertex moves during
-  the flip phase, so the verdict cannot change until a face does.
-- Each sweep takes every candidate's geometry verdict up front with `Parallel.For`, from the faces it
-  starts with. The sequential pass still makes every flip in order and reads a verdict only for a quad
-  whose faces are untouched. The retopo field path stays serial (its sampler is not known to be
-  thread-safe).
-
-`IsotropicRemesherFlipReference` (tests) keeps the dictionary version as the oracle, and
-`IsotropicRemesherFlipEquivalenceTests` compare every face index after each phase and through the whole
-loop. Breaking the memo's invalidation fails two of them. The hosted lane's finished-mesh hashes are
-identical to an untouched HEAD in every scenario. Measured: flip phase 7.2x on a 350k-face loop, and
-`geometry-heavy` Remesh 883 → 485 ms cold, 881 → 459 ms on the pad edit. On the 1 m park (5.2M faces)
-the flip phase fell from 121.9 s to 11.7 s and Remesh from 167 s to 57 s, with the split, collapse and
-flip counts unchanged. `CollapseShortEdges` (21 s there) is now the largest phase.
-
-### Remesh collapse phase: plan in parallel, commit in order (2026-09-29)
-
-Each collapse round visits candidate edges shortest first, so it walks the mesh in no spatial order,
-and most of its time was memory latency rather than arithmetic. Four changes, **none of which changes a
-collapse** (face hash identical on a 1.7M-face loop, and the hosted lane's finished meshes identical):
-
-- **Plans are taken in parallel, a chunk at a time, and committed in order.** A collapse's plan (the
-  survivor, the merged position, the link and fold checks) reads only the one-rings of the edge's two
-  endpoints, and every commit locks the one-rings it changes. So a candidate still unlocked at its turn
-  plans the same on the chunk-start state as it would at its turn. `CollapsePlan` / `CommitCollapse`.
-- **The candidate scan runs in parallel and sorts with a struct comparer.** Edge keys are unique, so the
-  sorted list does not depend on the order the scan found them in.
-- **`MeshVertexAdjacency`** keeps collapse survivors' inherited faces in flat per-vertex chains instead of
-  a dictionary, and sorts its neighbour slices in parallel on a large mesh.
-- **`TerrainFaceGrid` locates points through a dense slot table** when the cell range is compact. Each
-  query probes nine cells, and on a terrain with millions of cells every hashed probe was a cache miss.
-  The table maps to the same cell runs, so every query sees the same faces in the same order.
-
-Measured: the collapse phase 7.4 → 3.4 s over five iterations on a 1M-vertex jittered grid, and
-`geometry-heavy` Remesh 500 → 426 ms cold, 478 → 391 ms on the pad edit. On the 1 m park the collapse
-phase fell from 21.6 s to 6.3 s and Remesh from 55.6 s to 36.5 s, with the same output counts. Flip
-(10–12 s) is the largest phase again.
-
-### Remesh: tiled, and incremental (2026-09-30)
-
-`TiledIsotropicRemesher` makes Remesh a function of local input, so an incremental rebuild can reproduce a
-cold one exactly (`incremental-rebuild-design-2026-09-29.md`, D2). It is the Remesh card's `"isotropic"`
-mode; the whole-mesh `IsotropicRemesher` stays reachable, not offered on the card, as `"global"`. The design,
-and what each part fixed:
-
-- **Three passes on offset grids.** Tiles are world-anchored squares of 64 × the target edge. Each tile is
-  remeshed on its own, in parallel, and the passes run on grids offset by 0, 1/2 and 1/4 of a tile. Every
-  region is interior to a tile in some pass. Two passes were not enough: the first pass holds raw input along
-  its cuts, and where the second grid's lines cross the first's, its held edges were too short to fix. The
-  third grid puts every such crossing inside a tile.
-- **Hold edges, not faces.** A tile keeps only its cut edges (ends frozen, never split or collapsed away);
-  both tiles hold them, so the stitch welds exactly. Holding whole faces left faces held in two passes where
-  cuts cross, and a long graded sliver there was never remeshed.
-- **Refine along the lines first.** A tile cannot split a cut edge alone, so faces straddling a line are
-  refined by longest-edge bisection until short. Splitting only the cut edges fanned big pad triangles into
-  slivers (one tile of the 1 m park went from 654 faces to 40,692).
-- **One surface, one wall classification.** Every pass projects onto the ORIGINAL terrain, and wall faces
-  are classified once on it and carried through the passes by flag. Feature vertices take the original
-  surface's height except over a wall: a chain rebuilt from a remeshed mesh is a chord, and after the first
-  pass it can cross a real crease diagonally (up to 0.8 m off the terrain on the park before this).
-
-**Incremental.** A tile's output is a pure function of its key: its faces in canonical order (each face
-starting at its smallest corner, faces sorted by corners, so upstream numbering does not matter), its held
-edges and wall flags, the breaklines over it, the original surface under it (an order-free hash of the faces
-in the region, since the tile projects onto them) and the settings. `TiledRemeshMemo` keeps every tile's
-output by key, per pass, in `TerrainRuntimeCache.RemeshMemos`; the next run reuses every tile whose key is
-unchanged. Reuse is exact by construction, and `Remesh_WithTheMemoOfTheRunBefore_EqualsAColdRemeshOfTheEdit`
-and the park replay (`TiledRemeshReplayBenchmarkTests`) assert the incremental result equals a cold remesh of
-the edit, bit for bit. The memo is replaced, never modified, so a cancelled build cannot leave it half written.
-An automatic target edge length (Edge Length 0) is snapped to 2.5 % steps on a log scale
-(`RoundedTarget`): it is estimated from the whole terrain, so every edit nudged it, and a new target is a new
-remesh everywhere.
-
-On the 1 m park replay a one-vertex edit remeshes 10 of 2,134 tiles and takes 3.5 s against 11.7 s cold.
-Building the projection grid had been 3.9 s of it: `TerrainFaceGrid` now counts and fills a dense CSR table
-over its cell range instead of a hashed index when the range is compact (every query sees the same faces in
-the same order; the hosted lane's graded meshes are unchanged), which also sped up every grader.
-
-Measured on the 1 m park's real Remesh input (6.2M faces): 15.3 s against 35.2 s for the global remesh, better
-on every quality measure (min angle p1 10.2° vs 9.2°, faces under 20° 3.09 % vs 3.27 %, valence-6 53.0 % vs
-50.3 %), no vertex off the terrain, walls kept, one boundary loop. On the graded-road fixture it is also better
-on every measure and shows no seam near any tile line. An edit to one vertex changes faces only within one tile
-of it, and the result does not depend on scheduling (`TiledIsotropicRemesherLocalityTests`);
-`TiledIsotropicRemesherWallTests` pins walls and a curved crease; the global remesh is unchanged (hosted-perf
-hashes identical).
-
-### Grading windows: Grade Pad and Grade Path, windowed and incremental (2026-09-30)
-
-`GradingWindows` grades each group of pads or paths on the faces within their reach instead of on the whole
-terrain, so an edit away from them, or to one of them, re-grades only what it touches (the design doc's
-"windowed graders", which replace P2's splice). The Grade Pad and Grade Path stages call
-`PadGrader.GradeWindowed` and `PathGrader.GradeWindowed` (`TerrainBuildService.GradingWindows.cs`); the
-graders themselves are unchanged and simply see a smaller mesh.
-
-- **Reach, by shape.** An item hands over its plan shape and a radius (`GradingWindows.Reach`). A pad is
-  its filled outline, with a radius of its Max Distance, or, when that is 0, `GradingWindows.DaylightReach`
-  (the distance its largest height difference needs at its slopes), plus its stitch apron. A path is its
-  centreline, with a radius of its widest half-width plus its Max Distance (or daylight reach). A face is the
-  item's when it comes within the radius plus a margin of the shape, or lies inside a filled one, so a road
-  network's window is a band and the land between the roads stays out. Items that share a face share a
-  window.
-- **A margin of its own** (`GradingWindows.WithMargins`): twice the longest face within the item's reach,
-  capped at half the reach, so the faces along a window's edge lie clear of what the grader touches. It reads
-  only faces within the reach. It was first read from every face in the item's bounding box, and the park's
-  drives run its whole length: one long face anywhere widened the band to the whole park (all 1.58 million faces
-  at 2 m), so a survey edit 93 m from any road re-graded every road.
-- **A window is a terrain.** A grader expects its input to have one boundary loop and no pinched
-  vertex, and a window that differs makes it defer to a softer tier. Three rules make that hold:
-  - The reach test uses the triangle's own distance, not its bounding circle's. A long sliver along the
-    border, 19 m from a road, was taken in by its circle and became a separate window piece with a loop of
-    its own.
-  - A pocket of unreached faces beside a window (at most `PocketFaceLimit`, 64, border slivers included)
-    joins that window. Otherwise the grader fills the gap with faces the terrain still has: a one-face pocket
-    pinched to the rim behind a Retaining Wall ring gave three non-manifold edges
-    (`GradeWindowed_PocketPinchedToTheWindowRim_WeldsLikeTheWholeMesh`).
-  - A rim vertex where a window's faces touch only at a corner (a pinch) gets its whole fan claimed.
-
-  Before these rules, the explicit Grade Path batter next to a wall deferred to terrain conform and missed
-  its slope by up to 93 % (`Grade_DiagonalRoad_WindowIsOneLoopWithNoPinchedVertex`,
-  `Grade_LongBorderSliverOutOfReach_StaysOutOfTheWindow`). Larger unreached regions, such as the land
-  between roads, stay out.
-- **Weld check, whole-mesh fallback.** A graded patch must keep, as boundary edges, every edge its window
-  shares with faces it does not own (edges on the terrain's own border are free to move, as in a whole
-  grade). If one does not, the stage grades the whole mesh and says so in the diagnostics. Patches are
-  stitched back by coordinates.
-- **Keyed like tiles.** Each window is extracted in canonical order and keyed by its faces, its items'
-  definitions, the locks and hard constraints over it, and the settings; `TerrainRuntimeCache.GradingWindowMemos`
-  reuses an unchanged window exactly. Cold and incremental run the same windowed computation, so exactness
-  needs no argument about what a grader reads globally (its tier choice by face count, its grid sized by
-  the mesh's extent).
-
-**The Retaining Wall's rail insertion runs in windows too** (`TryInsertWallConstraintsWindowed`). The insertion
-(quality patch, face-by-face insert, or one re-triangulation of the rails' neighbourhood,
-`InsertWallConstraintsCore`) is local to the rails, so each rail's window is the faces within eight of its
-local face sizes: the quality patch grows up to six rings of faces around the faces a rail crosses. A window
-that declines, or that would not weld back, sends the stage to the whole-mesh insertion as before, so the
-windowed path can only stand in for it exactly. The wall sweep gives the same mesh, face for face, in all
-1,152 cases. At 2 m the insertion itself fell from 1.5 s to 20 ms; what remains of the stage is building the
-Rhino mesh. The interactive plan's warm rail edit at 100k faces fell from 114 ms to 60 ms, inside the 66 ms
-input-to-visible target on evaluation time. The reach index sizes its grid to at most about one cell per face.
-Sized by reach alone, a narrow rail over a small terrain asked for millions of empty cells: 17 ms on 2,700
-faces, where the whole insertion had taken 2.
-
-When one rail's reach already covers the whole terrain (`GradingWindows.AnyReachCoversAll`), windowing can
-only make one window of everything, so the stage goes straight to the whole-mesh insertion. On a contour TIN
-whose faces are tens of metres long, even two vertex rings around a wall reach 20 to 225 m, and a 24-wall
-edit spent about 150 ms of 400 assigning, keying and stitching that single window (2026-10-02).
-
-On the 1 m park, Grade Pad goes from about 19 s to 8 s cold, and Grade Path from 27 s to 17 s cold, with
-the road network split into 7 windows. A survey edit away from the roads and pads reuses every window,
-and the whole edit takes 54 s instead of 76 s. A pad slope edit re-grades the pads and only the road
-windows next to them. Each stage reports why a window was re-graded ("its faces changed", "its context
-changed") and where the time went, phase by phase. What remains is whole-mesh plumbing around the windows:
-resolving constraints over every vertex (Grade Path 4.3 s, Grade Pad 1.7 s), extraction and stitching,
-and building the Rhino mesh (2.4 s for Grade Pad). That is the floor the design's flat stage data removes.
-
-### Cut / Fill: the few points over a wall were most of it (2026-09-30)
-
-A Cut / Fill analysis projects every face's centroid onto the reference through `MeshHeightProjector`, a
-plan grid. Where the grid cannot answer (the point is over a vertical wall, or over a fold with two heights)
-it fell back to Rhino's line intersection with the whole reference mesh, and Rhino scans every face for that.
-On the 2 m park those 59 points of 1.2 million took 2.5 s of the 2.7 s volume pass, and at 1 m the analysis took
-11 s. The fallback now builds a mesh of the grid cell's own triangles (`MeshHeightProjector.CandidateTrianglesAt`:
-every face a vertical line through the point can meet is registered in that cell) and asks Rhino the same
-question of those. With no clipping boundary, the grid lookups also run in parallel, in fixed chunks summed in
-chunk order. A boundary's containment test is a Rhino curve call, so that case still runs on one thread. At 2 m the
-pass went from 2,636 ms to 138 ms. The earthwork is unchanged: cut agrees to 12 significant figures (only the
-summation order moved), fill differs by 0.00001 m³ out of 62,787 m³, and the largest depth is identical.
-
-### Stage meshes without Rhino's normalization (2026-09-30)
-
-Every grading stage ends by building a Rhino mesh from its arrays (`RhinoGeometryConversions.BuildMesh`),
-and building it meant Rhino normalizing it: combining identical vertices, culling unused vertices and
-degenerate faces, unifying normals and reading the arrays back. At 6 million faces that was about 2.4 s per
-stage. `MeshArrayNormalizer` (Core) now does the same on the arrays, and Rhino only fills the mesh and
-computes normals. The rules were measured against RhinoCommon 8.35, not assumed:
-- `CombineIdentical` merges **float**-equal positions. When it merges anything, it re-sorts every vertex
-  descending by float x, then y, then z, and each group keeps its last-added member.
-- `CullDegenerateFaces` drops repeated indices and exactly collinear corners, computed in doubles.
-- The arrays every stage has always received were read through the single-precision vertex indexer, so they
-  are float-rounded. The managed path rounds them the same way.
-- When windings would need unifying, Rhino still normalizes.
-
-The evidence that stages receive exactly what they did: with `MOLEHILL_VERIFY_NORMALIZE` set, every build is
-normalized both ways and compared bit for bit. That covers 2,496 builds in the wall sweep and every park step,
-plus 96 deliberately messy meshes (`NormalizeEquivalenceProbe`: duplicated seams, float-equal vertices up to
-250 km from the origin, unused vertices, collinear and repeated-index faces), and all were equal. The
-wall sweep and hosted-lane stage counts are unchanged, and the park's earthwork figures agree to the last
-digit. The normalizer takes 165 ms at 6.4 million faces (winding by a start-vertex bucket sort, duplicates by
-parallel hash partitions). Grade Pad's output mesh at 1 m fell from 2.4 s to about 0.7 s. What remains is Rhino
-filling the mesh and computing normals, which only lazy Rhino meshes between stages would remove.
-
-**When the managed path is not taken (2026-10-02).** On a 566k-face terrain 167 m from the origin, Smooth and
-the zones spent half a second each in Rhino's normalization, because the managed path refused their meshes:
-- *Remesh left vertices a micron apart.* The float merge welded 39 such groups blindly: 116 faces dropped,
-  three edges shared by four faces, and every later stage failed the winding check. `FloatCoincidentEdgeCollapser`
-  now collapses each such edge before the hand-off when the link condition allows, and moves a pair no edge
-  joins a few float steps apart. Only Remesh output goes through it: other stages rely on the float weld to
-  join seams, which separating would leave open.
-- *Smooth rebuilt a topology it never changed.* `BuildMeshWithNewHeights` reuses the incoming mesh's
-  normalized arrays when only heights moved and nothing would merge or cull (`HeightsKeepNormalForm`): 459 ms
-  to 27.
-- *The zone split flipped pieces of clockwise faces.* Triangle.NET returns counter-clockwise triangles; a
-  re-triangulated face now keeps its own winding. The split still meets plan folds left by Remesh (millimetre
-  slivers on both sides of one edge), which only Rhino's unify resolves, so the largest zones stay on the
-  Rhino path; the remaining fix is in Remesh.
-Zone meshes are now built by `BuildMesh` (managed where it can be), and zone surface areas are summed from the
-arrays rather than Rhino's AreaMassProperties (200 ms of centroid and moments nobody read).
-
-**Unchanged topology is shared; changed faces are copied and compacted in place.** Like unchanged
-vertices, unchanged faces may alias the input. Stage/cache topology is immutable after publication;
-other callers must copy before mutating either array. The normalizer never rewrites the caller's faces.
-The former unconditional face copy, face-sized list and `ToArray` copy
-allocated three redundant large arrays even when every face survived. Full garbage collections during
-normalization were charged to Grade Pad's output mesh in the 1.3.1-beta hosted run.
-Duplicate-position hashes and memberships, vertex-use/remap buffers, the duplicate tables (all 64
-partitions carved from one buffer) and winding adjacency come from a **strongly held** scratch cache:
-four slots per element type, smallest free buffer that fits, a miss allocating an eighth of headroom,
-nothing over 8M elements retained. Only the active range is read, count buffers are cleared, and source
-and published arrays are never cached.
-
-**Why strongly held: a large-object allocation waits for a running background collection.** The cold
-build's Grade Pad Output Mesh is 6 ms, but took 35 ms on half the cold samples, so its baseline median
-swung between 7 and 37 ms with no change to the stage. A probe showed each slow call had a gen2 collection
-inside it with a GC *pause* of 0.5 ms. The rest was the stage's own large-object allocations, which wait
-for the background collection to finish. The first version of this cache held its pool weakly, so every
-full collection, including the one the lane forces between samples, emptied it. Each call then allocated
-about 3.4 MB of scratch afresh, at exactly the moment that cost most. Held strongly, the stage allocates
-only its 1.4 MB result, and 9 of 10 cold calls stay at 6 ms (cold Grade Pad 100 to 75 ms). The cost is
-retained scratch of a few times the largest terrain normalized: a few MB here, tens of MB at 1.6M faces.
-
-### Interactive scale: what a warm edit costs as the terrain grows
-
-The realtime targets are stated as input-to-visible budgets, but nothing had measured how much of one
-the *evaluation* consumes. `InteractiveScaleBenchmark` measures the interactive plan's first supported
-workflow - Triangulate -> Retaining Wall - under the edit a height drag actually produces: a rail
-raise, repeated, with the stage caches warm. Release, two runs, worker time only.
-
-| Scale | Faces | Cold | Warm rail edit | Of which wall topology insert |
-|---|---|---|---|---|
-| small | 2,694 | 23 ms | **16 ms** | 14 ms |
-| medium | 25,186 | 100 ms | **81 ms** | 65 ms |
-| large | 51,334 | 231 ms | **171 ms** | 140 ms |
-| plan target | 100,542 | 603 ms | **452 ms** | 388 ms |
-
-Read against the plan's 66 ms input-to-visible target, this splits the problem cleanly in two:
-
-- **Small terrains are already inside the budget and the blocker is scheduling.** 16 ms of evaluation
-  leaves 50 ms for dispatch, the worker-to-UI marshal, display publication and redraw. Nothing about
-  the geometry needs to change; what stops a small terrain following a drag is that
-  `TerrainController.RequestRebuild` cancels the running build on every sample, so a sustained gesture
-  shows nothing until input stops. That is Step 2 of the interactive plan, and this measurement says
-  Step 2 is the *whole* job at this scale.
-- **Medium terrains are over budget on evaluation alone**, so scheduling cannot rescue them: 81 ms
-  exceeds 66 ms before anything is drawn. They comfortably meet the 200 ms *settlement* target, so the
-  honest position is fast settlement at 25k faces and a gesture-rate surface only below roughly 10k.
-
-**And the cost is the same shape as the other two findings.** The wall topology insert is 80-86% of
-every warm edit and scales with the whole terrain (14 -> 65 -> 140 -> 388 ms) although a rail pair
-touches a small, fixed neighbourhood of faces. Whole-mesh work for a local operation, for the third
-time: first `ConstraintCoincidenceSnapper` indexing every edge to snap 3 polylines, then
-`BuildProjectionGrid` indexing every face at half the target edge, now this. Localizing the insert to
-the rails' neighbourhood is what would move medium terrains inside the interactive budget, and it is
-the single lever for that scale.
-
-One measurement note: the first scale in a run carries the JIT cost for every stage below it. The
-first pass reported small at 37 ms and the second at 16 ms, with all larger scales stable to within a
-few percent. Read the first row of a cold process as warm-up.
-
-### What happens to a build a newer edit overtakes
-
-Two decisions used to have the same answer, and between them they made continuous input impossible:
-`RequestRebuild` cancelled the running build on **every** new request, and `CompleteBackgroundBuild`
-discarded **every** result whose version had been overtaken. During a drag each sample therefore killed
-the evaluation the previous sample started, and any evaluation that did survive was thrown away
-unpublished - so the terrain showed nothing at all until input stopped, however cheap the build was.
-That was the blocking constraint the interactive plan names as Step 2.
-
-[`TerrainSupersededBuildPolicy`](../src/MoleHill.Rhino/Services/Controller/TerrainSupersededBuildPolicy.cs) splits
-them:
-
-- **Finish, don't cancel, when the build is cheap.** The threshold is
-  `TerrainDebouncePolicy.MaxIntervalMs`, and the two constants are the same fact rather than two tuned
-  numbers: the debounce already rate-limits a gesture to one dispatch per build duration capped at that
-  value, so a build inside the cap finishes within an interval the gesture was going to spend waiting
-  anyway. Above the cap the terrain falls further behind the pointer with every sample, which is the
-  regime cancelling exists for. An unmeasured terrain is still cancelled - the first build of a session
-  is the one most likely to be slow. An explicit Rebuild still pre-empts, because that is a user asking
-  for a fresh build now.
-- **Publish a superseded result as a preview frame.** The geometry is exact for the input it was given;
-  what it is not is *current*, which is precisely what `IsPreview` already means to every consumer that
-  refuses it - bake, the interop mesh accessors and the Grasshopper bridge all go through
-  `TerrainSnapshotEligibility`, so no call site changed. Publication is monotonic (never replace a newer
-  frame with an older one, or a slow build finishing after a fast one walks the terrain backwards) and
-  age-limited by the same constant.
-
-`PublishSupersededGeometry` is deliberately much less than `ApplySuccessfulBuild`: no worker-cache
-merge, no document save, no owned-object sync, and `AppliedVersion` does not advance. None of that
-belongs on a frame a newer build is already on its way to replace, and doing it would record an older
-version as the applied one. It does update `LastFinalDuration`, because a superseded build measured the
-terrain's cost as honestly as an applied one and both the debounce cadence and the cancel decision read
-it - without that, one slow first build makes the policy cancel cheap builds for the rest of the
-session.
-
-One scheduling gap came with it: `PumpFinishedBuilds` completed a build but did not then dispatch the
-next one, leaving it for the next Idle. A build finishing is exactly when the next becomes
-dispatchable, and during a gesture there is always a newer sample waiting, so that put a poll interval
-between every frame.
-
-**Measured over a 60-sample gesture** on a 2,704-point terrain (Triangulate only), Release, in a
-`rhino-mcp` slot with the message loop pumped by `DoEvents`:
-
-| | Before | After |
-|---|---|---|
-| Cancellations during the gesture | one per overlapping sample | **0** |
-| Evaluations that completed | those not overtaken | **72 of 72** |
-| Abandoned worker time | all overtaken work | **0.0 ms across 0 requests** |
-| Builds allowed to finish that would have been cancelled | - | 12 |
-| Frames published that would have been discarded | - | 4 |
-
-The step's exit condition in [interactive-terrain-plan-2026-09-16.md](interactive-terrain-plan-2026-09-16.md)
-is a sustained-input trace showing evaluations *completing* and previews publishing rather than only
-cancellations. That is met.
-
-**It did not make the gesture realtime, and the trace says why.** Geometry is a median **5.0 ms**;
-edit-to-visible is a median **454 ms**, and **72.3% of it is `wake marshal wait`** - the interval
-between a worker finishing and the UI thread running the posted completion, ~320 ms every build
-regardless of how cheap the build was. Redraw is 17.2%, snapshot 3.9%, and everything MoleHill actually
-computes is 6.5% of the total.
-
-So on a small terrain the remaining barrier to realtime is neither geometry nor scheduling policy: it
-is a fixed per-build cost in getting back onto the UI thread.
-
-**A plausible fix was tried and measured three times worse.** The dispatch path had already moved from
-`RhinoApp.InvokeOnUiThread` to `Eto.Forms.Application.Instance.AsyncInvoke`, so the obvious hypothesis
-was that Rhino's invoke queue is drained slowly and Eto's posts a message the loop takes sooner.
-Swapping the completion wake to `AsyncInvoke` moved the median wake from 320 ms to **1,079 ms** and
-edit-to-visible from 454 ms to **1,140 ms**. It is reverted, and the comment at the call site records
-it so the two sites are not "unified" later: dispatch needs a queue that will not run it inline, the
-wake needs whichever queue the host drains soonest, and those are not the same queue.
-
-### The wake marshal is real, and nothing was waking the message loop
-
-The slot measurement above could not distinguish a real host cost from an artifact of a pumped-by-script
-UI thread. **An interactive Rhino settled it** (2026-09-19, user-run `mhLatencyTrace`, a 2,409-face
-terrain with 3 modifiers and 2 analyses):
-
-| | Interactive | Headless slot |
-|---|---|---|
-| edit to visible, median | 492 ms (p95 566) | 454 ms |
-| geometry (modifiers), median | 74 ms | 5 ms |
-| **wake marshal wait** | **71.1%**, median ~320 ms (154-486) | 72.3%, median ~320 ms |
-| redraw | 3.6% | 17.2% |
-| abandoned worker time | **0.0 ms across 0 requests** | 0.0 ms |
-
-The two environments agree on the number that matters, so it is the host's scheduling and not a
-measurement artifact. On a real edit **71% of the wait is spent with nobody working at all.**
-
-The mechanism is visible in the phase split: `worker-end -> wake-posted` is **0.0 ms** - posting the
-completion callback is free - and `wake-posted -> wake-ran` is the entire cost. Posting a callback does
-not give the host a reason to look at its queue. Once an edit settles no input arrives, Rhino's loop has
-nothing to process, and the callback waits for whatever happens to wake it next. An earlier note in this
-workstream saw the same thing from the other side: a build whose work was under 5 ms sat
-finished-but-unpublished for 451 ms across zero Idle ticks, while the UI thread was available throughout.
-
-So the fix is not a faster post but **a reason to look**: `EnsureBuildWakeTimer` runs a 15 ms `UITimer`
-while a build is in flight and stops itself when none is. A timer tick is a real Windows message, which
-is what wakes a loop that is otherwise waiting, and an idle Rhino is left alone. The posted wake is kept
-- it costs nothing and is sometimes prompt.
-
-**Since 2026-10-05 the timer also runs while a debounced request is pending, and its tick dispatches
-due requests.** Dispatch otherwise came only from `RhinoApp.Idle`, raised once per emptied queue, so a
-request that fell due after the last message (typically one queued behind a build that was then
-cancelled) waited for the next mouse move — indefinitely in a headless slot. See
-`docs/build-result-ownership.md` → "Native soak".
-
-This is also why swapping the post to Eto's queue could not have worked: the queue was never the
-problem, and the experiment said so by measuring worse.
-
-**The timer did not work either.** Re-measured interactively with it running, the wake was
-**unchanged**: median ~299 ms (283-351), still **76.5%** of edit-to-visible. Edit-to-visible improved
-only from 492 to 393 ms, and that is accounted for by the first trace carrying one cold build.
-
-That is two failed fixes aimed at the same reading - Eto's invoke queue (three times worse) and a timer
-message (no change). Both assumed a **starved queue**: that the thread was free and simply had not been
-asked to look. Two independent ways of asking it to look changed nothing, which is strong evidence the
-assumption is wrong.
-
-So the reading to test now is the other one: **the UI thread is not free**. If Rhino is busy for ~300 ms
-after an edit doing its own work - object replacement, conduit and display regeneration, whatever a
-document change costs it - then our completion is simply queued behind that, no wake mechanism can
-help, and the honest conclusion is that a small-terrain edit has a host-imposed floor that MoleHill
-cannot remove.
-
-`_buildWakeTicks` separates the two and nothing else will. The wake's detail string now reports how many
-15 ms timer ticks ran on the UI thread between the callback being posted and it running:
-
-- **~20 ticks** - the thread was free and running our code throughout, so the completion is being
-  deprioritized behind something specific, and that something is findable.
-- **0 ticks** - the thread never processed a queued message in that window, so it was busy or blocked.
-  The wait belongs to Rhino's own post-edit work, and the next question is what that work is.
-
-**The tick count came back 0, on every sample, with the timer running.** The thread processed no queued
-message at all across a 275-492 ms window. It is not starved; it is **occupied**. That rules out every
-fix of the shape "ask the host to look sooner", which is what both failed attempts were, and it makes
-the remaining question "what is holding the UI thread?" rather than "how do we get scheduled?".
-
-First suspect is MoleHill's own work, because there is a lot of it on that thread and it is triggered by
-the same edit: `RaiseStateChanged` fires synchronously into `MoleHillPanel`, which posts `RefreshUi`
-onto the same queue the completion callback is waiting in. One edit raises it three times.
-`TerrainUiThreadProbe` now times every panel refresh, and the wake reports how many milliseconds of it
-ran while the completion was waiting - directly comparable to the tick count, in the same detail string.
-
-**It accounts for all of it.** Measured interactively:
-
-| Sample | Wake marshal wait | Panel refresh during it |
-|---|---|---|
-| #4 | 263 ms | **287 ms over 2 runs** |
-| #7 | 272 ms | **290 ms over 2 runs** |
-
-The panel more than fills the window. **The terrain was late because the panel was rebuilding itself**,
-on the same queue, from the same edit. Nothing about Rhino's scheduling was ever the problem, which is
-why two fixes aimed at it did nothing - and why the tick counter, not more reasoning, is what found it.
-
-Two costs, addressed separately:
-
-- **It ran two to three times per edit.** One edit raises `StateChanged` when the rebuild is scheduled,
-  when it starts and when it is applied, and each posted its own `RefreshUi`.
-  `HandleControllerStateChanged` now coalesces them into one refresh per trip through the message loop,
-  with the flag cleared before the refresh runs so a change raised *during* a refresh still gets one.
-- **One refresh is still ~145 ms**, which is the real number and is not yet explained. `RefreshUi` sets
-  a few dozen control properties and then calls `RebuildVisibleTabLayout`, which reconstructs the
-  visible tab's cards; the probe now times that separately, so the next trace says whether the cost is
-  the card rebuild or the property updates around it. **Do not optimize either on the strength of the
-  name.**
-
-**Measured after coalescing: 492 -> 111-121 ms**, and the composition has inverted.
-
-| | First interactive trace | After coalescing |
-|---|---|---|
-| edit to visible, median | 492 ms | **121 ms** |
-| wake marshal wait | 71.1% (~320 ms) | **4.8%** (3-8 ms) |
-| geometry (modifiers) | 21% | **76%** (84-93 ms) |
-| redraw | 3.6% | 7.6% |
-| panel refreshes landing in the wake | 2 (287 ms) | **0** |
-
-**The win is not that less work happens - it is that the work now fits.** The build runs on a worker and
-the refresh on the UI thread, so they always overlapped; what changed is the ratio. Two or three
-refreshes (~290 ms) against an 87 ms build overran it by ~200 ms, and the finished terrain queued behind
-the overrun. One refresh (~94 ms) against a ~90 ms build finishes inside the build window, so
-edit-to-visible is now `max(geometry, panel)` rather than `geometry + spillover`.
-
-That also bounds how much more the panel is worth. It is off the critical path for a discrete edit and
-cannot be measured from the wake window any more, because it no longer lands there. Its remaining ~94 ms
-matters only for sustained gestures, where it would contend with a build of about the same size - and
-gesture rate is blocked by geometry first. **Do not optimize the panel further without a gesture trace
-showing it costs something.**
-
-A note on the instrument, because the first placement was wrong: `RebuildVisibleTabLayout` has two
-callers, and wrapping the tab-selection one reported 0 ms against a 94 ms refresh. It is now timed from
-inside the method so every caller is covered. And a refresh is recorded when it *finishes*, so one
-straddling the start of a window donates all its time to that window - which is how 287 ms was reported
-inside a 263 ms wait. Good enough to name a culprit, not to subtract.
-
-### What is left on a small terrain
-
-At 111-121 ms the **exact settlement target of <=200 ms is met** for this workflow. The interactive
-target is not: 30 updates/s needs 33 ms and geometry alone is 84-93 ms.
-
-The remaining wait is almost entirely real geometry, and the case bundle breaks it down: `Triangulate`
-is a cache hit, `Retaining Wall` is ~20 ms, `Remesh` is ~42 ms. Nothing here is waste to be removed -
-it is the cost of the stack. So the only route to gesture rate is to run less of it *during* the
-gesture and settle exactly on release, which is what this plan has always called an approximate
-interactive surface.
-
-The machinery for that mostly exists and is not wired up. `TerrainBuildMode.Preview` already halves
-remesh iterations and doubles the target edge length, and `IsPreview` is already refused by bake, the
-interop accessors and the Grasshopper bridge - but the ordinary edit path always queues `Final`, so
-preview is never dispatched (see
-[interactive-terrain-plan-2026-09-16.md](interactive-terrain-plan-2026-09-16.md) implementation log
-entry 5). Dispatching Preview during a gesture and Final on release is the next step, and it is
-scheduling work on top of parts that already exist rather than new geometry.
-
-**A geometry figure that looked wrong is explained, and it is not a cache problem.** These traces show
-67-96 ms of geometry on 2,409 faces where `InteractiveScaleBenchmark` measures 16 ms on 2,694, which
-suggested a stage cache was missing. The case bundle exported from this very session says otherwise: its
-build log records `Triangulate: 0 s (cache hit)`, and the 70 ms is real work in the two stages the
-benchmark's fixture does not have - `Retaining Wall` 20 ms and `Remesh` 40 ms. The benchmark stack ends
-at the wall; this one ends at a Remesh. Nothing to fix, and the cache guess is withdrawn.
+Timestamps are monotonic `Stopwatch` ticks, so UI-thread and worker marks compare. The report differences
+*consecutive* events, so intervals partition a request; a pair with no agreed meaning prints as
+`unclassified` and is never folded into a neighbour. Every marshalled hop is split into the wait for the
+host (`*-posted` -> `*-ran`, `LatencyKind.HostWait`) and the work that then runs (`LatencyKind.Work`), and
+the summary attributes the whole wait to debounce, MoleHill working, host wait or redraw. Superseded
+requests are reported as abandoned worker time. The trace is off by default and costs one volatile read
+per site.
+
+- **Never `Thread.Sleep` in a `rhino-mcp` `run_csharp` script to wait for a build.** The script runs on
+  Rhino's UI thread, so it blocks the loop it is measuring; this once read as a 28.7 s "host wait".
+  Return and poll with short calls.
+- The first scale in a fresh process carries the JIT cost of every stage; read it as warm-up.
+- The shape of the wait depends on scale: on a small terrain it was scheduling, on a heavy one the
+  dependent outputs, on a long modifier stack the geometry. Measure before choosing a fix.
+
+### Scheduling
+
+- **Leading-edge debounce** ([`TerrainDebouncePolicy`](../src/MoleHill.Rhino/Services/Controller/TerrainDebouncePolicy.cs)).
+  The first edit after a quiet period waits nothing; further edits are rate-limited to one dispatch per
+  interval, the previous build's worker duration clamped to [60, 500] ms (above a slider's event spacing,
+  so a drag coalesces; the ceiling is the old flat delay).
+- **A zero delay means zero.** `ScheduleRebuild` posts the dispatcher through
+  `Eto.Forms.Application.Instance.AsyncInvoke`, not `RhinoApp.InvokeOnUiThread`, which runs *inline* on
+  the UI thread and once started a build inside the `OnBeforeTransformObjects` handler that produced the
+  edit. The completion wake is the opposite case: it uses `RhinoApp.InvokeOnUiThread` from the worker
+  continuation (`PumpFinishedBuilds`, re-entrancy guarded, idle poll as backstop). Moving the wake to Eto's
+  queue was measured three times worse; the call site says so. The two sites must not be "unified".
+- **`EnsureBuildWakeTimer`** runs a 15 ms `UITimer` while a build is in flight or a debounced request is
+  pending, and its tick dispatches due requests. Dispatch otherwise came only from `RhinoApp.Idle`, so a
+  request falling due after the last message waited for the next mouse move (indefinitely in a headless
+  slot). `PumpFinishedBuilds` also dispatches the next request when a build completes.
+- **A superseded build** ([`TerrainSupersededBuildPolicy`](../src/MoleHill.Rhino/Services/Controller/TerrainSupersededBuildPolicy.cs)):
+  a build expected to finish within `TerrainDebouncePolicy.MaxIntervalMs` is allowed to finish rather than
+  cancelled (an unmeasured terrain is still cancelled; an explicit Rebuild pre-empts), and its result is
+  published as a preview frame. Publication is monotonic and age-limited by the same constant.
+  `PublishSupersededGeometry` does no cache merge, save or object sync and does not advance
+  `AppliedVersion`, but it does record `LastFinalDuration`, which both the debounce and this policy read.
+  `IsPreview` is refused by bake, the interop accessors and the Grasshopper bridge through
+  `TerrainSnapshotEligibility`.
+
+### The UI thread is a shared queue
+
+What looked for a long time like Rhino failing to run MoleHill's completion was the panel: one edit
+raised `StateChanged` several times, each posting a full `RefreshUi` onto the queue the completion was
+waiting in (found by counting timer ticks during the wait: zero, so the thread was occupied, not starved).
+The rules that came out of it:
+
+- **Two events.** `StatusChanged` refreshes only the status line; scheduling, build start, progress and
+  mid-edit frames raise it. `StateChanged` (a full refresh) is coalesced to one per trip through the
+  message loop, with the flag cleared before the refresh runs.
+- **Cards refresh only when something they show changed.**
+  [`TerrainCardResultSignature`](../src/MoleHill.Rhino/Services/Build/TerrainCardResultSignature.cs)
+  fingerprints the results cards read and is compared with the signature of the last *applied* build
+  (`TerrainRuntimeCache.LastCardResultSignature`). **A new build result that a card reads must be added to
+  the signature**, or that card goes stale. The first final build always refreshes.
+- `Save` suppresses document events around its string writes.
+- [`TerrainSlowBuildWarningPolicy`](../src/MoleHill.Rhino/Services/Controller/TerrainSlowBuildWarningPolicy.cs)
+  trusts a measured duration (warn from 5 s final, 1.5 s preview) and falls back to size only before the
+  first build.
+- Do not optimize the panel further without a gesture trace showing it costs something; a single refresh
+  now overlaps the build instead of queuing behind it.
 
 ### Publishing geometry before its outputs
 
-`Build` assigns `PrimaryMesh` before the final-only output stages but returns only after all of them, so
-a finished mesh waits behind work that merely describes it. It now hands that mesh over as soon as it is
-ready, and `TerrainController.PublishInterimGeometry` shows it with the previous build's outputs carried
-forward and marked stale.
+`Build` hands the finished mesh over before the output stages run, and
+`TerrainController.PublishInterimGeometry` shows it with the previous outputs carried forward and marked
+stale (`HasDeferredOutputs`, plus `GeometryRevision`/`OutputsRevision` on `TerrainDisplayState`;
+`OutputsAreStale` when they differ). The published mesh is a worker-side copy, deliberately not disposed
+(see [build-result-ownership.md](build-result-ownership.md)).
+[`TerrainInterimPublishPolicy`](../src/MoleHill.Rhino/Services/Controller/TerrainInterimPublishPolicy.cs) gates
+it on the **peak** dependent-output cost seen for the terrain, not the last (one all-cache-hit rebuild
+would otherwise switch it off before the next expensive edit). An interim frame previews **plain**: the
+previous analysis colouring belongs to a different face set.
 
-Freshness is `HasDeferredOutputs` plus two revisions on `TerrainDisplayState`: `GeometryRevision` and
-`OutputsRevision`, with `OutputsAreStale` when they differ. Reusing the existing flag matters - bake, the
-interop mesh accessors (`DuplicateFinalTerrainMesh`/`PeekFinalTerrainMesh`) and the Grasshopper bridge
-already refuse a state carrying deferred output, so a partial publication cannot be mistaken for a
-completed build without touching any of those call sites. The revisions add *how* stale, which is what
-lets the status line name the edit the drawing still belongs to.
+Open: `TerrainBuildMode.Preview` (fewer remesh iterations, coarser target) exists and is refused by bake
+and the bridges, but the edit path always queues `Final`, so a gesture never gets a cheaper preview
+([interactive-terrain-plan-2026-09-16.md](interactive-terrain-plan-2026-09-16.md)).
 
-Ownership: the published mesh is a **copy**, taken on the worker, because the stages still to run keep
-reading the original. It is deliberately not disposed - a conduit may be mid-draw when a state is
-replaced, and the displaced-mesh machinery covers build-owned meshes, not this one. See
-[build-result-ownership.md](build-result-ownership.md).
+### Whole-mesh work for a local edit
 
-[`TerrainInterimPublishPolicy`](../src/MoleHill.Rhino/Services/Controller/TerrainInterimPublishPolicy.cs) gates it on
-the **peak** dependent-output cost seen for that terrain, not the last one. Keying on the last build was
-wrong in a way that showed up immediately in live testing: one rebuild whose analyses all hit the stage
-cache measures ~3 ms and would switch early publication off again right before the next expensive edit.
-The costs are asymmetric too - a wrong yes buys one copy and one redraw (6 ms measured), a wrong no costs
-seconds - so the rule biases toward publishing.
+Three costs had the same shape: indexing the whole terrain to serve a local operation. Each fix keeps the
+output exact.
 
-Measured live on the heavy fixture after a real source edit: geometry ready at 1,296 ms, interim
-published at 1,301 ms, **terrain on screen at 3,110 ms** with outputs marked stale, analyses not finished
-until 6,606 ms. On the small fixture the policy declines, which is correct - its outputs are 0.5 ms.
+- **Constraint snapping.** `ConstraintCoincidenceSnapper` indexes only the vertices and edges meeting the
+  constraints' own tolerance-expanded bounds; a query escaping that region rebuilds over the whole mesh
+  (`RegionWasAbandoned`), so a bad region costs speed, never geometry
+  (`ConstraintCoincidenceSnapperRegionTests`).
+- **Grading windows.** `GradingWindows` grades each group of pads or paths on the faces within their reach
+  (`PadGrader.GradeWindowed`, `PathGrader.GradeWindowed`). Reach is by shape (a pad's filled outline and
+  Max Distance or daylight reach plus apron; a path's centreline and half-width plus reach), using the
+  triangle's own distance. The margin is twice the longest face *within the reach*, capped at half the
+  reach. A window must be a terrain the grader accepts: one boundary loop, no pinch. Pockets of at most
+  `PocketFaceLimit` unreached faces join the window, and a pinched rim vertex gets its whole fan. A patch
+  that does not keep every edge it shares with unowned faces sends the stage to the whole mesh. Windows
+  are keyed by their canonical faces, items, locks, constraints and settings
+  (`TerrainRuntimeCache.GradingWindowMemos`), and cold and incremental runs use the same windowed
+  computation, so reuse is exact. `GradingWindows.Stitch` welds by coordinates only near the windows.
+- **Retaining Wall rail insertion** runs per rail window (eight local face sizes around the faces a rail
+  crosses; `TryInsertWallConstraintsWindowed`). A window that declines or would not weld back sends the
+  stage to the whole-mesh insertion, so the windowed path stands in for it exactly. When one reach covers
+  the terrain (`GradingWindows.AnyReachCoversAll`), it goes straight to the whole mesh.
+- **Cut / Fill** falls back from `MeshHeightProjector`'s plan grid to Rhino's line intersection only on a
+  mesh of the grid cell's own triangles (`CandidateTrianglesAt`), not the whole reference.
 
-Two structural facts behind the small-terrain numbers:
+Open: Remesh's projection grid uses a cell of half the target edge; a coarser cell builds faster but scans
+more per back-projection query. Do not change the constant without measuring the sum across a real
+remesh. Remesh at the end of a long stack also pays for upstream detail it then discards; reordering
+changes results, so that is a design question.
 
-- **The debounce was a flat 500 ms on every edit**, which put a floor under edit-to-visible that no
-  build optimization could lift. [`TerrainDebouncePolicy`](../src/MoleHill.Rhino/Services/Controller/TerrainDebouncePolicy.cs)
-  is now **leading-edge**: a delay exists only while input is still arriving. The first edit after a
-  quiet period waits nothing; further edits are rate-limited to one dispatch per interval, and the
-  interval is the previous build's worker duration clamped to [60, 500] ms. The floor sits above a
-  slider drag's 16-40 ms event spacing so a drag still coalesces; the ceiling is the old constant, so
-  a slow terrain keeps exactly its previous protection against discarded work.
+### Remesh: tiled, and incremental
 
-  A zero delay also has to *mean* zero, so `ScheduleRebuild` posts the dispatcher instead of leaving the
-  request for the next `OnIdle` - measured at 430 ms of pure waiting on an edit whose debounce had
-  already resolved to zero. It posts through **`Eto.Forms.Application.Instance.AsyncInvoke`**, not
-  `RhinoApp.InvokeOnUiThread`: the latter runs *inline* when already on the UI thread, which started a
-  build in the middle of the `OnBeforeTransformObjects` handler that produced the edit, before the
-  transform had been applied.
+`TiledIsotropicRemesher` is the Remesh card's `"isotropic"` mode (the whole-mesh `IsotropicRemesher`
+remains as `"global"`). It makes Remesh a function of local input so an incremental rebuild reproduces a
+cold one exactly:
 
-  Measured live: debounce fell from 944 ms to **1.8 ms** on an isolated edit.
-- **A finished build is discovered only by polling.** `TryCompleteFinishedBuild` runs inside `OnIdle`;
-  nothing wakes the UI thread when a worker completes. `StartBackgroundBuild` now also posts
-  `PumpFinishedBuilds` through `RhinoApp.InvokeOnUiThread` from the worker continuation, with the idle
-  poll left as the backstop and a re-entrancy guard because the completion path saves and redraws.
+- **Three passes on offset grids** (tiles of 64 × target edge, offsets 0, 1/2, 1/4), so every region is
+  interior to a tile in some pass; two passes left held edges too short where cut lines crossed.
+- **Hold edges, not faces**, and **refine along the cut lines first** by longest-edge bisection.
+- **One surface, one wall classification**: every pass projects onto the original terrain; wall faces are
+  classified once and carried by flag.
+- **Incremental**: a tile's output is a pure function of its key (canonical faces, held edges, wall flags,
+  breaklines, an order-free hash of the original surface under it, settings); `TiledRemeshMemo` in
+  `TerrainRuntimeCache.RemeshMemos` reuses unchanged tiles and is replaced, never modified. An automatic
+  target edge (Edge Length 0) is snapped to 2.5 % log steps (`RoundedTarget`) so an edit does not nudge it.
+  `Remesh_WithTheMemoOfTheRunBefore_EqualsAColdRemeshOfTheEdit` holds this bit for bit.
 
-**On reading a host wait.** Earlier figures in this workstream attributed 100-630 ms, and once 28.7 s,
-to Rhino failing to run MoleHill's completion callback. That was mostly a measurement error, recorded
-here because it is easy to repeat: `Thread.Sleep` inside a `rhino-mcp` `run_csharp` script runs **on
-Rhino's UI thread**, so a script that sleeps to wait for a build blocks the very message loop it is
-measuring. Wait by returning from the script and polling with short calls instead.
+The operator phases are rewritten for speed with oracles that hold their output identical: the flip phase
+visits edges through `FlipEdgeIndex` in the dictionary's old order, memoizes geometry rejections while both
+faces are unchanged, and takes verdicts in parallel but commits in order
+(`IsotropicRemesherFlipEquivalenceTests` against `IsotropicRemesherFlipReference`); the collapse phase plans
+in parallel a chunk at a time and commits in order (a plan reads only one-rings, every commit locks the
+one-rings it changes); `MeshVertexAdjacency` and `TerrainFaceGrid`'s dense CSR table keep visit order.
 
-Re-measured without blocking, on the heavy fixture, the host wait is **87 ms of 8,307 ms (1.1%)**: the
-posted wake-up runs in 0.1 ms. The report therefore splits every marshalled hop into the wait for the
-host (`*-posted` -> `*-ran`, `LatencyKind.HostWait`) and the work that then runs (`*-ran` -> `*-visible`,
-`LatencyKind.Work`), and the summary attributes the whole wait to debounce, MoleHill working, host wait,
-or redraw. An interval whose pair has no agreed meaning prints as `unclassified` and is never folded
-into a neighbour.
+### Stage meshes without Rhino's normalization
 
-Heavy fixture, fully attributed:
+`RhinoGeometryConversions.BuildMesh` normalizes the arrays in managed code (`MeshArrayNormalizer`) and Rhino
+only fills the mesh (through `MeshUnsafeLock`, writing both float and double-precision vertices) and
+computes normals. The normalizer reproduces RhinoCommon 8.35 exactly, rules measured rather than assumed:
+`CombineIdentical` merges **float**-equal positions and, when it merges anything, re-sorts vertices
+descending by float x, y, z with each group keeping its last-added member; `CullDegenerateFaces` drops
+repeated indices and exactly collinear corners in doubles; the arrays are float-rounded as the old
+single-precision read-back was. When windings would need unifying, Rhino still normalizes. With
+`MOLEHILL_VERIFY_NORMALIZE` set, every build is normalized both ways and compared bit for bit.
 
-| Owner | Time | Share |
-|---|---|---|
-| MoleHill working | 6,199 ms | 74.6% |
-| Rhino redrawing | 1,048 ms | 12.6% |
-| Debounce | 972 ms | 11.7% |
-| Waiting for the host | 87 ms | 1.1% |
-
-**An interim publication previews plain.** Splitting the interim hop showed it costing 1,858 ms on the
-UI thread, of which 692 ms was rebuilding the analysis colour mesh. That work was not merely expensive
-but wrong: it coloured the *new* mesh from the *previous* build's analysis, computed against a different
-face set. So `UpdateRuntimePreview` skips the colouring whenever `OutputsAreStale` - the colouring is
-not stale, it is absent, and saying so is the honest picture. Redrawing a plain mesh instead of a
-three-vertices-per-face colour mesh roughly halves the redraw too.
-
-Heavy fixture, end to end:
-
-| | Before | After |
-|---|---|---|
-| Debounce | 944 ms | 1.8 ms |
-| Interim preview build | 692 ms | 0 ms |
-| Interim redraw | 1,069 ms | 502 ms |
-| **Edit to terrain visible** | **3,072 ms** | **1,159 ms** |
-| Edit to everything current | 8,272 ms | 7,213 ms |
-
-Small fixture (2.6k faces), edit to visible: **1,087 ms -> 385 ms**, of which 96 ms is MoleHill working
-and 275 ms is the marshal from the finished worker back to the UI thread. That marshal is the last
-significant unknown: it measures 0.1 ms when Rhino's loop is busy and ~275 ms when it is quiescent, and
-only a trace from a genuinely interactive session will say which an ordinary edit resembles.
-
-### Editing a 100k-face terrain (2026-10-01)
-
-Measured live on a 100,911-face terrain carrying one retaining wall (Debug build, panel open), the same
-edit-to-visible trace on every rail edit. Three costs sat around a build whose geometry was already fast.
-
-- **A modal warning before every edit.** The slow-build warning asked before each rebuild of any terrain
-  over 250,000 vertices *or* 100,000 faces carrying an expensive card, although this one's last rebuild
-  had taken 0.07 s. [`TerrainSlowBuildWarningPolicy`](../src/MoleHill.Rhino/Services/Controller/TerrainSlowBuildWarningPolicy.cs)
-  now trusts a measured duration (warn from 5 s final, 1.5 s preview) and falls back to size only before
-  the first build, at 1,000,000 faces.
-- **Full panel refreshes on the UI thread, in front of the next result.** Rebuilding the visible tab
-  costs 45-66 ms here, and an edit raised it at schedule, at start, for each progress message, twice more
-  for the save's own `DocumentPropertiesChanged` echo, and at completion. Now:
-  - `StatusChanged`, a second event, refreshes only the status line. Scheduling for an object edit,
-    build start, progress messages and mid-edit frames (interim and superseded publications, whose
-    outputs are carried forward) raise it instead of `StateChanged`.
-  - `Save` suppresses document events around its string writes; the caller already decides whether to
-    refresh.
-  - A completed build refreshes the cards only when something they show changed.
-    [`TerrainCardResultSignature`](../src/MoleHill.Rhino/Services/Build/TerrainCardResultSignature.cs)
-    fingerprints those results (analysis and zone summaries, In-situ Stair's computed fields, diagnostic
-    counts per card, mesh quality warnings), and the controller compares it with the one stored at the
-    last applied build (`TerrainRuntimeCache.LastCardResultSignature`), not with the display state
-    before the apply: a mid-edit frame does not carry the diagnostic overlays, so that comparison
-    always differed. The first final build always refreshes, because it enables cards on other
-    terrains that compare against this one. **A new build result that a card reads must be added to the
-    signature**, or that card goes stale until something else refreshes it.
-- **Rhino edge topology on every first draw.** `TerrainPresentationMesh` built `TopologyEdges` to find
-  wall seams: 33 of 44 ms with no wall at all, 108 ms with one. [`ShadingSeamSplitter`](../src/MoleHill.Core/Engine/ShadingSeamSplitter.cs)
-  (Core) finds and splits them on the flat arrays: 14 ms with the wall, and none of the CSR work when no
-  face is a wall. Its group normal is the **unweighted** mean of unit face normals, which is how Rhino
-  computes a vertex normal. An area-weighted first version tilted flat ground beside the wall by 30-37°,
-  because one large face just under the wall slope shared the ground's group; the unweighted one
-  matches Rhino's unweld within 0.03° on every face corner.
-
-Result, rail edits spaced so none is superseded:
-
-| | Before | After |
-|---|---|---|
-| Wall-free build, edit to visible | 80-105 ms | **25-44 ms** |
-| Wall build, edit to visible | not measured (see below) | **91-110 ms**, of which geometry 73-76 ms |
-| Panel relayouts per edit | 1 (45-66 ms) | **0** unless a card's content changed |
-| Modal prompts | every edit | none |
-
-**The earlier baseline had no wall in it.** The fixture's rails were 1.2 apart against the card's 1.0
-maximum wall width, so the wall card rejected the pair and the "10 ms geometry" was a plain
-triangulation. With rails 0.8 apart the wall inserts and geometry is 73-76 ms. That is the windowed rail
-insertion, and it is now nearly all of what is left on this terrain.
-
-### A wall edit on 100k faces: 40 -> 27 ms (2026-10-01)
-
-With the panel and the modal out of the way, a rail edit on the interactive lane's 100k-face fixture was
-40 ms of worker time, 33 of it `Retaining Wall Topology Insert`. `WallInsertProbe` (validation-lanes.md)
-plus `dotnet-trace` on the slot split it: the window's own rail insertion ~12 ms, building the result's
-Rhino mesh ~11 ms, and three whole-terrain passes in `GradingWindows` (stitch 7 ms, interface edges 5 ms,
-face assignment 3 ms). Three changes, every lane output mesh hash unchanged:
-
-- **`RhinoGeometryConversions.BuildMesh` fills the mesh through `MeshUnsafeLock`** instead of one native call
-  per vertex and per face: 0.8 ms against 6.7 ms per 100k faces, in every stage that builds a mesh. It writes
-  both the float and the double-precision vertex arrays, because `Vertices.Add(double, double, double)` had
-  always switched double precision on; the probe's first comparison caught a float-only version dropping it.
-  `UseDoublePrecisionVertices` only takes once the list has vertices, so it is set after the resize. This is
-  the one `unsafe` block in the plug-in (`AllowUnsafeBlocks` on `MoleHill.Rhino` and its test project).
-- **`GradingWindows.Stitch` welds by coordinates only near the windows.** The input is normalized, so every
-  coordinate has one index, and a patch can only weld onto a vertex of a window face. Every other vertex maps
-  by index in first-use order, the order the dictionary gave it. `GradingWindowsStitchTests` holds the old
-  weld-everything stitch as the reference.
-- **`InterfaceEdges` skips faces without two corners on a window boundary** with array reads, rather than a
-  dictionary lookup per edge of the terrain.
-
-Hosted lane, plan-target warm edit: **39.6 -> 26.8 ms** (insert 33.0 -> 20.6 ms); large warm edit 24.1 ->
-17.4 ms; geometry-heavy pad edit 396 -> 367 ms. Left, per edit: Triangle.NET triangulating each face a rail
-crosses (~6-8 ms, one small polygon at a time), managed normalization of the stitched mesh (~2.5 ms) and
-`ComputeNormals`, and 2-3 ms each for face assignment, stitch and reach setup.
+- Remesh can leave vertices a micron apart, which the float weld would merge blindly;
+  `FloatCoincidentEdgeCollapser` collapses those edges first, **for Remesh output only** (other stages rely
+  on the weld to join seams).
+- `BuildMeshWithNewHeights` reuses the incoming normalized arrays when only heights moved
+  (`HeightsKeepNormalForm`).
+- Unchanged topology may alias the input; stage and cache topology is immutable after publication, and
+  other callers copy before mutating. The normalizer never rewrites the caller's faces.
+- Normalizer scratch is held **strongly** (four slots per element type, nothing over 8M elements kept): a
+  large-object allocation waits for a running background gen2 collection, so a weakly held pool, emptied
+  by every full collection, made a 6 ms stage take 35 ms on half its runs.
+- `ShadingSeamSplitter` (Core) finds wall shading seams on the flat arrays. Its group normal is the
+  **unweighted** mean of unit face normals, as Rhino computes a vertex normal; an area-weighted version
+  tilted flat ground beside a wall by 30°.
 
 ## Rhino: build-result ownership
 

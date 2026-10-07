@@ -129,7 +129,7 @@ Key files:
   min-angle, normal agreement, adjacency incidence) used by the remeshers and refiner.
 - `FlipEdgeIndex.cs` — the isotropic remesh's per-sweep edge → faces index, a counting sort over
   half-edges that visits edges in exactly the order the edge dictionary it replaced enumerated them, so
-  the flip phase makes identical flips (architecture.md, "Remesh flip phase").
+  the flip phase makes identical flips (architecture.md, "Remesh: tiled, and incremental").
 - `MeshTopologyValidator.cs` — low-allocation edge-run boundary analysis (non-manifold edges, open
   chains, loop count) and compressed flat adjacency for ordered boundary extraction. Storage scales
   with edge/boundary counts rather than maximum vertex id; it is the watertight gate used everywhere.
