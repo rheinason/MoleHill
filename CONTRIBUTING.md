@@ -22,7 +22,10 @@ Security issues: see [SECURITY.md](SECURITY.md), not the issue tracker.
   `MOLEHILL_RHINO_DIR` (see `Directory.Build.props`).
 
 `MoleHill.Core`, the terrain engine, has no Rhino dependency: it builds and its tests run on any machine
-with the SDK, and that is what CI runs.
+with the SDK, and that is what CI runs automatically. Host changes are checked by a maintainer starting the
+`Host validation` workflow (`.github/workflows/host.yml`) on a self-hosted runner with Rhino 8; it is
+manual by design, so untrusted PR code never runs there on its own. Which checks branch protection
+requires is a repository setting, not recorded in files.
 
 ## Build and test
 

@@ -2,7 +2,7 @@ name: CI
 
 # MoleHill.Core and its tests need no Rhino, so they run on every push and pull request. The Rhino and
 # Grasshopper hosts need a licensed Rhino 8 install to build and test, so they are validated locally
-# with validate.ps1 (see CONTRIBUTING.md).
+# with validate.ps1 (see CONTRIBUTING.md), or by a maintainer starting host.yml on a self-hosted runner.
 
 on:
   push:

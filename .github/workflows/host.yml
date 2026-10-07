@@ -1,0 +1,52 @@
+name: Host validation
+
+# The Rhino and Grasshopper projects reference an installed, licensed Rhino 8, which GitHub-hosted runners
+# do not have. This job runs on a self-hosted Windows runner labelled `rhino`, and only when a maintainer
+# starts it for a commit they have read. It never triggers on pull requests: that would run untrusted
+# code on the runner's machine. Core CI (ci.yml) stays the automatic check.
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Commit SHA to validate (review it first)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  host:
+    runs-on: [self-hosted, windows, rhino]
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Managed lane (build, Core/Rhino/GH tests)
+        shell: pwsh
+        run: ./validate.ps1 managed
+
+      - name: Warnings lane
+        shell: pwsh
+        run: ./validate.ps1 warnings
+
+      - name: Summarise skipped tests
+        if: always()
+        shell: pwsh
+        run: |
+          Get-ChildItem .artifacts/validate -Recurse -Filter *.trx | ForEach-Object {
+            [xml]$trx = Get-Content $_.FullName
+            $c = $trx.TestRun.ResultSummary.Counters
+            "$($_.Name): total=$($c.total) passed=$($c.passed) failed=$($c.failed) notExecuted=$($c.notExecuted)" |
+              Tee-Object -Append -FilePath $env:GITHUB_STEP_SUMMARY
+          }
+
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: host-validation-${{ inputs.ref }}
+          path: .artifacts/validate/
