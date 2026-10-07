@@ -2,6 +2,7 @@ using MoleHill.Core.Engine;
 using MoleHill.Core.Processing;
 using MoleHill.Grasshopper.Registry;
 using MoleHill.Grasshopper.Types;
+using MoleHill.Shared;
 using Rhino.Geometry;
 
 namespace MoleHill.Grasshopper.Components;
@@ -99,7 +100,7 @@ public sealed class MeshSimplifyComponent : RegistryTerrainComponent
                 if (breakline == null || !breakline.TryGetPolyline(out Polyline polyline) || polyline.Count < 2)
                     continue;
                 candidates.Add(breakline);
-                constraints.Add(ToConstraintPolyline(polyline, breakline.IsClosed));
+                constraints.Add(RhinoGeometryConversions.ToConstraintPolyline(polyline, breakline.IsClosed));
             }
 
             required.AddRange(SurfaceConstraintEdgeResolver.ResolveEach(
@@ -144,19 +145,6 @@ public sealed class MeshSimplifyComponent : RegistryTerrainComponent
                 sourceTerrain.HasProjectBaseTransform);
             ctx.SetData(4, new MoleHillTerrainGoo(terrain));
         }
-    }
-
-    private static ConstraintPolyline ToConstraintPolyline(Polyline polyline, bool isClosed)
-    {
-        var points = new double[polyline.Count * 3];
-        for (int i = 0; i < polyline.Count; i++)
-        {
-            points[i * 3] = polyline[i].X;
-            points[i * 3 + 1] = polyline[i].Y;
-            points[i * 3 + 2] = polyline[i].Z;
-        }
-
-        return new ConstraintPolyline(points, polyline.Count, isClosed);
     }
 
     private static int NearestVertex(double[] vertices, Point3d point, double tolerance)

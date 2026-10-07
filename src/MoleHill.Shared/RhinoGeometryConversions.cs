@@ -51,6 +51,20 @@ internal static class RhinoGeometryConversions
         return mesh;
     }
 
+    /// <summary>A polyline as a Core <see cref="ConstraintPolyline"/> (flat XYZ points).</summary>
+    public static ConstraintPolyline ToConstraintPolyline(Polyline polyline, bool isClosed, bool preserveInputElevation = false)
+    {
+        var points = new double[polyline.Count * 3];
+        for (int i = 0; i < polyline.Count; i++)
+        {
+            points[i * 3] = polyline[i].X;
+            points[i * 3 + 1] = polyline[i].Y;
+            points[i * 3 + 2] = polyline[i].Z;
+        }
+
+        return new ConstraintPolyline(points, polyline.Count, isClosed, preserveInputElevation);
+    }
+
     public static bool TryGetMeshData(Mesh mesh, out ExtractedMeshData data, out string? errorMessage)
     {
         errorMessage = null;
