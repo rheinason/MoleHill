@@ -840,7 +840,7 @@ internal sealed partial class TerrainBuildService
     }
 
     /// <summary>Faces steeper than this are frozen retaining walls in the Remesh modifier (never touched).</summary>
-    private const double RemeshWallFaceMinSlopeDeg = 70.0;
+    internal const double RemeshWallFaceMinSlopeDeg = 70.0;
 
     /// <summary>
     /// Dispatches to one of three remesh algorithms selected by <see cref="RemeshModifierDefinition.Mode"/>:

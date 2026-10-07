@@ -597,7 +597,7 @@ internal sealed partial class TerrainBuildService
         return null;
     }
 
-    private static TerrainTolerancePolicy.Profile GetToleranceProfile(TerrainBuildSnapshot snapshot, TerrainDefinition terrain)
+    internal static TerrainTolerancePolicy.Profile GetToleranceProfile(TerrainBuildSnapshot snapshot, TerrainDefinition terrain)
     {
         return TerrainTolerancePolicy.Create(
             terrain.GlobalTolerance,

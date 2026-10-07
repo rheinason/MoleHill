@@ -20,7 +20,7 @@ internal sealed class ProjectToModifierDescriptor : ModifierTypeDescriptor
         FeatherDistance = ModelUnits.FromMeters(1.0, unitSystem)
     };
 
-    public override void RunBuildStage(ModifierBuildContext context) => TerrainBuildService.RunProjectToStage(context);
+    public override void RunBuildStage(ModifierBuildContext context) => ProjectToStage.Run(context);
 
     public override string? InertReason(ModifierDefinition modifier, TerrainBuildSnapshot snapshot) =>
         modifier is ProjectToModifierDefinition m && NoneResolve(snapshot, m.TargetMesh) && m.TargetTerrainId == null ? "Not applied — no target selected." : null;

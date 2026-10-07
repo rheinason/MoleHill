@@ -133,25 +133,6 @@ internal sealed partial class TerrainBuildService
         c.CurrentMeshFingerprint = fingerprint;
     }
 
-    internal static void RunProjectToStage(ModifierBuildContext c)
-    {
-        var projectTo = (ProjectToModifierDefinition)c.Modifier;
-        RhinoMesh? input = c.CurrentMesh;
-        c.CurrentMesh = ExecuteCachedMeshStage(
-            c.Build,
-            c.RuntimeCache,
-            c.StageKey,
-            "Project To",
-            ComputeModifierStageFingerprint(c.Snapshot, c.Terrain, projectTo, c.CurrentMeshFingerprint),
-            () => input == null
-                ? WarnMissingMesh(c.Build, projectTo.Label)
-                : ApplyProjectTo(c.Snapshot, c.Terrain, input, projectTo, c.Build, c.ShouldCancel),
-            result => DescribeModifierMeshResult(projectTo.Label, result),
-            out ulong fingerprint,
-            c.ShouldCancel);
-        c.CurrentMeshFingerprint = fingerprint;
-    }
-
     internal static void RunRetainingWallStage(ModifierBuildContext c)
     {
         var retainingWall = (RetainingWallModifierDefinition)c.Modifier;
