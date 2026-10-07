@@ -2,6 +2,7 @@ using MoleHill.Core.Grading;
 using MoleHill.Core.Processing;
 using MoleHill.Rhino.Model;
 using Rhino.Geometry;
+using MoleHill.Core.Geometry;
 using RhinoMesh = Rhino.Geometry.Mesh;
 
 namespace MoleHill.Rhino.Services;
@@ -46,7 +47,7 @@ internal sealed partial class TerrainBuildService
                 xy[(i * 2) + 1] = polyline[i].Y;
             }
 
-            if (Math.Abs(SignedArea(xy, count)) <= tolerance * tolerance || HasSelfIntersection(xy, count))
+            if (Math.Abs(Geometry2D.SignedArea(xy, count)) <= tolerance * tolerance || HasSelfIntersection(xy, count))
             {
                 invalid++;
                 continue;
@@ -67,7 +68,7 @@ internal sealed partial class TerrainBuildService
         if (boundaries.Count == 0)
             return null;
         MeshAreaSplitter.AreaBoundary selected = boundaries
-            .OrderByDescending(boundary => Math.Abs(SignedArea(boundary.XyVertices, boundary.VertexCount)))
+            .OrderByDescending(boundary => Math.Abs(Geometry2D.SignedArea(boundary.XyVertices, boundary.VertexCount)))
             .First();
         if (boundaries.Count > 1)
             build.Diagnostics.Add($"Outer resolved {boundaries.Count:N0} valid loops; only the largest loop is used.");
@@ -176,17 +177,6 @@ internal sealed partial class TerrainBuildService
         return RhinoGeometryConversions.BuildMesh(result.Vertices, result.VertexCount, result.Faces, result.FaceCount);
     }
 
-    private static double SignedArea(double[] xy, int count)
-    {
-        double area = 0.0;
-        for (int i = 0; i < count; i++)
-        {
-            int next = (i + 1) % count;
-            area += (xy[i * 2] * xy[(next * 2) + 1]) - (xy[next * 2] * xy[(i * 2) + 1]);
-        }
-        return area * 0.5;
-    }
-
     private static bool HasSelfIntersection(double[] xy, int count)
     {
         for (int a = 0; a < count; a++)
@@ -197,33 +187,12 @@ internal sealed partial class TerrainBuildService
                 int bNext = (b + 1) % count;
                 if (a == b || aNext == b || bNext == a)
                     continue;
-                if (SegmentsIntersect(
+                if (Geometry2D.SegmentsTouch(
                     xy[a * 2], xy[(a * 2) + 1], xy[aNext * 2], xy[(aNext * 2) + 1],
                     xy[b * 2], xy[(b * 2) + 1], xy[bNext * 2], xy[(bNext * 2) + 1]))
                     return true;
             }
         }
         return false;
-    }
-
-    private static bool SegmentsIntersect(double ax, double ay, double bx, double by, double cx, double cy, double dx, double dy)
-    {
-        const double epsilon = 1e-12;
-        static double Cross(double px, double py, double qx, double qy, double rx, double ry) =>
-            ((qx - px) * (ry - py)) - ((qy - py) * (rx - px));
-        static bool OnSegment(double px, double py, double qx, double qy, double rx, double ry) =>
-            qx >= Math.Min(px, rx) - epsilon && qx <= Math.Max(px, rx) + epsilon &&
-            qy >= Math.Min(py, ry) - epsilon && qy <= Math.Max(py, ry) + epsilon;
-        double c1 = Cross(ax, ay, bx, by, cx, cy);
-        double c2 = Cross(ax, ay, bx, by, dx, dy);
-        double c3 = Cross(cx, cy, dx, dy, ax, ay);
-        double c4 = Cross(cx, cy, dx, dy, bx, by);
-        if (((c1 > epsilon && c2 < -epsilon) || (c1 < -epsilon && c2 > epsilon)) &&
-            ((c3 > epsilon && c4 < -epsilon) || (c3 < -epsilon && c4 > epsilon)))
-            return true;
-        return (Math.Abs(c1) <= epsilon && OnSegment(ax, ay, cx, cy, bx, by)) ||
-               (Math.Abs(c2) <= epsilon && OnSegment(ax, ay, dx, dy, bx, by)) ||
-               (Math.Abs(c3) <= epsilon && OnSegment(cx, cy, ax, ay, dx, dy)) ||
-               (Math.Abs(c4) <= epsilon && OnSegment(cx, cy, bx, by, dx, dy));
     }
 }

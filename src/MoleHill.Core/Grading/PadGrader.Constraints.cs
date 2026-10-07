@@ -1,3 +1,5 @@
+using MoleHill.Core.Geometry;
+
 namespace MoleHill.Core.Grading;
 
 public static partial class PadGrader
@@ -309,62 +311,11 @@ public static partial class PadGrader
                 if (((dx - cx) * (dx - cx)) + ((dy - cy) * (dy - cy)) <= 1e-12)
                     continue;
 
-                if (SegmentsIntersect(ax, ay, bx, by, cx, cy, dx, dy))
+                if (Geometry2D.SegmentsTouch(ax, ay, bx, by, cx, cy, dx, dy))
                     return true;
             }
         }
 
         return false;
-    }
-
-    private static bool SegmentsIntersect(double ax, double ay, double bx, double by, double cx, double cy, double dx, double dy)
-    {
-        double o1 = Orientation(ax, ay, bx, by, cx, cy);
-        double o2 = Orientation(ax, ay, bx, by, dx, dy);
-        double o3 = Orientation(cx, cy, dx, dy, ax, ay);
-        double o4 = Orientation(cx, cy, dx, dy, bx, by);
-
-        if ((o1 > 0.0 && o2 < 0.0 || o1 < 0.0 && o2 > 0.0) &&
-            (o3 > 0.0 && o4 < 0.0 || o3 < 0.0 && o4 > 0.0))
-        {
-            return true;
-        }
-
-        return Math.Abs(o1) <= 1e-12 && OnSegment(ax, ay, bx, by, cx, cy) ||
-               Math.Abs(o2) <= 1e-12 && OnSegment(ax, ay, bx, by, dx, dy) ||
-               Math.Abs(o3) <= 1e-12 && OnSegment(cx, cy, dx, dy, ax, ay) ||
-               Math.Abs(o4) <= 1e-12 && OnSegment(cx, cy, dx, dy, bx, by);
-    }
-
-    private static double Orientation(double ax, double ay, double bx, double by, double cx, double cy)
-    {
-        return ((bx - ax) * (cy - ay)) - ((by - ay) * (cx - ax));
-    }
-
-    private static bool PointInTriangle(
-        double px,
-        double py,
-        double ax,
-        double ay,
-        double bx,
-        double by,
-        double cx,
-        double cy)
-    {
-        const double tolerance = 1e-12;
-        double o1 = Orientation(ax, ay, bx, by, px, py);
-        double o2 = Orientation(bx, by, cx, cy, px, py);
-        double o3 = Orientation(cx, cy, ax, ay, px, py);
-        bool hasNegative = o1 < -tolerance || o2 < -tolerance || o3 < -tolerance;
-        bool hasPositive = o1 > tolerance || o2 > tolerance || o3 > tolerance;
-        return !(hasNegative && hasPositive);
-    }
-
-    private static bool OnSegment(double ax, double ay, double bx, double by, double px, double py)
-    {
-        return px >= Math.Min(ax, bx) - 1e-12 &&
-               px <= Math.Max(ax, bx) + 1e-12 &&
-               py >= Math.Min(ay, by) - 1e-12 &&
-               py <= Math.Max(ay, by) + 1e-12;
     }
 }

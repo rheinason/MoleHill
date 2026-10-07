@@ -64,7 +64,7 @@ public static class ScatterSampler
                 if (y > maxY) maxY = y;
             }
 
-            area += Math.Abs(SignedArea(loop, count));
+            area += Math.Abs(Geometry2D.SignedArea(loop, count));
         }
 
         if (area <= 0.0 || maxX <= minX || maxY <= minY)
@@ -519,18 +519,6 @@ public static class ScatterSampler
         }
 
         return result;
-    }
-
-    private static double SignedArea(double[] loop, int count)
-    {
-        double sum = 0.0;
-        for (int i = 0; i < count; i++)
-        {
-            int j = (i + 1) % count;
-            sum += loop[i * 2] * loop[j * 2 + 1] - loop[j * 2] * loop[i * 2 + 1];
-        }
-
-        return sum * 0.5;
     }
 
     private static ulong Mix(int seed)

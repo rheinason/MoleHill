@@ -1,5 +1,6 @@
 using Clipper2Lib;
 using MoleHill.Core.Engine;
+using MoleHill.Core.Geometry;
 
 namespace MoleHill.Core.Grading;
 
@@ -179,21 +180,7 @@ internal static class ClipperGeometry
         return largestLoop.Length >= 6;
     }
 
-    internal static double SignedArea(double[] xyLoop)
-    {
-        int vertexCount = xyLoop.Length / 2;
-        if (vertexCount < 3)
-            return 0.0;
-
-        double signedArea = 0.0;
-        for (int i = 0; i < vertexCount; i++)
-        {
-            int next = (i + 1) % vertexCount;
-            signedArea += (xyLoop[i * 2] * xyLoop[next * 2 + 1]) - (xyLoop[next * 2] * xyLoop[i * 2 + 1]);
-        }
-
-        return signedArea * 0.5;
-    }
+    internal static double SignedArea(double[] xyLoop) => Geometry2D.SignedArea(xyLoop, xyLoop.Length / 2);
 
     private static int PrecisionFor(double tolerance)
     {

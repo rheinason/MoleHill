@@ -477,42 +477,12 @@ internal sealed class TerrainRuntimeCache
                 double dx = rightLoop[rightNext * 2];
                 double dy = rightLoop[rightNext * 2 + 1];
 
-                if (SegmentsIntersect(ax, ay, bx, by, cx, cy, dx, dy))
+                if (Geometry2D.SegmentsTouch(ax, ay, bx, by, cx, cy, dx, dy))
                     return true;
             }
         }
 
         return false;
-    }
-
-    private static bool SegmentsIntersect(double ax, double ay, double bx, double by, double cx, double cy, double dx, double dy)
-    {
-        double o1 = Orient(ax, ay, bx, by, cx, cy);
-        double o2 = Orient(ax, ay, bx, by, dx, dy);
-        double o3 = Orient(cx, cy, dx, dy, ax, ay);
-        double o4 = Orient(cx, cy, dx, dy, bx, by);
-
-        if ((o1 > 0) != (o2 > 0) && (o3 > 0) != (o4 > 0))
-            return true;
-
-        const double epsilon = 1e-12;
-        return Math.Abs(o1) <= epsilon && OnSegment(ax, ay, bx, by, cx, cy) ||
-               Math.Abs(o2) <= epsilon && OnSegment(ax, ay, bx, by, dx, dy) ||
-               Math.Abs(o3) <= epsilon && OnSegment(cx, cy, dx, dy, ax, ay) ||
-               Math.Abs(o4) <= epsilon && OnSegment(cx, cy, dx, dy, bx, by);
-    }
-
-    private static double Orient(double ax, double ay, double bx, double by, double cx, double cy)
-    {
-        return (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
-    }
-
-    private static bool OnSegment(double ax, double ay, double bx, double by, double px, double py)
-    {
-        return px >= Math.Min(ax, bx) - 1e-12 &&
-               px <= Math.Max(ax, bx) + 1e-12 &&
-               py >= Math.Min(ay, by) - 1e-12 &&
-               py <= Math.Max(ay, by) + 1e-12;
     }
 
     public static string GetStagePrefix(TerrainBuildMode mode)

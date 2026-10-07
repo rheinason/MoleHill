@@ -1,4 +1,5 @@
 ﻿using MoleHill.Core.Engine;
+using MoleHill.Core.Geometry;
 
 namespace MoleHill.Core.Grading;
 
@@ -128,7 +129,7 @@ public static partial class PadGrader
                 {
                     double px = loop[i * 2];
                     double py = loop[i * 2 + 1];
-                    if (PointInTriangle(px, py, ax, ay, bx, by, cx, cy))
+                    if (Geometry2D.PointInTriangleInclusive(px, py, ax, ay, bx, by, cx, cy))
                         return true;
                 }
 
@@ -137,9 +138,9 @@ public static partial class PadGrader
                     int j = (i + 1) % loopCount;
                     double px = loop[i * 2], py = loop[i * 2 + 1];
                     double qx = loop[j * 2], qy = loop[j * 2 + 1];
-                    if (SegmentsIntersect(ax, ay, bx, by, px, py, qx, qy) ||
-                        SegmentsIntersect(bx, by, cx, cy, px, py, qx, qy) ||
-                        SegmentsIntersect(cx, cy, ax, ay, px, py, qx, qy))
+                    if (Geometry2D.SegmentsTouch(ax, ay, bx, by, px, py, qx, qy) ||
+                        Geometry2D.SegmentsTouch(bx, by, cx, cy, px, py, qx, qy) ||
+                        Geometry2D.SegmentsTouch(cx, cy, ax, ay, px, py, qx, qy))
                     {
                         return true;
                     }
@@ -205,7 +206,7 @@ public static partial class PadGrader
                         continue;
 
                     int a = keptFaces[kf], b = keptFaces[kf + 1], c = keptFaces[kf + 2];
-                    if (PointInTriangle(cx, cy,
+                    if (Geometry2D.PointInTriangleInclusive(cx, cy,
                             vertices[a * 3], vertices[a * 3 + 1],
                             vertices[b * 3], vertices[b * 3 + 1],
                             vertices[c * 3], vertices[c * 3 + 1]))

@@ -530,10 +530,10 @@ public static partial class PadGrader
             return false;
         }
 
-        double o1 = Orientation(ax, ay, bx, by, cx, cy);
-        double o2 = Orientation(ax, ay, bx, by, dx, dy);
-        double o3 = Orientation(cx, cy, dx, dy, ax, ay);
-        double o4 = Orientation(cx, cy, dx, dy, bx, by);
+        double o1 = Geometry2D.Orient(ax, ay, bx, by, cx, cy);
+        double o2 = Geometry2D.Orient(ax, ay, bx, by, dx, dy);
+        double o3 = Geometry2D.Orient(cx, cy, dx, dy, ax, ay);
+        double o4 = Geometry2D.Orient(cx, cy, dx, dy, bx, by);
         double areaTolerance = Math.Max(tolerance, 1e-9) *
             Math.Max(Math.Sqrt(Geometry2D.DistanceSquared(ax, ay, bx, by)), Math.Sqrt(Geometry2D.DistanceSquared(cx, cy, dx, dy)));
 
@@ -569,7 +569,7 @@ public static partial class PadGrader
         if (segmentLength <= tolerance)
             return Geometry2D.DistanceSquared(px, py, ax, ay) <= tolerance * tolerance;
 
-        return Math.Abs(Orientation(ax, ay, bx, by, px, py)) <= tolerance * segmentLength;
+        return Math.Abs(Geometry2D.Orient(ax, ay, bx, by, px, py)) <= tolerance * segmentLength;
     }
 
     private static void ValidateApplyGradingZInputs(
