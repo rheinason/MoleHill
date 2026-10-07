@@ -223,54 +223,40 @@ internal sealed partial class TerrainController
         if (TerrainLatencyTrace.IsEnabled)
             MarkDueRequestsForLatencyTrace(now);
 
-        var nextItem = _pendingRebuilds
-            .Where(item => item.Value.DueAtUtc <= now)
-            .OrderBy(item => item.Value.DueAtUtc)
-            .ThenBy(item => item.Key.mode == TerrainBuildMode.Preview ? 0 : 1)
-            .Select(item => ((uint docSerial, Guid terrainId, TerrainBuildMode mode)?)item.Key)
-            .FirstOrDefault();
-
-        if (!nextItem.HasValue)
+        var pending = _pendingRebuilds.ToList();
+        int dueIndex = TerrainBuildSchedulingPolicy.SelectDue(
+            pending.Select(item => (item.Value.DueAtUtc, item.Key.mode)).ToList(), now);
+        if (dueIndex < 0)
             return;
 
-        var key = nextItem.Value;
-        if (ShouldDeferBuildForSculpt(key.terrainId))
-        {
-            RecordDispatchBlocked(key, "sculpt stroke active");
-            return; // an active sculpt stroke owns the preview mesh; dispatch between strokes instead
-        }
-
+        var key = pending[dueIndex].Key;
+        var request = pending[dueIndex].Value;
         var doc = RhinoDoc.FromRuntimeSerialNumber(key.docSerial);
-        if (doc == null)
-        {
-            RemoveRebuildState(key.docSerial, key.terrainId);
-            return;
-        }
-
-        var state = GetState(doc);
-        var terrain = state.Terrains.FirstOrDefault(item => item.TerrainId == key.terrainId);
-        if (terrain == null)
-        {
-            RemoveRebuildState(key.docSerial, key.terrainId);
-            return;
-        }
-
+        DocumentState? state = doc == null ? null : GetState(doc);
+        TerrainDefinition? terrain = state?.Terrains.FirstOrDefault(item => item.TerrainId == key.terrainId);
         var rebuildState = GetRebuildState(key.docSerial, key.terrainId);
-        if (rebuildState.IsBuilding)
-        {
-            // Head-of-queue blocking: this due request belongs to a terrain that is still building, and
-            // the dispatcher returns without considering any other eligible terrain (plan R06).
-            RecordDispatchBlocked(key, $"terrain busy with #{rebuildState.RunningVersion:N0}");
-            return;
-        }
 
-        long skippedVersion = key.mode == TerrainBuildMode.Preview
-            ? rebuildState.SkippedPreviewVersion
-            : rebuildState.SkippedFinalVersion;
-        if (_pendingRebuilds.TryGetValue(key, out var request) && skippedVersion >= request.Version)
+        switch (TerrainBuildSchedulingPolicy.DecideDispatch(
+                    ShouldDeferBuildForSculpt(key.terrainId),
+                    doc != null && terrain != null,
+                    rebuildState.IsBuilding,
+                    key.mode == TerrainBuildMode.Preview ? rebuildState.SkippedPreviewVersion : rebuildState.SkippedFinalVersion,
+                    request.Version))
         {
-            _pendingRebuilds.Remove(key);
-            return;
+            case TerrainDispatchOutcome.DeferForSculpt:
+                RecordDispatchBlocked(key, "sculpt stroke active");
+                return; // an active sculpt stroke owns the preview mesh; dispatch between strokes instead
+            case TerrainDispatchOutcome.DropTargetGone:
+                RemoveRebuildState(key.docSerial, key.terrainId);
+                return;
+            case TerrainDispatchOutcome.DeferBusy:
+                // Head-of-queue blocking: this due request belongs to a terrain that is still building, and
+                // the dispatcher returns without considering any other eligible terrain (plan R06).
+                RecordDispatchBlocked(key, $"terrain busy with #{rebuildState.RunningVersion:N0}");
+                return;
+            case TerrainDispatchOutcome.DropSkipped:
+                _pendingRebuilds.Remove(key);
+                return;
         }
 
         _pendingRebuilds.Remove(key);
@@ -286,7 +272,7 @@ internal sealed partial class TerrainController
             key.mode,
             TerrainLatencyPhase.Dispatch,
             $"{_pendingRebuilds.Count:N0} still pending");
-        StartBackgroundBuild(doc, state, terrain, key.mode, rebuildState.RequestedVersion);
+        StartBackgroundBuild(doc!, state!, terrain!, key.mode, rebuildState.RequestedVersion);
     }
 
     /// <summary>

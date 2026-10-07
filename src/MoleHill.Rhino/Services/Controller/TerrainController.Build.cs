@@ -642,64 +642,66 @@ internal sealed partial class TerrainController
         rebuildState.CancelRequested = false;
         TerrainLatencyScope latency = LatencyScopeFor(doc, terrain, result);
 
-        if (result.Generation != rebuildState.BuildGeneration)
+        TerrainCompletionOutcome outcome = TerrainBuildSchedulingPolicy.DecideCompletion(
+                    result.Generation,
+                    rebuildState.BuildGeneration,
+                    result.Version,
+                    rebuildState.RequestedVersion,
+                    result.WasCanceled,
+                    result.Error != null,
+                    result.Build != null);
+        switch (outcome)
         {
-            latency.Mark(TerrainLatencyPhase.Closed, "discarded (stale generation)");
-            terrain.LastBuildMessage = $"{result.Mode} #{result.Version:N0} discarded after reset.";
-            terrain.LastStructuredDiagnostics.Clear();
-            WriteBuildCancelled(terrain, result.Mode, result.Version);
-            RaiseStateChanged();
-            return;
-        }
-
-        if (rebuildState.RequestedVersion > result.Version)
-        {
-            // A build that a newer edit overtook but that still ran to completion is the frame a
-            // gesture is made of, so show it rather than discarding the work. Only a result that was
-            // cancelled, failed, or is too old to be useful falls through to the old behaviour.
-            if (!result.WasCanceled &&
-                result.Error == null &&
-                result.Build != null &&
-                PublishSupersededGeometry(
-                    doc, terrain, GetRuntimeCache(doc.RuntimeSerialNumber, terrain.TerrainId), result))
-            {
-                latency.Mark(TerrainLatencyPhase.Closed, "superseded, published as preview");
+            case TerrainCompletionOutcome.DiscardStaleGeneration:
+                latency.Mark(TerrainLatencyPhase.Closed, "discarded (stale generation)");
+                terrain.LastBuildMessage = $"{result.Mode} #{result.Version:N0} discarded after reset.";
+                terrain.LastStructuredDiagnostics.Clear();
+                WriteBuildCancelled(terrain, result.Mode, result.Version);
+                RaiseStateChanged();
                 return;
-            }
 
-            latency.Mark(TerrainLatencyPhase.Closed, "superseded");
-            terrain.LastBuildMessage = $"{result.Mode} #{result.Version:N0} cancelled; newer request queued.";
-            terrain.LastStructuredDiagnostics.Clear();
-            WriteBuildCancelled(terrain, result.Mode, result.Version);
-            RaiseStateChanged();
-            return;
-        }
+            case TerrainCompletionOutcome.SupersededMayPublish:
+            case TerrainCompletionOutcome.SupersededDiscard:
+                // A build that a newer edit overtook but that still ran to completion is the frame a
+                // gesture is made of, so show it rather than discarding the work. Only a result that was
+                // cancelled, failed, or is too old to be useful falls through to the old behaviour.
+                if (outcome == TerrainCompletionOutcome.SupersededMayPublish &&
+                    PublishSupersededGeometry(
+                        doc, terrain, GetRuntimeCache(doc.RuntimeSerialNumber, terrain.TerrainId), result))
+                {
+                    latency.Mark(TerrainLatencyPhase.Closed, "superseded, published as preview");
+                    return;
+                }
 
-        if (result.WasCanceled)
-        {
-            if (result.Mode == TerrainBuildMode.Final)
-                terrain.LastBuildUtc = DateTimeOffset.UtcNow;
+                latency.Mark(TerrainLatencyPhase.Closed, "superseded");
+                terrain.LastBuildMessage = $"{result.Mode} #{result.Version:N0} cancelled; newer request queued.";
+                terrain.LastStructuredDiagnostics.Clear();
+                WriteBuildCancelled(terrain, result.Mode, result.Version);
+                RaiseStateChanged();
+                return;
 
-            latency.Mark(TerrainLatencyPhase.Closed, "cancelled");
-            terrain.LastBuildMessage = $"{result.Mode} #{result.Version:N0} cancelled.";
-            terrain.LastStructuredDiagnostics.Clear();
-            WriteBuildCancelled(terrain, result.Mode, result.Version);
-            RaiseStateChanged();
-            return;
-        }
+            case TerrainCompletionOutcome.Cancelled:
+                if (result.Mode == TerrainBuildMode.Final)
+                    terrain.LastBuildUtc = DateTimeOffset.UtcNow;
 
-        if (result.Error != null || result.Build == null)
-        {
-            if (result.Mode == TerrainBuildMode.Final)
-                terrain.LastBuildUtc = DateTimeOffset.UtcNow;
+                latency.Mark(TerrainLatencyPhase.Closed, "cancelled");
+                terrain.LastBuildMessage = $"{result.Mode} #{result.Version:N0} cancelled.";
+                terrain.LastStructuredDiagnostics.Clear();
+                WriteBuildCancelled(terrain, result.Mode, result.Version);
+                RaiseStateChanged();
+                return;
 
-            latency.Mark(TerrainLatencyPhase.Closed, "failed");
-            terrain.LastBuildMessage = FormatBuildFailureStatus(result.Mode, result.Version, result.Error);
-            terrain.LastStructuredDiagnostics.Clear();
-            WriteBuildFailed(terrain, result.Mode, result.Version);
-            if (result.Mode == TerrainBuildMode.Final)
-                Save(doc, state);
-            return;
+            case TerrainCompletionOutcome.Failed:
+                if (result.Mode == TerrainBuildMode.Final)
+                    terrain.LastBuildUtc = DateTimeOffset.UtcNow;
+
+                latency.Mark(TerrainLatencyPhase.Closed, "failed");
+                terrain.LastBuildMessage = FormatBuildFailureStatus(result.Mode, result.Version, result.Error);
+                terrain.LastStructuredDiagnostics.Clear();
+                WriteBuildFailed(terrain, result.Mode, result.Version);
+                if (result.Mode == TerrainBuildMode.Final)
+                    Save(doc, state);
+                return;
         }
 
         ApplySuccessfulBuild(doc, state, terrain, GetRuntimeCache(doc.RuntimeSerialNumber, terrain.TerrainId), rebuildState, result);
