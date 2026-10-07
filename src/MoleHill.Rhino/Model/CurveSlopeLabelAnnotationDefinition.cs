@@ -4,6 +4,7 @@ namespace MoleHill.Rhino.Model;
 
 public sealed class CurveSlopeLabelAnnotationDefinition : BlockAttributeAnnotationDefinition
 {
+    [ModelLength]
     public double Interval { get; set; } = 10.0;
 
     public SlopeAnalyzer.SlopeUnit Unit { get; set; } = SlopeAnalyzer.SlopeUnit.Percent;

@@ -12,9 +12,11 @@ public sealed class RetopoModifierDefinition : ModifierDefinition
     public SourceReferenceSet Constraints { get; set; } = new();
 
     /// <summary>Align the field to interior creases folding at least this many degrees. 0 = off.</summary>
+    [UnitFree("An angle in degrees; angles do not change with model units.")]
     public double CreaseAngle { get; set; }
 
     /// <summary>Target quad edge length; 0 auto-derives from the terrain extent.</summary>
+    [ModelLength]
     public double TargetEdgeLength { get; set; }
 
     /// <summary>Draw the cross-field as a flow-cross overlay to preview the flow. Off = no overlay.</summary>

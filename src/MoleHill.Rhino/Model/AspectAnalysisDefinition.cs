@@ -18,6 +18,7 @@ public sealed class AspectAnalysisDefinition : AnalysisDefinition
     /// own slope unit. Small by default: a survey-derived terrain is never exactly level, so a threshold of
     /// zero would colour numerical noise as though it were a hillside.
     /// </summary>
+    [UnitFree("An angle in degrees; angles do not change with model units.")]
     public double FlatSlopeThresholdDegrees { get; set; } = 1.0;
 
     public AspectAnalysisDefinition()

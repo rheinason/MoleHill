@@ -17,6 +17,7 @@ public sealed class SculptModifierDefinition : ModifierDefinition
 
     /// <summary>Distance outside a protected footprint over which sculpt influence ramps back to
     /// full strength. 0 uses <see cref="DetailSize"/>.</summary>
+    [ModelLength]
     public double ConstraintFeather { get; set; }
 
     /// <summary>When true, the build stage refines terrain triangles under the sculpted region to
@@ -24,6 +25,7 @@ public sealed class SculptModifierDefinition : ModifierDefinition
     public bool DynTopo { get; set; } = false;
 
     /// <summary>DynTopo target edge length in model units.</summary>
+    [ModelLength]
     public double DetailSize { get; set; } = 0.25;
 
     /// <summary>
@@ -32,6 +34,7 @@ public sealed class SculptModifierDefinition : ModifierDefinition
     /// tile payloads store no spacing of their own, so reinterpreting them at a different cell size
     /// (e.g. because DetailSize changed) would rescale the whole sculpt toward the world origin.
     /// </summary>
+    [ModelLength]
     public double CellSize { get; set; }
 
     /// <summary>Tile payload format version. 1 = base64(deflate(64x64 little-endian float32)).</summary>

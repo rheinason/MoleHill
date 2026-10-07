@@ -16,9 +16,11 @@ public sealed class GradeLineModifierDefinition : ModifierDefinition
     public SourceReferenceSet Lines { get; set; } = new();
 
     /// <summary>Main (fill) batter slope in degrees, used where terrain sits below the line.</summary>
+    [UnitFree("A slope angle; only the reach scales.")]
     public double SlopeAngle { get; set; } = 33.0;
 
     /// <summary>Cut-side batter slope override in degrees. 0 = inherit <see cref="SlopeAngle"/>.</summary>
+    [UnitFree("A slope angle; only the reach scales.")]
     public double CutSlopeAngle { get; set; }
 
     /// <summary>Opt-in switch for an asymmetric section. Off keeps both sides on the shared pair.</summary>
@@ -26,14 +28,19 @@ public sealed class GradeLineModifierDefinition : ModifierDefinition
 
     /// <summary>Left-side cut override in degrees. 0 = inherit the shared pair. Left is the side the
     /// curve's plan normal points to, following the curve's own direction.</summary>
+    [UnitFree("A slope angle; only the reach scales.")]
     public double LeftCutSlopeAngle { get; set; }
 
+    [UnitFree("A slope angle; only the reach scales.")]
     public double LeftFillSlopeAngle { get; set; }
 
+    [UnitFree("A slope angle; only the reach scales.")]
     public double RightCutSlopeAngle { get; set; }
 
+    [UnitFree("A slope angle; only the reach scales.")]
     public double RightFillSlopeAngle { get; set; }
 
+    [ModelLength]
     public double MaxDistance { get; set; }
 
     /// <summary>

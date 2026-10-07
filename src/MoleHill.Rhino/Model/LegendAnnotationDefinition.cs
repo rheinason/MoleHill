@@ -30,19 +30,24 @@ public sealed class LegendAnnotationDefinition : AnnotationDefinition
     /// Size of one swatch, and the thickness of a gradient strip, as a multiple of the text height — so
     /// the key stays proportioned when the annotation style is rescaled.
     /// </summary>
+    [UnitFree("A multiple of the annotation style's text height, so it follows the style rather than the model units.")]
     public double SwatchSize { get; set; } = 1.5;
 
     /// <summary>Length of a gradient strip as a multiple of the text height.</summary>
+    [UnitFree("A multiple of the annotation style's text height, so it follows the style rather than the model units.")]
     public double GradientLength { get; set; } = 12.0;
 
     /// <summary>Override colour for the text and outlines. Unset draws them in the Legend layer's colour;
     /// the swatches always carry the analysis's own colours.</summary>
     public int? ColorArgb { get; set; }
 
+    [ModelLength]
     public double InsertionOriginX { get; set; }
 
+    [ModelLength]
     public double InsertionOriginY { get; set; }
 
+    [ModelLength]
     public double InsertionOriginZ { get; set; }
 
     /// <summary>False places the key beside the terrain's bounding box, so a freshly added card draws

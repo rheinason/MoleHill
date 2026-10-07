@@ -20,6 +20,7 @@ public abstract class MarkerDefinition
 
     public string? BlockDefinitionName { get; set; }
 
+    [UnitFree("A block scale factor; unitless.")]
     public double BlockScale { get; set; } = 1.0;
 
     /// <summary>When true (the default) <see cref="BlockScale"/> is a multiplier on the size derived from

@@ -22,14 +22,18 @@ public abstract class GeometryInputModifierDefinition : ModifierDefinition
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public SourceReferenceSet? LegacyBoundary { get; set; }
 
+    [ModelLength]
     public double Tolerance { get; set; }
 
     public bool PeelBoundaryTriangles { get; set; } = true;
 
+    [ModelLength]
     public double MaxBoundaryEdgeLength { get; set; } = 0.0;
 
+    [UnitFree("An angle in degrees; angles do not change with model units.")]
     public double MaxBoundaryAngleDegrees { get; set; } = BoundaryTrianglePeelSettings.DefaultMaxInteriorAngleDegrees;
 
+    [UnitFree("An angle in degrees; angles do not change with model units.")]
     public double MaxBoundarySlopeDegrees { get; set; } = 0.0;
 
     public BoundaryTrianglePeelSettings CreateBoundaryPeelSettings()

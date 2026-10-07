@@ -9,6 +9,7 @@ namespace MoleHill.Rhino.Model;
 /// </summary>
 public sealed class SlopeArrowAnnotationDefinition : BlockAttributeAnnotationDefinition
 {
+    [ModelLength]
     public double GridSpacing { get; set; } = 5.0;
 
     public SlopeAnalyzer.SlopeUnit Unit { get; set; } = SlopeAnalyzer.SlopeUnit.Percent;

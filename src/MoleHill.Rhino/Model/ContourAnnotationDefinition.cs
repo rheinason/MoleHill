@@ -3,8 +3,10 @@ namespace MoleHill.Rhino.Model;
 
 public sealed class ContourAnnotationDefinition : AnnotationDefinition
 {
+    [ModelLength]
     public double Interval { get; set; } = 1.0;
 
+    [ModelLength]
     public double StartZ { get; set; }
 
     /// <summary>
@@ -31,9 +33,11 @@ public sealed class ContourAnnotationDefinition : AnnotationDefinition
     public bool ShowLabels { get; set; }
 
     /// <summary>Spacing between repeated labels along a contour. 0 = one label per contour curve.</summary>
+    [ModelLength]
     public double LabelInterval { get; set; }
 
     /// <summary>Text height for contour labels (model units).</summary>
+    [ModelLength]
     public double LabelTextHeight { get; set; } = 1.0;
 
     /// <summary>Label only every Nth contour level (index contours). 1 = label every level.</summary>

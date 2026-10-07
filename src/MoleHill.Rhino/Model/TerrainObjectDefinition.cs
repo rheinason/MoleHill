@@ -16,14 +16,19 @@ public abstract class TerrainObjectDefinition
 
     public int RandomSeed { get; set; }
 
+    [UnitFree("An angle in degrees; angles do not change with model units.")]
     public double RandomRotationMinDegrees { get; set; }
 
+    [UnitFree("An angle in degrees; angles do not change with model units.")]
     public double RandomRotationMaxDegrees { get; set; }
 
+    [UnitFree("A multiple or ratio; unitless.")]
     public double RandomScaleMin { get; set; } = 1.0;
 
+    [UnitFree("A multiple or ratio; unitless.")]
     public double RandomScaleMax { get; set; } = 1.0;
 
+    [ModelLength]
     public double ZOffset { get; set; }
 
     public List<TerrainObjectPlacementState> PlacementStates { get; set; } = new();

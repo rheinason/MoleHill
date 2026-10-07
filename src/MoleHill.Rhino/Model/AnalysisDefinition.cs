@@ -22,14 +22,17 @@ public abstract class AnalysisDefinition : ITerrainContentItem
     /// </summary>
     public List<AnalysisColorStopState> PaletteStops { get; set; } = new();
 
+    [UnitFree("A slope or aspect colour range is unitless; Elevation and Cut/Fill opt in with [ModelLengthMembers].")]
     public double RangeLow { get; set; }
 
+    [UnitFree("A slope or aspect colour range is unitless; Elevation and Cut/Fill opt in with [ModelLengthMembers].")]
     public double RangeHigh { get; set; }
 
     /// <summary>Whether the preview interpolates the palette or classifies values into bands.</summary>
     public AnalysisColorMapper.Mode ColorMode { get; set; } = AnalysisColorMapper.Mode.Gradient;
 
     /// <summary>Width of a stepped color band in the analysis unit. Zero selects an automatic step.</summary>
+    [UnitFree("A slope or aspect colour range is unitless; Elevation and Cut/Fill opt in with [ModelLengthMembers].")]
     public double ColorInterval { get; set; }
 
     /// <summary>When true, the display range is derived from the latest analysis result.</summary>

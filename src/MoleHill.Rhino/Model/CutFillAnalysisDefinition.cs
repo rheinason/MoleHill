@@ -8,6 +8,7 @@ namespace MoleHill.Rhino.Model;
 /// question on paper. Both read the one delta field, which is why they live on one analysis: the
 /// Earthworks analysis beside this one owns the *volumes*, and nothing should compute the delta twice.
 /// </summary>
+[ModelLengthMembers("RangeLow", "RangeHigh", "ColorInterval")]
 public sealed class CutFillAnalysisDefinition : ReferenceComparisonAnalysisDefinition
 {
     /// <summary>Draw contours of the delta itself — "cut deeper than 1 m" as a line, not a colour.</summary>
@@ -18,6 +19,7 @@ public sealed class CutFillAnalysisDefinition : ReferenceComparisonAnalysisDefin
     /// so an interval of 0.5 draws at ±0.5, ±1.0 and so on; the zero level itself belongs to
     /// <see cref="ShowBalanceLine"/>.
     /// </summary>
+    [ModelLength]
     public double DeltaContourInterval { get; set; } = 0.5;
 
     /// <summary>
