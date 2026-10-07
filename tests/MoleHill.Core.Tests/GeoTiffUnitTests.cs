@@ -1,7 +1,7 @@
-using MoleHill.Rhino.Services;
+using MoleHill.Core.IO;
 using Xunit;
 
-namespace MoleHill.Rhino.Tests;
+namespace MoleHill.Core.Tests;
 
 public sealed class GeoTiffUnitTests
 {

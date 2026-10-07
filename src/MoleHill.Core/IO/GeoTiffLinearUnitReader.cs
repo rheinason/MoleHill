@@ -1,4 +1,4 @@
-namespace MoleHill.Rhino.Services;
+namespace MoleHill.Core.IO;
 
 internal readonly record struct GeoTiffLinearUnit(string Name, double MetersPerUnit);
 

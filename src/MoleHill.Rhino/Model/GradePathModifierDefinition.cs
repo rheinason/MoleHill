@@ -46,4 +46,10 @@ public sealed class GradePathModifierDefinition : ModifierDefinition
         // rename tracking keep the parked references honest. The build stage does the gating.
         yield return WidthEdges;
     }
+
+    public override void NormalizeAfterLoad()
+    {
+        base.NormalizeAfterLoad();
+        WidthEdges ??= new SourceReferenceSet();
+    }
 }

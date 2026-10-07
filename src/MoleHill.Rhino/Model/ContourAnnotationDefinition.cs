@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using MoleHill.Shared;
 namespace MoleHill.Rhino.Model;
 
 public sealed class ContourAnnotationDefinition : AnnotationDefinition
@@ -45,5 +46,19 @@ public sealed class ContourAnnotationDefinition : AnnotationDefinition
     public ContourAnnotationDefinition()
     {
         Label = "Contours";
+    }
+
+    public override void NormalizeAfterLoad(ModelUnitContext unitContext, Guid ownerTerrainId)
+    {
+        base.NormalizeAfterLoad(unitContext, ownerTerrainId);
+        Interval = Interval > 0.0 ? Interval : unitContext.FromMeters(1.0);
+        LabelEveryNth = Math.Max(1, LabelEveryNth);
+        LabelTextHeight = LabelTextHeight > 0.0
+            ? LabelTextHeight
+            : unitContext.FromMeters(1.0);
+        LabelInterval = Math.Max(0.0, LabelInterval);
+        MajorEveryNth = Math.Max(1, MajorEveryNth);
+        if (string.IsNullOrWhiteSpace(LabelFormat))
+            LabelFormat = "F2";
     }
 }

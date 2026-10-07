@@ -90,4 +90,13 @@ public abstract class AnalysisDefinition : ITerrainContentItem
     {
         yield break;
     }
+
+    /// <summary>
+    /// Load-time normalization for this definition's own fields (null-coalescing, clamps), run once after
+    /// deserialization and after the schema migrations. The palette fields every analysis shares are
+    /// normalized by the serializer, not here. Not version-gated; the default does nothing.
+    /// </summary>
+    public virtual void NormalizeAfterLoad()
+    {
+    }
 }

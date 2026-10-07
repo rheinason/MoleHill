@@ -1,7 +1,6 @@
 using System.Globalization;
-using Rhino.Geometry;
 
-namespace MoleHill.Rhino.Services;
+namespace MoleHill.Core.IO;
 
 /// <summary>
 /// Lightweight affine raster georeferencing. Supports standard embedded GeoTIFF model tags and
@@ -109,20 +108,6 @@ internal readonly record struct RasterGeoreference(
         }
 
         return true;
-    }
-
-    public Transform CreatePictureFrameToWorldTransform(int imageHeight)
-    {
-        // Picture-frame local coordinates start at the lower-left and grow upward. Raster line
-        // coordinates start at the upper-left and grow downward, hence line = height - localY.
-        var transform = Transform.Identity;
-        transform.M00 = XPixel;
-        transform.M01 = -XLine;
-        transform.M03 = XUpperLeft + (XLine * imageHeight);
-        transform.M10 = YPixel;
-        transform.M11 = -YLine;
-        transform.M13 = YUpperLeft + (YLine * imageHeight);
-        return transform;
     }
 
     public RasterGeoreference ScaleCoordinates(double scale)

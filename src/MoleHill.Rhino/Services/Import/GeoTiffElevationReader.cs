@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Xml.Linq;
 using BitMiracle.LibTiff.Classic;
+using MoleHill.Core.IO;
 
 namespace MoleHill.Rhino.Services;
 

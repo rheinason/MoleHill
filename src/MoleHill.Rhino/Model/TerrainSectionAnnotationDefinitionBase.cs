@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using MoleHill.Shared;
 namespace MoleHill.Rhino.Model;
 
 public abstract class TerrainSectionAnnotationDefinitionBase : AnnotationDefinition
@@ -103,5 +104,32 @@ public abstract class TerrainSectionAnnotationDefinitionBase : AnnotationDefinit
     {
         yield return Sources;
         yield return CutFillReference;
+    }
+
+    public override void NormalizeAfterLoad(ModelUnitContext unitContext, Guid ownerTerrainId)
+    {
+        base.NormalizeAfterLoad(unitContext, ownerTerrainId);
+        ComparisonTerrainIds ??= new List<Guid>();
+        ComparisonTerrainIds = ComparisonTerrainIds
+            .Where(id => id != Guid.Empty && id != ownerTerrainId)
+            .Distinct()
+            .ToList();
+        if (CutFillReferenceTerrainId == Guid.Empty ||
+            (CutFillReferenceTerrainId.HasValue &&
+             !ComparisonTerrainIds.Contains(CutFillReferenceTerrainId.Value)))
+            CutFillReferenceTerrainId = null;
+        CutFillOpacityPercent = Math.Clamp(CutFillOpacityPercent, 0, 100);
+        if (CutColorArgb == 0)
+            CutColorArgb = DefaultCutColorArgb;
+        if (FillColorArgb == 0)
+            FillColorArgb = DefaultFillColorArgb;
+
+        Sources ??= new SourceReferenceSet();
+        CutFillReference ??= new SourceReferenceSet();
+        if (TextHeight <= 0.0)
+            TextHeight = unitContext.FromMeters(1.0);
+        // Every section type shares the exaggeration, so normalize it once, before the per-type overrides.
+        if (VerticalExaggeration <= 0.0)
+            VerticalExaggeration = 1.0;
     }
 }

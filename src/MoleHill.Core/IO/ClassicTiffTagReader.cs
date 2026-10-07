@@ -1,6 +1,6 @@
 using System.Buffers.Binary;
 
-namespace MoleHill.Rhino.Services;
+namespace MoleHill.Core.IO;
 
 /// <summary>Reads primitive values from the first IFD of a classic TIFF, including unregistered GeoTIFF/GDAL tags.</summary>
 internal static class ClassicTiffTagReader

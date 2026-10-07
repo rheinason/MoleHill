@@ -1,3 +1,5 @@
+using MoleHill.Shared;
+
 namespace MoleHill.Rhino.Model;
 
 // JSON polymorphism is registry-driven (Services/TerrainJsonTypeResolver reads AnnotationTypeRegistry),
@@ -35,5 +37,14 @@ public abstract class AnnotationDefinition : ITerrainContentItem
     public virtual IEnumerable<SourceReferenceSet> EnumerateSourceSets()
     {
         yield break;
+    }
+
+    /// <summary>
+    /// Load-time normalization for this definition's own fields (clamps, defaults, null-coalescing),
+    /// run once after deserialization and after the schema migrations. Not version-gated; the
+    /// default does nothing.
+    /// </summary>
+    public virtual void NormalizeAfterLoad(ModelUnitContext unitContext, Guid ownerTerrainId)
+    {
     }
 }

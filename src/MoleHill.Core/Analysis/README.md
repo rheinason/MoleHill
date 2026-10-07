@@ -19,6 +19,10 @@ Terrain analysis math. Pure, unit-tested.
   `forward`, which is what the old `AddFirst`/`AddLast` produced. Seeds are ordered by minimum endpoint
   degree with an explicit index tiebreak, matching the stable `OrderBy` it replaced.
 - `ContourLevel.cs` / `ContourPolyline.cs` — result types.
+- `SectionProfileComparer.cs` — compares proposed/reference section profiles (station/elevation points) and
+  splits cut and fill at crossings and coverage gaps; the Rhino `SectionProfileComparison` adapts a sliced
+  section to it.
+- `CurveReviewRules.cs` — the curve inspector's Off/Report/Warn rule settings and their evaluation.
 - `SlopeInput.cs` — the single parse/format point for slope values a user reads or types. Converts
   between ratio, percent, promille, degrees and `1:n` pairs; accepts a unit written into the text
   (`25%`, `150prom`, `14deg`, `1:3`, `1v:3h`) so a field takes any unit whatever it displays; and owns

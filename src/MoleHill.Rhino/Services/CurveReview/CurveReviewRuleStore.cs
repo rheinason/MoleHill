@@ -1,4 +1,5 @@
 // Persists mhInspectCurve rule settings per user with unit-aware dimensional storage.
+using MoleHill.Core.Analysis;
 using MoleHill.Shared;
 using Rhino;
 

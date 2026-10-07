@@ -54,4 +54,10 @@ public abstract class GeometryInputModifierDefinition : ModifierDefinition
         if (LegacyBoundary != null)
             yield return LegacyBoundary;
     }
+
+    public override void NormalizeAfterLoad()
+    {
+        base.NormalizeAfterLoad();
+        TinMesh ??= new SourceReferenceSet();
+    }
 }

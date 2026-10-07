@@ -28,4 +28,10 @@ public sealed class WaterflowAnalysisDefinition : AnalysisDefinition
     {
         Label = "Waterflow from Points";
     }
+
+    public override void NormalizeAfterLoad()
+    {
+        Sources ??= new SourceReferenceSet();
+        MaxLength = Math.Max(0.0, MaxLength);
+    }
 }

@@ -6,6 +6,7 @@ using Rhino.DocObjects;
 using Rhino.Geometry;
 using Rhino.Input;
 using Rhino.Input.Custom;
+using MoleHill.Core.Analysis;
 
 namespace MoleHill.Rhino.Services;
 

@@ -25,4 +25,18 @@ public sealed class ProjectToModifierDefinition : ModifierDefinition
         yield return TargetMesh;
         yield return Boundaries;
     }
+
+    public override void NormalizeAfterLoad()
+    {
+        base.NormalizeAfterLoad();
+        TargetMesh ??= new SourceReferenceSet();
+        TargetMesh.ReplaceLayers(Array.Empty<string>());
+        Boundaries ??= new SourceReferenceSet();
+        Strength = Math.Clamp(Strength, 0.0, 1.0);
+        FeatherDistance = Math.Max(0.0, FeatherDistance);
+        if (TargetTerrainId == Guid.Empty)
+            TargetTerrainId = null;
+        if (TargetMesh.HasReferences)
+            TargetTerrainId = null;
+    }
 }

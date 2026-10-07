@@ -2,7 +2,9 @@
 
 The serializable terrain definition — what's saved as JSON in the .3dm and drives every build. Plain
 data (no Rhino API beyond geometry refs). `TerrainSerializer` (in `Services/`) round-trips these with
-`System.Text.Json` polymorphism + `SchemaVersion` migrations.
+`System.Text.Json` polymorphism + `SchemaVersion` migrations (`Services/Persistence/TerrainSchemaMigrations.cs`).
+A definition normalizes its own fields after load in a `virtual NormalizeAfterLoad()` override (base no-op)
+— clamps and null-coalescing, never version-gated migration.
 
 - `TerrainDefinition.cs` — the root: name, flags, `GlobalTolerance`, and the ordered lists of
   `Modifiers`, `Analyses`, `Objects`, `Markers`, plus baked-output bookkeeping. `PreviewLineWeight`
