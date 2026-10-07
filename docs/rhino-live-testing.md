@@ -12,21 +12,12 @@ genuine pointer gestures only — they are blind, focus-dependent, and cannot re
 ## 0. Pending live checks
 
 Run these at the next live session, then delete each line once it has passed (say so in the commit).
-They were added on 2026-10-07 with changes that unit tests cannot fully prove outside Rhino.
+None pending. The 2026-10-07 list (GH quad meshes, GH Remesh Mode, Ponding with model units) passed live
+on 2026-10-07.
 
-- **GH quad meshes (native tests).** `tests/MoleHill.Grasshopper.Tests/GhMeshExtractionTests.cs` has two
-  `[RhinoNativeFact]` tests that skip outside Rhino: a quad mesh converts to triangles, and duplicate vertices
-  combine with counts matching the arrays. Run them inside a slot (load the test DLL into the slot and invoke
-  by reflection, as for the native lane). Then in Grasshopper feed a quad mesh to Grade Pad and Remesh: both
-  must solve (they used to error "Mesh contains quad faces"). Slope Analysis must still reject it, because
-  its per-face output is index-aligned with the input faces.
-- **GH Remesh Mode.** Place Remesh on a saved definition from before the Mode input existed: its output must
-  be unchanged (the default is `rebuild`). Set Mode to `isotropic` with Edge Length 0 and compare with a Remesh
-  card on the same terrain: same target edge (the component remarks it), comparable face count, creases kept
-  at the same Crease Angle.
-- **Ponding with model units.** In a metres document with a Ponding card at Ignore Below 0.05, change the
-  units to millimetres with scaling: Ignore Below must read 50, and the pond depth/area/volume results must
-  scale. A new Ponding card in a millimetre document must default to 50.
+When driving GH components headless from `run_csharp`, clear a parameter's `PersistentData` before
+`SetPersistentData`: an input with a default (Remesh's Edge Length is 0) otherwise keeps the default as its
+first item, the component reads that, and the solve looks like a silent no-op.
 
 ## 1. Build before launching
 

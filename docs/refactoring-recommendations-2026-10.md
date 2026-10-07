@@ -37,7 +37,7 @@ edges, every grade case graded; worst batter error median 0.9 %, p90 2.6 %.
 **Owner questions, resolved 2026-10-07:** Ponding's `MinimumDepth` and the pond/catchment summary fields now
 scale with model units (`[ModelLength]` / `[ModelArea]` / `[ModelVolume]`), so a new card in a millimetre
 document also defaults to 50 mm; the Legend's swatch size and gradient length stay multiples of text height.
-GH Remesh has a Mode input. Live confirmation of both is listed in `docs/rhino-live-testing.md` §0.
+GH Remesh has a Mode input. Both confirmed live on 2026-10-07.
 
 **The bar for every step is unchanged:** `dotnet build` clean, `./validate.ps1 managed` green, and
 `./validate.ps1 hosted-perf` for anything on a build path. Do not touch `src/TriangleNet/**`.
