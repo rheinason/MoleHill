@@ -15,7 +15,7 @@ referenced rather than restated.
 | 3 | `ConstraintPolyline` top-level | **Done.** |
 | 4 | `Geometry2D` kernel | **Done.** 35 private copies removed, `PadGrader.Spatial` wrappers retired, `Geometry2DGuardTests` stops new copies. GH/Shared copies remain (can't see Core internals). |
 | 7 | Grader request objects | **Done.** `PadGradeRequest` / `PathGradeRequest` / `GradeOutcome` are the only entry points. |
-| 8 | Shared conversion layer | **Partial.** Small Rhino/GH helper copies merged; moving `RhinoGeometryConversions` to Shared (quad-mesh parity in GH) is open. |
+| 8 | Shared conversion layer | **Done.** `RhinoGeometryConversions` and `ToConstraintPolyline` live in `MoleHill.Shared`; GH components extract through `GhSolveContext.TryExtractMesh` (quad meshes now accepted). Slope Analysis keeps its raw read because its per-face output is index-aligned with the input. |
 | 10 | Services sub-folders | **Done.** |
 | 15 | Shared test meshes | **Done** for Core tests (`TestMeshes`). |
 | 17 | Stray temp files | **Done.** |

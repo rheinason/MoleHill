@@ -65,6 +65,12 @@ The `Retaining Wall` component takes a **Grade Terrain** boolean plus slope and 
 *after* its Terrain port rather than inserted before it — saved definitions bind ports by index, so the
 four original inputs keep their positions. Off (the default) is the historical breakline-only result.
 
+Components read an input mesh through `GhSolveContext.TryExtractMesh`, the shared
+`RhinoGeometryConversions` extraction the panel uses: quad faces are converted to triangles, coincident
+vertices are combined and unused vertices and degenerate faces are dropped before Core sees the mesh. The
+arrays therefore describe a normalized copy, never the input's own vertex and face indices. Slope Analysis
+alone keeps a raw read because its per-face outputs must line up with the input faces.
+
 `Mesh Simplify` exposes the Core 2.5D simplifier with maximum-deviation and target-vertex-count modes.
 Straight **Required Edges** whose endpoints coincide with mesh vertices are retained; the component
 reports measured deviation, protected-vertex count, and the explicit Core termination diagnostic.
