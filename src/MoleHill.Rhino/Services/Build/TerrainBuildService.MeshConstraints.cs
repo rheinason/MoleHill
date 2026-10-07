@@ -308,7 +308,7 @@ internal sealed partial class TerrainBuildService
         return $"{inputVertexCount:N0} verts/{inputFaceCount:N0} faces -> {outputVertexCount:N0} verts/{outputFaceCount:N0} faces";
     }
 
-    private static List<ConstraintPolyline> CombineConstraints(
+    internal static List<ConstraintPolyline> CombineConstraints(
         IReadOnlyList<ConstraintPolyline> persistentConstraints,
         IReadOnlyList<ConstraintPolyline> additionalConstraints)
     {
@@ -485,7 +485,7 @@ internal sealed partial class TerrainBuildService
         return result;
     }
 
-    private static RhinoMesh BuildMeshFromArrays(double[] vertices, int[] faces) =>
+    internal static RhinoMesh BuildMeshFromArrays(double[] vertices, int[] faces) =>
         RhinoGeometryConversions.BuildMesh(vertices, vertices.Length / 3, faces, faces.Length / 3);
 
     private static RhinoMesh FinalizeGradingMesh(RhinoMesh mesh, string sourceLabel, TerrainBuildResult build)

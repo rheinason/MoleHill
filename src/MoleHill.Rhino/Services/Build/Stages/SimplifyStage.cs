@@ -1,14 +1,34 @@
 using MoleHill.Core.Engine;
 using MoleHill.Core.Processing;
 using MoleHill.Rhino.Model;
+using MoleHill.Rhino.Registry;
 using MoleHill.Shared;
 using RhinoMesh = Rhino.Geometry.Mesh;
 
 namespace MoleHill.Rhino.Services;
 
 // Certified surface-simplification stage; reusable mesh/constraint matching lives in Core.
-internal sealed partial class TerrainBuildService
+internal static class SimplifyStage
 {
+    internal static void Run(ModifierBuildContext c)
+    {
+        var simplify = (SimplifyModifierDefinition)c.Modifier;
+        RhinoMesh? input = c.CurrentMesh;
+        List<MoleHill.Core.Engine.ConstraintPolyline> effectiveConstraints =
+            TerrainBuildService.CombineConstraints(c.Build.PersistentHardConstraints, c.Build.PersistentElevationConstraints);
+        c.CurrentMesh = TerrainBuildService.ExecuteCachedMeshStage(
+            c.Build,
+            c.RuntimeCache,
+            c.StageKey,
+            "Simplify",
+            ComputeSimplifyStageFingerprint(c.Snapshot, c.Terrain, simplify, c.CurrentMeshFingerprint, effectiveConstraints),
+            () => input == null ? TerrainBuildService.WarnMissingMesh(c.Build, simplify.Label) : ApplySimplify(c.Snapshot, c.Terrain, input, simplify, c.Build, c.ShouldCancel),
+            result => TerrainBuildService.DescribeModifierMeshResult(simplify.Label, result),
+            out ulong fingerprint,
+            c.ShouldCancel);
+        c.CurrentMeshFingerprint = fingerprint;
+    }
+
     private static RhinoMesh ApplySimplify(
         TerrainBuildSnapshot snapshot,
         TerrainDefinition terrain,
@@ -23,10 +43,10 @@ internal sealed partial class TerrainBuildService
             return mesh;
         }
 
-        TerrainTolerancePolicy.Profile profile = GetToleranceProfile(snapshot, terrain);
+        TerrainTolerancePolicy.Profile profile = TerrainBuildService.GetToleranceProfile(snapshot, terrain);
         double numericalTolerance = profile.RemeshConstraintTolerance;
         List<ConstraintPolyline> effectiveConstraints =
-            CombineConstraints(build.PersistentHardConstraints, build.PersistentElevationConstraints);
+            TerrainBuildService.CombineConstraints(build.PersistentHardConstraints, build.PersistentElevationConstraints);
         if (!TryResolveSimplifyConstraintEdges(
             vertices, faces, effectiveConstraints, numericalTolerance,
             out int[] requiredSegments, out string? constraintFailure))
@@ -86,7 +106,7 @@ internal sealed partial class TerrainBuildService
             $"protected vertices {result.ProtectedVertexCount:N0}; rounds {result.Rounds:N0}; termination {result.Termination}.");
 
         return result.Reduced
-            ? BuildMeshFromArrays(result.Vertices, result.Faces)
+            ? TerrainBuildService.BuildMeshFromArrays(result.Vertices, result.Faces)
             : mesh;
     }
 
@@ -136,4 +156,18 @@ internal sealed partial class TerrainBuildService
         out string? failure) =>
         SurfaceConstraintEdgeResolver.TryResolve(
             vertices, faces, constraints, tolerance, out requiredSegments, out failure);
+
+    private static ulong ComputeSimplifyStageFingerprint(
+        TerrainBuildSnapshot snapshot,
+        TerrainDefinition terrain,
+        SimplifyModifierDefinition modifier,
+        ulong upstreamFingerprint,
+        IReadOnlyList<ConstraintPolyline> effectiveConstraints)
+    {
+        var builder = new FingerprintBuilder();
+        builder.Add("SurfaceSimplifierV1");
+        builder.Add(TerrainBuildService.ComputeModifierStageFingerprint(snapshot, terrain, modifier, upstreamFingerprint));
+        builder.Add(TerrainBuildService.ComputeConstraintsFingerprint(effectiveConstraints));
+        return builder.ToUInt64();
+    }
 }

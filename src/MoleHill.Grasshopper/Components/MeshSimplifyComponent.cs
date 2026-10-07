@@ -110,7 +110,7 @@ public sealed class MeshSimplifyComponent : RegistryTerrainComponent
         int usedVertexCount = faces.Distinct().Count();
         if (modeText.Contains("percentage", StringComparison.OrdinalIgnoreCase))
         {
-            // Same resolution as the Rhino Simplify modifier (TerrainBuildService.TryResolvePercentageTarget),
+            // Same resolution as the Rhino Simplify modifier (SimplifyStage.TryResolvePercentageTarget),
             // so a percentage keeps the same vertex count in both hosts.
             if (!double.IsFinite(retainPercentage) || retainPercentage < 0.0 || retainPercentage > 100.0)
             {

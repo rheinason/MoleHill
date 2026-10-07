@@ -65,7 +65,7 @@ public sealed class SimplifyModifierTests
     [InlineData(101, 0.0, 0)]
     public void PercentageTarget_UsesDocumentedFloorRounding(int used, double percentage, int expected)
     {
-        bool success = TerrainBuildService.TryResolvePercentageTarget(
+        bool success = SimplifyStage.TryResolvePercentageTarget(
             used, percentage, out int target, out string? failure);
 
         Assert.True(success, failure);
@@ -78,7 +78,7 @@ public sealed class SimplifyModifierTests
     [InlineData(double.NaN)]
     public void PercentageTarget_RejectsOutOfRangeValues(double percentage)
     {
-        Assert.False(TerrainBuildService.TryResolvePercentageTarget(
+        Assert.False(SimplifyStage.TryResolvePercentageTarget(
             100, percentage, out _, out string? failure));
         Assert.NotNull(failure);
     }
@@ -90,7 +90,7 @@ public sealed class SimplifyModifierTests
         var constraint = new ConstraintPolyline(
             new[] { 0.0, 1.0, 1.0, 2.0, 1.0, 3.0 }, 2, IsClosed: false, PreserveInputElevation: true);
 
-        bool success = TerrainBuildService.TryResolveSimplifyConstraintEdges(
+        bool success = SimplifyStage.TryResolveSimplifyConstraintEdges(
             vertices, faces, [constraint], 1e-8, out int[] segments, out string? failure);
 
         Assert.True(success, failure);
@@ -110,7 +110,7 @@ public sealed class SimplifyModifierTests
         var constraint = new ConstraintPolyline(
             new[] { 0.0, 1.0, 8.0, 2.0, 1.0, 8.0 }, 2, IsClosed: false, PreserveInputElevation: true);
 
-        bool success = TerrainBuildService.TryResolveSimplifyConstraintEdges(
+        bool success = SimplifyStage.TryResolveSimplifyConstraintEdges(
             vertices, faces, [constraint], 1e-8, out _, out string? failure);
 
         Assert.False(success);

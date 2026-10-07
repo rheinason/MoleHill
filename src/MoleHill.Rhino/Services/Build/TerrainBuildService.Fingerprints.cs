@@ -289,7 +289,7 @@ internal sealed partial class TerrainBuildService
 
     internal static ulong ComputeMeshFingerprintForDiagnostics(RhinoMesh? mesh) => ComputeMeshFingerprint(mesh);
 
-    private static ulong ComputeConstraintsFingerprint(IReadOnlyList<ConstraintPolyline> constraints)
+    internal static ulong ComputeConstraintsFingerprint(IReadOnlyList<ConstraintPolyline> constraints)
     {
         var builder = new FingerprintBuilder();
         builder.Add(constraints.Count);
