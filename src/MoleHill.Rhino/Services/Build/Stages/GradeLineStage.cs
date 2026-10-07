@@ -2,6 +2,7 @@ using MoleHill.Core.Engine;
 using System.Diagnostics;
 using MoleHill.Core.Grading;
 using MoleHill.Rhino.Model;
+using MoleHill.Rhino.Registry;
 using MoleHill.Shared;
 using Rhino.Geometry;
 using RhinoMesh = Rhino.Geometry.Mesh;
@@ -13,8 +14,26 @@ namespace MoleHill.Rhino.Services;
 /// the Grade Path stage without any of the width apparatus — no rails, no edge matching, one design
 /// line published as a breakline instead of two road edges.
 /// </summary>
-internal sealed partial class TerrainBuildService
+internal static class GradeLineStage
 {
+    internal static void Run(ModifierBuildContext c)
+    {
+        var gradeLine = (GradeLineModifierDefinition)c.Modifier;
+        c.UsedStageKeys.Add(TerrainStageKey.CreateGradingTopology(c.StageKey, "Line"));
+        RhinoMesh? input = c.CurrentMesh;
+        c.CurrentMesh = TerrainBuildService.ExecuteCachedMeshStage(
+            c.Build,
+            c.RuntimeCache,
+            c.StageKey,
+            "Grade Line",
+            TerrainBuildService.ComputeModifierStageFingerprint(c.Snapshot, c.Terrain, gradeLine, c.CurrentMeshFingerprint),
+            () => input == null ? TerrainBuildService.WarnMissingMesh(c.Build, gradeLine.Label) : ApplyGradeLine(c.Snapshot, c.Terrain, input, gradeLine, c.Build, c.RuntimeCache, c.Index, c.StageKey, c.Mode),
+            result => TerrainBuildService.DescribeModifierMeshResult(gradeLine.Label, result),
+            out ulong fingerprint,
+            c.ShouldCancel);
+        c.CurrentMeshFingerprint = fingerprint;
+    }
+
     private const string GradeLineTopologyTag = "Line";
 
     private static RhinoMesh ApplyGradeLine(
@@ -42,7 +61,7 @@ internal sealed partial class TerrainBuildService
             return mesh;
         }
 
-        TerrainTolerancePolicy.Profile toleranceProfile = GetToleranceProfile(snapshot, terrain);
+        TerrainTolerancePolicy.Profile toleranceProfile = TerrainBuildService.GetToleranceProfile(snapshot, terrain);
         double curveTolerance = toleranceProfile.CurveChordTolerance;
         double gradeLineTolerance = toleranceProfile.GradePathTolerance;
 
@@ -51,7 +70,7 @@ internal sealed partial class TerrainBuildService
         if (lines.Length == 0)
         {
             build.Diagnostics.Add("Grade Line has no valid design lines.");
-            runtimeCache.GradingTopologyEntries[topologyStageKey] = BuildPathTopologySummary(
+            runtimeCache.GradingTopologyEntries[topologyStageKey] = TerrainBuildService.BuildPathTopologySummary(
                 vertices,
                 vertexCount,
                 faces,
@@ -62,7 +81,7 @@ internal sealed partial class TerrainBuildService
             return mesh;
         }
 
-        List<GradingPatch> patchSummaries = BuildPathPatchSummaries(lines);
+        List<GradingPatch> patchSummaries = TerrainBuildService.BuildPathPatchSummaries(lines);
         List<string> dirtyStageKeys = runtimeCache.FindIntersectingGradingStageKeys(
             TerrainRuntimeCache.GetStagePrefix(mode),
             terrain.Modifiers,
@@ -77,11 +96,11 @@ internal sealed partial class TerrainBuildService
 
         // Same rule as Grade Path: only a hard constraint that meets this line's corridor may reorder
         // the tiers. The corridor constraints are built only when the answer could change.
-        IReadOnlyList<MoleHill.Core.Engine.ConstraintPolyline> lineBarriers = UpstreamBreaklines(build, modifier.GradeThroughBreaklines);
+        IReadOnlyList<MoleHill.Core.Engine.ConstraintPolyline> lineBarriers = TerrainBuildService.UpstreamBreaklines(build, modifier.GradeThroughBreaklines);
         bool hasInteractingHardConstraints =
             TerrainBuildHeuristics.ShouldPreferSplitKeepGradePath(mode, hasInteractingHardConstraints: true, faceCount) &&
             lineBarriers.Count > 0 &&
-            AnalyzeHardConstraintConflicts(
+            TerrainBuildService.AnalyzeHardConstraintConflicts(
                 PathGrader.CreateConstraints(vertices, vertexCount, faces, faceCount, lines, gradeLineTolerance).Constraints,
                 lineBarriers,
                 gradeLineTolerance).HasConflicts;
@@ -104,9 +123,9 @@ internal sealed partial class TerrainBuildService
 
         if (gradingResult == null)
         {
-            build.RecordTiming("Grade Line Core", coreTimer.Elapsed, "failed", StageTimingDiagnosticThresholdMs);
+            build.RecordTiming("Grade Line Core", coreTimer.Elapsed, "failed", TerrainBuildService.StageTimingDiagnosticThresholdMs);
             build.Diagnostics.Add(warning ?? "Grade Line failed.");
-            runtimeCache.GradingTopologyEntries[topologyStageKey] = BuildPathTopologySummary(
+            runtimeCache.GradingTopologyEntries[topologyStageKey] = TerrainBuildService.BuildPathTopologySummary(
                 vertices,
                 vertexCount,
                 faces,
@@ -120,23 +139,23 @@ internal sealed partial class TerrainBuildService
         build.RecordTiming(
             "Grade Line Core",
             coreTimer.Elapsed,
-            DescribeTopologyCounts(vertexCount, faceCount, gradingResult.VertexCount, gradingResult.FaceCount),
-            StageTimingDiagnosticThresholdMs);
+            TerrainBuildService.DescribeTopologyCounts(vertexCount, faceCount, gradingResult.VertexCount, gradingResult.FaceCount),
+            TerrainBuildService.StageTimingDiagnosticThresholdMs);
         if (!string.IsNullOrWhiteSpace(warning))
             build.Diagnostics.Add(warning);
         build.AddGradingDiagnostics(gradingResult);
 
         if (modifier.GradeThroughBreaklines)
         {
-            DropRegradedBreaklines(
+            TerrainBuildService.DropRegradedBreaklines(
                 build, gradingResult.Vertices, gradingResult.VertexCount, gradingResult.Faces, gradingResult.FaceCount,
                 snapshot.ModelAbsoluteTolerance, snapshot.ModelUnitSystem, "Grade Line");
         }
 
         // The design line becomes a hard constraint so later modifiers respect it — which is what
         // lets stacked Grade Lines on offset feature lines build a compound cross-section.
-        AddOutputPolylinesAsBreaklines(gradingResult.OutputPolylines, build);
-        runtimeCache.GradingTopologyEntries[topologyStageKey] = BuildPathTopologySummary(
+        TerrainBuildService.AddOutputPolylinesAsBreaklines(gradingResult.OutputPolylines, build);
+        runtimeCache.GradingTopologyEntries[topologyStageKey] = TerrainBuildService.BuildPathTopologySummary(
             vertices,
             vertexCount,
             faces,
@@ -144,7 +163,7 @@ internal sealed partial class TerrainBuildService
             gradingResult,
             patchSummaries,
             build.Diagnostics);
-        return FinalizeGradingMesh(
+        return TerrainBuildService.FinalizeGradingMesh(
             RhinoGeometryConversions.BuildMesh(gradingResult.Vertices, gradingResult.VertexCount, gradingResult.Faces, gradingResult.FaceCount),
             "Grade Line",
             build);

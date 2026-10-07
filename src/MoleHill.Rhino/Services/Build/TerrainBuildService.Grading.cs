@@ -925,7 +925,7 @@ internal sealed partial class TerrainBuildService
             build);
     }
 
-    private static ConstraintConflictDiagnostics.ConflictSummary AnalyzeHardConstraintConflicts(
+    internal static ConstraintConflictDiagnostics.ConflictSummary AnalyzeHardConstraintConflicts(
         IReadOnlyList<ConstraintPolyline> pathConstraints,
         IReadOnlyList<ConstraintPolyline> hardConstraints,
         double tolerance)
@@ -940,7 +940,7 @@ internal sealed partial class TerrainBuildService
             tolerance);
     }
 
-    private static void AddOutputPolylinesAsBreaklines(
+    internal static void AddOutputPolylinesAsBreaklines(
         IReadOnlyList<MoleHill.Core.Grading.OutputPolyline> polylines,
         TerrainBuildResult build)
     {
@@ -1468,7 +1468,7 @@ internal sealed partial class TerrainBuildService
         return pad.EvaluateZ(cx, cy);
     }
 
-    private static List<GradingPatch> BuildPathPatchSummaries(IReadOnlyList<PathGrader.PathDefinition> paths)
+    internal static List<GradingPatch> BuildPathPatchSummaries(IReadOnlyList<PathGrader.PathDefinition> paths)
     {
         var patches = new List<GradingPatch>(paths.Count);
         for (int i = 0; i < paths.Count; i++)

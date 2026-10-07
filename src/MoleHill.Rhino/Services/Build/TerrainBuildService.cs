@@ -11,7 +11,7 @@ namespace MoleHill.Rhino.Services;
 
 internal sealed partial class TerrainBuildService
 {
-    private const int StageTimingDiagnosticThresholdMs = 250;
+    internal const int StageTimingDiagnosticThresholdMs = 250;
 
     /// <summary>
     /// How much of the upstream vertex count a Retaining Wall constrained rebuild must retain to be

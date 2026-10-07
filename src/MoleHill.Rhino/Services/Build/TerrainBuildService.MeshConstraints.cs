@@ -303,7 +303,7 @@ internal sealed partial class TerrainBuildService
         return cleanedMesh;
     }
 
-    private static string DescribeTopologyCounts(int inputVertexCount, int inputFaceCount, int outputVertexCount, int outputFaceCount)
+    internal static string DescribeTopologyCounts(int inputVertexCount, int inputFaceCount, int outputVertexCount, int outputFaceCount)
     {
         return $"{inputVertexCount:N0} verts/{inputFaceCount:N0} faces -> {outputVertexCount:N0} verts/{outputFaceCount:N0} faces";
     }
@@ -488,7 +488,7 @@ internal sealed partial class TerrainBuildService
     internal static RhinoMesh BuildMeshFromArrays(double[] vertices, int[] faces) =>
         RhinoGeometryConversions.BuildMesh(vertices, vertices.Length / 3, faces, faces.Length / 3);
 
-    private static RhinoMesh FinalizeGradingMesh(RhinoMesh mesh, string sourceLabel, TerrainBuildResult build)
+    internal static RhinoMesh FinalizeGradingMesh(RhinoMesh mesh, string sourceLabel, TerrainBuildResult build)
     {
         // Every caller passes BuildMesh output, which is normalized already. Normalizing again cannot
         // change it and cost a second UnifyNormals plus array read-back (~60 ms on 111k faces).
