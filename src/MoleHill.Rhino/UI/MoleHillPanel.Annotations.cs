@@ -5,6 +5,7 @@ using MoleHill.Rhino.Registry;
 using MoleHill.Rhino.Services;
 using MoleHill.Shared;
 using Rhino;
+using Rhino.UI;
 using RhinoGetPoint = Rhino.Input.Custom.GetPoint;
 using RhinoGetResult = Rhino.Input.GetResult;
 using RhinoObjectType = Rhino.DocObjects.ObjectType;
@@ -188,14 +189,10 @@ public sealed partial class MoleHillPanel
             RhinoObjectType.Curve,
             doc => _controller.GetSelectedLayerPaths(doc),
             sourceHelp));
-        layout.AddRow(CreateCheckEditor(
-            "Cut / Fill",
-            annotation.ShowCutFillRegions,
-            value => MutateSection(item => item.ShowCutFillRegions = value),
-            "Shade cut and fill between this terrain and the ground it is compared to below."));
-
-        // The same comparison rows, in the same order, as the Cut/Fill and Earthworks cards: a terrain
-        // to compare to, then Rhino geometry that takes precedence over it.
+        // The same comparison rows, in the same order and under the same rule, as the Cut/Fill and
+        // Earthworks cards: a terrain to compare to, its status, then Rhino geometry that takes precedence.
+        // Only the Cut / Fill switch after them is the section's own.
+        layout.AddRow(CreateSectionRule("Compare"));
         layout.AddRow(CreateCompareTerrainEditor(
             terrain,
             annotation.CutFillReferenceTerrainId,
@@ -226,12 +223,18 @@ public sealed partial class MoleHillPanel
             doc => _controller.GetSelectedLayerPaths(doc),
             "Existing ground as Rhino geometry — a survey mesh or surface — sliced along the same section " +
             "line. Takes precedence over Compare To Terrain for cut/fill."));
-        AddSectionAlsoDrawRows(layout, terrain, annotation);
+        layout.AddRow(CreateCheckEditor(
+            "Cut / Fill",
+            annotation.ShowCutFillRegions,
+            value => MutateSection(item => item.ShowCutFillRegions = value),
+            "Shade cut and fill between this terrain and the ground it is compared to above."));
+        AddSectionProfileRows(layout, terrain, annotation);
 
         // No hatch pattern, scale or angle rows: cut and fill appearance comes from the
         // SectionsCutFillCut/Fill layer roles (edited in the layer template), so preview and bake
         // match every other generated output. The definition's hatch fields remain only as the
         // legacy fallback the builder reads when a role supplies no pattern.
+        layout.AddRow(CreateSectionRule("Layout"));
         layout.AddRow(CreateInsertionOriginEditor(terrain, annotation));
     }
 
@@ -250,11 +253,19 @@ public sealed partial class MoleHillPanel
             section.ComparisonTerrainIds.Add(added);
     }
 
+    /// <summary>Above this many terrains the profile list gets a filter box.</summary>
+    private const int SectionProfileFilterThreshold = 8;
+
     /// <summary>
-    /// Further terrains to draw on the section as profiles, without comparing against them. Shown only
-    /// when there is another terrain to offer; most sections compare one proposed surface to one existing.
+    /// The "Profiles" block: every other terrain in the document, ticked to draw its profile on this section.
+    ///
+    /// It used to be shown only when a terrain was left over after the Compare To Terrain choice, so in the
+    /// common two-terrain file it vanished the moment that choice was made and read as a lost feature. Now
+    /// it lists every other terrain whenever there is one, with the compared terrain shown ticked and fixed
+    /// (the dropdown owns it), so the list never changes shape under the user. Each profile's colour is
+    /// this card's to choose: click the swatch.
     /// </summary>
-    private void AddSectionAlsoDrawRows(
+    private void AddSectionProfileRows(
         DynamicLayout layout,
         TerrainDefinition owner,
         TerrainSectionAnnotationDefinitionBase annotation)
@@ -263,27 +274,46 @@ public sealed partial class MoleHillPanel
         IReadOnlyList<TerrainDefinition> terrains = doc == null
             ? Array.Empty<TerrainDefinition>()
             : _controller.GetTerrains(doc);
+        var others = terrains.Where(item => item.TerrainId != owner.TerrainId).ToList();
         Guid? compareId = annotation.CutFillReferenceTerrainId;
-        var others = terrains
-            .Where(item => item.TerrainId != owner.TerrainId && item.TerrainId != compareId)
-            .ToList();
-        var drawn = annotation.ComparisonTerrainIds.Where(id => id != compareId).Distinct().ToList();
-        if (others.Count == 0 && drawn.Count == 0)
+        var drawn = annotation.ComparisonTerrainIds.Distinct().ToHashSet();
+        if (others.Count == 0)
             return;
 
-        const string help = "Other terrains to draw on this section as profiles, in their own colours, without " +
-            "comparing against them.";
+        // The compared terrain is drawn as existing ground, in that layer's colour, only while cut/fill is
+        // on and no Compare To geometry has taken over; otherwise it is an ordinary profile in its own colour.
+        bool comparedIsExistingGround = compareId.HasValue
+            && annotation.ShowCutFillRegions
+            && !annotation.CutFillReference.HasReferences;
+        int existingGroundArgb = AnalysisFormatting.ResolveLayerColorArgb(
+            AnalysisFormatting.GetRoleLayerPath(owner, LayerRole.SectionsExisting)) ?? unchecked((int)0xFF9E9E9E);
+
+        const string help = "Terrains drawn on this section, each as its own profile. The one chosen in Compare " +
+            "To Terrain is always drawn; tick others to add them. Click a swatch to choose the colour that " +
+            "profile is drawn in on this card; right-click it to go back to the terrain's own colour.";
+        layout.AddRow(CreateSectionRule("Profiles"));
+
         var list = new StackLayout
         {
             Orientation = Orientation.Vertical,
             Spacing = UiMetrics.SpaceXSmall,
             HorizontalContentAlignment = HorizontalAlignment.Stretch
         };
+        var rows = new List<(Control Row, string Name, bool Pinned)>();
         foreach (TerrainDefinition other in others)
         {
             Guid otherId = other.TerrainId;
-            var check = new CheckBox { Text = other.Name, Checked = drawn.Contains(otherId) };
-            ApplyHelp(check, help);
+            bool isCompared = otherId == compareId;
+            bool isDrawn = isCompared || drawn.Contains(otherId);
+            var check = new CheckBox
+            {
+                Text = isCompared ? $"{other.Name} (compared)" : other.Name,
+                Checked = isDrawn,
+                Enabled = !isCompared
+            };
+            ApplyHelp(check, isCompared
+                ? "Drawn because it is the terrain this section is compared to. Change that in Compare To Terrain above."
+                : help);
             check.CheckedChanged += (_, _) =>
             {
                 if (_isRefreshing)
@@ -301,26 +331,124 @@ public sealed partial class MoleHillPanel
                 }, scheduleRebuild: true);
                 RefreshUi();
             };
-            var swatch = new Panel
-            {
-                Size = new Size(12, 12),
-                BackgroundColor = ToEtoColor(System.Drawing.Color.FromArgb(other.TerrainColorArgb))
-            };
-            list.Items.Add(new StackLayout
+
+            Control swatch = isCompared && comparedIsExistingGround
+                ? CreateFixedProfileSwatch(existingGroundArgb,
+                    "Drawn as existing ground, in the colour of its layer role (Sections ▸ Existing).")
+                : CreateProfileColorSwatch(owner, annotation, other);
+            var row = new StackLayout
             {
                 Orientation = Orientation.Horizontal,
                 Spacing = UiMetrics.SpaceSmall,
                 VerticalContentAlignment = VerticalAlignment.Center,
                 Items = { swatch, check }
-            });
+            };
+            list.Items.Add(row);
+            rows.Add((row, other.Name, isDrawn));
         }
 
-        layout.AddRow(new PropertyRow(CreateHelpLabel("Also Draw", help, 0), list, expandWidget: true));
-        foreach (Guid drawnId in drawn)
+        Control editor = list;
+        if (others.Count > SectionProfileFilterThreshold)
+        {
+            // Filtering only hides rows; ticked terrains stay visible so what is drawn is always in view.
+            var filter = new TextBox { PlaceholderText = "Filter terrains…" };
+            ApplyHelp(filter, "Show only terrains whose name contains this text. Ticked terrains are always shown.");
+            filter.TextChanged += (_, _) =>
+            {
+                string text = filter.Text?.Trim() ?? string.Empty;
+                foreach (var (row, name, pinned) in rows)
+                    row.Visible = pinned || text.Length == 0 || name.Contains(text, StringComparison.OrdinalIgnoreCase);
+            };
+            editor = new StackLayout
+            {
+                Orientation = Orientation.Vertical,
+                Spacing = UiMetrics.SpaceSmall,
+                HorizontalContentAlignment = HorizontalAlignment.Stretch,
+                Items = { filter, list }
+            };
+        }
+
+        layout.AddRow(new PropertyRow(CreateHelpLabel("Also Draw", help, 0), editor, expandWidget: true));
+        foreach (Guid drawnId in drawn.Where(id => id != compareId))
         {
             if (CreateCompareTerrainStatusRow(owner, drawnId, "its profile is left off this section") is { } status)
                 layout.AddRow(status);
         }
+    }
+
+    /// <summary>A swatch that shows a colour the card does not own.</summary>
+    private Control CreateFixedProfileSwatch(int argb, string help)
+    {
+        var swatch = new Panel
+        {
+            Size = new Size(12, 12),
+            BackgroundColor = ToEtoColor(System.Drawing.Color.FromArgb(argb))
+        };
+        ApplyHelp(swatch, help);
+        return swatch;
+    }
+
+    /// <summary>
+    /// The colour of one terrain's profile on this card. Click to choose; right-click to clear back to the
+    /// terrain's own preview colour.
+    /// </summary>
+    private Control CreateProfileColorSwatch(
+        TerrainDefinition owner,
+        TerrainSectionAnnotationDefinitionBase annotation,
+        TerrainDefinition terrain)
+    {
+        Guid terrainId = terrain.TerrainId;
+        bool isCustom = annotation.ProfileColorArgbs.ContainsKey(terrainId);
+        int argb = annotation.ResolveProfileColorArgb(terrainId, terrain.TerrainColorArgb);
+        var swatch = new Panel
+        {
+            Size = new Size(12, 12),
+            BackgroundColor = ToEtoColor(System.Drawing.Color.FromArgb(argb)),
+            Cursor = Cursors.Pointer
+        };
+        ApplyHelp(swatch, isCustom
+            ? $"Drawn in {DescribeSolidColor(argb)} on this section. Click to change; right-click to use {terrain.Name}'s own colour."
+            : $"Drawn in {terrain.Name}'s own colour. Click to choose a colour for this section.");
+
+        void Commit(int? chosen) =>
+            MutateAnnotation(owner.TerrainId, annotation.Id, item =>
+            {
+                if (item is not TerrainSectionAnnotationDefinitionBase section)
+                    return;
+
+                if (chosen is { } value)
+                    section.ProfileColorArgbs[terrainId] = value;
+                else
+                    section.ProfileColorArgbs.Remove(terrainId);
+            }, scheduleRebuild: true);
+
+        swatch.MouseDown += (_, e) =>
+        {
+            if (RhinoDoc.ActiveDoc is not { } doc)
+                return;
+
+            if (e.Buttons == MouseButtons.Alternate)
+            {
+                if (isCustom)
+                {
+                    Commit(null);
+                    RefreshUi();
+                }
+
+                return;
+            }
+
+            if (e.Buttons != MouseButtons.Primary)
+                return;
+
+            var dialog = new ColorDialog { Color = ToEtoColor(System.Drawing.Color.FromArgb(argb)), AllowAlpha = false };
+            if (dialog.ShowDialog(RhinoEtoApp.MainWindowForDocument(doc)) != DialogResult.Ok)
+                return;
+
+            Commit(ToArgb(dialog.Color));
+            RefreshUi();
+        };
+        return swatch;
     }
 
     private Control CreateInsertionOriginEditor(

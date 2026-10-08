@@ -1,5 +1,8 @@
+using System.Runtime.CompilerServices;
+using MoleHill.Core.Analysis;
+using MoleHill.Core.Engine;
+using MoleHill.Shared;
 using Rhino.Geometry;
-using Rhino.Geometry.Intersect;
 using RhinoMesh = Rhino.Geometry.Mesh;
 
 namespace MoleHill.Rhino.Services;
@@ -50,6 +53,19 @@ internal sealed class TerrainSectionResult
 
 internal static class TerrainSectionSlicer
 {
+    /// <summary>
+    /// One plan index per mesh, shared by every section, station and build that cuts it. Meshes handed to
+    /// the section builders are not modified once built (the extracted-array cache relies on the same), so
+    /// keying by instance is safe, and the entry dies with the mesh.
+    /// </summary>
+    private static readonly ConditionalWeakTable<RhinoMesh, MeshSectionIndex?> Indexes = new();
+
+    internal static MeshSectionIndex? GetIndex(RhinoMesh mesh) =>
+        Indexes.GetValue(mesh, static m =>
+            RhinoGeometryConversions.TryExtractMesh(m, out IndexedTriMesh extracted, out _)
+                ? new MeshSectionIndex(extracted, weldCoincidentVertices: false)
+                : null);
+
     public static TerrainSectionResult SliceAlongPolyline(
         RhinoMesh mesh,
         IReadOnlyList<Point3d> cutPolylineVertices,
@@ -60,9 +76,11 @@ internal static class TerrainSectionSlicer
         if (cutPolylineVertices.Count < 2)
             return TerrainSectionResult.Empty;
 
-        // Read once: the vertices do not change between segments, and copying them per segment made a
-        // many-vertex cut line allocate the whole mesh once for every vertex of the line.
-        Point3d[] meshVertices = mesh.Vertices.ToPoint3dArray();
+        MeshSectionIndex? index = GetIndex(mesh);
+        if (index == null)
+            return TerrainSectionResult.Empty;
+
+        double clampTol = Math.Max(Math.Abs(tolerance), double.Epsilon);
         var perSegmentIntersections = new List<Polyline[]?>(cutPolylineVertices.Count - 1);
         for (int i = 1; i < cutPolylineVertices.Count; i++)
         {
@@ -70,73 +88,27 @@ internal static class TerrainSectionSlicer
             Point3d b = cutPolylineVertices[i];
             double dx = b.X - a.X;
             double dy = b.Y - a.Y;
-            double segmentLength = Math.Sqrt((dx * dx) + (dy * dy));
-            if (segmentLength <= Math.Max(Math.Abs(tolerance), double.Epsilon))
+            if (Math.Sqrt((dx * dx) + (dy * dy)) <= clampTol)
             {
                 perSegmentIntersections.Add(null);
                 continue;
             }
 
-            var direction = new Vector3d(dx / segmentLength, dy / segmentLength, 0.0);
-            var origin = new Point3d(a.X, a.Y, 0.0);
-            var plane = OffsetPlaneOffVertices(meshVertices, new Plane(origin, direction, Vector3d.ZAxis), tolerance);
-            perSegmentIntersections.Add(Intersection.MeshPlane(mesh, plane));
+            List<double[]> chains = index.SliceSegment(a.X, a.Y, b.X, b.Y, clampTol);
+            var polylines = new Polyline[chains.Count];
+            for (int c = 0; c < chains.Count; c++)
+            {
+                double[] chain = chains[c];
+                var polyline = new Polyline(chain.Length / 3);
+                for (int k = 0; k < chain.Length; k += 3)
+                    polyline.Add(chain[k], chain[k + 1], chain[k + 2]);
+                polylines[c] = polyline;
+            }
+
+            perSegmentIntersections.Add(polylines);
         }
 
         return SliceFromPolylineIntersections(cutPolylineVertices, perSegmentIntersections, tolerance);
-    }
-
-    /// <summary>
-    /// Nudges a cut plane sideways so it does not pass exactly through mesh vertices.
-    ///
-    /// <see cref="Intersection.MeshPlane(Mesh, Plane)"/> is unreliable when vertices lie exactly on the plane: it can
-    /// return the section as several disjoint runs with whole spans missing, even though the mesh is
-    /// continuous there. Grading makes this the normal case rather than a freak one — a pad's batter
-    /// re-triangulation drops vertices on round coordinates, and section lines are drawn on round
-    /// coordinates too, so they coincide constantly. The symptom is a proposed profile that stops at the
-    /// pad edge and resumes past it, which reads as a hole in the terrain.
-    ///
-    /// The shift is perpendicular to the section's direction, so stations along the section are unchanged
-    /// and the drawing is identical; only the sampled line moves, by less than half the model tolerance.
-    /// It is sized to clear every coincident vertex without reaching the next one along.
-    /// </summary>
-    private static Plane OffsetPlaneOffVertices(Point3d[] meshVertices, Plane plane, double tolerance)
-    {
-        double limit = Math.Max(Math.Abs(tolerance), global::Rhino.RhinoMath.ZeroTolerance) * 0.5;
-
-        // "On the plane" has to be generous enough to catch vertices that are only nearly coincident:
-        // those degrade the intersection in the same way, and the mesh carries accumulated float error.
-        double onPlane = limit * 1e-2;
-
-        double nearestOff = double.PositiveInfinity;
-        bool anyOnPlane = false;
-
-        foreach (Point3d vertex in meshVertices)
-        {
-            double distance = Math.Abs(plane.DistanceTo(vertex));
-            if (distance <= onPlane)
-            {
-                anyOnPlane = true;
-                continue;
-            }
-
-            if (distance < nearestOff)
-                nearestOff = distance;
-        }
-
-        if (!anyOnPlane)
-            return plane;
-
-        double offset = double.IsPositiveInfinity(nearestOff)
-            ? limit
-            : Math.Min(limit, nearestOff * 0.5);
-
-        if (offset <= 0.0)
-            return plane;
-
-        Plane shifted = plane;
-        shifted.Origin = plane.Origin + (plane.Normal * offset);
-        return shifted;
     }
 
     internal static TerrainSectionResult SliceFromPolylineIntersections(
@@ -212,12 +184,9 @@ internal static class TerrainSectionSlicer
         double clampTol = Math.Max(Math.Abs(tolerance), double.Epsilon);
         double spacing = Math.Max(sampleSpacing, clampTol * 10.0);
 
-        BoundingBox bounds = mesh.GetBoundingBox(true);
-        if (!bounds.IsValid)
+        MeshSectionIndex? index = GetIndex(mesh);
+        if (index == null)
             return TerrainSectionResult.Empty;
-
-        double zSpan = Math.Max(bounds.Max.Z - bounds.Min.Z, clampTol);
-        double rayStartZ = bounds.Max.Z + zSpan;
 
         var parameters = new List<double> { curve.Domain.T0 };
         if (curve.DivideByLength(spacing, true) is { Length: > 0 } divisions)
@@ -243,9 +212,8 @@ internal static class TerrainSectionSlicer
             }
             previousXY = sample;
 
-            var ray = new Ray3d(new Point3d(sample.X, sample.Y, rayStartZ), -Vector3d.ZAxis);
-            double rayDistance = Intersection.MeshRay(mesh, ray);
-            if (rayDistance < 0.0)
+            // The top surface, as a ray cast down from above the mesh would find it.
+            if (!index.TryGetTopZ(sample.X, sample.Y, out double topZ))
             {
                 if (current.Count > 1)
                     resultSegments.Add(new TerrainSectionSegment(current.ToArray()));
@@ -253,7 +221,7 @@ internal static class TerrainSectionSlicer
                 continue;
             }
 
-            Point3d hit = ray.PointAt(rayDistance);
+            var hit = new Point3d(sample.X, sample.Y, topZ);
             if (hit.Z < minZ) minZ = hit.Z;
             if (hit.Z > maxZ) maxZ = hit.Z;
             current.Add(new TerrainSectionVertex(totalLength, hit));

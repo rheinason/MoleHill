@@ -40,6 +40,28 @@ internal static class AnnotationParameterCatalog
             min: 0.1,
             decimalPlaces: 2);
 
+    /// <summary>The labelling rows every section type shares, appended after its own rows.</summary>
+    public static AnnotationParam[] SectionLabelling() => new[]
+    {
+        AnnotationParam.Bool(
+            "ShowElevationLabels", "Elevation Labels",
+            a => ((TerrainSectionAnnotationDefinitionBase)a).ShowElevationLabels,
+            (a, v) => ((TerrainSectionAnnotationDefinitionBase)a).ShowElevationLabels = v,
+            "Label real elevations up the left edge of each section, one per elevation grid step " +
+            "(the grid interval, or an automatic one when that is 0)."),
+        AnnotationParam.Bool(
+            "ShowSectionTitle", "Section Title",
+            a => ((TerrainSectionAnnotationDefinitionBase)a).ShowSectionTitle,
+            (a, v) => ((TerrainSectionAnnotationDefinitionBase)a).ShowSectionTitle = v,
+            "Print a title beneath each section: its mark (A-A', B-B', ...) or, for cross-sections, its station."),
+        AnnotationParam.Bool(
+            "ShowPlanLabels", "Plan Labels",
+            a => ((TerrainSectionAnnotationDefinitionBase)a).ShowPlanLabels,
+            (a, v) => ((TerrainSectionAnnotationDefinitionBase)a).ShowPlanLabels = v,
+            "Mark each section in plan: A and A' at the ends of the cut line, or the station beside each " +
+            "cross-section's cut."),
+    };
+
     public static AnnotationParam SlopeUnitChoice(string help) =>
         AnnotationParam.Choice(
             "Unit", "Units", SlopeUnitOptions,
@@ -600,7 +622,7 @@ internal sealed class TerrainSectionAnnotationDescriptor : AnnotationTypeDescrip
         };
     }
 
-    public override IReadOnlyList<AnnotationParam> Parameters { get; } = new[]
+    public override IReadOnlyList<AnnotationParam> Parameters { get; } = new AnnotationParam[]
     {
         AnnotationParameterCatalog.VerticalExaggeration(),
         AnnotationParam.Number(
@@ -630,7 +652,7 @@ internal sealed class TerrainSectionAnnotationDescriptor : AnnotationTypeDescrip
             a => ((TerrainSectionAnnotationDefinition)a).ShowStationLabels,
             (a, v) => ((TerrainSectionAnnotationDefinition)a).ShowStationLabels = v,
             "Print station distance text below each tick."),
-    };
+    }.Concat(AnnotationParameterCatalog.SectionLabelling()).ToArray();
 
     public override string? DescribeBlocker(TerrainDefinition terrain, AnnotationDefinition annotation)
     {
@@ -690,7 +712,7 @@ internal sealed class CrossSectionStationAnnotationDescriptor : AnnotationTypeDe
         };
     }
 
-    public override IReadOnlyList<AnnotationParam> Parameters { get; } = new[]
+    public override IReadOnlyList<AnnotationParam> Parameters { get; } = new AnnotationParam[]
     {
         AnnotationParam.Number(
             "StationInterval", "Station Interval",
@@ -744,7 +766,7 @@ internal sealed class CrossSectionStationAnnotationDescriptor : AnnotationTypeDe
             (a, v) => ((CrossSectionStationAnnotationDefinition)a).ElevationGridInterval = Math.Max(0.0, v),
             "Vertical spacing of grid lines on the unrolled cross-sections. 0 = auto.",
             min: 0.0),
-    };
+    }.Concat(AnnotationParameterCatalog.SectionLabelling()).ToArray();
 
     public override string? DescribeBlocker(TerrainDefinition terrain, AnnotationDefinition annotation)
     {
@@ -804,7 +826,7 @@ internal sealed class LongitudinalSectionAnnotationDescriptor : AnnotationTypeDe
         };
     }
 
-    public override IReadOnlyList<AnnotationParam> Parameters { get; } = new[]
+    public override IReadOnlyList<AnnotationParam> Parameters { get; } = new AnnotationParam[]
     {
         AnnotationParam.Number(
             "SampleInterval", "Sample Interval",
@@ -840,7 +862,7 @@ internal sealed class LongitudinalSectionAnnotationDescriptor : AnnotationTypeDe
             (a, v) => ((LongitudinalSectionAnnotationDefinition)a).StationLabelInterval = Math.Max(0.0, v),
             "Spacing between station labels. 0 = auto (~quarter of total length).",
             min: 0.0),
-    };
+    }.Concat(AnnotationParameterCatalog.SectionLabelling()).ToArray();
 
     public override string? DescribeBlocker(TerrainDefinition terrain, AnnotationDefinition annotation)
     {

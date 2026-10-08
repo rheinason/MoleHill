@@ -148,6 +148,7 @@ internal sealed partial class TerrainController
             foreach (TerrainSectionAnnotationDefinitionBase section in terrain.Annotations.OfType<TerrainSectionAnnotationDefinitionBase>())
             {
                 changed |= section.ComparisonTerrainIds.RemoveAll(id => id == removedTerrainId) > 0;
+                changed |= section.ProfileColorArgbs.Remove(removedTerrainId);
                 if (section.CutFillReferenceTerrainId == removedTerrainId)
                 {
                     section.CutFillReferenceTerrainId = null;

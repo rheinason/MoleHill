@@ -186,6 +186,8 @@ public sealed partial class MoleHillPanel
         TerrainDefinition owner,
         ReferenceComparisonAnalysisDefinition analysis)
     {
+        // The same rule heads the comparison rows on the section cards, so the block reads as one thing.
+        layout.AddRow(CreateSectionRule("Compare"));
         layout.AddRow(CreateCompareTerrainEditor(
             owner,
             analysis.ReferenceTerrainId,

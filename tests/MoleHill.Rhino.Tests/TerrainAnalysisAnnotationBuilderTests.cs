@@ -276,7 +276,7 @@ public class TerrainAnalysisAnnotationBuilderTests
         Assert.Equal(2, summary.SectionTerrainCount);
         Assert.True(summary.SectionCutRegionCount > 0);
         Assert.Equal(0, summary.SectionFillRegionCount);
-        Assert.Contains(build.AuxiliaryObjects, output => output.Geometry is Mesh && output.Name.Contains("cut"));
+        Assert.Contains(build.AuxiliaryObjects, output => output.Geometry is Hatch && output.Name.Contains("cut"));
     }
 
     [RhinoNativeFact]

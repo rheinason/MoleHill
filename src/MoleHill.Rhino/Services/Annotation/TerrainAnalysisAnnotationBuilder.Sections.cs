@@ -2,6 +2,7 @@ using MoleHill.Core.Analysis;
 using MoleHill.Rhino.Model;
 using MoleHill.Shared;
 using Rhino;
+using Rhino.DocObjects;
 using Rhino.Geometry;
 using RhinoMesh = Rhino.Geometry.Mesh;
 
@@ -20,6 +21,99 @@ internal static partial class TerrainAnalysisAnnotationBuilder
 
     private readonly record struct SectionEmissionStats(int OutputCount, int CutRegions, int FillRegions);
 
+    /// <summary>
+    /// Where one section drawing sits in elevation and how much room it takes, measured once and read by both
+    /// the layout that places the cell and the code that draws into it. The three layouts each used to guess
+    /// the room below the axis by hand, and every guess drifted from what was actually drawn there.
+    /// </summary>
+    /// <param name="Minimum">Lowest elevation drawn, existing ground included; the cell origin sits here.</param>
+    /// <param name="AxisBottom">The foot of the elevation axis: the minimum, snapped down to a grid step.</param>
+    /// <param name="Below">Drawing units below the cell origin: the snap, station figures, title and key.</param>
+    /// <param name="Above">Drawing units above the cell origin, to the top of the axis.</param>
+    private readonly record struct SectionFrame(
+        double Minimum,
+        double Maximum,
+        double GridSpacing,
+        double AxisBottom,
+        double AxisTop,
+        double Below,
+        double Above);
+
+    /// <summary>
+    /// Measures a section before it is placed. Existing ground counts towards the range: under a fill it is
+    /// the lowest line on the drawing, and leaving it out let it run through the labels and the next row.
+    /// </summary>
+    private static SectionFrame MeasureSection(
+        TerrainSectionAnnotationDefinitionBase analysis,
+        IReadOnlyList<SectionTerrainProfile> profiles,
+        TerrainSectionResult? existingGround,
+        double requestedGridInterval,
+        bool showElevationGrid,
+        bool showStationLabels,
+        double textHeight,
+        double verticalScale)
+    {
+        double minimum = profiles.Min(profile => profile.Slice.MinimumElevation);
+        double maximum = profiles.Max(profile => profile.Slice.MaximumElevation);
+        if (existingGround != null)
+        {
+            minimum = Math.Min(minimum, existingGround.MinimumElevation);
+            maximum = Math.Max(maximum, existingGround.MaximumElevation);
+        }
+
+        double spacing = SectionLayoutHelper.ResolveElevationGridSpacing(minimum, maximum, requestedGridInterval);
+        bool snaps = spacing > 0.0 && (showElevationGrid || analysis.ShowElevationLabels);
+        double axisBottom = snaps ? Math.Floor(minimum / spacing) * spacing : minimum;
+        double axisTop = snaps ? Math.Ceiling(maximum / spacing) * spacing : maximum;
+
+        // Matches EmitCombinedProfileObjects: station figures centred 1.5 text heights under the axis, the
+        // title 2 under those, then 1.5 per key row, each text half a height deep.
+        double th = Math.Max(textHeight, double.Epsilon);
+        int keyRows = DescribeProfileKey(analysis, DescribeProfiles(profiles, existingGround), existingGround != null).Count;
+        double band = (showStationLabels ? 2.0 * th : 0.0) +
+            (analysis.ShowSectionTitle ? (2.5 * th) + (1.5 * th * keyRows) : 0.0);
+        return new SectionFrame(
+            minimum,
+            maximum,
+            spacing,
+            axisBottom,
+            axisTop,
+            ((minimum - axisBottom) * verticalScale) + band,
+            (axisTop - minimum) * verticalScale);
+    }
+
+    /// <summary>
+    /// The ground a section shades cut and fill against, resolved before layout so its depth is measured.
+    /// Null when cut/fill is off or there is nothing to compare against (the diagnostic says why).
+    /// </summary>
+    private static TerrainSectionResult? ResolveExistingGround(
+        TerrainBuildSnapshot snapshot,
+        SectionCutGeometry cutGeometry,
+        TerrainSectionAnnotationDefinitionBase analysis,
+        IReadOnlyList<SectionTerrainProfile> profiles,
+        double tolerance,
+        TerrainBuildResult build,
+        RhinoMesh? baseMesh,
+        CutFillReferenceMesh referenceMesh) =>
+        analysis.IsEnabled && analysis.ShowCutFillRegions
+            ? ResolveCutFillReferenceSlice(snapshot, cutGeometry, analysis, profiles, tolerance, build, baseMesh, referenceMesh)
+            : null;
+
+    /// <summary>
+    /// The slice that places plan marks: this terrain's, or — when the cut misses this terrain but crosses a
+    /// comparison terrain — the first one drawn.
+    /// </summary>
+    private static TerrainSectionResult PrimarySlice(IReadOnlyList<SectionTerrainProfile> profiles) =>
+        (profiles.FirstOrDefault(profile => profile.IsOwner) ?? profiles[0]).Slice;
+
+    private static List<(Guid TerrainId, string TerrainName, int ColorArgb, bool IsOwner, bool IsReference)> DescribeProfiles(
+        IReadOnlyList<SectionTerrainProfile> profiles,
+        TerrainSectionResult? existingGround) =>
+        profiles
+            .Select(profile => (profile.TerrainId, profile.TerrainName, profile.ColorArgb, profile.IsOwner,
+                IsReference: existingGround != null && ReferenceEquals(profile.Slice, existingGround)))
+            .ToList();
+
     public static TerrainAnalysisSummary BuildTerrainSectionSummary(
         TerrainBuildSnapshot snapshot,
         RhinoMesh mesh,
@@ -32,15 +126,15 @@ internal static partial class TerrainAnalysisAnnotationBuilder
         var objects = TerrainBuildSnapshotResolver.ResolveObjects(snapshot, analysis.Sources);
         var insertionPlane = ResolveInsertionPlane(analysis, mesh);
         double tolerance = snapshot.ModelAbsoluteTolerance;
+        double verticalScale = ResolveVerticalExaggeration(analysis);
+        double textHeight = ResolveTextHeight(snapshot, analysis);
         int sourceCount = 0;
         int outputCount = 0;
         AddMissingSectionTerrainDiagnostics(snapshot, analysis, build);
         var referenceMesh = new CutFillReferenceMesh();
 
-        var sectionProfiles = new List<List<SectionTerrainProfile>>();
-        var sectionCuts = new List<SectionCutGeometry>();
+        var sections = new List<(List<SectionTerrainProfile> Profiles, IReadOnlyList<Point3d> Cut, TerrainSectionResult? Existing, SectionFrame Frame)>();
         double maxStation = 0.0;
-        double maxRange = 0.0;
         int availableTerrainCount = 1;
 
         foreach (var entry in objects)
@@ -59,52 +153,56 @@ internal static partial class TerrainAnalysisAnnotationBuilder
             if (profiles.Count == 0 || profiles[0].Slice.IsEmpty)
                 continue;
 
-            sectionProfiles.Add(profiles);
-            sectionCuts.Add(SectionCutGeometry.AlongPolyline(cutVertices));
+            TerrainSectionResult? existing = ResolveExistingGround(
+                snapshot, SectionCutGeometry.AlongPolyline(cutVertices), analysis, profiles, tolerance, build, baseMesh, referenceMesh);
+            SectionFrame frame = MeasureSection(
+                analysis, profiles, existing, analysis.ElevationGridInterval, analysis.ShowElevationGrid,
+                analysis.ShowStationLabels, textHeight, verticalScale);
+            sections.Add((profiles, cutVertices, existing, frame));
             availableTerrainCount = Math.Max(availableTerrainCount, profiles.Count);
-            double minimum = profiles.Min(profile => profile.Slice.MinimumElevation);
-            double maximum = profiles.Max(profile => profile.Slice.MaximumElevation);
             maxStation = Math.Max(maxStation, profiles.Max(profile => profile.Slice.TotalStationLength));
-            double range = maximum - minimum;
-            if (range > maxRange)
-                maxRange = range;
         }
 
-        double cellWidth = maxStation + Math.Max(maxStation * 0.15, ResolveTextHeight(snapshot, analysis) * 8.0);
-        double cellHeight = Math.Max(maxRange * 1.4, ResolveTextHeight(snapshot, analysis) * 6.0);
+        // One row of cells, side by side; the gap leaves room for the next cell's elevation figures.
+        double cellWidth = maxStation + Math.Max(maxStation * 0.15, textHeight * 8.0);
 
         int cutRegions = 0;
         int fillRegions = 0;
-        for (int i = 0; i < sectionProfiles.Count; i++)
+        for (int i = 0; i < sections.Count; i++)
         {
             ThrowIfCancellationRequested(shouldCancel);
-            List<SectionTerrainProfile> profiles = sectionProfiles[i];
-            Plane cellPlane = OffsetCellPlane(insertionPlane, i, columns: Math.Max(sectionProfiles.Count, 1), cellWidth, cellHeight);
+            var (profiles, cut, existing, frame) = sections[i];
+            Plane cellPlane = OffsetCellPlane(insertionPlane, i, columns: sections.Count, cellWidth, cellHeight: 0.0);
+            string mark = SectionMark(i);
+            if (analysis.IsEnabled && analysis.ShowPlanLabels)
+            {
+                outputCount += EmitPlanMarkPair(
+                    analysis, build, layerRoles, PrimarySlice(profiles), mark,
+                    cut[0], cut[0] - cut[1], cut[^1], cut[^1] - cut[^2],
+                    textHeight);
+            }
 
             SectionEmissionStats emitted = EmitCombinedProfileObjects(
-                snapshot,
-                sectionCuts[i],
                 analysis,
                 build,
                 profiles,
+                existing,
+                frame,
                 cellPlane,
                 horizontalScale: 1.0,
-                verticalScale: ResolveVerticalExaggeration(analysis),
-                baseElevation: profiles.Min(profile => profile.Slice.MinimumElevation),
+                verticalScale: verticalScale,
                 comparisonTolerance: tolerance,
                 showBaseline: true,
                 showElevationGrid: analysis.ShowElevationGrid,
-                elevationGridInterval: analysis.ElevationGridInterval,
                 showStationTicks: analysis.ShowStationTicks,
                 stationTickInterval: analysis.StationTickInterval,
                 showStationLabels: analysis.ShowStationLabels,
                 stationLabelInterval: analysis.StationTickInterval,
-                textHeight: ResolveTextHeight(snapshot, analysis),
+                textHeight: textHeight,
                 layerRoles: layerRoles,
-                sectionLabel: $"{analysis.Label} {i + 1}",
+                sectionLabel: $"{analysis.Label} {mark}",
                 hatchPatterns: snapshot.HatchPatterns,
-                    baseMesh: baseMesh,
-                    referenceMesh: referenceMesh);
+                title: analysis.ShowSectionTitle ? SectionTitle(analysis, mark) : null);
             outputCount += emitted.OutputCount;
             cutRegions += emitted.CutRegions;
             fillRegions += emitted.FillRegions;
@@ -137,6 +235,7 @@ internal static partial class TerrainAnalysisAnnotationBuilder
         double halfWidth = Math.Max(analysis.CrossSectionWidth * 0.5, tolerance * 10.0);
         int gridColumns = Math.Max(analysis.GridColumns, 1);
         double verticalScale = ResolveVerticalExaggeration(analysis);
+        double textHeight = ResolveTextHeight(snapshot, analysis);
         int sourceCount = 0;
         int outputCount = 0;
         AddMissingSectionTerrainDiagnostics(snapshot, analysis, build);
@@ -157,9 +256,10 @@ internal static partial class TerrainAnalysisAnnotationBuilder
             if (stations.Count == 0)
                 continue;
 
-            var slices = new List<(double Station, List<SectionTerrainProfile> Profiles, SectionCutGeometry Cut)>(stations.Count);
+            var slices = new List<(double Station, List<SectionTerrainProfile> Profiles, Point3d[] Cut, TerrainSectionResult? Existing, SectionFrame Frame)>(stations.Count);
             double maxStation = 0.0;
-            double maxRange = 0.0;
+            double maxBelow = 0.0;
+            double maxAbove = 0.0;
 
             foreach (var station in stations)
             {
@@ -181,27 +281,48 @@ internal static partial class TerrainAnalysisAnnotationBuilder
                 if (profiles.Count == 0 || profiles[0].Slice.IsEmpty)
                     continue;
 
+                TerrainSectionResult? existing = ResolveExistingGround(
+                    snapshot, SectionCutGeometry.AlongPolyline(cut), analysis, profiles, tolerance, build, baseMesh, referenceMesh);
+                SectionFrame frame = MeasureSection(
+                    analysis, profiles, existing, analysis.ElevationGridInterval, analysis.ShowElevationGrid,
+                    analysis.LabelStations, textHeight, verticalScale);
                 slices.Add((
                     alignment.GetLength(new Interval(alignment.Domain.T0, station.Parameter)),
                     profiles,
-                    SectionCutGeometry.AlongPolyline(cut)));
+                    cut,
+                    existing,
+                    frame));
                 availableTerrainCount = Math.Max(availableTerrainCount, profiles.Count);
                 maxStation = Math.Max(maxStation, profiles.Max(profile => profile.Slice.TotalStationLength));
-                double range = profiles.Max(profile => profile.Slice.MaximumElevation) -
-                               profiles.Min(profile => profile.Slice.MinimumElevation);
-                if (range > maxRange)
-                    maxRange = range;
+                maxBelow = Math.Max(maxBelow, frame.Below);
+                maxAbove = Math.Max(maxAbove, frame.Above);
             }
 
-            double cellWidth = analysis.GridCellWidth > 0.0 ? analysis.GridCellWidth : (analysis.CrossSectionWidth + Math.Max(maxStation, analysis.CrossSectionWidth) * 0.1);
-            double cellHeight = analysis.GridCellHeight > 0.0 ? analysis.GridCellHeight : Math.Max(maxRange * verticalScale * 1.4, analysis.CrossSectionWidth * 0.3);
+            // Automatic cells fit the tallest drawing: any row's foot (its labels, title and key) must clear
+            // the next row's head, so the deepest foot and tallest head are added, plus a gap. Elevation
+            // figures to the left of each drawing take a fixed width.
+            double labelWidth = analysis.ShowElevationLabels ? textHeight * 6.0 : 0.0;
+            double cellWidth = analysis.GridCellWidth > 0.0
+                ? analysis.GridCellWidth
+                : (analysis.CrossSectionWidth + Math.Max(maxStation, analysis.CrossSectionWidth) * 0.1) + labelWidth;
+            double cellHeight = analysis.GridCellHeight > 0.0
+                ? analysis.GridCellHeight
+                : Math.Max(maxBelow + maxAbove + (2.0 * textHeight), analysis.CrossSectionWidth * 0.3);
 
             for (int i = 0; i < slices.Count; i++)
             {
                 ThrowIfCancellationRequested(shouldCancel);
-                var (alignmentStation, profiles, _) = slices[i];
+                var (alignmentStation, profiles, cutLine, existing, frame) = slices[i];
                 Plane cellPlane = OffsetCellPlane(insertionPlane, globalIndex, gridColumns, cellWidth, cellHeight);
                 globalIndex++;
+                string stationText = $"Sta {alignmentStation:F2}";
+
+                if (analysis.IsEnabled && analysis.ShowPlanLabels)
+                {
+                    build.AuxiliaryObjects.Add(BuildPlanStationLabel(
+                        analysis, layerRoles, PrimarySlice(profiles), cutLine[0], cutLine[1], stationText, textHeight));
+                    outputCount++;
+                }
 
                 if (analysis.ShowCutLinesOnTerrain)
                 {
@@ -225,29 +346,26 @@ internal static partial class TerrainAnalysisAnnotationBuilder
                 }
 
                 SectionEmissionStats emitted = EmitCombinedProfileObjects(
-                    snapshot,
-                    slices[i].Cut,
                     analysis,
                     build,
                     profiles,
+                    existing,
+                    frame,
                     cellPlane,
                     horizontalScale: 1.0,
                     verticalScale: verticalScale,
-                    baseElevation: profiles.Min(profile => profile.Slice.MinimumElevation),
                     comparisonTolerance: tolerance,
                     showBaseline: true,
                     showElevationGrid: analysis.ShowElevationGrid,
-                    elevationGridInterval: analysis.ElevationGridInterval,
                     showStationTicks: false,
                     stationTickInterval: 0.0,
                     showStationLabels: analysis.LabelStations,
                     stationLabelInterval: 0.0,
-                    textHeight: ResolveTextHeight(snapshot, analysis),
+                    textHeight: textHeight,
                     layerRoles: layerRoles,
-                    sectionLabel: $"Sta {alignmentStation:F2}",
+                    sectionLabel: stationText,
                     hatchPatterns: snapshot.HatchPatterns,
-                    baseMesh: baseMesh,
-                    referenceMesh: referenceMesh);
+                    title: analysis.ShowSectionTitle ? stationText : null);
                 outputCount += emitted.OutputCount;
                 cutRegions += emitted.CutRegions;
                 fillRegions += emitted.FillRegions;
@@ -279,15 +397,16 @@ internal static partial class TerrainAnalysisAnnotationBuilder
         double tolerance = snapshot.ModelAbsoluteTolerance;
         double sampleInterval = Math.Max(analysis.SampleInterval, tolerance * 10.0);
         double verticalScale = ResolveVerticalExaggeration(analysis);
+        double textHeight = ResolveTextHeight(snapshot, analysis);
         int sourceCount = 0;
         int outputCount = 0;
-        int sectionIndex = 0;
         int availableTerrainCount = 1;
         int cutRegions = 0;
         int fillRegions = 0;
         AddMissingSectionTerrainDiagnostics(snapshot, analysis, build);
         var referenceMesh = new CutFillReferenceMesh();
 
+        var sections = new List<(Curve Curve, List<SectionTerrainProfile> Profiles, TerrainSectionResult? Existing, SectionFrame Frame)>();
         foreach (var entry in objects)
         {
             ThrowIfCancellationRequested(shouldCancel);
@@ -300,34 +419,57 @@ internal static partial class TerrainAnalysisAnnotationBuilder
             if (profiles.Count == 0 || profiles[0].Slice.IsEmpty)
                 continue;
 
-            sectionIndex++;
-            Plane cellPlane = OffsetCellPlane(insertionPlane, sectionIndex - 1, columns: 1, cellWidth: 0.0, cellHeight: 0.0);
-
+            TerrainSectionResult? existing = ResolveExistingGround(
+                snapshot, SectionCutGeometry.AlongCurve(curve, sampleInterval), analysis, profiles, tolerance, build, baseMesh, referenceMesh);
+            SectionFrame frame = MeasureSection(
+                analysis, profiles, existing, analysis.ElevationGridInterval, analysis.ShowElevationGrid,
+                analysis.ShowStationLabels, textHeight, verticalScale);
+            sections.Add((curve, profiles, existing, frame));
             availableTerrainCount = Math.Max(availableTerrainCount, profiles.Count);
+        }
+
+        // One section per curve, stacked downwards. Every one used to be drawn at the insertion point, on top
+        // of the others. Each row's head clears the previous row's foot by a gap.
+        double rowOffset = 0.0;
+        for (int i = 0; i < sections.Count; i++)
+        {
+            ThrowIfCancellationRequested(shouldCancel);
+            var (curve, profiles, existing, frame) = sections[i];
+            if (i > 0)
+                rowOffset += sections[i - 1].Frame.Below + (2.0 * textHeight) + frame.Above;
+            Plane cellPlane = insertionPlane;
+            cellPlane.Origin = insertionPlane.Origin - (insertionPlane.YAxis * rowOffset);
+
+            string mark = SectionMark(i);
+            if (analysis.IsEnabled && analysis.ShowPlanLabels)
+            {
+                outputCount += EmitPlanMarkPair(
+                    analysis, build, layerRoles, PrimarySlice(profiles), mark,
+                    curve.PointAtStart, -curve.TangentAtStart, curve.PointAtEnd, curve.TangentAtEnd,
+                    textHeight);
+            }
+
             SectionEmissionStats emitted = EmitCombinedProfileObjects(
-                snapshot,
-                SectionCutGeometry.AlongCurve(curve, sampleInterval),
                 analysis,
                 build,
                 profiles,
+                existing,
+                frame,
                 cellPlane,
                 horizontalScale: 1.0,
                 verticalScale: verticalScale,
-                baseElevation: profiles.Min(profile => profile.Slice.MinimumElevation),
                 comparisonTolerance: tolerance,
                 showBaseline: analysis.ShowBaseline,
                 showElevationGrid: analysis.ShowElevationGrid,
-                elevationGridInterval: analysis.ElevationGridInterval,
                 showStationTicks: analysis.ShowStationLabels,
                 stationTickInterval: analysis.StationLabelInterval,
                 showStationLabels: analysis.ShowStationLabels,
                 stationLabelInterval: analysis.StationLabelInterval,
-                textHeight: ResolveTextHeight(snapshot, analysis),
+                textHeight: textHeight,
                 layerRoles: layerRoles,
-                sectionLabel: $"{analysis.Label} {sectionIndex}",
+                sectionLabel: $"{analysis.Label} {mark}",
                 hatchPatterns: snapshot.HatchPatterns,
-                    baseMesh: baseMesh,
-                    referenceMesh: referenceMesh);
+                title: analysis.ShowSectionTitle ? SectionTitle(analysis, mark) : null);
             outputCount += emitted.OutputCount;
             cutRegions += emitted.CutRegions;
             fillRegions += emitted.FillRegions;
@@ -344,20 +486,211 @@ internal static partial class TerrainAnalysisAnnotationBuilder
         };
     }
 
-    private static SectionEmissionStats EmitCombinedProfileObjects(
-        TerrainBuildSnapshot snapshot,
-        SectionCutGeometry cutGeometry,
+    /// <summary>The drafting mark for the n-th section of a card: A, B, ... Z, AA, AB, ...</summary>
+    internal static string SectionMark(int index)
+    {
+        var letters = new System.Text.StringBuilder();
+        for (int n = index; n >= 0; n = (n / 26) - 1)
+            letters.Insert(0, (char)('A' + (n % 26)));
+        return letters.ToString();
+    }
+
+    /// <summary>"Section Cut A-A'": the card's name, so two cards' sections stay distinguishable, then the mark.</summary>
+    private static string SectionTitle(TerrainSectionAnnotationDefinitionBase analysis, string mark) =>
+        $"{analysis.Label} {mark}-{mark}'";
+
+    /// <summary>
+    /// The plan marks for one cut: <paramref name="mark"/> beyond its start and mark' beyond its end, each
+    /// pushed one text height outward along the line so it does not sit on the terrain line it labels. They
+    /// are placed at the terrain's height there, so they show over the terrain in a shaded view.
+    /// </summary>
+    private static int EmitPlanMarkPair(
         TerrainSectionAnnotationDefinitionBase analysis,
         TerrainBuildResult build,
+        LayerRoleTable? layerRoles,
+        TerrainSectionResult ownerSlice,
+        string mark,
+        Point3d start,
+        Vector3d startOutward,
+        Point3d end,
+        Vector3d endOutward,
+        double textHeight)
+    {
+        double th = Math.Max(textHeight, double.Epsilon);
+        TerrainSectionSegment first = ownerSlice.Segments[0];
+        TerrainSectionSegment last = ownerSlice.Segments[^1];
+        build.AuxiliaryObjects.Add(BuildPlanMark(
+            analysis, layerRoles, new Point3d(start.X, start.Y, first.Vertices[0].World.Z), startOutward, mark, th));
+        build.AuxiliaryObjects.Add(BuildPlanMark(
+            analysis, layerRoles, new Point3d(end.X, end.Y, last.Vertices[^1].World.Z), endOutward, mark + "'", th));
+        return 2;
+    }
+
+    private static GeneratedRhinoObject BuildPlanMark(
+        TerrainSectionAnnotationDefinitionBase analysis,
+        LayerRoleTable? layerRoles,
+        Point3d at,
+        Vector3d outward,
+        string text,
+        double textHeight)
+    {
+        outward.Z = 0.0;
+        if (!outward.Unitize())
+            outward = Vector3d.XAxis;
+
+        var label = new TextEntity
+        {
+            Plane = new Plane(at + (outward * textHeight), Vector3d.XAxis, Vector3d.YAxis),
+            PlainText = text,
+            TextHeight = textHeight,
+            Justification = TextJustification.MiddleCenter,
+            MaskFrame = DimensionStyle.MaskFrame.NoFrame
+        };
+        return BuildTextObject(analysis, label, layerRoles, $"{analysis.Label} plan {text}", LayerRole.SectionsLabels);
+    }
+
+    /// <summary>
+    /// A cross-section's station in plan, written along its cut line just past one end. The end is chosen so
+    /// the text reads left to right (or upwards) whichever way the alignment runs.
+    /// </summary>
+    private static GeneratedRhinoObject BuildPlanStationLabel(
+        TerrainSectionAnnotationDefinitionBase analysis,
+        LayerRoleTable? layerRoles,
+        TerrainSectionResult ownerSlice,
+        Point3d a,
+        Point3d b,
+        string text,
+        double textHeight)
+    {
+        double th = Math.Max(textHeight, double.Epsilon);
+        Vector3d direction = b - a;
+        direction.Z = 0.0;
+        if (!direction.Unitize())
+            direction = Vector3d.XAxis;
+
+        bool readsBackwards = direction.X < -1e-9 || (Math.Abs(direction.X) <= 1e-9 && direction.Y < 0.0);
+        Point3d end = readsBackwards ? a : b;
+        if (readsBackwards)
+            direction = -direction;
+
+        // The text sits beyond the end the reading direction leads to, at the terrain's height there.
+        TerrainSectionVertex nearest = readsBackwards
+            ? ownerSlice.Segments[0].Vertices[0]
+            : ownerSlice.Segments[^1].Vertices[^1];
+        var origin = new Point3d(end.X, end.Y, nearest.World.Z) + (direction * (0.5 * th));
+        var label = new TextEntity
+        {
+            Plane = new Plane(origin, direction, Vector3d.CrossProduct(Vector3d.ZAxis, direction)),
+            PlainText = text,
+            TextHeight = th,
+            Justification = TextJustification.MiddleLeft,
+            MaskFrame = DimensionStyle.MaskFrame.NoFrame
+        };
+        return BuildTextObject(analysis, label, layerRoles, $"{analysis.Label} plan {text}", LayerRole.SectionsLabels);
+    }
+
+    /// <summary>
+    /// What each line on the section is, in the order it is drawn on: this terrain, the ground it was
+    /// compared to, then any other terrains. Null-coloured entries take their layer's colour, as their
+    /// profiles do. A single profile needs no key.
+    /// </summary>
+    internal static IReadOnlyList<(string Text, LayerRole Role, int? ColorArgb)> DescribeProfileKey(
+        TerrainSectionAnnotationDefinitionBase analysis,
+        IReadOnlyList<(Guid TerrainId, string TerrainName, int ColorArgb, bool IsOwner, bool IsReference)> profiles,
+        bool hasExistingGround)
+    {
+        var entries = new List<(string, LayerRole, int?)>();
+        if (profiles.Count == 0)
+            return entries;
+
+        // Only this terrain is "proposed". A cut that misses it but crosses a comparison terrain still
+        // draws that terrain, under its own name.
+        foreach (var owner in profiles.Where(profile => profile.IsOwner))
+            entries.Add(($"{owner.TerrainName} (proposed)", LayerRole.Sections, null));
+        if (hasExistingGround)
+        {
+            // Name the existing ground after the terrain it came from; geometry or this terrain's own
+            // initial triangulation have no name of their own.
+            var reference = profiles.FirstOrDefault(profile => profile.IsReference);
+            string text = !analysis.CutFillReference.HasReferences && reference.TerrainName != null
+                ? $"{reference.TerrainName} (existing)"
+                : "Existing ground";
+            entries.Add((text, LayerRole.SectionsExisting, null));
+        }
+
+        foreach (var profile in profiles)
+        {
+            if (profile.IsOwner || profile.IsReference)
+                continue;
+            entries.Add((profile.TerrainName, LayerRole.Sections, profile.ColorArgb));
+        }
+
+        return entries.Count > 1 ? entries : Array.Empty<(string, LayerRole, int?)>();
+    }
+
+    /// <summary>
+    /// The key beneath a section's title: one row per line on the drawing, a short sample of the line in its
+    /// own role and colour, then its name. Stacked rather than run along one line, so no row depends on how
+    /// wide the previous one's text turned out.
+    /// </summary>
+    private static int EmitProfileKey(
+        TerrainSectionAnnotationDefinitionBase analysis,
+        TerrainBuildResult build,
+        LayerRoleTable? layerRoles,
         IReadOnlyList<SectionTerrainProfile> profiles,
+        TerrainSectionResult? existingGround,
         Plane cellPlane,
         double horizontalScale,
         double verticalScale,
         double baseElevation,
+        double firstRowElevation,
+        double rowStep,
+        double textHeight,
+        string sectionLabel)
+    {
+        var entries = DescribeProfileKey(analysis, DescribeProfiles(profiles, existingGround), existingGround != null);
+        double perStationUnit = 1.0 / Math.Max(horizontalScale, double.Epsilon);
+        int emitted = 0;
+        for (int i = 0; i < entries.Count; i++)
+        {
+            var (text, role, colorArgb) = entries[i];
+            double elevation = firstRowElevation - (i * rowStep);
+            var sample = new Polyline
+            {
+                SectionLayoutHelper.ProjectToInsertionPlane(cellPlane, 0.0, elevation, horizontalScale, verticalScale, baseElevation),
+                SectionLayoutHelper.ProjectToInsertionPlane(cellPlane, 2.0 * textHeight * perStationUnit, elevation, horizontalScale, verticalScale, baseElevation)
+            };
+            build.AuxiliaryObjects.Add(BuildPolylineObject(analysis, sample, layerRoles, $"{sectionLabel} key {text}", role, colorArgb));
+
+            var label = SectionLayoutHelper.BuildLabel(
+                cellPlane,
+                2.5 * textHeight * perStationUnit,
+                elevation,
+                horizontalScale,
+                verticalScale,
+                baseElevation,
+                text,
+                textHeight,
+                TextJustification.MiddleLeft);
+            build.AuxiliaryObjects.Add(BuildTextObject(analysis, label, layerRoles, $"{sectionLabel} key {text} label", LayerRole.SectionsLabels));
+            emitted += 2;
+        }
+
+        return emitted;
+    }
+
+    private static SectionEmissionStats EmitCombinedProfileObjects(
+        TerrainSectionAnnotationDefinitionBase analysis,
+        TerrainBuildResult build,
+        IReadOnlyList<SectionTerrainProfile> profiles,
+        TerrainSectionResult? existingGround,
+        SectionFrame frame,
+        Plane cellPlane,
+        double horizontalScale,
+        double verticalScale,
         double comparisonTolerance,
         bool showBaseline,
         bool showElevationGrid,
-        double elevationGridInterval,
         bool showStationTicks,
         double stationTickInterval,
         bool showStationLabels,
@@ -366,8 +699,7 @@ internal static partial class TerrainAnalysisAnnotationBuilder
         LayerRoleTable? layerRoles,
         string sectionLabel,
         HatchPatternSnapshot hatchPatterns,
-        RhinoMesh? baseMesh,
-        CutFillReferenceMesh referenceMesh)
+        string? title)
     {
         if (!analysis.IsEnabled)
             return default;
@@ -375,82 +707,77 @@ internal static partial class TerrainAnalysisAnnotationBuilder
         int emitted = 0;
         int cutRegions = 0;
         int fillRegions = 0;
-        TerrainSectionResult ownerSlice = profiles[0].Slice;
+        bool showElevationLabels = analysis.ShowElevationLabels;
         double totalStation = profiles.Max(profile => profile.Slice.TotalStationLength);
-        double minimumElevation = profiles.Min(profile => profile.Slice.MinimumElevation);
-        double maximumElevation = profiles.Max(profile => profile.Slice.MaximumElevation);
-        double effectiveElevationGridInterval = SectionLayoutHelper.ResolveElevationGridSpacing(
-            minimumElevation,
-            maximumElevation,
-            elevationGridInterval);
+        double minimumElevation = frame.Minimum;
+        double maximumElevation = frame.Maximum;
+        double baseElevation = frame.Minimum;
+        double effectiveElevationGridInterval = frame.GridSpacing;
 
-        TerrainSectionResult? referenceSliceForProfile = null;
-        if (analysis.ShowCutFillRegions)
+        // Cut and fill are this terrain's against the existing ground, so a cut that misses this terrain
+        // (and only crosses a comparison terrain) shades nothing.
+        TerrainSectionResult? referenceSliceForProfile = existingGround;
+        TerrainSectionResult? ownerSlice = profiles.FirstOrDefault(profile => profile.IsOwner)?.Slice;
+        if (existingGround is { } referenceSlice && ownerSlice != null)
         {
-            TerrainSectionResult? referenceSlice = ResolveCutFillReferenceSlice(
-                snapshot, cutGeometry, analysis, profiles, comparisonTolerance, build, baseMesh, referenceMesh);
-            referenceSliceForProfile = referenceSlice;
-            if (referenceSlice != null)
+            IReadOnlyList<SectionComparisonRegion> regions = SectionProfileComparison.Compare(
+                ownerSlice,
+                referenceSlice,
+                Math.Max(comparisonTolerance, totalStation * 1e-10));
+            foreach (SectionComparisonRegion region in regions)
             {
-                IReadOnlyList<SectionComparisonRegion> regions = SectionProfileComparison.Compare(
-                    ownerSlice,
-                    referenceSlice,
-                    Math.Max(comparisonTolerance, totalStation * 1e-10));
-                foreach (SectionComparisonRegion region in regions)
+                bool isCut = region.IsCut;
+                LayerRole regionRole = isCut ? LayerRole.SectionsCutFillCut : LayerRole.SectionsCutFillFill;
+                LayerAppearance regionAppearance = Roles(layerRoles).Appearance(regionRole);
+                string regionLayerPath = Roles(layerRoles).Path(regionRole);
+
+                // Pattern, scale and rotation come from the role, so every section in a document
+                // fills the same way and the office controls it from one place. The analysis's own
+                // fields are only a fallback for a document whose template predates them.
+                string? patternName = regionAppearance.HatchPatternName
+                    ?? (isCut ? analysis.CutHatchPatternName : analysis.FillHatchPatternName);
+                string defaultPatternName = isCut
+                    ? HatchPatternService.DefaultCutPatternName
+                    : HatchPatternService.DefaultFillPatternName;
+
+                // A hatch, not a transparent mesh: a shaded mesh is a rendering artefact that does not
+                // print and ignores the document hatch scale.
+                IReadOnlyList<Hatch> regionHatches = BuildComparisonRegionHatch(
+                    region,
+                    cellPlane,
+                    horizontalScale,
+                    verticalScale,
+                    baseElevation,
+                    hatchPatterns.ResolveIndex(patternName, defaultPatternName),
+                    hatchPatterns.ResolveScale(
+                        patternName,
+                        defaultPatternName,
+                        regionAppearance.HatchScale,
+                        textHeight),
+                    regionAppearance.HatchRotationDegrees,
+                    comparisonTolerance);
+                if (regionHatches.Count == 0)
+                    continue;
+                foreach (Hatch regionHatch in regionHatches)
                 {
-                    bool isCut = region.IsCut;
-                    LayerRole regionRole = isCut ? LayerRole.SectionsCutFillCut : LayerRole.SectionsCutFillFill;
-                    LayerAppearance regionAppearance = Roles(layerRoles).Appearance(regionRole);
-                    string regionLayerPath = Roles(layerRoles).Path(regionRole);
-
-                    // Pattern, scale and rotation come from the role, so every section in a document
-                    // fills the same way and the office controls it from one place. The analysis's own
-                    // fields are only a fallback for a document whose template predates them.
-                    string? patternName = regionAppearance.HatchPatternName
-                        ?? (isCut ? analysis.CutHatchPatternName : analysis.FillHatchPatternName);
-                    string defaultPatternName = isCut
-                        ? HatchPatternService.DefaultCutPatternName
-                        : HatchPatternService.DefaultFillPatternName;
-
-                    // A hatch, not a transparent mesh: a shaded mesh is a rendering artefact that does not
-                    // print and ignores the document hatch scale.
-                    IReadOnlyList<Hatch> regionHatches = BuildComparisonRegionHatch(
-                        region,
-                        cellPlane,
-                        horizontalScale,
-                        verticalScale,
-                        baseElevation,
-                        hatchPatterns.ResolveIndex(patternName, defaultPatternName),
-                        hatchPatterns.ResolveScale(
-                            patternName,
-                            defaultPatternName,
-                            regionAppearance.HatchScale,
-                            textHeight),
-                        regionAppearance.HatchRotationDegrees,
-                        comparisonTolerance);
-                    if (regionHatches.Count == 0)
-                        continue;
-                    foreach (Hatch regionHatch in regionHatches)
+                    build.AuxiliaryObjects.Add(new GeneratedRhinoObject
                     {
-                        build.AuxiliaryObjects.Add(new GeneratedRhinoObject
-                        {
-                            Role = regionRole,
-                            Geometry = regionHatch,
-                            Name = $"{sectionLabel} {(isCut ? "cut" : "fill")}",
-                            AnalysisId = analysis.Id,
-                            AppearanceSource = GeneratedAppearanceSource.Layer,
-                            LayerPath = regionLayerPath,
-                            DisplayOrder = SectionDisplayOrder.Fill
-                        });
-                        emitted++;
-                    }
-
-                    // Region counts stay per comparison region: one region may need several hatches.
-                    if (isCut)
-                        cutRegions++;
-                    else
-                        fillRegions++;
+                        Role = regionRole,
+                        Geometry = regionHatch,
+                        Name = $"{sectionLabel} {(isCut ? "cut" : "fill")}",
+                        AnalysisId = analysis.Id,
+                        AppearanceSource = GeneratedAppearanceSource.Layer,
+                        LayerPath = regionLayerPath,
+                        DisplayOrder = SectionDisplayOrder.Fill
+                    });
+                    emitted++;
                 }
+
+                // Region counts stay per comparison region: one region may need several hatches.
+                if (isCut)
+                    cutRegions++;
+                else
+                    fillRegions++;
             }
         }
 
@@ -485,7 +812,7 @@ internal static partial class TerrainAnalysisAnnotationBuilder
             // convention, rather than the terrain's preview tint, which is a screen colour and prints as
             // whatever pastel it happens to be. Additional comparison terrains keep their own colours,
             // which is the only thing telling them apart.
-            bool isOwnerProfile = profileIndex == 0;
+            bool isOwnerProfile = profile.IsOwner;
 
             // A comparison terrain that is also the cut/fill reference has already been drawn above as
             // existing ground, from this same slice; drawing it again stacks a second, coloured line on it.
@@ -509,9 +836,21 @@ internal static partial class TerrainAnalysisAnnotationBuilder
             }
         }
 
+        // Everything below is laid out in drawing units, then converted: an offset written in elevation
+        // units would be stretched by the vertical exaggeration, which put station labels fifteen text
+        // heights under a 10x section.
+        double th = Math.Max(textHeight, double.Epsilon);
+        double perDrawingUnit = 1.0 / Math.Max(verticalScale, double.Epsilon);
+        double perStationUnit = 1.0 / Math.Max(horizontalScale, double.Epsilon);
+
+        // The elevation axis spans whole grid steps, so the grid and the elevation figures end on round
+        // values; the foot of the drawing drops to the lowest of them (measured in MeasureSection).
+        double axisBottom = frame.AxisBottom;
+        double axisTop = frame.AxisTop;
+
         if (showBaseline && totalStation > 0.0)
         {
-            var baseline = SectionLayoutHelper.BuildBaselineAxis(cellPlane, totalStation, horizontalScale, verticalScale, minimumElevation, baseElevation);
+            var baseline = SectionLayoutHelper.BuildBaselineAxis(cellPlane, totalStation, horizontalScale, verticalScale, axisBottom, baseElevation);
             build.AuxiliaryObjects.Add(BuildLineObject(analysis, baseline, layerRoles, $"{sectionLabel} baseline", LayerRole.SectionsGrid));
             emitted++;
         }
@@ -526,11 +865,46 @@ internal static partial class TerrainAnalysisAnnotationBuilder
             }
         }
 
+        if (showElevationLabels && effectiveElevationGridInterval > 0.0 && totalStation > 0.0)
+        {
+            var axis = SectionLayoutHelper.BuildElevationAxis(cellPlane, axisBottom, axisTop, horizontalScale, verticalScale, baseElevation);
+            build.AuxiliaryObjects.Add(BuildLineObject(analysis, axis, layerRoles, $"{sectionLabel} elevation axis", LayerRole.SectionsGrid));
+            emitted++;
+
+            // Figures on every grid step pile into each other when a step is shorter than the text is tall
+            // (1 m steps, 1 m text, no exaggeration). Label every n-th step instead, n chosen so figures
+            // stand at least 1.8 text heights apart; the grid itself keeps every step.
+            int labelEvery = SectionLayoutHelper.ElevationLabelStride(effectiveElevationGridInterval * verticalScale, th);
+            string format = SectionLayoutHelper.ElevationLabelFormat(effectiveElevationGridInterval * labelEvery);
+            foreach (double elevation in SectionLayoutHelper.ElevationSteps(minimumElevation, maximumElevation, effectiveElevationGridInterval))
+            {
+                if (Math.Round(elevation / effectiveElevationGridInterval) % labelEvery != 0)
+                    continue;
+
+                Point3d tickEnd = SectionLayoutHelper.ProjectToInsertionPlane(cellPlane, 0.0, elevation, horizontalScale, verticalScale, baseElevation);
+                Point3d tickStart = SectionLayoutHelper.ProjectToInsertionPlane(cellPlane, -0.4 * th * perStationUnit, elevation, horizontalScale, verticalScale, baseElevation);
+                build.AuxiliaryObjects.Add(BuildLineObject(analysis, new Line(tickStart, tickEnd), layerRoles, $"{sectionLabel} elevation tick", LayerRole.SectionsTicks));
+
+                string text = elevation.ToString(format);
+                var label = SectionLayoutHelper.BuildLabel(
+                    cellPlane,
+                    -0.7 * th * perStationUnit,
+                    elevation,
+                    horizontalScale,
+                    verticalScale,
+                    baseElevation,
+                    text,
+                    th,
+                    TextJustification.MiddleRight);
+                build.AuxiliaryObjects.Add(BuildTextObject(analysis, label, layerRoles, $"{sectionLabel} elevation {text}", LayerRole.SectionsLabels));
+                emitted += 2;
+            }
+        }
+
         if (showStationTicks && stationTickInterval > 0.0 && totalStation > 0.0)
         {
             var stations = BuildStationList(totalStation, stationTickInterval);
-            double tickHalf = Math.Max(textHeight, double.Epsilon);
-            var ticks = SectionLayoutHelper.BuildStationTicks(cellPlane, stations, tickHalf, horizontalScale, verticalScale, baseElevation, minimumElevation);
+            var ticks = SectionLayoutHelper.BuildStationTicks(cellPlane, stations, th * perDrawingUnit, horizontalScale, verticalScale, baseElevation, axisBottom);
             foreach (var line in ticks)
             {
                 build.AuxiliaryObjects.Add(BuildLineObject(analysis, line, layerRoles, $"{sectionLabel} tick", LayerRole.SectionsTicks));
@@ -538,25 +912,50 @@ internal static partial class TerrainAnalysisAnnotationBuilder
             }
         }
 
+        double belowAxis = 0.0;
         if (showStationLabels)
         {
             double labelInterval = stationLabelInterval > 0.0 ? stationLabelInterval : totalStation * 0.25;
             var stations = BuildStationList(totalStation, labelInterval);
-            double labelOffset = Math.Max(textHeight, double.Epsilon) * 1.5;
+            belowAxis = 2.0 * th;
             foreach (double station in stations)
             {
                 var label = SectionLayoutHelper.BuildLabel(
                     cellPlane,
                     station,
-                    minimumElevation - labelOffset,
+                    axisBottom - (1.5 * th * perDrawingUnit),
                     horizontalScale,
                     verticalScale,
                     baseElevation,
                     station.ToString("F1"),
-                    Math.Max(textHeight, double.Epsilon));
+                    th);
                 build.AuxiliaryObjects.Add(BuildTextObject(analysis, label, layerRoles, $"{sectionLabel} {station:F1}", LayerRole.SectionsLabels));
                 emitted++;
             }
+        }
+
+        if (!string.IsNullOrWhiteSpace(title) && totalStation > 0.0)
+        {
+            var titleText = SectionLayoutHelper.BuildLabel(
+                cellPlane,
+                totalStation * 0.5,
+                axisBottom - ((belowAxis + (2.0 * th)) * perDrawingUnit),
+                horizontalScale,
+                verticalScale,
+                baseElevation,
+                title,
+                th);
+            build.AuxiliaryObjects.Add(BuildTextObject(analysis, titleText, layerRoles, $"{sectionLabel} title", LayerRole.SectionsLabels));
+            emitted++;
+
+            // The key reads with the title, so it follows the title's switch.
+            emitted += EmitProfileKey(
+                analysis, build, layerRoles, profiles, referenceSliceForProfile, cellPlane,
+                horizontalScale, verticalScale, baseElevation,
+                firstRowElevation: axisBottom - ((belowAxis + (3.5 * th)) * perDrawingUnit),
+                rowStep: 1.5 * th * perDrawingUnit,
+                textHeight: th,
+                sectionLabel);
         }
 
         return new SectionEmissionStats(emitted, cutRegions, fillRegions);
@@ -726,7 +1125,7 @@ internal static partial class TerrainAnalysisAnnotationBuilder
             profiles.Add(new SectionTerrainProfile(
                 terrain.TerrainId,
                 terrain.Name,
-                terrain.ColorArgb,
+                analysis.ResolveProfileColorArgb(terrain.TerrainId, terrain.ColorArgb),
                 slice,
                 IsOwner: false));
         }
@@ -766,7 +1165,7 @@ internal static partial class TerrainAnalysisAnnotationBuilder
             profiles.Add(new SectionTerrainProfile(
                 terrain.TerrainId,
                 terrain.Name,
-                terrain.ColorArgb,
+                analysis.ResolveProfileColorArgb(terrain.TerrainId, terrain.ColorArgb),
                 slice,
                 IsOwner: false));
         }

@@ -13,6 +13,17 @@ public abstract class TerrainSectionAnnotationDefinitionBase : AnnotationDefinit
     public List<Guid> ComparisonTerrainIds { get; set; } = new();
 
     /// <summary>
+    /// The colour this card draws another terrain's profile in, by terrain id. A terrain with no entry uses
+    /// its own preview colour. Held on the card, not the terrain, because the colour that tells two profiles
+    /// apart on one drawing says nothing about how either terrain should preview.
+    /// </summary>
+    public Dictionary<Guid, int> ProfileColorArgbs { get; set; } = new();
+
+    /// <summary>The colour <paramref name="terrainId"/>'s profile is drawn in on this card.</summary>
+    public int ResolveProfileColorArgb(Guid terrainId, int terrainColorArgb) =>
+        ProfileColorArgbs.TryGetValue(terrainId, out int argb) ? argb : terrainColorArgb;
+
+    /// <summary>
     /// Another MoleHill terrain to treat as existing ground. Optional: <see cref="CutFillReference"/> can
     /// supply the reference instead, and usually does — requiring a whole second terrain meant cut/fill
     /// shading was unreachable for anyone modelling one surface against a surveyed mesh.
@@ -109,6 +120,22 @@ public abstract class TerrainSectionAnnotationDefinitionBase : AnnotationDefinit
     [UnitFree("A multiple or ratio; unitless.")]
     public double VerticalExaggeration { get; set; } = 1.0;
 
+    /// <summary>
+    /// Real elevations along the left edge of each section drawing: an axis with a tick and a figure at
+    /// every elevation-grid step. Without them a section can only be read relative to itself, because the
+    /// drawing is placed away from the terrain and exaggerated.
+    /// </summary>
+    public bool ShowElevationLabels { get; set; } = true;
+
+    /// <summary>A title beneath each section drawing: its mark (A-A') or, for cross-sections, its station.</summary>
+    public bool ShowSectionTitle { get; set; } = true;
+
+    /// <summary>
+    /// The same mark in plan, at the ends of the cut line (A and A'), or the station beside each
+    /// cross-section's cut line, so a drawing can be traced back to where it was cut.
+    /// </summary>
+    public bool ShowPlanLabels { get; set; } = true;
+
     /// <summary>True when cut/fill shading has something to compare against.</summary>
     public bool HasCutFillReference =>
         CutFillReferenceTerrainId.HasValue || CutFillReference.HasReferences;
@@ -131,6 +158,9 @@ public abstract class TerrainSectionAnnotationDefinitionBase : AnnotationDefinit
             (CutFillReferenceTerrainId.HasValue &&
              !ComparisonTerrainIds.Contains(CutFillReferenceTerrainId.Value)))
             CutFillReferenceTerrainId = null;
+        ProfileColorArgbs ??= new Dictionary<Guid, int>();
+        ProfileColorArgbs.Remove(Guid.Empty);
+        ProfileColorArgbs.Remove(ownerTerrainId);
         CutFillOpacityPercent = Math.Clamp(CutFillOpacityPercent, 0, 100);
         if (CutColorArgb == 0)
             CutColorArgb = DefaultCutColorArgb;

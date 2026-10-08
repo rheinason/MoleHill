@@ -142,6 +142,9 @@ public class SectionLayoutHelperTests
     [InlineData(0.0, 4.0, 0.0, 1.0)]
     [InlineData(100.0, 112.0, 0.0, 5.0)]
     [InlineData(0.0, 4.0, 0.25, 0.25)]
+    [InlineData(20.0, 20.0, 0.0, 1.0)]      // a level pad still gets a step, so its elevation is labelled
+    [InlineData(152.3, 152.3, 0.0, 10.0)]
+    [InlineData(0.0, 0.0, 0.0, 1.0)]
     public void ResolveElevationGridSpacing_AutoUsesReadableStep(
         double minimum,
         double maximum,
@@ -210,5 +213,53 @@ public class SectionLayoutHelperTests
 
         Assert.Equal(1.0, frame.XAxis.X, 6);
         Assert.Equal(0.0, frame.XAxis.Y, 6);
+    }
+
+    [Fact]
+    public void ElevationSteps_AreWholeMultiplesSpanningTheRange()
+    {
+        IReadOnlyList<double> steps = SectionLayoutHelper.ElevationSteps(12.34, 12.81, 0.1);
+
+        Assert.Equal(new[] { 12.3, 12.4, 12.5, 12.6, 12.7, 12.8, 12.9 }, steps);
+    }
+
+    [Fact]
+    public void ElevationSteps_AbsurdlyFineSpacing_DrawsNothing()
+    {
+        Assert.Empty(SectionLayoutHelper.ElevationSteps(0.0, 1000.0, 0.001));
+    }
+
+    [Theory]
+    [InlineData(5.0, "F0")]
+    [InlineData(1.0, "F0")]
+    [InlineData(0.5, "F1")]
+    [InlineData(0.25, "F2")]
+    [InlineData(0.1, "F1")]
+    [InlineData(0.0001, "F3")]
+    public void ElevationLabelFormat_ShowsEveryStepExactly(double spacing, string expected)
+    {
+        Assert.Equal(expected, SectionLayoutHelper.ElevationLabelFormat(spacing));
+    }
+
+    [Theory]
+    [InlineData(0, "A")]
+    [InlineData(25, "Z")]
+    [InlineData(26, "AA")]
+    [InlineData(27, "AB")]
+    [InlineData(701, "ZZ")]
+    [InlineData(702, "AAA")]
+    public void SectionMark_RunsThroughTheAlphabetLikeSpreadsheetColumns(int index, string expected)
+    {
+        Assert.Equal(expected, TerrainAnalysisAnnotationBuilder.SectionMark(index));
+    }
+
+    [Theory]
+    [InlineData(5.0, 1.0, 1)]   // steps far apart: label every one
+    [InlineData(1.0, 1.0, 2)]   // 1 m steps, 1 m text: every 2nd
+    [InlineData(0.5, 1.0, 5)]
+    [InlineData(0.1, 1.0, 20)]
+    public void ElevationLabelStride_KeepsFiguresClearOfEachOther(double drawnStep, double textHeight, int expected)
+    {
+        Assert.Equal(expected, SectionLayoutHelper.ElevationLabelStride(drawnStep, textHeight));
     }
 }

@@ -764,6 +764,24 @@ which family a type belongs to:
   spot slopes, flow arrows, grade callouts, the three section types, and the report table. The result is drawing, and it
   says what is already there. Only these carry `FollowsAnnotationStyle`.
 
+**Sections.** All three section types slice through `TerrainSectionSlicer`, which cuts with Core's
+`MeshSectionIndex` (one plan grid per mesh, cached weakly by mesh instance), never with Rhino's
+`Intersection.MeshPlane`: that intersected the whole terrain for every cut segment, station, comparison
+terrain and cut/fill reference. A drawing is laid out in drawing units — label and tick offsets are
+divided by the vertical exaggeration before they are projected, or a 10x section pushes its labels ten
+times further away. Each section can carry elevation figures up its left edge (on the elevation grid
+steps, thinned so figures stay 1.8 text heights apart), a title beneath it (`A-A'`, or the station for a
+cross-section), the matching mark in plan, and — when it draws more than one line — a key under the title
+naming each profile in its own role and colour.
+
+**Section cards share the comparison block.** Cut/Fill, Earthworks and the three section cards all open the
+comparison with the same "Compare" rule over the same rows in the same order: Compare To Terrain, its
+status, then Compare To geometry. Sections then add their own: the Cut / Fill switch, a "Profiles" rule with
+every other terrain as a checklist (the compared terrain ticked and fixed, since the dropdown owns it; a
+filter box above 8 terrains), and a "Layout" rule over placement and labelling. A profile's colour belongs
+to the card (`ProfileColorArgbs`), not the terrain, so telling two profiles apart on one drawing never
+changes how either terrain previews; the proposed and existing-ground lines keep their layer roles' colours.
+
 Waterflow is an analysis despite emitting curves: it *computes* flow paths, so its output is a finding,
 not a label. Earthworks is an analysis despite drawing nothing: a volume is a measurement. Cut / Fill
 draws *and* colours for the same reason — its delta contours and balance line are measured depths, not

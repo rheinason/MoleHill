@@ -105,10 +105,7 @@ internal static class SectionLayoutHelper
             return Array.Empty<Line>();
 
         var lines = new List<Line>();
-        double startElevation = Math.Floor(minimumElevation / gridSpacing) * gridSpacing;
-        double endElevation = Math.Ceiling(maximumElevation / gridSpacing) * gridSpacing;
-
-        for (double e = startElevation; e <= endElevation + (gridSpacing * 0.5); e += gridSpacing)
+        foreach (double e in ElevationSteps(minimumElevation, maximumElevation, gridSpacing))
         {
             Point3d a = ProjectToInsertionPlane(insertionPlane, 0.0, e, horizontalScale, verticalScale, baseElevation);
             Point3d b = ProjectToInsertionPlane(insertionPlane, totalStation, e, horizontalScale, verticalScale, baseElevation);
@@ -116,6 +113,74 @@ internal static class SectionLayoutHelper
         }
 
         return lines;
+    }
+
+    /// <summary>
+    /// Whole multiples of <paramref name="spacing"/> from the one at or below the minimum to the one at or
+    /// above the maximum. Each is computed from its index rather than accumulated, so a 0.1 step lands on
+    /// 12.3, not 12.299999999999.
+    /// </summary>
+    public static IReadOnlyList<double> ElevationSteps(double minimumElevation, double maximumElevation, double spacing)
+    {
+        if (!(spacing > 0.0) || maximumElevation < minimumElevation ||
+            !double.IsFinite(minimumElevation) || !double.IsFinite(maximumElevation))
+            return Array.Empty<double>();
+
+        double first = Math.Floor(minimumElevation / spacing);
+        double last = Math.Ceiling(maximumElevation / spacing);
+
+        // A spacing far too fine for the range would draw thousands of lines; such a grid is unreadable.
+        if (last - first > 1000)
+            return Array.Empty<double>();
+
+        // 123 * 0.1 is 12.300000000000001; 123 / 10 is 12.3. Divide when the step is a whole fraction.
+        double inverse = Math.Round(1.0 / spacing);
+        bool divide = inverse >= 1.0 && Math.Abs((1.0 / spacing) - inverse) <= inverse * 1e-9;
+
+        var steps = new List<double>((int)(last - first) + 1);
+        for (double k = first; k <= last; k++)
+            steps.Add(divide ? k / inverse : k * spacing);
+        return steps;
+    }
+
+    /// <summary>
+    /// Which grid steps carry an elevation figure: every one when a step is at least 1.8 text heights tall
+    /// on the drawing, otherwise every 2nd, 5th, 10th, 20th... — the same 1/2/5 rhythm as the grid, so the
+    /// labelled values stay round.
+    /// </summary>
+    public static int ElevationLabelStride(double drawnStepHeight, double textHeight)
+    {
+        if (!(drawnStepHeight > 0.0) || !(textHeight > 0.0))
+            return 1;
+
+        double needed = 1.8 * textHeight / drawnStepHeight;
+        for (int decade = 1; decade <= 1_000_000; decade *= 10)
+        {
+            foreach (int factor in new[] { 1, 2, 5 })
+            {
+                if (factor * decade >= needed)
+                    return factor * decade;
+            }
+        }
+
+        return 1_000_000;
+    }
+
+    /// <summary>
+    /// A fixed-point format with just enough decimals to show every step of the grid exactly: 1 or 5 gives
+    /// whole numbers, 0.5 one decimal, 0.25 two. At most three.
+    /// </summary>
+    public static string ElevationLabelFormat(double spacing)
+    {
+        int decimals = 0;
+        double scaled = Math.Abs(spacing);
+        while (decimals < 3 && Math.Abs(scaled - Math.Round(scaled)) > 1e-6 * Math.Max(scaled, 1.0))
+        {
+            scaled *= 10.0;
+            decimals++;
+        }
+
+        return "F" + decimals;
     }
 
     public static double ResolveElevationGridSpacing(
@@ -127,8 +192,18 @@ internal static class SectionLayoutHelper
             return requestedSpacing;
 
         double range = maximumElevation - minimumElevation;
-        if (range <= 0.0 || !double.IsFinite(range))
+        if (!double.IsFinite(range) || range < 0.0)
             return 0.0;
+
+        // A level section (a pad, a platform) still needs its one elevation labelled: take a step a
+        // hundredth of the elevation's own size, so 20 m reads 20, 20.2 and so on. Zero labels as whole metres.
+        if (range == 0.0)
+        {
+            double size = Math.Abs(minimumElevation);
+            return size > 0.0 && double.IsFinite(size)
+                ? Math.Pow(10.0, Math.Floor(Math.Log10(size)) - 1.0)
+                : 1.0;
+        }
 
         // Aim for about five grid intervals, then round to a familiar 1/2/5 step so labels remain
         // readable instead of producing a dense forest of arbitrary decimal lines.

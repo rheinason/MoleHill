@@ -22,6 +22,12 @@ Terrain analysis math. Pure, unit-tested.
 - `SectionProfileComparer.cs` — compares proposed/reference section profiles (station/elevation points) and
   splits cut and fill at crossings and coverage gaps; the Rhino `SectionProfileComparison` adapts a sliced
   section to it.
+- `MeshSectionIndex.cs` — the plan-view face grid every section cuts through: a vertical cut along a plan
+  segment (visiting only the cells the segment crosses) and a top-surface height lookup for sampled
+  sections. Replaced Rhino's `MeshPlane`, which cut the whole mesh per segment and broke the profile where
+  vertices lay on the plane; a vertex on the plane counts as the positive side, so crossings chain through
+  shared edges without gaps. Vertices are welded by exact position so unwelded seams chain too. The Rhino
+  `TerrainSectionSlicer` keeps one per mesh in a weak table.
 - `CurveReviewRules.cs` — the curve inspector's Off/Report/Warn rule settings and their evaluation.
 - `SlopeInput.cs` — the single parse/format point for slope values a user reads or types. Converts
   between ratio, percent, promille, degrees and `1:n` pairs; accepts a unit written into the text
