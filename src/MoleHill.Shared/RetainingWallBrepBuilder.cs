@@ -1,4 +1,5 @@
 using MoleHill.Core.Grading;
+using Rhino;
 using Rhino.Geometry;
 
 namespace MoleHill.Shared;
@@ -63,7 +64,7 @@ internal static class RetainingWallBrepBuilder
             if (!result.IsSolid)
                 result = result.CapPlanarHoles(tolerance) ?? result;
             if (IsCompleteSolid(result))
-                return result;
+                return SplitAtBends(result);
         }
 
         // Never select the largest joined fragment: doing so silently publishes a wall with a missing
@@ -171,6 +172,20 @@ internal static class RetainingWallBrepBuilder
 
         if (cap != null && cap.IsValid)
             faces.Add(cap);
+    }
+
+    // Each lofted side is ONE face that bends at every plan corner of the rails. Meshing a face welds its
+    // vertices across those bends, so the preview averaged the normals of two panels meeting at 90° and
+    // shaded every wall panel as a dark-to-light smear. Baking never showed it, because AddBrep splits
+    // kinky faces on the way into the document; splitting here makes the preview mesh one face per panel
+    // too, so preview and bake shade alike. A solid that fails to split is kept as it was.
+    private static Brep SplitAtBends(Brep brep)
+    {
+        Brep split = brep.DuplicateBrep();
+        if (split.Faces.SplitKinkyFaces(RhinoMath.DefaultAngleTolerance, compact: true) && IsCompleteSolid(split))
+            return split;
+        split.Dispose();
+        return brep;
     }
 
     private static bool IsCompleteSolid(Brep? brep)
