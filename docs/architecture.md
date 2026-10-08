@@ -1301,6 +1301,25 @@ Rhino's, and a layer belongs to the user once it exists. There is no page/sheet 
   relative multiplier. Blocks were kept over leader/`UserBlock`-arrowhead annotation because the user
   authors the whole marker (symbol, value text, arrangement) and can supply their own via
   `BlockDefinitionName`; a leader's text cannot resolve block attributes.
+- **The block is visible and editable on the card.** Every block-attribute annotation declares a
+  `BlockPicker` row (`ParameterKind.BlockPicker`, annotations only) ahead of Decimals: the current block
+  (Built-in or a document block), **Pick…** (single-select `BlockSelectorDialog`, built-ins hidden),
+  **New…** (copies the built-in artwork into a block of the user's own via
+  `AnnotationBlockLibrary.CreateFromDefault`), **Edit** (opens Rhino's block editor; on the built-in block it
+  copies first, because `MoleHill_*` definitions are rewritten from code on every bake and would lose the
+  edit) and **Built-in**. Rhino cannot open a definition by name: `-BlockEdit` asks for an option and then
+  a picked *instance*, and reads a typed name as an unknown command (verified live, 8.35).
+  `AnnotationBlockEditor` therefore selects a baked label if one is reachable, otherwise adds a tagged
+  temporary instance at the view centre, frames it, runs `_-BlockEdit _Open`, and deletes the temporary
+  instance on idle after the next `BlockEdit…` command ends (OK runs
+  `BlockEditApplyInPlaceEditItemChanges`). A status line reports which fields the block declares
+  (`AnnotationBlockLibrary.Inspect`) and warns when it has no `VALUE`/`Display` field. Fields are
+  `%<UserText("block","KEY",…)>%` in a block's text; the keys MoleHill fills are
+  `BlockAttributePayload.KnownPayloadKeys`.
+- **Block preview matches bake.** `DrawMarkerTemplate` draws a document block through `ScatterBlockPreview`
+  (the cache Scatter uses), so shaded solids, hatches, nested blocks and members' own colours preview as they
+  bake. Preview text resolves each field individually (`AnnotationBlockLibrary.TryResolveFields`), so fixed
+  text beside a field survives; it used to replace every text in the block with prefix+value+suffix.
 - **Filled regions are `Hatch` objects, not transparent meshes.** `HatchPatternService` mirrors the
   annotation-style boundary: pattern indices are document-scoped, so they are resolved on the document
   thread into a `HatchPatternSnapshot`. Unknown patterns degrade to Solid rather than vanishing. Hatch is

@@ -8,14 +8,33 @@ namespace MoleHill.Rhino.UI;
 
 /// <summary>
 /// A lightweight, Insert-style picker that lists the document's block definitions and lets the user
-/// select several at once to add to a scatter card. Returns the chosen block definition names, or null
-/// if cancelled. The name list opens immediately; thumbnails are generated in small UI-idle batches only
+/// select several at once to add to a scatter card, or one to use on an annotation card (see
+/// <see cref="Options"/>). Returns the chosen block definition names, or null if cancelled. The name list opens immediately; thumbnails are generated in small UI-idle batches only
 /// for rows Eto actually formats, so large block libraries do not stall the dialog before it appears.
 /// </summary>
 internal sealed class BlockSelectorDialog : Dialog<List<string>?>
 {
     private const int ThumbnailSize = 40;
     private const double ThumbnailIntervalSeconds = 0.05;
+
+    /// <summary>What the dialog is for: its title, prompt and button, and whether it takes several blocks.</summary>
+    internal sealed record Options(
+        string Title,
+        string Prompt,
+        string ConfirmText,
+        bool AllowMultiple,
+        string? SelectedName = null)
+    {
+        public static readonly Options Scatter = new(
+            "Add Blocks to Scatter", "Select one or more blocks to scatter.", "Add Selected", true);
+
+        public static Options Annotation(string? currentName) => new(
+            "Choose Annotation Block",
+            "Select the block drawn at each label.",
+            "Use Block",
+            false,
+            currentName);
+    }
 
     private sealed class BlockRow
     {
@@ -38,10 +57,10 @@ internal sealed class BlockSelectorDialog : Dialog<List<string>?>
     private readonly UITimer _thumbnailTimer;
     private bool _isShown;
 
-    private BlockSelectorDialog(RhinoDoc doc, IReadOnlyList<InstanceDefinition> blocks)
+    private BlockSelectorDialog(RhinoDoc doc, IReadOnlyList<InstanceDefinition> blocks, Options options)
     {
         _doc = doc;
-        Title = "Add Blocks to Scatter";
+        Title = options.Title;
         Resizable = true;
         Padding = 12;
         MinimumSize = new Size(360, 480);
@@ -58,7 +77,7 @@ internal sealed class BlockSelectorDialog : Dialog<List<string>?>
 
         _grid = new GridView
         {
-            AllowMultipleSelection = true,
+            AllowMultipleSelection = options.AllowMultiple,
             ShowHeader = false,
             RowHeight = 44,
             Size = new Size(340, 380)
@@ -80,8 +99,15 @@ internal sealed class BlockSelectorDialog : Dialog<List<string>?>
                 QueueThumbnail(row);
         };
         _grid.DataStore = _visibleRows;
+        if (options.SelectedName is { Length: > 0 } selectedName)
+        {
+            BlockRow? current = _allRows.FirstOrDefault(
+                row => string.Equals(row.Name, selectedName, StringComparison.OrdinalIgnoreCase));
+            if (current != null)
+                _grid.SelectRow(_allRows.IndexOf(current));
+        }
 
-        var addButton = new Button { Text = "Add Selected" };
+        var addButton = new Button { Text = options.ConfirmText };
         var cancelButton = new Button { Text = "Cancel" };
         DefaultButton = addButton;
         AbortButton = cancelButton;
@@ -97,7 +123,7 @@ internal sealed class BlockSelectorDialog : Dialog<List<string>?>
             Close();
         };
 
-        // Double-clicking a row adds just that block.
+        // Double-clicking a row takes just that block.
         _grid.CellDoubleClick += (_, e) =>
         {
             if (e.Item is BlockRow row)
@@ -141,7 +167,7 @@ internal sealed class BlockSelectorDialog : Dialog<List<string>?>
         }
         else
         {
-            layout.AddRow(new Label { Text = "Select one or more blocks to scatter." });
+            layout.AddRow(new Label { Text = options.Prompt });
             layout.AddRow(filter);
             layout.AddRow(_grid);
         }
@@ -205,9 +231,9 @@ internal sealed class BlockSelectorDialog : Dialog<List<string>?>
         return -1;
     }
 
-    public static List<string>? Show(RhinoDoc doc, IReadOnlyList<InstanceDefinition> blocks)
+    public static List<string>? Show(RhinoDoc doc, IReadOnlyList<InstanceDefinition> blocks, Options? options = null)
     {
-        var dialog = new BlockSelectorDialog(doc, blocks);
+        var dialog = new BlockSelectorDialog(doc, blocks, options ?? Options.Scatter);
         return dialog.ShowModal(RhinoEtoApp.MainWindowForDocument(doc));
     }
 }

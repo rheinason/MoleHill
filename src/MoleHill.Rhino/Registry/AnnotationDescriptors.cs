@@ -69,9 +69,16 @@ internal static class AnnotationParameterCatalog
 
     /// <summary>The shared tail of every block-attribute analysis card: value format, prefix/suffix,
     /// block scale, output layer, and color. Mirrors the former AddBlockAttributeAnalysisRows helper.</summary>
-    public static IEnumerable<AnnotationParam> BlockAttributeTail<TAnalysis>(string formatHelp)
+    public static IEnumerable<AnnotationParam> BlockAttributeTail<TAnalysis>(MarkerBlockTemplate template, string formatHelp)
         where TAnalysis : BlockAttributeAnnotationDefinition
     {
+        yield return AnnotationParam.BlockPicker(
+            "BlockDefinitionName", "Block",
+            a => ((TAnalysis)a).BlockDefinitionName,
+            (a, v) => ((TAnalysis)a).BlockDefinitionName = string.IsNullOrWhiteSpace(v) ? null : v.Trim(),
+            template,
+            "The block drawn at each label. Leave on the built-in block, pick any block in this document, " +
+            "or copy the built-in one to make your own and edit it with Rhino's block editor.");
         yield return AnnotationParam.Choice(
             "ValueFormat", "Decimals", null,
             a => ((TAnalysis)a).ValueFormat,
@@ -257,6 +264,7 @@ internal sealed class CurveElevationLabelAnnotationDescriptor : AnnotationTypeDe
             "Distance along each source curve between elevation sample stations.",
             min: 0.0),
     }.Concat(AnnotationParameterCatalog.BlockAttributeTail<CurveElevationLabelAnnotationDefinition>(
+        MarkerBlockTemplate.AnnotationElevation,
         "Number of decimal places shown in curve elevation labels.")).ToArray();
 }
 
@@ -318,6 +326,7 @@ internal sealed class CurveSlopeLabelAnnotationDescriptor : AnnotationTypeDescri
             (a, v) => ((CurveSlopeLabelAnnotationDefinition)a).FlipDirection = v,
             "Rotate slope arrows 180 degrees to match alternate office conventions."),
     }.Concat(AnnotationParameterCatalog.BlockAttributeTail<CurveSlopeLabelAnnotationDefinition>(
+        MarkerBlockTemplate.AnnotationSlope,
         "Number of decimal places shown in curve slope labels.")).ToArray();
 }
 
@@ -366,6 +375,7 @@ internal sealed class ProjectedElevationLabelAnnotationDescriptor : AnnotationTy
             RhinoObjectType.Point | RhinoObjectType.Curve,
             "Point objects and curve edit points projected to the terrain for elevation labels."),
     }.Concat(AnnotationParameterCatalog.BlockAttributeTail<ProjectedElevationLabelAnnotationDefinition>(
+        MarkerBlockTemplate.AnnotationElevation,
         "Number of decimal places shown in projected elevation labels.")).ToArray();
 }
 
@@ -421,6 +431,7 @@ internal sealed class PointSlopeLabelAnnotationDescriptor : AnnotationTypeDescri
             (a, v) => ((PointSlopeLabelAnnotationDefinition)a).FlipDirection = v,
             "Rotate slope arrows 180 degrees to match alternate office conventions."),
     }.Concat(AnnotationParameterCatalog.BlockAttributeTail<PointSlopeLabelAnnotationDefinition>(
+        MarkerBlockTemplate.AnnotationSlope,
         "Number of decimal places shown in point slope labels.")).ToArray();
 }
 
@@ -482,6 +493,7 @@ internal sealed class SlopeArrowAnnotationDescriptor : AnnotationTypeDescriptor
             (a, v) => ((SlopeArrowAnnotationDefinition)a).FlipDirection = v,
             "Rotate arrows 180 degrees (point uphill instead of downhill)."),
     }.Concat(AnnotationParameterCatalog.BlockAttributeTail<SlopeArrowAnnotationDefinition>(
+        MarkerBlockTemplate.AnnotationSlope,
         "Number of decimal places shown on flow-arrow slope labels.")).ToArray();
 }
 

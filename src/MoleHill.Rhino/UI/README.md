@@ -126,11 +126,12 @@ low-priority actions into overflow while remaining pinned to the available clien
   and creation/build controls stay disabled while non-destructive inspection remains available.
 - Expanded zone cards show last-final-build quantities for the resolved zone output: plan/surface area,
   elevation, slope, mesh counts, and Earthworks cut/fill when a reference is configured.
-- `BlockSelectorDialog.cs` / `BlockThumbnailRenderer.cs` - the Insert-style block picker for Scatter.
+- `BlockSelectorDialog.cs` / `BlockThumbnailRenderer.cs` - the Insert-style block picker for Scatter (multi) and annotation cards (single).
   It opens from the lightweight definition-name list, then queues Eto-drawn isometric thumbnails only
   for rows the grid formats; one UI-timer tick renders one thumbnail so documents with hundreds of blocks
   do not pay the whole library's mesh/render cost before the dialog appears. Thumbnail cache keys include
   document, definition id, and size, and definition-table changes invalidate that document's entries.
+- `MoleHillPanel.AnnotationBlocks.cs` - the annotation card's Block row: pick, copy the built-in block, edit, field status.
 - `SurveyImportDialog.cs` - how to read a survey point file, with a live preview of the first rows.
   **The preview grid is the point of the dialog, not decoration:** PNEZD writes northing before
   easting, so a file read as XYZ parses perfectly and yields a terrain transposed about the 45 degree

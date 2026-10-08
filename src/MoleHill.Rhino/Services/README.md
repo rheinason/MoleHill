@@ -14,7 +14,7 @@ file that needs Rhino's runtime must be added to that `Exclude` at its new path.
 | `Build/` | `TerrainBuildService.*` shared-helper partials, `Stages/` (one static class per modifier build stage), build snapshots and fingerprints, stage keys, tolerance/heuristics, the runtime cache, case recorders/exporters and `LargeTinDiagnostic` |
 | `Controller/` | `TerrainController.*` partials and the policies around it (debounce, superseded builds, interim publish, slow-build warning), undo snapshots, latency tracing, the Grasshopper bridge, reference-terrain resolution |
 | `Display/` | The display conduit, presentation/render meshes, colours, preview view, runtime overlay, scatter block preview, analysis preview builder, drainage preview cache |
-| `Output/` | Layer roles/templates/creation/routing, annotation styles, hatch patterns, generated-object model, block catalog and templates, per-terrain layer rename/cleanup, content visibility |
+| `Output/` | Layer roles/templates/creation/routing, annotation styles, hatch patterns, generated-object model, block catalog and templates, `AnnotationBlockLibrary` (copy the built-in annotation block, field inspection and preview field resolution) and `AnnotationBlockEditor` (open a block in Rhino's block editor by name), per-terrain layer rename/cleanup, content visibility |
 | `Annotation/` | Annotation, legend, report and section builders, section layout/profile comparison, zone analysis and gradient-compliance evaluation |
 | `Persistence/` | Terrain JSON serializer, document store/identity/ownership, unit scaling, colour-ramp and field-code stores |
 | `Import/` | GeoTIFF and raster georeferencing, DEM sampling, LandXML, survey import geometry/placement/naming, project-base plane, document north |

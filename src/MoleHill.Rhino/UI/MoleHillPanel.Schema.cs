@@ -156,6 +156,14 @@ public sealed partial class MoleHillPanel
                     parameter.Help ?? string.Empty,
                     parameter.TrimText);
 
+            case ParameterKind.BlockPicker:
+                return CreateAnnotationBlockEditor(
+                    label,
+                    parameter.GetText!(definition),
+                    parameter.BlockTemplate,
+                    parameter.Help,
+                    value => commit(item => parameter.SetText!(item, value)));
+
             // Whole-control kinds. Only the family that owns one passes a bespoke renderer for it:
             // ColorRamp is analyses (they are colour-mapped; modifiers change geometry and annotations
             // draw), BlockMix is Scatter alone. Anyone else declaring one gets an empty row rather than a

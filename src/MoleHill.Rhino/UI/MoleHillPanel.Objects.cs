@@ -517,21 +517,7 @@ public sealed partial class MoleHillPanel
         if (doc == null)
             return;
 
-        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var blocks = new List<InstanceDefinition>();
-        foreach (var definition in doc.InstanceDefinitions)
-        {
-            if (definition == null || definition.IsDeleted || string.IsNullOrWhiteSpace(definition.Name))
-                continue;
-            if (!seen.Add(definition.Name))
-                continue;
-
-            blocks.Add(definition);
-        }
-
-        blocks.Sort((a, b) => string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase));
-
-        var selected = BlockSelectorDialog.Show(doc, blocks);
+        var selected = BlockSelectorDialog.Show(doc, CollectBlockDefinitions(doc));
         if (selected == null || selected.Count == 0)
             return;
 

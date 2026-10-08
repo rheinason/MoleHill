@@ -11,6 +11,7 @@ internal sealed class GeneratedRhinoObject
     private Mesh[]? _previewBrepMeshes;
     private Hatch? _previewHatchSource;
     private Curve[]? _previewHatchCurves;
+    private readonly Dictionary<object, TextEntity?> _resolvedPreviewText = new(ReferenceEqualityComparer.Instance);
     private bool _previewDisplayTextInitialized;
     private string? _previewDisplayText;
 
@@ -158,6 +159,27 @@ internal sealed class GeneratedRhinoObject
         }
 
         return _previewHatchCurves;
+    }
+
+    /// <summary>
+    /// The text <paramref name="source"/> shows in preview: a copy with each block field filled from this
+    /// object's payload, or the source itself when it has none (fixed text in a block draws as written).
+    /// </summary>
+    internal TextEntity GetResolvedPreviewText(TextEntity source)
+    {
+        if (_resolvedPreviewText.TryGetValue(source, out TextEntity? cached))
+            return cached ?? source;
+
+        TextEntity? resolved = null;
+        if (AnnotationBlockLibrary.TryResolveFields(source.RichText, InstanceUserStrings, out string text) &&
+            source.Duplicate() is TextEntity clone)
+        {
+            clone.RichText = text;
+            resolved = clone;
+        }
+
+        _resolvedPreviewText[source] = resolved;
+        return resolved ?? source;
     }
 
     internal TextEntity? GetPreviewTextEntity(TextEntity source, string displayText)

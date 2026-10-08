@@ -87,16 +87,8 @@ internal sealed partial class TerrainController
             StringComparison.Ordinal);
     }
 
-    private static ObjectAttributes CreateBlockDefinitionAttributes()
-    {
-        return new ObjectAttributes
-        {
-            ColorSource = ObjectColorSource.ColorFromParent,
-            PlotColorSource = ObjectPlotColorSource.PlotColorFromParent,
-            MaterialSource = ObjectMaterialSource.MaterialFromParent,
-            LinetypeSource = ObjectLinetypeSource.LinetypeFromParent
-        };
-    }
+    private static ObjectAttributes CreateBlockDefinitionAttributes() =>
+        AnnotationBlockLibrary.CreateMemberAttributes();
 
     private ObjectAttributes CreateAttributes(RhinoDoc doc, TerrainDefinition terrain, GeneratedRhinoObject generated, bool trackOwnership)
     {

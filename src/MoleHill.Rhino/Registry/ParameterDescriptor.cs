@@ -1,4 +1,5 @@
 using MoleHill.Rhino.Model;
+using MoleHill.Rhino.Services;
 using RhinoObjectType = Rhino.DocObjects.ObjectType;
 
 namespace MoleHill.Rhino.Registry;
@@ -25,6 +26,14 @@ internal enum ParameterKind
     /// and removed on the card. Analyses only — gradient compliance is the sole declarer.
     /// </summary>
     GoingTable,
+
+    /// <summary>
+    /// An annotation card's block: pick one of the document's block definitions, copy the built-in one
+    /// into an editable block of your own, or open it in Rhino's block editor. Annotations only — the
+    /// block-attribute annotations are the sole declarers. The name lives in the text accessors; the
+    /// built-in block to copy comes from <see cref="ParameterDescriptor{TDefinition}.BlockTemplate"/>.
+    /// </summary>
+    BlockPicker,
 }
 
 /// <summary>
@@ -130,6 +139,11 @@ internal sealed class ParameterDescriptor<TDefinition>
     // ---- Text ----
 
     public bool TrimText { get; init; } = true;
+
+    // ---- BlockPicker ----
+
+    /// <summary>The built-in block a "New from default" copy is made from.</summary>
+    public MarkerBlockTemplate BlockTemplate { get; init; }
 
     // ---- Accessors (the relevant pair for this Kind is set) ----
 
@@ -496,6 +510,30 @@ internal sealed class ParameterDescriptor<TDefinition>
             Kind = ParameterKind.GoingTable,
             Key = key,
             Label = label,
+            Help = help,
+            VisibleWhen = visibleWhen,
+        };
+
+    /// <summary>
+    /// The block an annotation draws at each label. Empty means the built-in block for
+    /// <paramref name="template"/>; otherwise it is the name of a block definition in the document.
+    /// </summary>
+    public static ParameterDescriptor<TDefinition> BlockPicker(
+        string key,
+        string label,
+        Func<TDefinition, string?> get,
+        Action<TDefinition, string?> set,
+        MarkerBlockTemplate template,
+        string? help = null,
+        Func<TDefinition, bool>? visibleWhen = null) =>
+        new()
+        {
+            Kind = ParameterKind.BlockPicker,
+            Key = key,
+            Label = label,
+            GetText = get,
+            SetText = set,
+            BlockTemplate = template,
             Help = help,
             VisibleWhen = visibleWhen,
         };

@@ -978,17 +978,31 @@ internal sealed class TerrainDisplayConduit : DisplayConduit
         if (definition == null)
             return false;
 
-        bool drewGeometry = false;
-        foreach (var instanceObject in definition.GetObjects())
-        {
-            if (instanceObject?.Geometry == null)
-                continue;
+        // The same flattened, cached preview Scatter uses, so a user's own block previews as it bakes:
+        // shaded solids, hatches and nested blocks, and members keeping their own colour. Members that
+        // take their colour from the parent draw in the label's colour.
+        ScatterBlockPreview? preview = ScatterBlockPreview.Get(doc, definition);
+        if (preview == null)
+            return false;
 
-            if (DrawMarkerGeometry(e, generated, instanceObject.Geometry, color, substituteDisplayText: true, width))
-                drewGeometry = true;
+        e.Display.PushModelTransform(generated.InstanceTransform);
+        try
+        {
+            foreach (var (mesh, material) in preview.Meshes)
+                e.Display.DrawMeshShaded(mesh, material);
+            foreach (var (curve, memberColor) in preview.Curves)
+                e.Display.DrawCurve(curve, memberColor ?? color, width);
+            foreach (var (hatch, memberColor) in preview.Hatches)
+                e.Display.DrawHatch(hatch, memberColor ?? color, memberColor ?? color);
+            foreach (var (text, memberColor) in preview.Texts)
+                e.Display.DrawText(generated.GetResolvedPreviewText(text), memberColor ?? color);
+        }
+        finally
+        {
+            e.Display.PopModelTransform();
         }
 
-        return drewGeometry;
+        return true;
     }
 
     private static bool DrawMarkerGeometry(
@@ -1017,12 +1031,9 @@ internal sealed class TerrainDisplayConduit : DisplayConduit
             }
             case TextEntity text:
             {
-                TextEntity textToDraw = text;
-                if (substituteDisplayText &&
-                    generated.TryGetPreviewDisplayText(out var displayText))
-                {
-                    textToDraw = generated.GetPreviewTextEntity(text, displayText) ?? text;
-                }
+                TextEntity textToDraw = substituteDisplayText
+                    ? generated.GetResolvedPreviewText(text)
+                    : text;
 
                 e.Display.PushModelTransform(generated.InstanceTransform);
                 try

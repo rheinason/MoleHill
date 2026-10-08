@@ -89,6 +89,7 @@ public class ParameterSchemaGuardTests
                 break;
 
             case ParameterKind.Text:
+            case ParameterKind.BlockPicker:
                 AssertSet(type, parameter, "GetText", where);
                 AssertSet(type, parameter, "SetText", where);
                 break;
