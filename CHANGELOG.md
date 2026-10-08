@@ -3,6 +3,46 @@
 Released through Rhino's Package Manager (Yak) as `MoleHill`. Versions before 1.0.0 were
 beta prereleases. Earlier versions are recorded only in the git history.
 
+## 1.4.0-beta — 2026-10-09
+
+A beta that makes sections fast on large terrains, labels them properly, and lets one section draw
+several terrains again.
+
+**Sections**
+- Sections build far faster on large terrains. 200 cross-sections on a 320,000-face terrain went from
+  92 seconds to under half a second, and a cut that runs exactly through mesh vertices no longer breaks
+  the profile into pieces.
+- Real elevations up the left edge of every section, on the elevation grid's steps (thinned so the
+  figures never overlap), a title beneath it (A-A', or the station for cross-sections), and the matching
+  mark in plan at the ends of the cut line. Each has its own switch on the card. They are on by default,
+  so existing sections gain them on their next rebuild, and automatically placed cross-sections move
+  apart to make room.
+- One section can draw several terrains again. The card's Profiles list shows every other terrain
+  whenever one exists, with the compared terrain ticked and fixed; it used to disappear whenever no
+  terrain was left after the Compare To Terrain choice. Each extra profile's colour can be chosen on the
+  card, and a key under the title names every line.
+- Cut/Fill, Earthworks and the section cards open their comparison with the same rows in the same order.
+- Section Along Curve with several curves stacks them instead of drawing them on top of each other.
+- Station labels and ticks keep their distance from the drawing under vertical exaggeration, existing
+  ground under a fill no longer runs through the labels, and a level section still gets its elevation.
+
+**Annotations**
+- Every block-attribute annotation card has a Block row: pick any block in the document, copy the
+  built-in block into your own, open it in Rhino's block editor, or go back to the built-in one. Block
+  previews now show hatches, solids, nested blocks and member colours as they bake.
+
+**Layers**
+- The shipped layer template hangs everything off two branches under each terrain: Input and Output.
+  Saved templates keep their own paths.
+
+**Retaining walls**
+- Wall sides are split at their bends, so the preview shades each panel flat instead of smearing it.
+
+**Rhino.Inside.Revit**
+- Write Toposolids checks every Revit step completed, validates Type, Level and Subdivision Type against
+  the document being written, and refuses to replace a host when that would delete subdivisions it does
+  not recreate. Not yet run inside Revit.
+
 ## 1.3.3-beta — 2026-10-07
 
 A beta that stops the viewport going blank after long editing sessions and stops round-cornered
