@@ -191,8 +191,8 @@ public class DrawingOutputTests
         Assert.Equal(LayerRole.ContoursMinor, TerrainBuildService.ResolveContourLevelRole(analysis, isMajor: false));
 
         var table = LayerRoleTable.Default;
-        Assert.Equal(TerrainLayerNaming.DefaultRoot + "::Annotation::Contours::Major", table.Path(LayerRole.ContoursMajor));
-        Assert.Equal(TerrainLayerNaming.DefaultRoot + "::Annotation::Contours::Minor", table.Path(LayerRole.ContoursMinor));
+        Assert.Equal(TerrainLayerNaming.OutputRoot + "::Annotation::Contours::Major", table.Path(LayerRole.ContoursMajor));
+        Assert.Equal(TerrainLayerNaming.OutputRoot + "::Annotation::Contours::Minor", table.Path(LayerRole.ContoursMinor));
     }
 
     [Fact]

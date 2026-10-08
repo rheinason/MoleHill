@@ -163,6 +163,9 @@ internal sealed class LayerTemplateStore
             rolesByDefaultPath[defaultPath] = descriptor.Id;
             // A file from before roots were per terrain spells the same default without the token.
             rolesByDefaultPath[TerrainLayerNaming.ToLegacyLiteral(defaultPath)] = descriptor.Id;
+            // ...and one from before the shipped tree gained its Output branch lacks that segment too.
+            rolesByDefaultPath[TerrainLayerNaming.ToLegacyLiteral(defaultPath)
+                .Replace("::Output", string.Empty, StringComparison.Ordinal)] = descriptor.Id;
         }
 
         var claimed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -211,18 +214,21 @@ internal sealed class LayerTemplateStore
     private static List<LayerTemplateDefinition> CreateDefaultTemplates()
     {
         const string R = TerrainLayerNaming.DefaultRoot;
+        const string I = TerrainLayerNaming.InputRoot;
+        const string O = TerrainLayerNaming.OutputRoot;
         var entries = new List<LayerTemplateEntry>
         {
             CreateEntry(R, unchecked((int)0xFF000000), unchecked((int)0xFF000000), 0.25),
-            CreateEntry(R + "::Inputs", unchecked((int)0xFF808080), unchecked((int)0xFF808080), 0.25),
-            CreateEntry(R + "::Inputs::Spots", unchecked((int)0xFF008900), unchecked((int)0xFF008900), 0.18),
-            CreateEntry(R + "::Inputs::Contours", unchecked((int)0xFF8C8C8C), unchecked((int)0xFF8C8C8C), 0.13),
-            CreateEntry(R + "::Inputs::Breaklines", unchecked((int)0xFFFFC000), unchecked((int)0xFFFFC000), 0.25),
-            CreateEntry(R + "::Inputs::Boundary", unchecked((int)0xFF1E64FF), unchecked((int)0xFF1E64FF), 0.35),
-            CreateEntry(R + "::Features", unchecked((int)0xFF7D26CD), unchecked((int)0xFF7D26CD), 0.25),
-            CreateEntry(R + "::Features::Walls", unchecked((int)0xFFC00000), unchecked((int)0xFFC00000), 0.25),
-            CreateEntry(R + "::Features::Pads", unchecked((int)0xFF00B0F0), unchecked((int)0xFF00B0F0), 0.25),
-            CreateEntry(R + "::Features::Paths", unchecked((int)0xFFFFBF00), unchecked((int)0xFFFFBF00), 0.25)
+            CreateEntry(I, unchecked((int)0xFF808080), unchecked((int)0xFF808080), 0.25),
+            CreateEntry(I + "::Spots", unchecked((int)0xFF008900), unchecked((int)0xFF008900), 0.18),
+            CreateEntry(I + "::Contours", unchecked((int)0xFF8C8C8C), unchecked((int)0xFF8C8C8C), 0.13),
+            CreateEntry(I + "::Breaklines", unchecked((int)0xFFFFC000), unchecked((int)0xFFFFC000), 0.25),
+            CreateEntry(I + "::Boundary", unchecked((int)0xFF1E64FF), unchecked((int)0xFF1E64FF), 0.35),
+            CreateEntry(I + "::Zones", unchecked((int)0xFF7D26CD), unchecked((int)0xFF7D26CD), 0.25),
+            CreateEntry(I + "::Walls", unchecked((int)0xFFC00000), unchecked((int)0xFFC00000), 0.25),
+            CreateEntry(I + "::Pads", unchecked((int)0xFF00B0F0), unchecked((int)0xFF00B0F0), 0.25),
+            CreateEntry(I + "::Paths", unchecked((int)0xFFFFBF00), unchecked((int)0xFFFFBF00), 0.25),
+            CreateEntry(O, unchecked((int)0xFF000000), unchecked((int)0xFF000000), 0.25)
         };
 
         entries.AddRange(CreateRoleEntries());

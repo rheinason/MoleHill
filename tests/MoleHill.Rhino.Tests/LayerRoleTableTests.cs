@@ -21,9 +21,9 @@ public class LayerRoleTableTests
     {
         var table = LayerRoleTable.Default;
 
-        Assert.Equal(TerrainLayerNaming.DefaultRoot + "::Annotation", table.Path(LayerRole.Annotation));
-        Assert.Equal(TerrainLayerNaming.DefaultRoot + "::Annotation::Contours", table.Path(LayerRole.Contours));
-        Assert.Equal(TerrainLayerNaming.DefaultRoot + "::Annotation::Contours::Major", table.Path(LayerRole.ContoursMajor));
+        Assert.Equal(TerrainLayerNaming.OutputRoot + "::Annotation", table.Path(LayerRole.Annotation));
+        Assert.Equal(TerrainLayerNaming.OutputRoot + "::Annotation::Contours", table.Path(LayerRole.Contours));
+        Assert.Equal(TerrainLayerNaming.OutputRoot + "::Annotation::Contours::Major", table.Path(LayerRole.ContoursMajor));
     }
 
     /// <summary>
@@ -71,11 +71,11 @@ public class LayerRoleTableTests
     {
         var table = LayerRoleTable.Default;
 
-        Assert.Equal(TerrainLayerNaming.DefaultRoot + "::Zones::Site::Lawn", table.Path(LayerRole.Zones, "Site::Lawn"));
-        Assert.Equal(TerrainLayerNaming.DefaultRoot + "::Zones", table.Path(LayerRole.Zones, null));
-        Assert.Equal(TerrainLayerNaming.DefaultRoot + "::Zones", table.Path(LayerRole.Zones, "   "));
+        Assert.Equal(TerrainLayerNaming.OutputRoot + "::Zones::Site::Lawn", table.Path(LayerRole.Zones, "Site::Lawn"));
+        Assert.Equal(TerrainLayerNaming.OutputRoot + "::Zones", table.Path(LayerRole.Zones, null));
+        Assert.Equal(TerrainLayerNaming.OutputRoot + "::Zones", table.Path(LayerRole.Zones, "   "));
         // Empty segments in a source path must not produce a doubled separator.
-        Assert.Equal(TerrainLayerNaming.DefaultRoot + "::Zones::Site", table.Path(LayerRole.Zones, "::Site::"));
+        Assert.Equal(TerrainLayerNaming.OutputRoot + "::Zones::Site", table.Path(LayerRole.Zones, "::Site::"));
     }
 
     /// <summary>
@@ -195,8 +195,8 @@ public class LayerRoleTableTests
 
         Assert.Equal(
             LayerRole.ContoursMajor,
-            table.FindByLayerPath(TerrainLayerNaming.DefaultRoot + "::Annotation::Contours::Major")!.Role);
-        Assert.Equal(LayerRole.Contours, table.FindByLayerPath(TerrainLayerNaming.DefaultRoot + "::Annotation::Contours")!.Role);
+            table.FindByLayerPath(TerrainLayerNaming.OutputRoot + "::Annotation::Contours::Major")!.Role);
+        Assert.Equal(LayerRole.Contours, table.FindByLayerPath(TerrainLayerNaming.OutputRoot + "::Annotation::Contours")!.Role);
         Assert.Null(table.FindByLayerPath("Some::Unrelated::Layer"));
         Assert.Null(table.FindByLayerPath(null));
     }

@@ -8,9 +8,9 @@ public sealed class TerrainDefinition
 {
     public const int CurrentSchemaVersion = 32;
     public const int DefaultTerrainColorArgb = unchecked((int)0xFFC7D2C2);
-    public const string DefaultTerrainLayerPath = TerrainLayerNaming.DefaultRoot + "::Terrain";
-    public const string DefaultAuxiliaryLayerPath = TerrainLayerNaming.DefaultRoot + "::Auxiliary";
-    public const string DefaultAnnotationLayerPath = TerrainLayerNaming.DefaultRoot + "::Annotation";
+    public const string DefaultTerrainLayerPath = TerrainLayerNaming.OutputRoot + "::Terrain";
+    public const string DefaultAuxiliaryLayerPath = TerrainLayerNaming.OutputRoot + "::Auxiliary";
+    public const string DefaultAnnotationLayerPath = TerrainLayerNaming.OutputRoot + "::Annotation";
 
     public int SchemaVersion { get; set; } = CurrentSchemaVersion;
 

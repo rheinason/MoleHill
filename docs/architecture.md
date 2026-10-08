@@ -1344,14 +1344,19 @@ one's stable id, parent, default path and appearance; the active layer template 
 layers. Nothing in the pipeline hardcodes or plumbs a layer path.
 
 - **The layer tree is the grouping the Layers pane works with.** Everything hangs off one `MoleHill {terrain}`
-  root per terrain; drawing output is grouped under `Annotation` by what it is — including `Cut Fill Contours` and
+  root per terrain, split into two branches: `Input` (what drives the terrain: `Spots`, `Contours`,
+  `Breaklines`, `Boundary`, `Zones`, `Walls`, `Pads`, `Paths` — plain layers nothing routes to) and `Output`
+  (everything MoleHill generates; every role path lives under it). Templates saved before the split keep
+  their own paths — only the shipped tree changed, so an install whose `layer-templates.json` already
+  exists keeps its old layout until the template editor's **Reset To Defaults**. Drawing output is grouped under `Annotation` by
+  what it is — including `Cut Fill Contours` and
   `Balance Line`, which are depths rather than elevations and so must not read as terrain contours,
   `Catchments`, which is a divide rather than a flow and so must not read as waterflow, and `Ponding`,
   which reports a fault rather than describing the design and is the loudest thing on the sheet — and a
   section drawing is a single
   branch (`Annotation::Sections`, with `Existing`, `Cuts`, `Grid`, `Ticks`, `Labels` and `CutFill::Cut` /
   `::Fill` beneath it) so a whole drawing can be hidden, locked or restyled at once. Model output
-  (`Terrain`, `Auxiliary`, `Zones`, `Scatter`) is deliberately *not* under `Annotation`, so turning a
+  (`Output::Terrain`, `Auxiliary`, `Zones`, `Scatter`) is deliberately *not* under `Annotation`, so turning a
   drawing off does not turn the terrain off. Every role layer is one output actually lands on, or a parent
   of one — `ShippedDefaultsTests` pins that, because a permanently empty layer is just clutter.
 - **Every terrain has its own root, `MoleHill {terrain}`.** The shipped template's root is the token

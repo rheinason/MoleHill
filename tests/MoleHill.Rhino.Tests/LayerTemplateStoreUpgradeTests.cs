@@ -35,10 +35,11 @@ public class LayerTemplateStoreUpgradeTests
         var upgraded = Normalize(legacy).Single();
 
         Assert.Equal(3, upgraded.Version);
-        Assert.Equal(new[] { "terrain" }, Find(upgraded, TerrainDefinition.DefaultTerrainLayerPath).Roles);
+        // The user's own layout is kept as written: only the shipped tree gained the Output branch.
+        Assert.Equal(new[] { "terrain" }, Find(upgraded, TerrainLayerNaming.DefaultRoot + "::Terrain").Roles);
         Assert.Equal(
             new[] { "contours-major" },
-            Find(upgraded, TerrainDefinition.DefaultAnnotationLayerPath + "::Contours::Major").Roles);
+            Find(upgraded, TerrainLayerNaming.DefaultRoot + "::Annotation::Contours::Major").Roles);
 
         // A layer the user draws on is not an output destination and must stay unbound.
         Assert.Empty(Find(upgraded, TerrainLayerNaming.DefaultRoot + "::Inputs::Spots").Roles);

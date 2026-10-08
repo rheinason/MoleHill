@@ -17,6 +17,12 @@ public static class TerrainLayerNaming
     /// <summary>The root every shipped path hangs from.</summary>
     public const string DefaultRoot = "MoleHill " + Token;
 
+    /// <summary>Everything that drives the terrain: sources, feature curves, zone boundaries.</summary>
+    public const string InputRoot = DefaultRoot + "::Input";
+
+    /// <summary>Everything MoleHill generates: meshes, zones, scatter, annotations.</summary>
+    public const string OutputRoot = DefaultRoot + "::Output";
+
     /// <summary>The literal root every document and template used before roots were per terrain.</summary>
     public const string LegacyRoot = "MoleHill";
 

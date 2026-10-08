@@ -29,9 +29,9 @@ public class ShippedDefaultsTests
         // Plus the layers nothing routes to, which exist for the user's own geometry.
         foreach (string path in new[]
                  {
-                     TerrainLayerNaming.DefaultRoot + "::Inputs::Spots", TerrainLayerNaming.DefaultRoot + "::Inputs::Contours",
-                     TerrainLayerNaming.DefaultRoot + "::Inputs::Breaklines", TerrainLayerNaming.DefaultRoot + "::Inputs::Boundary",
-                     TerrainLayerNaming.DefaultRoot + "::Features::Walls", TerrainLayerNaming.DefaultRoot + "::Features::Pads", TerrainLayerNaming.DefaultRoot + "::Features::Paths"
+                     TerrainLayerNaming.DefaultRoot + "::Input::Spots", TerrainLayerNaming.DefaultRoot + "::Input::Contours",
+                     TerrainLayerNaming.DefaultRoot + "::Input::Breaklines", TerrainLayerNaming.DefaultRoot + "::Input::Boundary",
+                     TerrainLayerNaming.DefaultRoot + "::Input::Walls", TerrainLayerNaming.DefaultRoot + "::Input::Pads", TerrainLayerNaming.DefaultRoot + "::Input::Paths"
                  })
         {
             Assert.Contains(shipped.Entries, entry =>
@@ -183,8 +183,8 @@ public class ShippedDefaultsTests
             bool isRoleLayer = rolePaths.Contains(path, StringComparer.OrdinalIgnoreCase);
             bool isParentOfOne = rolePaths.Any(p =>
                 p.StartsWith(path + "::", StringComparison.OrdinalIgnoreCase));
-            bool isUserLayer = path.Contains("::Inputs", StringComparison.OrdinalIgnoreCase)
-                || path.Contains("::Features", StringComparison.OrdinalIgnoreCase);
+            bool isUserLayer = path.Equals(TerrainLayerNaming.InputRoot, StringComparison.OrdinalIgnoreCase)
+                || path.StartsWith(TerrainLayerNaming.InputRoot + "::", StringComparison.OrdinalIgnoreCase);
 
             Assert.True(
                 isRoleLayer || isParentOfOne || isUserLayer,

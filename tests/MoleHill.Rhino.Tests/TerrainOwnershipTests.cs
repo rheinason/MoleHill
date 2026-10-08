@@ -15,18 +15,18 @@ public class TerrainOwnershipTests
                 Name = "Shipped",
                 Entries = new List<LayerTemplateEntry>
                 {
-                    new() { Path = TerrainLayerNaming.DefaultRoot + "::Terrain", Roles = new List<string> { "terrain" } },
-                    new() { Path = TerrainLayerNaming.DefaultRoot + "::Inputs::Spots" }
+                    new() { Path = TerrainLayerNaming.OutputRoot + "::Terrain", Roles = new List<string> { "terrain" } },
+                    new() { Path = TerrainLayerNaming.DefaultRoot + "::Input::Spots" }
                 }
             },
             terrainName);
 
     [Theory]
-    [InlineData("MoleHill North::Inputs::Spots", true)]
+    [InlineData("MoleHill North::Input::Spots", true)]
     [InlineData("MoleHill North::My Drawing", true)]
-    [InlineData("MoleHill North::Terrain", false)]
-    [InlineData("MoleHill North::Annotation::Contours", false)]
-    [InlineData("MoleHill South::Inputs::Spots", false)]
+    [InlineData("MoleHill North::Output::Terrain", false)]
+    [InlineData("MoleHill North::Output::Annotation::Contours", false)]
+    [InlineData("MoleHill South::Input::Spots", false)]
     [InlineData("Survey::Spots", false)]
     public void IsOwnedInputLayer_OwnsInputsUnderTheRoot_NotOutputOrStrangers(string layer, bool owned) =>
         Assert.Equal(owned, TerrainOwnership.IsOwnedInputLayer(layer, "North", ShippedTable("North")));
@@ -40,8 +40,8 @@ public class TerrainOwnershipTests
         var zone = new CollageZoneDefinition { Name = "Lawn" };
         zone.Boundaries.ReplaceLayers(new[]
         {
-            "MoleHill North::Inputs::Spots",
-            "MoleHill North::Terrain",
+            "MoleHill North::Input::Spots",
+            "MoleHill North::Output::Terrain",
             "Survey::Contours"
         });
         zone.Boundaries.ReplaceObjects(new[] { owned, shared });
@@ -51,7 +51,7 @@ public class TerrainOwnershipTests
         TerrainOwnership.Remap(clone, "North", ShippedTable("North"), new Dictionary<Guid, Guid> { [owned] = copy });
 
         Assert.Equal(
-            new[] { "MoleHill North Copy::Inputs::Spots", "MoleHill North::Terrain", "Survey::Contours" },
+            new[] { "MoleHill North Copy::Input::Spots", "MoleHill North::Output::Terrain", "Survey::Contours" },
             zone.Boundaries.LayerPaths);
         Assert.Equal(new[] { copy, shared }, zone.Boundaries.ObjectIds);
     }

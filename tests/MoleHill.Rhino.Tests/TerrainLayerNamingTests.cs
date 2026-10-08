@@ -52,8 +52,8 @@ public class TerrainLayerNamingTests
 
         Assert.Equal("MoleHill North::Terrain", north.Path(LayerRole.Terrain));
         Assert.Equal("MoleHill South::Terrain", south.Path(LayerRole.Terrain));
-        Assert.Equal("MoleHill North::Annotation", north.Path(LayerRole.Annotation));
-        Assert.Equal("MoleHill South::Zones::Site", south.Path(LayerRole.Zones, "Site"));
+        Assert.Equal("MoleHill North::Output::Annotation", north.Path(LayerRole.Annotation));
+        Assert.Equal("MoleHill South::Output::Zones::Site", south.Path(LayerRole.Zones, "Site"));
         Assert.NotEqual(north.Fingerprint, south.Fingerprint);
     }
 

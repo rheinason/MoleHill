@@ -54,7 +54,7 @@ internal static class LayerRoutingMigration
                 if (modifier is RetainingWallModifierDefinition wall)
                 {
                     Bind(bindings, conflicts, LayerRole.Walls, wall.LegacyOutputLayerPath, wall.Label,
-                        legacyDefaultPath: TerrainLayerNaming.ToLegacyLiteral(TerrainDefinition.DefaultAuxiliaryLayerPath));
+                        legacyDefaultPath: LegacyDefaultPath(LayerRole.Auxiliary));
                 }
             }
 
@@ -125,6 +125,14 @@ internal static class LayerRoutingMigration
     }
 
     /// <summary>
+    /// The default a pre-schema-30 document would have stored: the literal root, and before the shipped
+    /// layout gained its <c>Output</c> branch, so an untouched value still reads as untouched.
+    /// </summary>
+    private static string LegacyDefaultPath(LayerRole role) =>
+        TerrainLayerNaming.ToLegacyLiteral(LayerRoleRegistry.DefaultPath(role))
+            .Replace("::Output", string.Empty, StringComparison.Ordinal);
+
+    /// <summary>
     /// First customised value wins. A binding is per role and the old data was per card, so a
     /// document with two contour analyses pointed at different layers cannot keep both — the loser
     /// is named so the user can see which one moved rather than discovering it in the drawing.
@@ -142,7 +150,7 @@ internal static class LayerRoutingMigration
             // Stored paths predate per-terrain roots, so the untouched default is the literal one.
             || string.Equals(
                 path,
-                TerrainLayerNaming.ToLegacyLiteral(LayerRoleRegistry.DefaultPath(role)),
+                LegacyDefaultPath(role),
                 StringComparison.OrdinalIgnoreCase)
             || (legacyDefaultPath != null && string.Equals(path, legacyDefaultPath, StringComparison.OrdinalIgnoreCase)))
         {
