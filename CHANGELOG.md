@@ -3,6 +3,29 @@
 Released through Rhino's Package Manager (Yak) as `MoleHill`. Versions before 1.0.0 were
 beta prereleases. Earlier versions are recorded only in the git history.
 
+## 1.4.0 — 2026-10-09
+
+Stable release incorporating the changes from 1.3.0-beta through 1.4.0-beta. No functional changes
+from 1.4.0-beta.
+
+- Sections cut large terrains faster, show elevation and plan labels, and support multiple terrain
+  profiles with colours and a key. Sections along several curves stack without overlapping.
+- Block-attribute annotation cards can pick, copy and edit blocks; previews include hatches, solids,
+  nested blocks and member colours. Legend annotations describe terrain analysis colours.
+- The shipped layer template separates Input and Output under each terrain. Saved templates keep
+  their paths.
+- Terrain editing is more robust around thin triangles, crossing survey lines, zone seams and grading
+  batters. Hide and Show boundaries work on large surveys, and Smooth preserves closed terrain edges.
+- Retaining walls match rounded and stepped rail corners and shade flat at bends. Terrain previews no
+  longer disappear after long editing sessions.
+- Sculpting responds better on large terrains; zones and contours update during strokes. Rebuilds,
+  contour trimming and terrain display do less repeated work.
+- Grasshopper components have distinct icons, accept quad meshes, and expose Remesh mode and crease
+  angle. Ponding and catchment values follow changes of model units.
+- Rhino.Inside.Revit gains Write Toposolids and Inspect Toposolids for Revit 2025 or later, with document
+  validation and protection against deleting existing subdivisions during host replacement. These
+  components remain unverified inside Revit.
+
 ## 1.4.0-beta — 2026-10-09
 
 A beta that makes sections fast on large terrains, labels them properly, and lets one section draw
