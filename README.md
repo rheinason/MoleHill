@@ -9,6 +9,11 @@ Bug reports with a repro case are very welcome: see [CONTRIBUTING.md](CONTRIBUTI
 and because its triangulator derives from Triangle it may not be sold or bundled in a commercial product;
 see [License](#license).
 
+## User Guide
+
+New to MoleHill? The [User Guide](docs/user-guide/README.md) covers the product overview, a typical
+workflow, the panel, every command, and a page for each modifier, object, zone, analysis and annotation card.
+
 ## Release Scope
 
 - `MoleHill.Rhino.rhp` is the primary release artifact.
