@@ -39,6 +39,9 @@ It includes `GradingEnvelopeSweepTests`: 60 seeded random Grade Path scenes (in 
 Grade Pad scenes, each required to stay inside the grading envelope and watertight. After a grading
 change, run it deeper — `MOLEHILL_GRADING_SWEEP=500 dotnet test tests/MoleHill.Core.Tests --filter
 GradingEnvelopeSweepTests` takes about half a minute — and a failure names the seeds to replay.
+`WallGradingEnvelopeSweepTests` (Rhino tests, managed) does the same for Retaining Wall grading through the
+real rail planner — straight, bent and ring walls, terraced pairs — 24 scenes by default, and honours the
+same variable (200 scenes take about 50 s).
 
 ## native
 
