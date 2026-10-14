@@ -9311,6 +9311,7 @@ public class RegionRemeshMultiPadCoarseTerrainTests
         });
         string? errorMessage = gradeOutcome.ErrorMessage;
         GradingResult? result = gradeOutcome.Result;
+        Assert.False(result?.HasEnvelopeFault ?? false, "A batter left the grading envelope: " + string.Join(" | ", result?.Diagnostics ?? Array.Empty<string>()));
 
         Assert.NotNull(result);
 

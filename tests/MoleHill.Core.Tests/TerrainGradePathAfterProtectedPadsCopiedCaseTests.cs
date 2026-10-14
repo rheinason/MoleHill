@@ -40,6 +40,7 @@ public class TerrainGradePathAfterProtectedPadsCopiedCaseTests
         });
         string? errorMessage = gradeOutcome.ErrorMessage;
         GradingResult? result = gradeOutcome.Result;
+        Assert.False(result?.HasEnvelopeFault ?? false, "A batter left the grading envelope: " + string.Join(" | ", result?.Diagnostics ?? Array.Empty<string>()));
 
         Assert.True(result != null, errorMessage);
         Assert.True(

@@ -501,8 +501,12 @@ public class PathGraderTopologyModeTests
     }
 
     [Fact]
-    public void ApplyGradingZ_WithNoisyShoulderTerrain_BuildsContinuousShoulderBand()
+    public void ApplyGradingZ_WithNoisyShoulderTerrain_CutsPeaksToBatterAndKeepsDips()
     {
+        // A cut bank of 4 m peaks and at-grade dips. The batter cuts each peak down to the one-metre
+        // cut; a dip already lies below the batter, and raising it would put fill above both the road and
+        // the ground — earthwork nobody designed. (This test once required the dips raised into one
+        // continuous band; the grading envelope rules that out.)
         const int size = 21;
         double[] vertices = BuildGridVertices(size, spacing: 1.0);
         int[] faces = BuildGridFaces(size);
@@ -524,16 +528,25 @@ public class PathGraderTopologyModeTests
 
         Assert.True(changedVertexCount > 0);
 
-        int solvedCount = 0;
+        int solvedPeaks = 0;
+        int peaks = 0;
         for (int x = 6; x <= 14; x++)
         {
             double z = graded[(GetVertexIndex(size, x, 12) * 3) + 2];
-            Assert.InRange(z, -1e-6, 1.05);
-            if (z > 0.9)
-                solvedCount++;
+            if ((x % 4) < 2)
+            {
+                peaks++;
+                Assert.InRange(z, -1e-6, 1.05);
+                if (z > 0.9)
+                    solvedPeaks++;
+            }
+            else
+            {
+                Assert.Equal(0.0, z, 6);
+            }
         }
 
-        Assert.True(solvedCount >= 6, $"Expected most row-12 samples to follow the solved one-meter cut, found only {solvedCount} solved samples.");
+        Assert.True(solvedPeaks >= peaks - 1, $"Expected the row-12 peaks to follow the solved one-meter cut, found {solvedPeaks} of {peaks}.");
     }
 
     [Fact]

@@ -95,7 +95,12 @@ public static partial class PathGrader
         if (rise >= absDz)
             return false;
 
-        candidateZ = closest.PathZ + Math.Sign(dz) * rise;
+        // The rise is sized from the smoothed reference profile, which can promise more ground than this
+        // vertex has; past its own ground the batter would stand proud of it (3.9 m on a copied case). A
+        // batter point lies between its design edge and the ground, so meeting the ground ends it here.
+        candidateZ = ClampBetween(closest.PathZ + Math.Sign(dz) * rise, closest.PathZ, originalZ);
+        if (Math.Abs(candidateZ - originalZ) <= 1e-12)
+            return false;
 
         weight = ComputeShoulderBlendWeight(distFromEdge, neededDist);
         return weight > 1e-12;

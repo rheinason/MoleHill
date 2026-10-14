@@ -15916,6 +15916,7 @@ public class Terrain_1_Grade_Path_CopiedCaseTests
         });
         string? errorMessage = gradeOutcome.ErrorMessage;
         GradingResult? result = gradeOutcome.Result;
+        Assert.False(result?.HasEnvelopeFault ?? false, "A batter left the grading envelope: " + string.Join(" | ", result?.Diagnostics ?? Array.Empty<string>()));
 
         Assert.True(result != null, errorMessage);
         Assert.True(string.IsNullOrWhiteSpace(errorMessage) || !errorMessage.Contains("failed", StringComparison.OrdinalIgnoreCase), errorMessage);

@@ -384,6 +384,11 @@ public static partial class PathGrader
         double normalizedDistance = Math.Clamp(distFromEdge / sectionReach, 0.0, 1.0);
         candidateZ = closest.PathZ + ((shoulderZ - closest.PathZ) * normalizedDistance);
         candidateZ = ClampBetween(candidateZ, closest.PathZ, shoulderZ);
+
+        // The section runs straight from the edge to its shoulder, but the ground between need not: a
+        // fill batter crosses a hump, a cut batter a hollow. A batter point lies between its design edge
+        // and the ground, so where the straight section passes the ground the ground stays.
+        candidateZ = ClampBetween(candidateZ, closest.PathZ, originalZ);
         if (Math.Abs(candidateZ - originalZ) <= GradingTolerances.VertexAdjustmentZTolerance(tolerance))
             return false;
 

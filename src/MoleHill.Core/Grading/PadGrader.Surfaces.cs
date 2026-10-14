@@ -143,6 +143,12 @@ public static partial class PadGrader
                 double normalizedDistance = Math.Clamp(closest.Distance / sectionReach, 0.0, 1.0);
                 double candidateZ = boundaryZ + ((shoulderZ - boundaryZ) * normalizedDistance);
                 candidateZ = ClampBetween(candidateZ, boundaryZ, shoulderZ);
+
+                // The section is straight from pad edge to shoulder; the ground between need not be. A
+                // batter point lies between its design edge and the ground, so where the straight section
+                // passes under (fill) or over (cut) the ground, the ground stays — the section once dug a
+                // vertex 1.7 m below ground beside a pad standing above it.
+                candidateZ = ClampBetween(candidateZ, boundaryZ, originalVertices[i * 3 + 2]);
                 if (Math.Abs(candidateZ - originalVertices[i * 3 + 2]) <= GradingTolerances.VertexAdjustmentZTolerance(tolerance))
                     continue;
                 if (insidePadTop && candidateZ <= padTopZ + zTolerance)
