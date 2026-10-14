@@ -194,6 +194,10 @@ internal static partial class TerrainAnalysisAnnotationBuilder
             [GeneratedBlockCatalog.DistanceToken] = distance.HasValue ? FormatValue(distance.Value, "F2") : string.Empty
         };
 
+        string definitionName = string.IsNullOrWhiteSpace(blockDefinitionName)
+            ? GeneratedBlockCatalog.GetDefaultDefinitionName(template)
+            : blockDefinitionName!;
+
         return new GeneratedRhinoObject
         {
             Role = LayerRole.Markers,
@@ -201,14 +205,12 @@ internal static partial class TerrainAnalysisAnnotationBuilder
             AnalysisId = analysis.Id,
             ColorArgb = analysis.ColorArgb,
             LayerPath = Roles(layerRoles).Path(LayerRole.Markers),
-            InstanceDefinitionName = string.IsNullOrWhiteSpace(blockDefinitionName)
-                ? GeneratedBlockCatalog.GetDefaultDefinitionName(template)
-                : blockDefinitionName,
+            InstanceDefinitionName = definitionName,
             MarkerBlockTemplate = template,
             InstanceUserStrings = userStrings,
             InstanceTransform = CreateInstanceTransform(
                 worldPoint,
-                ResolveBlockScale(snapshot, analysis.FollowsAnnotationStyle, analysis.BlockScale),
+                ResolveBlockScale(snapshot, analysis.FollowsAnnotationStyle, analysis.BlockScale, definitionName),
                 direction)
         };
     }
@@ -322,10 +324,18 @@ internal static partial class TerrainAnalysisAnnotationBuilder
     /// label text whenever the style is edited in Rhino. Otherwise the stored value is an absolute scale
     /// (the pre-schema-27 behaviour, preserved for migrated documents).
     /// </summary>
-    internal static double ResolveBlockScale(TerrainBuildSnapshot snapshot, bool followsStyle, double storedScale)
+    internal static double ResolveBlockScale(
+        TerrainBuildSnapshot snapshot,
+        bool followsStyle,
+        double storedScale,
+        string? definitionName)
     {
+        double? authoredTextHeight = !string.IsNullOrWhiteSpace(definitionName)
+            && snapshot.BlockTextHeights.TryGetValue(definitionName!, out double height)
+                ? height
+                : null;
         double scale = followsStyle
-            ? snapshot.AnnotationStyle.GetBlockScale(storedScale)
+            ? snapshot.AnnotationStyle.GetBlockScale(storedScale, authoredTextHeight)
             : storedScale;
         return Math.Max(scale, 0.01);
     }

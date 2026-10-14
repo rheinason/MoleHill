@@ -162,6 +162,50 @@ internal sealed partial class TerrainController
         RaiseStateChanged();
     }
 
+    /// <summary>
+    /// A block was edited. Annotation and marker blocks are sized so their label text matches the style
+    /// (<see cref="AnnotationStyleSnapshot.GetBlockScale"/>), so resizing a block's text changes every
+    /// placement of it. Rebuilds only when that height actually moved: bake rewrites the built-in blocks
+    /// with identical artwork, and rebuilding on that would loop.
+    /// </summary>
+    private void OnInstanceDefinitionTableEvent(object? sender, InstanceDefinitionTableEventArgs e)
+    {
+        if (_suppressDocEvents > 0 || e.Document == null
+            || e.EventType is not (InstanceDefinitionTableEventType.Modified or InstanceDefinitionTableEventType.Added))
+            return;
+
+        InstanceDefinition? definition = e.InstanceDefinitionIndex >= 0 && e.InstanceDefinitionIndex < e.Document.InstanceDefinitions.Count
+            ? e.Document.InstanceDefinitions[e.InstanceDefinitionIndex]
+            : null;
+        if (definition == null || string.IsNullOrWhiteSpace(definition.Name))
+            return;
+
+        double? height = AnnotationBlockLibrary.MeasureTextHeight(e.Document, definition);
+        var key = (e.Document.RuntimeSerialNumber, definition.Name.ToUpperInvariant());
+        if (_blockTextHeights.TryGetValue(key, out double? previous) && Nullable.Equals(previous, height))
+            return;
+
+        _blockTextHeights[key] = height;
+        foreach (TerrainDefinition terrain in GetState(e.Document).Terrains)
+        {
+            if (PlacesBlock(terrain, definition.Name))
+                ScheduleRebuild(e.Document, terrain.TerrainId);
+        }
+    }
+
+    /// <summary>Whether <paramref name="terrain"/> places <paramref name="blockName"/> — by name on a card,
+    /// or as a built-in block a card with no block of its own falls back to.</summary>
+    private static bool PlacesBlock(TerrainDefinition terrain, string blockName)
+    {
+        bool isBuiltIn = AnnotationBlockLibrary.IsBuiltInName(blockName);
+        bool Matches(string? cardBlock) => string.IsNullOrWhiteSpace(cardBlock)
+            ? isBuiltIn
+            : string.Equals(cardBlock, blockName, StringComparison.OrdinalIgnoreCase);
+
+        return terrain.Annotations.OfType<BlockAttributeAnnotationDefinition>().Any(item => item.IsEnabled && Matches(item.BlockDefinitionName))
+            || terrain.Markers.Any(item => item.IsEnabled && item.UseBlockInstance && Matches(item.BlockDefinitionName));
+    }
+
     private void OnCloseDocument(object? sender, DocumentEventArgs e)
     {
         ClearDocumentState(e.Document.RuntimeSerialNumber);

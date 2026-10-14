@@ -34,6 +34,7 @@ internal sealed class ScatterBlockPreview
     {
         RhinoDoc.InstanceDefinitionTableEvent += OnInstanceDefinitionTableEvent;
         RhinoDoc.LayerTableEvent += OnLayerTableEvent;
+        RhinoDoc.DimensionStyleTableEvent += OnDimensionStyleTableEvent;
         RhinoDoc.CloseDocument += OnCloseDocument;
     }
 
@@ -134,7 +135,10 @@ internal sealed class ScatterBlockPreview
                     }
                     case TextEntity text:
                     {
+                        // The copy forgets its style (it reports height 1 at scale 1), so it would draw a
+                        // fraction of the size Rhino draws the member at; carry the drawn height over.
                         var copy = (TextEntity)text.Duplicate();
+                        copy.TextHeight = AnnotationStyleService.GetDrawnTextHeight(doc, text);
                         if (copy.Transform(transform))
                             preview.Texts.Add((copy, color));
                         break;
@@ -208,6 +212,10 @@ internal sealed class ScatterBlockPreview
         InvalidateDocument(e.Document.RuntimeSerialNumber);
 
     private static void OnLayerTableEvent(object? sender, LayerTableEventArgs e) =>
+        InvalidateDocument(e.Document.RuntimeSerialNumber);
+
+    // Member text carries its style's drawn height, so a style edit stales the cached copies.
+    private static void OnDimensionStyleTableEvent(object? sender, DimStyleTableEventArgs e) =>
         InvalidateDocument(e.Document.RuntimeSerialNumber);
 
     private static void OnCloseDocument(object? sender, DocumentEventArgs e) =>

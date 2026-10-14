@@ -64,6 +64,11 @@ internal sealed partial class TerrainBuildService
                 builder.Add(referenceTerrain.MeshFingerprint);
         }
 
+        // A placed block is sized from the style's text height over the block's own text height, and
+        // neither is on the definition.
+        if (analysis is BlockAttributeAnnotationDefinition)
+            AddBlockSizingFingerprint(ref builder, snapshot);
+
         // Routing and appearance both come from the layer template, so an edit to it has to
         // invalidate cached output the same way an edit to the analysis does.
         if (TerrainAnalysisPreviewBuilder.ProducesGeneratedOutput(analysis))
@@ -183,7 +188,18 @@ internal sealed partial class TerrainBuildService
             builder.Add(ComputeSourceSetFingerprint(snapshot, marker.Sources));
         }
 
+        AddBlockSizingFingerprint(ref builder, snapshot);
         return builder.ToUInt64();
+    }
+
+    private static void AddBlockSizingFingerprint(ref FingerprintBuilder builder, TerrainBuildSnapshot snapshot)
+    {
+        builder.Add(snapshot.AnnotationStyle.TextHeight);
+        foreach (var entry in snapshot.BlockTextHeights.OrderBy(static item => item.Key, StringComparer.OrdinalIgnoreCase))
+        {
+            builder.Add(entry.Key);
+            builder.Add(entry.Value);
+        }
     }
 
     private static ulong ComputeObjectsFingerprint(

@@ -67,6 +67,12 @@ internal sealed class TerrainBuildSnapshot
     /// block. Keyed by instance-definition name.</summary>
     public Dictionary<string, BoundingBox> BlockDefinitionBounds { get; } = new(StringComparer.Ordinal);
 
+    /// <summary>How tall each annotation or marker block's label text is drawn inside the block
+    /// (<see cref="AnnotationBlockLibrary.MeasureTextHeight"/>), captured on the main thread. Only blocks in
+    /// the document that hold text appear. Keyed by instance-definition name, case-insensitively as Rhino
+    /// matches block names.</summary>
+    public Dictionary<string, double> BlockTextHeights { get; } = new(StringComparer.OrdinalIgnoreCase);
+
     public Dictionary<Guid, TerrainSectionReferenceSnapshot> SectionTerrains { get; } = new();
 
     /// <summary>

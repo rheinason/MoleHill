@@ -62,7 +62,8 @@ internal sealed partial class TerrainBuildService
                                 TerrainAnalysisAnnotationBuilder.ResolveBlockScale(
                                     snapshot,
                                     marker.FollowsAnnotationStyle,
-                                    marker.BlockScale)),
+                                    marker.BlockScale,
+                                    GetMarkerBlockName(marker))),
                         ColorArgb = marker.ColorArgb
                     });
                 }

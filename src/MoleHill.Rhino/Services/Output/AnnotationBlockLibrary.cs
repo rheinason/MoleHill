@@ -175,6 +175,46 @@ internal static class AnnotationBlockLibrary
         return line;
     }
 
+    /// <summary>
+    /// How tall <paramref name="definition"/>'s label text is drawn inside the block, in block units — the
+    /// text carrying a VALUE or Display field, else the tallest text. Null when the block holds no text.
+    /// Block sizing divides by this so the label, not some assumed 1-unit text, lands at the style height.
+    /// </summary>
+    public static double? MeasureTextHeight(RhinoDoc doc, InstanceDefinition? definition)
+    {
+        if (definition == null)
+            return null;
+
+        double? valueHeight = null;
+        double? tallest = null;
+        foreach (RhinoObject member in definition.GetObjects())
+        {
+            if (member?.Geometry is not TextEntity text)
+                continue;
+
+            double height = AnnotationStyleService.GetDrawnTextHeight(doc, text);
+            tallest = Math.Max(tallest ?? 0.0, height);
+            if (ShowsValueField(text.RichText))
+                valueHeight = Math.Max(valueHeight ?? 0.0, height);
+        }
+
+        return valueHeight ?? tallest;
+    }
+
+    private static bool ShowsValueField(string? richText)
+    {
+        if (string.IsNullOrEmpty(richText))
+            return false;
+
+        foreach (Match match in FieldPattern.Matches(richText))
+        {
+            if (ValueFieldKeys.Contains(match.Groups["key"].Value, StringComparer.OrdinalIgnoreCase))
+                return true;
+        }
+
+        return false;
+    }
+
     private static readonly Regex FieldPattern = new(
         @"%<UserText\(\s*""(?<source>[^""]*)""\s*,\s*""(?<key>[^""]*)""" +
         @"(?:\s*,\s*""(?<prompt>[^""]*)"")?(?:\s*,\s*""(?<default>[^""]*)"")?\s*\)>%",

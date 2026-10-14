@@ -94,6 +94,7 @@ internal static class TerrainBuildSnapshotBuilder
         PopulateDemSamples(doc, terrainClone, snapshot);
 
         PopulateBlockDefinitionBounds(doc, terrainClone, snapshot);
+        PopulateBlockTextHeights(doc, terrainClone, snapshot);
 
         if (sectionTerrains != null)
         {
@@ -194,6 +195,33 @@ internal static class TerrainBuildSnapshotBuilder
                 if (definition != null && TryGetInstanceDefinitionBoundingBox(definition, out BoundingBox bbox))
                     snapshot.BlockDefinitionBounds[name!] = bbox;
             }
+        }
+    }
+
+    // Label text height inside every block an annotation or marker can place — the cards' own blocks and
+    // the built-ins — so the background build can size each block to the style. See
+    // AnnotationStyleSnapshot.GetBlockScale.
+    private static void PopulateBlockTextHeights(RhinoDoc doc, TerrainDefinition terrain, TerrainBuildSnapshot snapshot)
+    {
+        IEnumerable<string?> names = terrain.Annotations
+            .OfType<BlockAttributeAnnotationDefinition>()
+            .Select(annotation => annotation.BlockDefinitionName)
+            .Concat(terrain.Markers.Select(marker => marker.BlockDefinitionName))
+            .Concat(new[]
+            {
+                MarkerBlockTemplate.AnnotationElevation,
+                MarkerBlockTemplate.AnnotationSlope,
+                MarkerBlockTemplate.Elevation,
+                MarkerBlockTemplate.Slope
+            }.Select(GeneratedBlockCatalog.GetDefaultDefinitionName));
+
+        foreach (string? name in names)
+        {
+            if (string.IsNullOrWhiteSpace(name) || snapshot.BlockTextHeights.ContainsKey(name!))
+                continue;
+
+            if (AnnotationBlockLibrary.MeasureTextHeight(doc, doc.InstanceDefinitions.Find(name!)) is { } height)
+                snapshot.BlockTextHeights[name!] = height;
         }
     }
 

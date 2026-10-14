@@ -110,6 +110,20 @@ internal static class AnnotationStyleService
     }
 
     /// <summary>
+    /// The model-space height Rhino draws a text at that lives in the document — a block member, say:
+    /// its style's height times the style's model-space scale. Read it off the document-resident entity:
+    /// a <c>Duplicate()</c> loses the style and reports height 1 at scale 1, which is why block text once
+    /// previewed a tenth of the size it baked at under a 1:10 style.
+    /// </summary>
+    public static double GetDrawnTextHeight(RhinoDoc doc, global::Rhino.Geometry.TextEntity text)
+    {
+        ArgumentNullException.ThrowIfNull(doc);
+        ArgumentNullException.ThrowIfNull(text);
+        double scale = doc.ModelSpaceAnnotationScalingEnabled ? text.DimensionScale : 1.0;
+        return GetEffectiveTextHeight(text.TextHeight, scale > 0.0 ? scale : 1.0);
+    }
+
+    /// <summary>
     /// The arithmetic behind <see cref="GetEffectiveTextHeight(DimensionStyle)"/>, split out so it is
     /// reachable without constructing a native Rhino <see cref="DimensionStyle"/>.
     /// </summary>
@@ -134,10 +148,18 @@ internal sealed class AnnotationStyleSnapshot
     /// <summary>
     /// Instance scale for a marker block so its authored text matches this style's text height.
     /// <paramref name="relativeScale"/> is the per-analysis/per-marker Block Scale nudge (1.0 = match).
+    /// <paramref name="authoredTextHeight"/> is how tall the block's own text is drawn inside the block
+    /// (<see cref="AnnotationBlockLibrary.MeasureTextHeight"/>); a block without text, or one not in the
+    /// document yet, is taken to be authored at <see cref="AnnotationStyleService.AuthoredBlockTextHeight"/>.
+    /// A user's block is drawn in whatever style was current, so its text is rarely 1 unit tall: under a
+    /// 2.5-high style at model-space scale 10 it is 25, and assuming 1 baked its labels 25 times too large.
     /// </summary>
-    public double GetBlockScale(double relativeScale)
+    public double GetBlockScale(double relativeScale, double? authoredTextHeight = null)
     {
-        double baseScale = TextHeight / AnnotationStyleService.AuthoredBlockTextHeight;
+        double authored = authoredTextHeight is > 0.0
+            ? authoredTextHeight.Value
+            : AnnotationStyleService.AuthoredBlockTextHeight;
+        double baseScale = TextHeight / authored;
         double scale = baseScale * (relativeScale > 0.0 ? relativeScale : 1.0);
         return scale > 0.0 ? scale : 1.0;
     }

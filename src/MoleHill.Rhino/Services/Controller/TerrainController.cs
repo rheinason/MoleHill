@@ -49,6 +49,7 @@ internal sealed partial class TerrainController
     private readonly Dictionary<uint, HashSet<Guid>> _pendingBlockAttributeKeyRepairs = new();
     private readonly Dictionary<(uint docSerial, Guid terrainId), TerrainRuntimeCache> _runtimeCaches = new();
     private readonly Dictionary<(uint docSerial, Guid terrainId), TerrainRebuildState> _rebuildStates = new();
+    private readonly Dictionary<(uint docSerial, string blockName), double?> _blockTextHeights = new();
     private bool _initialized;
     private int _suppressDocEvents;
 
@@ -79,6 +80,7 @@ internal sealed partial class TerrainController
         RhinoDoc.ModifyObjectAttributes += OnModifyObjectAttributes;
         RhinoDoc.LayerTableEvent += OnLayerTableEvent;
         RhinoDoc.DimensionStyleTableEvent += OnDimensionStyleTableEvent;
+        RhinoDoc.InstanceDefinitionTableEvent += OnInstanceDefinitionTableEvent;
         RhinoDoc.UnitsChangedWithScaling += OnUnitsChangedWithScaling;
         RhinoDoc.DocumentPropertiesChanged += OnDocumentPropertiesChanged;
         RhinoDoc.CloseDocument += OnCloseDocument;
@@ -101,6 +103,7 @@ internal sealed partial class TerrainController
         RhinoDoc.ModifyObjectAttributes -= OnModifyObjectAttributes;
         RhinoDoc.LayerTableEvent -= OnLayerTableEvent;
         RhinoDoc.DimensionStyleTableEvent -= OnDimensionStyleTableEvent;
+        RhinoDoc.InstanceDefinitionTableEvent -= OnInstanceDefinitionTableEvent;
         RhinoDoc.UnitsChangedWithScaling -= OnUnitsChangedWithScaling;
         RhinoDoc.DocumentPropertiesChanged -= OnDocumentPropertiesChanged;
         RhinoDoc.CloseDocument -= OnCloseDocument;
