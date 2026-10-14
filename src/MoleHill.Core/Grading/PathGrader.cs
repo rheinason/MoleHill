@@ -119,7 +119,13 @@ public static partial class PathGrader
             GradingResult? graded = GradeTiers(
                 vertices, vertexCount, faces, faceCount, paths, hardConstraints, out errorMessage, modelTolerance,
                 preferSplitKeep, performanceTimings);
-            if (graded == null || stops == 0)
+            if (graded == null)
+                return null;
+
+            var envelopeViolations = GradingEnvelope.FindForPaths(
+                new IndexedTriMesh(vertices, vertexCount, faces, faceCount), paths, graded.Vertices, graded.VertexCount, modelTolerance);
+            graded = GradingEnvelope.Clamp(graded, envelopeViolations, "grade_path", "Grade Path");
+            if (stops == 0)
                 return graded;
 
             string stopMessage =
@@ -243,6 +249,20 @@ public static partial class PathGrader
             ? "Grade Path topology rebuild failed."
             : $"Grade Path topology rebuild failed: {topologyError}";
         return null;
+    }
+
+    /// <summary>
+    /// Points of <paramref name="result"/> outside the grading envelope: above both, or below both, the
+    /// original ground and the design height at the nearest path. Empty for a sound grade. Grade itself
+    /// clamps these and adds a <c>grade_path.envelope.clamped</c> warning, so a caller that must not accept a
+    /// faulty grade (a test, a copied case) asserts that warning is absent; this method checks any result,
+    /// including one from before the clamp existed.
+    /// </summary>
+    public static IReadOnlyList<GradingEnvelopeViolation> FindEnvelopeViolations(PathGradeRequest request, GradingResult result)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(result);
+        return GradingEnvelope.FindForPaths(request.Terrain, request.Paths, result.Vertices, result.VertexCount, request.ModelTolerance);
     }
 
     /// <summary>Returns a copy of <paramref name="result"/> with one extra diagnostic appended.</summary>

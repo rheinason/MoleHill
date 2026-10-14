@@ -26,6 +26,12 @@ public static partial class PadGrader
             out IReadOnlyList<OutputPolyline> failureOutputPolylines,
             out IReadOnlyList<GradingDiagnostic> failureDiagnostics,
             request.ModelTolerance, request.TerrainDetailSize, request.HardConstraints);
+        if (result != null)
+        {
+            var envelopeViolations = GradingEnvelope.FindForPads(request.Terrain, request.Pads, result.Vertices, result.VertexCount, request.ModelTolerance);
+            result = GradingEnvelope.Clamp(result, envelopeViolations, "grade_pad", "Grade Pad");
+        }
+
         return new GradeOutcome
         {
             Result = result,
@@ -33,6 +39,19 @@ public static partial class PadGrader
             FailureOutputPolylines = failureOutputPolylines,
             FailureDiagnostics = failureDiagnostics
         };
+    }
+
+    /// <summary>
+    /// Points of <paramref name="result"/> outside the grading envelope: above both, or below both, the
+    /// original ground and the design height at the nearest pad edge. Empty for a sound grade. Grade itself
+    /// clamps these and adds a <c>grade_pad.envelope.clamped</c> warning; see
+    /// <see cref="PathGrader.FindEnvelopeViolations"/>.
+    /// </summary>
+    public static IReadOnlyList<GradingEnvelopeViolation> FindEnvelopeViolations(PadGradeRequest request, GradingResult result)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(result);
+        return GradingEnvelope.FindForPads(request.Terrain, request.Pads, result.Vertices, result.VertexCount, request.ModelTolerance);
     }
 
     private static GradingResult? GradeCore(

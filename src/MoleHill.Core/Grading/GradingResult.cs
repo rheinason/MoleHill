@@ -103,6 +103,14 @@ public sealed class GradingResult
     /// <summary>Structured operation diagnostics for UI filtering, conflict display, and downstream workflow decisions.</summary>
     public IReadOnlyList<GradingDiagnostic> StructuredDiagnostics { get; }
 
+    /// <summary>
+    /// True when the grader had to clamp points that left the grading envelope — a batter above both the
+    /// design and the ground, or below both. The shipped mesh is safe, but the grade had a fault; tests and
+    /// copied cases assert this is false. See <see cref="PathGrader.FindEnvelopeViolations"/>.
+    /// </summary>
+    public bool HasEnvelopeFault => StructuredDiagnostics.Any(
+        static diagnostic => diagnostic.Code.EndsWith(GradingEnvelope.ClampedCodeSuffix, StringComparison.Ordinal));
+
     /// <summary>Internal patch ownership/seam summaries for downstream runtime caching.</summary>
     internal IReadOnlyList<GradingPatch> PatchSummaries { get; }
 
