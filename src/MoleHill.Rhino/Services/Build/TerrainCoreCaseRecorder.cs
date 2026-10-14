@@ -73,6 +73,9 @@ internal sealed class TerrainCoreCaseRecorder
         int faceCount,
         PadGrader.PadBoundary[] pads,
         PadGrader.LockCurve[]? lockCurves,
+        IReadOnlyList<ConstraintPolyline> hardConstraints,
+        double modelTolerance,
+        double terrainDetailSize,
         bool succeeded,
         int? resultVertexCount,
         int? resultFaceCount,
@@ -89,7 +92,10 @@ internal sealed class TerrainCoreCaseRecorder
             (int[])faces.Clone(),
             faceCount,
             ClonePads(pads),
-            CloneLocks(lockCurves)));
+            CloneLocks(lockCurves),
+            hardConstraints.Select(CloneConstraint).ToArray(),
+            modelTolerance,
+            terrainDetailSize));
     }
 
     public TerrainCoreCaseRecord? SelectBestRecord()
@@ -222,5 +228,8 @@ internal sealed record TerrainCorePadCaseRecord(
     int[] Faces,
     int FaceCount,
     PadGrader.PadBoundary[] Pads,
-    PadGrader.LockCurve[]? LockCurves)
+    PadGrader.LockCurve[]? LockCurves,
+    ConstraintPolyline[] HardConstraints,
+    double ModelTolerance,
+    double TerrainDetailSize)
     : TerrainCoreCaseRecord(StageName, Succeeded, ResultVertexCount, ResultFaceCount, Message);

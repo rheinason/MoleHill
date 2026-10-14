@@ -13,7 +13,7 @@ namespace MoleHill.Rhino.Tests;
 /// </summary>
 public class TerrainCoreCaseTestExporterEmitTests
 {
-    private static string GenerateSource(TerrainCorePathCaseRecord record)
+    private static string GenerateSource(TerrainCoreCaseRecord record)
     {
         MethodInfo generate = typeof(TerrainCoreCaseTestExporter)
             .GetMethod("GenerateSource", BindingFlags.NonPublic | BindingFlags.Static)
@@ -54,6 +54,56 @@ public class TerrainCoreCaseTestExporterEmitTests
         HardConstraints: Array.Empty<ConstraintPolyline>(),
         ModelTolerance: 0.01,
         PreferSplitKeep: true);
+
+    /// <summary>A pad on a two-triangle square, beside a wall, at a non-default tolerance.</summary>
+    private static TerrainCorePadCaseRecord CreatePadRecord() => new(
+        StageName: "Grade Pad",
+        Succeeded: true,
+        ResultVertexCount: 120,
+        ResultFaceCount: 220,
+        Message: null,
+        Vertices: new[] { 0.0, 0.0, 0.0, 20.0, 0.0, 0.0, 20.0, 20.0, 0.0, 0.0, 20.0, 0.0 },
+        VertexCount: 4,
+        Faces: new[] { 0, 1, 2, 0, 2, 3 },
+        FaceCount: 2,
+        Pads: new[] { new PadGrader.PadBoundary(new[] { 8.0, 8.0, 12.0, 8.0, 12.0, 12.0, 8.0, 12.0 }, 4, 1.5) },
+        LockCurves: null,
+        HardConstraints: new[] { new ConstraintPolyline(new[] { 1.0, 18.0, 0.0, 19.0, 18.0, 0.0 }, 2, false, true) },
+        ModelTolerance: 0.003,
+        TerrainDetailSize: 0.25);
+
+    /// <summary>
+    /// A case is copied because a grade went wrong, so asserting the counts it produced pinned the bug: the
+    /// fix then failed the copied test. Copied cases assert the rules every grade keeps instead.
+    /// </summary>
+    [Fact]
+    public void GeneratedSource_AssertsGradingRulesNotRecordedCounts()
+    {
+        string source = GenerateSource(CreateWallRailRecord());
+
+        Assert.Contains("Assert.False(result!.HasEnvelopeFault", source);
+        Assert.Contains("Assert.Empty(PathGrader.FindEnvelopeViolations(request, result));", source);
+        Assert.Contains("Assert.Equal(0, after.NonManifoldEdgeCount);", source);
+        Assert.DoesNotContain("Assert.Equal(36", source);
+        Assert.DoesNotContain("Assert.Equal(55", source);
+        Assert.Contains("// When copied: 36 vertices, 55 faces.", source);
+    }
+
+    /// <summary>
+    /// The pad replay used to drop the tolerance, the detail size and the walls, so it graded at defaults —
+    /// a different tier, possibly a different scene — from the one copied.
+    /// </summary>
+    [Fact]
+    public void GeneratedPadSource_CarriesTierInputsAndRules()
+    {
+        string source = GenerateSource(CreatePadRecord());
+
+        Assert.Contains("ModelTolerance = 0.003", source);
+        Assert.Contains("TerrainDetailSize = 0.25", source);
+        Assert.Contains("HardConstraints = hardConstraints,", source);
+        Assert.Contains("Assert.Empty(PadGrader.FindEnvelopeViolations(request, result));", source);
+        Assert.DoesNotContain("Assert.Equal(120", source);
+    }
 
     [Fact]
     public void GeneratedSource_CarriesOutwardNormalsAndTierArguments()
@@ -118,5 +168,8 @@ public class TerrainCoreCaseTestExporterEmitTests
 
         Directory.CreateDirectory(directory);
         File.WriteAllText(Path.Combine(directory, "EmittedCase.cs"), GenerateSource(CreateWallRailRecord()));
+        File.WriteAllText(
+            Path.Combine(directory, "EmittedPadCase.cs"),
+            GenerateSource(CreatePadRecord()).Replace("EmittedCaseTests", "EmittedPadCaseTests", StringComparison.Ordinal));
     }
 }

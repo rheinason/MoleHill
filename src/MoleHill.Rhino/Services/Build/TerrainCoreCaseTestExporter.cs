@@ -134,7 +134,10 @@ internal static class TerrainCoreCaseTestExporter
         builder.AppendLine($"                MaxSlopeAngleDegrees = {FormatDouble(record.BoundaryPeelSettings.MaxSlopeAngleDegrees)}");
         builder.AppendLine("            });");
         builder.AppendLine();
-        AppendCommonAssertions(builder, "result", "message", record);
+        builder.AppendLine("        Assert.NotNull(result);");
+        builder.AppendLine("        Assert.True(string.IsNullOrWhiteSpace(message) || !message.Contains(\"failed\", StringComparison.OrdinalIgnoreCase), message);");
+        builder.AppendLine("        Assert.True(result!.FaceCount > 0);");
+        AppendRecordedCounts(builder, record);
     }
 
     private static void AppendPathTestBody(StringBuilder builder, TerrainCorePathCaseRecord record)
@@ -146,7 +149,7 @@ internal static class TerrainCoreCaseTestExporter
         AppendPathArray(builder, record.Paths);
         AppendConstraintArray(builder, record.HardConstraints);
         builder.AppendLine();
-        builder.AppendLine("        GradeOutcome outcome = PathGrader.Grade(new PathGradeRequest");
+        builder.AppendLine("        var request = new PathGradeRequest");
         builder.AppendLine("        {");
         builder.AppendLine("            Terrain = new IndexedTriMesh(vertices, vertexCount, faces, faceCount),");
         builder.AppendLine("            Paths = paths,");
@@ -155,11 +158,12 @@ internal static class TerrainCoreCaseTestExporter
         // them grades at the wrong tolerance under the wrong topology strategy.
         builder.AppendLine($"            ModelTolerance = {FormatDouble(record.ModelTolerance)},");
         builder.AppendLine($"            PreferSplitKeep = {(record.PreferSplitKeep ? "true" : "false")}");
-        builder.AppendLine("        });");
+        builder.AppendLine("        };");
+        builder.AppendLine("        GradeOutcome outcome = PathGrader.Grade(request);");
         builder.AppendLine("        GradingResult? result = outcome.Result;");
         builder.AppendLine("        string? errorMessage = outcome.ErrorMessage;");
         builder.AppendLine();
-        AppendCommonAssertions(builder, "result", "errorMessage", record);
+        AppendGradingAssertions(builder, "PathGrader", record);
     }
 
     private static void AppendPadTestBody(StringBuilder builder, TerrainCorePadCaseRecord record)
@@ -170,31 +174,59 @@ internal static class TerrainCoreCaseTestExporter
         builder.AppendLine($"        int faceCount = {record.FaceCount.ToString(CultureInfo.InvariantCulture)};");
         AppendPadArray(builder, record.Pads);
         AppendLockArray(builder, record.LockCurves);
+        AppendConstraintArray(builder, record.HardConstraints);
         builder.AppendLine();
-        builder.AppendLine("        GradeOutcome outcome = PadGrader.Grade(new PadGradeRequest");
+        // Tolerance, detail size and the walls all change which tier runs and what it may touch; a
+        // replay without them grades a different scene from the one that was copied.
+        builder.AppendLine("        var request = new PadGradeRequest");
         builder.AppendLine("        {");
         builder.AppendLine("            Terrain = new IndexedTriMesh(vertices, vertexCount, faces, faceCount),");
         builder.AppendLine("            Pads = pads,");
-        builder.AppendLine("            LockCurves = lockCurves ?? Array.Empty<PadGrader.LockCurve>()");
-        builder.AppendLine("        });");
+        builder.AppendLine("            LockCurves = lockCurves ?? Array.Empty<PadGrader.LockCurve>(),");
+        builder.AppendLine("            HardConstraints = hardConstraints,");
+        builder.AppendLine($"            ModelTolerance = {FormatDouble(record.ModelTolerance)},");
+        builder.AppendLine($"            TerrainDetailSize = {FormatDouble(record.TerrainDetailSize)}");
+        builder.AppendLine("        };");
+        builder.AppendLine("        GradeOutcome outcome = PadGrader.Grade(request);");
         builder.AppendLine("        GradingResult? result = outcome.Result;");
         builder.AppendLine("        string? errorMessage = outcome.ErrorMessage;");
         builder.AppendLine();
-        AppendCommonAssertions(builder, "result", "errorMessage", record);
+        AppendGradingAssertions(builder, "PadGrader", record);
     }
 
-    private static void AppendCommonAssertions(
-        StringBuilder builder,
-        string resultVariable,
-        string messageVariable,
-        TerrainCoreCaseRecord record)
+    /// <summary>
+    /// What a copied grading case asserts: that it grades, and that the grade keeps the rules every grade
+    /// must — inside the grading envelope, manifold, and no more open edges than it started with. Not the
+    /// counts it produced when copied: a case is copied because something went wrong, so pinning its
+    /// output pins the bug, and the fix then fails the test (a copied case asserted the 17,996 vertices of
+    /// a batter standing 5 m proud of a terrace). The counts are kept as a comment, for reference.
+    /// </summary>
+    private static void AppendGradingAssertions(StringBuilder builder, string grader, TerrainCoreCaseRecord record)
     {
-        builder.AppendLine($"        Assert.NotNull({resultVariable});");
-        builder.AppendLine($"        Assert.True(string.IsNullOrWhiteSpace({messageVariable}) || !{messageVariable}.Contains(\"failed\", StringComparison.OrdinalIgnoreCase), {messageVariable});");
-        if (record.ResultVertexCount.HasValue)
-            builder.AppendLine($"        Assert.Equal({record.ResultVertexCount.Value.ToString(CultureInfo.InvariantCulture)}, {resultVariable}!.VertexCount);");
-        if (record.ResultFaceCount.HasValue)
-            builder.AppendLine($"        Assert.Equal({record.ResultFaceCount.Value.ToString(CultureInfo.InvariantCulture)}, {resultVariable}!.FaceCount);");
+        builder.AppendLine("        Assert.NotNull(result);");
+        builder.AppendLine("        Assert.True(string.IsNullOrWhiteSpace(errorMessage) || !errorMessage.Contains(\"failed\", StringComparison.OrdinalIgnoreCase), errorMessage);");
+        builder.AppendLine("        Assert.False(result!.HasEnvelopeFault, string.Join(\" | \", result.Diagnostics));");
+        builder.AppendLine($"        Assert.Empty({grader}.FindEnvelopeViolations(request, result));");
+        builder.AppendLine();
+        builder.AppendLine("        MeshTopologyValidator.BoundaryGraphAnalysis before = MeshTopologyValidator.AnalyzeBoundaryGraph(faces, faceCount);");
+        builder.AppendLine("        MeshTopologyValidator.BoundaryGraphAnalysis after = MeshTopologyValidator.AnalyzeBoundaryGraph(result.Faces, result.FaceCount);");
+        builder.AppendLine("        Assert.Equal(0, after.NonManifoldEdgeCount);");
+        builder.AppendLine("        Assert.False(after.HasOpenBoundaryChains);");
+        builder.AppendLine("        Assert.True(after.BoundaryComponentCount <= before.BoundaryComponentCount);");
+        AppendRecordedCounts(builder, record);
+    }
+
+    private static void AppendRecordedCounts(StringBuilder builder, TerrainCoreCaseRecord record)
+    {
+        if (!record.ResultVertexCount.HasValue && !record.ResultFaceCount.HasValue)
+            return;
+
+        builder.AppendLine();
+        builder.AppendLine(
+            "        // When copied: " +
+            $"{record.ResultVertexCount?.ToString("N0", CultureInfo.InvariantCulture) ?? "?"} vertices, " +
+            $"{record.ResultFaceCount?.ToString("N0", CultureInfo.InvariantCulture) ?? "?"} faces. " +
+            "Not asserted: a fix legitimately changes them.");
     }
 
     private static void AppendPathArray(StringBuilder builder, PathGrader.PathDefinition[] paths)
