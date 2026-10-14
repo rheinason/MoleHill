@@ -239,7 +239,7 @@ public static partial class PadGrader
 
         double boundaryZ = pad.EvaluateZ(boundaryX, boundaryY);
         double terrainZ = TerrainFaceGrid.InterpolateZ(boundaryX, boundaryY);
-        double branchSign = Math.Sign(terrainZ - boundaryZ);
+        double branchSign = BatterBranch.AtEdge(terrainZ, boundaryZ, atGradeTolerance: 0.0);
         if (Math.Abs(branchSign) <= 1e-12)
             return distance;
 

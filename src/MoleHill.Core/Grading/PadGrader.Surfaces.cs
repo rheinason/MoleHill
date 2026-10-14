@@ -288,7 +288,7 @@ public static partial class PadGrader
                 }
                 else
                 {
-                    double branchSign = Math.Sign(terrainZ - boundaryZ);
+                    double branchSign = BatterBranch.AtEdge(terrainZ, boundaryZ, atGradeTolerance: 0.0);
                     if (Math.Abs(branchSign) <= 1e-12)
                     {
                         shoulderZ[i] = boundaryZ;
@@ -688,7 +688,7 @@ public static partial class PadGrader
             double terrainZ = TerrainFaceGrid.InterpolateZ(bx, by);
             double padZ = pad.EvaluateZ(bx, by);
             double dz = Math.Abs(terrainZ - padZ);
-            double branchSign = Math.Sign(terrainZ - padZ);
+            double branchSign = BatterBranch.AtEdge(terrainZ, padZ, atGradeTolerance: 0.0);
             double slopeRatio = pad.SlopeRatioFor(branchSign);
             double d = slopeRatio > 1e-12 ? dz / slopeRatio : 100.0;
             if (d > 1e-9 && hasOrientation &&

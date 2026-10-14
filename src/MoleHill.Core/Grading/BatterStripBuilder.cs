@@ -335,7 +335,7 @@ internal static class BatterStripBuilder
         double normalLengthSq = (nx * nx) + (ny * ny);
         double terrainZatFoot = terrain.InterpolateZ(fx, fy);
         double diff = terrainZatFoot - fz;
-        double branchSign = Math.Sign(diff);
+        double branchSign = BatterBranch.AtEdge(terrainZatFoot, fz, zTolerance);
 
         // Cut (terrain above grade) and fill (terrain below grade) can use different batter slopes.
         double slopeRatio = branchSign < 0.0 ? fillSlopeRatio : cutSlopeRatio;

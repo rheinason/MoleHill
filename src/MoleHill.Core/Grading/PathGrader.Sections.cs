@@ -726,12 +726,10 @@ public static partial class PathGrader
             out double daylightReach,
             out double bestApproachReach);
 
-        // The branch follows the section's largest height difference, but a batter can only daylight
-        // on the side the ground starts on: ground 0.13 m below the road edge and then 0.5 m above it
-        // (a flat terrace behind a low verge) picked cut, and a cut batter starting above the ground
-        // only climbs away from it. With a kerb behind the verge the section was capped there, so the
-        // batter rose 45° for 4 m and stood up to 5 m above the ground. When the chosen branch cannot
-        // meet the ground, the other one is tried before any cap.
+        // The branch is the side the ground starts on (BatterBranch), which is where a batter can daylight.
+        // Should it still find no ground — a sample at grade at the edge, the real start a little further
+        // out — the other branch is tried before any cap: a cap extrapolates the slope all the way to the
+        // search limit or a hard constraint, which once stood a batter 5 m proud of a terrace.
         if (!daylit)
         {
             double otherSign = -branchSign;
@@ -830,7 +828,8 @@ public static partial class PathGrader
         if (maxReach <= 1e-9)
             return PathSectionBranchStatus.Unresolved;
 
-        double[] candidateDistances =
+        // Sampled outward from the edge, so the branch is the side the ground starts on (BatterBranch).
+        Span<double> candidateDistances = stackalloc double[]
         {
             0.0,
             maxReach / 32.0,
@@ -839,58 +838,19 @@ public static partial class PathGrader
             maxReach
         };
 
-        double maxAbsDelta = 0.0;
-        double dominantDelta = 0.0;
-        bool sawPositive = false;
-        bool sawNegative = false;
-        double firstSignificantDelta = 0.0;
-        double lastReach = -1.0;
+        Span<double> groundMinusDesign = stackalloc double[candidateDistances.Length];
         for (int i = 0; i < candidateDistances.Length; i++)
         {
             double reach = candidateDistances[i];
-            if (reach < -1e-9 || Math.Abs(reach - lastReach) <= 1e-9)
-                continue;
-
             double terrainZ = interpolateOriginalZ(edgeX + (dirX * reach), edgeY + (dirY * reach));
             if (!double.IsFinite(terrainZ))
                 return PathSectionBranchStatus.Unresolved;
 
-            double terrainDelta = terrainZ - edgeZ;
-            double absDelta = Math.Abs(terrainDelta);
-            if (absDelta > maxAbsDelta)
-            {
-                maxAbsDelta = absDelta;
-                dominantDelta = terrainDelta;
-            }
-
-            if (terrainDelta > GradingTolerances.AtGradeZTolerance(tolerance))
-            {
-                sawPositive = true;
-                if (Math.Abs(firstSignificantDelta) <= 1e-12)
-                    firstSignificantDelta = terrainDelta;
-            }
-
-            if (terrainDelta < -GradingTolerances.AtGradeZTolerance(tolerance))
-            {
-                sawNegative = true;
-                if (Math.Abs(firstSignificantDelta) <= 1e-12)
-                    firstSignificantDelta = terrainDelta;
-            }
-
-            lastReach = reach;
+            groundMinusDesign[i] = terrainZ - edgeZ;
         }
 
-        if (sawPositive || sawNegative)
-        {
-            branchSign = sawPositive && sawNegative
-                ? Math.Sign(dominantDelta)
-                : Math.Sign(firstSignificantDelta);
-            return Math.Abs(branchSign) > 0.0 ? PathSectionBranchStatus.Resolved : PathSectionBranchStatus.Unresolved;
-        }
-
-        return maxAbsDelta <= GradingTolerances.AtGradeZTolerance(tolerance)
-            ? PathSectionBranchStatus.NoGradeNeeded
-            : PathSectionBranchStatus.Unresolved;
+        branchSign = BatterBranch.FromGroundDifferences(groundMinusDesign, GradingTolerances.AtGradeZTolerance(tolerance));
+        return branchSign != 0.0 ? PathSectionBranchStatus.Resolved : PathSectionBranchStatus.NoGradeNeeded;
     }
 
     private static double ComputePathShoulderDistance(PathDefinition path, Func<double, double, double> interpolateOriginalZ)
