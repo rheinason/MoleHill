@@ -176,6 +176,29 @@ staying unresolved.
 `PadGrader` is split across `PadGrader.*.cs` partials (`.Explicit`, `.RegionRemesh`, `.Surfaces`,
 `.Daylighting`, `.Spatial`, `.Support`, `.Types`, ...). `PathGrader.*.cs` is the corridor analogue.
 
+## The grading envelope (every tier, both graders)
+
+Outside the road or pad, a batter runs from the design edge to the ground, so every point a grade moves
+lies between the original ground and the design height at its nearest edge. A point above both or below
+both is a fault: a batter that never met the ground, or a spike.
+
+- **Choose the side by `BatterBranch`:** the side the ground *starts* on — the first difference from the
+  design, outward from the edge, beyond the at-grade tolerance. A batter can only daylight there. Taking
+  the side of the largest difference instead stood a batter 5 m proud of a terrace behind a low verge.
+- **Keep each batter point between its edge and its own ground.** The section and edge tiers interpolate
+  or extrapolate a straight batter; the ground under a given point need not follow it. Where the batter
+  passes the ground, the ground stays (`ClampBetween(candidate, edgeZ, originalZ)` in
+  `TryComputePathSectionInfluence`, `TryComputePathInfluence` and Pad's `ApplyGradingToVerticesWithSections`).
+  Consequence, deliberately: in a cut, at-grade dips are left alone rather than filled into a band.
+- **Check, clamp, report:** `GradingEnvelope` checks the final result independently of the tiers (own
+  closest-point search; ground as a band of every input face covering a point, because a retaining wall
+  has two heights at one plan position). Violators are clamped and the result carries
+  `*.envelope.clamped`; `GradingResult.HasEnvelopeFault` reports it and `FindEnvelopeViolations` checks
+  any result. Tests and Copy Case output assert it is false. `GradingEnvelopeSweepTests` grades seeded
+  random scenes against it (`MOLEHILL_GRADING_SWEEP` for a deeper run).
+- A hard-constraint cap still extends the slope to the constraint: the clamp bounds it, and the step left
+  against a wall or kerb is what the constraint is for.
+
 ## Shared building blocks
 - `BreaklineHeightConflicts` - where two sets of breaklines cross in plan at different heights (a breakline-mode
   wall rail over a constrained contour). No 2.5D terrain can honour both lines, so the Retaining Wall stage

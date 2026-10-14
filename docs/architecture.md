@@ -589,6 +589,17 @@ far side of the site flips a wall's face edges away and drops its foot vertices.
 point-in-polygon, distance, interior point, segment tests; guarded against private copies by `Geometry2DGuardTests`),
 `BatterStripBuilder`, `MeshAreaTopologySplitter`, `GradedRegionAssembler.WeldGradedRegion`.
 
+**Every grade is checked against the grading envelope.** Topology is one floor; height is the other.
+Outside the road or pad a batter runs from the design edge to the ground, so every point a grade moves
+lies between the original ground and the design height at its nearest edge. `PathGrader.Grade` and
+`PadGrader.Grade` check their result (`GradingEnvelope`, its own closest-point search and a ground
+*band* so a wall's foot and top both count), clamp any point outside back into its band, and add a
+`grade_path`/`grade_pad.envelope.clamped` warning — one fault cannot ship a spike, and stays visible.
+The tiers themselves keep every batter point between its edge and its own ground, and choose cut or
+fill by one rule, `BatterBranch`: the side the ground starts on. Tests and copied cases assert
+`GradingResult.HasEnvelopeFault` is false; `GradingEnvelopeSweepTests` grades seeded random scenes
+against it. See `src/MoleHill.Core/Grading/README.md`.
+
 **Grade Line is the corridor at width zero**, not a fourth grader. `PathDefinition.IsSingleLine` (width
 0) collapses both rails onto the drawn curve, so `BuildCorridors` walks the line out and back into one
 station ring: the forward pass rays left, the backward pass rays right, and the same explicit →
