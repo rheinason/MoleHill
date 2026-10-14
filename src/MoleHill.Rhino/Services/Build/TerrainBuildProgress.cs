@@ -2,15 +2,27 @@ using System.Diagnostics;
 
 namespace MoleHill.Rhino.Services;
 
-/// <summary>Lightweight progress snapshots emitted by long-running terrain builds.</summary>
+/// <summary>
+/// Lightweight progress snapshots emitted by long-running terrain builds. <see cref="Step"/> and
+/// <see cref="StepCount"/> are set only by the pipeline's own stage boundaries (one per enabled modifier,
+/// then each output family), which is what the collapsed Status header counts through; the finer reports
+/// inside a stage leave them null.
+/// </summary>
 internal sealed record TerrainBuildProgress(
     string Stage,
     string State,
     TimeSpan TotalElapsed,
     TimeSpan StageElapsed,
     long ManagedBytes,
-    string? Detail = null)
+    string? Detail = null,
+    int? Step = null,
+    int? StepCount = null)
 {
+    /// <summary>A pipeline stage boundary: stage <paramref name="step"/> of <paramref name="stepCount"/> starts.</summary>
+    public static TerrainBuildProgress ForStep(string stage, int step, int stepCount, TimeSpan totalElapsed) =>
+        new(stage, "running", totalElapsed, TimeSpan.Zero, GC.GetTotalMemory(forceFullCollection: false),
+            Step: step, StepCount: stepCount);
+
     public string Format()
     {
         string elapsed = StageElapsed > TimeSpan.Zero

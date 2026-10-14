@@ -301,6 +301,7 @@ public sealed partial class MoleHillPanel : Panel
     private void OnPanelUnLoad(object? sender, EventArgs e)
     {
         _isPanelLoaded = false;
+        _buildActivityTimer?.Stop();
         UnsubscribeControllerStateChanged();
         RhinoApp.AppSettingsChanged -= OnAppSettingsChanged;
     }

@@ -24,6 +24,12 @@ internal sealed partial class TerrainController
 
         public bool IsBuilding { get; set; }
 
+        /// <summary>When the running build was dispatched, for the Status header's elapsed time.</summary>
+        public DateTime? BuildStartedUtc { get; set; }
+
+        /// <summary>The running build's latest pipeline stage boundary (one carrying a step number).</summary>
+        public TerrainBuildProgress? LatestStep { get; set; }
+
         public bool CancelRequested { get; set; }
 
         public long SkippedPreviewVersion { get; set; }

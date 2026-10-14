@@ -13,6 +13,9 @@ internal sealed partial class TerrainBuildService
 {
     internal const int StageTimingDiagnosticThresholdMs = 250;
 
+    /// <summary>Analyses, zones, markers, objects, scatter and reports: the steps after the modifiers.</summary>
+    private const int OutputFamilyStepCount = 6;
+
     /// <summary>
     /// How much of the upstream vertex count a Retaining Wall constrained rebuild must retain to be
     /// accepted. Breakline insertion adds vertices, so any real loss means the rebuild reseeded from
@@ -59,10 +62,23 @@ internal sealed partial class TerrainBuildService
         ulong baseMeshFingerprint = 0;
         AddToleranceDiagnostics(build, GetToleranceProfile(snapshot, terrain));
 
+        // Stage boundaries for the Status header's "Remesh (3 of 9)": each enabled modifier, then the six
+        // output families a final build runs. A step the build skips (an inert card, no mesh to analyse)
+        // is simply passed over, so the count is an upper bound and never runs past it.
+        int stepCount = terrain.Modifiers.Count(modifier => modifier.IsEnabled)
+            + (mode == TerrainBuildMode.Final ? OutputFamilyStepCount : 0);
+        int step = 0;
+        void ReportStep(string stage)
+        {
+            step++;
+            reportProgress?.Invoke(TerrainBuildProgress.ForStep(stage, step, stepCount, totalTimer.Elapsed));
+        }
+
         foreach (var indexedModifier in terrain.Modifiers.Select((modifier, index) => (modifier, index)).Where(item => item.modifier.IsEnabled))
         {
             ThrowIfCancellationRequested(shouldCancel);
             ModifierDefinition modifier = indexedModifier.modifier;
+            ReportStep(string.IsNullOrWhiteSpace(modifier.Label) ? modifier.GetType().Name : modifier.Label);
 
             // Registry dispatch (Blender-style): the type's descriptor owns its build step. A null
             // descriptor means an unregistered modifier type — skip it, exactly as the old switch's
@@ -180,6 +196,7 @@ internal sealed partial class TerrainBuildService
             // produce independent results.
             var referenceProjectionCache = new Dictionary<ReferenceProjectionCacheKey, ReferenceProjectionContext>();
 
+            ReportStep("Analyses");
             build.AnalysisResults.AddRange(BuildAnalyses(
                 snapshot,
                 terrain,
@@ -194,6 +211,7 @@ internal sealed partial class TerrainBuildService
                 shouldCancel));
             latency?.Mark($"{TerrainLatencyPhase.OutputFamilyPrefix}analyses", $"{build.AnalysisResults.Count:N0} analyses");
 
+            ReportStep("Zones");
             string zonesStageKey = TerrainStageKey.ForMode(mode, "zones");
             usedStageKeys.Add(zonesStageKey);
             ExecuteCachedZonesStage(
@@ -213,6 +231,7 @@ internal sealed partial class TerrainBuildService
                 shouldCancel);
             latency?.Mark($"{TerrainLatencyPhase.OutputFamilyPrefix}zones", $"{build.ZoneObjects.Count:N0} zone outputs");
 
+            ReportStep("Markers");
             string markersStageKey = TerrainStageKey.ForMode(mode, "markers");
             usedStageKeys.Add(markersStageKey);
             ExecuteCachedMarkersStage(
@@ -225,6 +244,7 @@ internal sealed partial class TerrainBuildService
                 shouldCancel);
             latency?.Mark($"{TerrainLatencyPhase.OutputFamilyPrefix}markers", $"{build.MarkerObjects.Count:N0} marker outputs");
 
+            ReportStep("Objects");
             string objectsStageKey = TerrainStageKey.ForMode(mode, "objects");
             usedStageKeys.Add(objectsStageKey);
             ExecuteCachedObjectsStage(
@@ -237,6 +257,7 @@ internal sealed partial class TerrainBuildService
                 shouldCancel);
             latency?.Mark($"{TerrainLatencyPhase.OutputFamilyPrefix}objects", $"{build.ObjectPlacements.Sum(static group => group.Placements.Count):N0} placements");
 
+            ReportStep("Scatter");
             string scatterStageKey = TerrainStageKey.ForMode(mode, "scatter");
             usedStageKeys.Add(scatterStageKey);
             ExecuteCachedScatterStage(
@@ -254,6 +275,7 @@ internal sealed partial class TerrainBuildService
             // cache key would have to fingerprint every stage's results to be correct, which costs more
             // than laying out a few hundred text entities.
             latency?.Mark($"{TerrainLatencyPhase.OutputFamilyPrefix}scatter", $"{build.ScatterObjects.Count:N0} scatter outputs");
+            ReportStep("Reports");
             BuildReportTables(snapshot, terrain, analysisMesh, build, shouldCancel);
             latency?.Mark($"{TerrainLatencyPhase.OutputFamilyPrefix}reports");
         }

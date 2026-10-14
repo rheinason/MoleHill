@@ -413,6 +413,8 @@ internal sealed partial class TerrainController
                 }
 
                 latest = update;
+                if (update.Progress.Step.HasValue)
+                    rebuildState.LatestStep = update.Progress;
             }
 
             if (latest == null)

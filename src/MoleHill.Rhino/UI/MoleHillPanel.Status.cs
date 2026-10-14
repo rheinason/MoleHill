@@ -1,6 +1,7 @@
 using Eto.Drawing;
 using Eto.Forms;
 using MoleHill.Core.Grading;
+using MoleHill.Rhino.Services;
 using Rhino;
 using Rhino.UI;
 
@@ -9,13 +10,53 @@ namespace MoleHill.Rhino.UI;
 // Status bar/log helpers: build messages, structured grading diagnostics, and copy-case actions.
 public sealed partial class MoleHillPanel
 {
+    /// <summary>Ticks the collapsed header's elapsed time while a build runs; stopped when idle.</summary>
+    private UITimer? _buildActivityTimer;
+
+    /// <summary>The header's line when no build runs, restored once the running one ends.</summary>
+    private string _statusIdleHint = string.Empty;
+
     private void SetStatusText(string text, IReadOnlyList<GradingDiagnostic>? structuredDiagnostics = null)
     {
         string statusText = FormatStatusText(text, structuredDiagnostics);
         var statusColor = GetStatusColor(statusText, structuredDiagnostics);
         _statusTextArea.Text = statusText;
         _statusTextArea.TextColor = statusColor;
-        _statusHintLabel.Text = GetStatusHintText(statusText, structuredDiagnostics);
+        _statusIdleHint = GetStatusHintText(statusText, structuredDiagnostics);
+        _statusHintLabel.Text = _statusIdleHint;
+        ApplyBuildActivityHint();
+    }
+
+    /// <summary>
+    /// While the selected terrain builds, the collapsed Status header reads "Building · Remesh (3 of 9) ·
+    /// 12 s" in the active colour instead of the last log line, so a running build is visible without
+    /// opening the log — the log line alone looked the same running or finished. Build progress arrives
+    /// only at stage boundaries, so a timer keeps the clock moving through a long stage.
+    /// </summary>
+    private void ApplyBuildActivityHint()
+    {
+        TerrainBuildActivity? activity = null;
+        if (!IsDisposed && _isPanelLoaded && RhinoDoc.ActiveDoc is { } doc && _controller.GetSelectedTerrain(doc) is { } terrain)
+            activity = _controller.GetBuildActivity(doc, terrain.TerrainId);
+
+        if (activity == null)
+        {
+            _buildActivityTimer?.Stop();
+            _statusHintLabel.Text = _statusIdleHint;
+            _statusHintLabel.TextColor = UiTheme.MutedText;
+            return;
+        }
+
+        _statusHintLabel.Text = activity.Format();
+        _statusHintLabel.TextColor = UiTheme.ActiveBadge;
+        if (_buildActivityTimer == null)
+        {
+            _buildActivityTimer = new UITimer { Interval = 0.5 };
+            _buildActivityTimer.Elapsed += (_, _) => ApplyBuildActivityHint();
+        }
+
+        if (!_buildActivityTimer.Started)
+            _buildActivityTimer.Start();
     }
 
     private void CopyStatusLog()

@@ -187,6 +187,10 @@ layer table, dimension styles, and layouts can act on. See `docs/architecture.md
   native Undo/Redo stack: the controller stores serialized before-state snapshots, joins an existing
   command record when one is active, and coalesces live panel gestures into one record. Undo restoration
   cancels stale work, clears caches, persists the restored JSON, and schedules fresh live builds.
+- `TerrainBuildActivity.cs` - what the selected terrain's build is doing now (`GetBuildActivity`), for
+  the collapsed Status header's "Building · Remesh (3 of 9) · 12 s". The build reports one numbered step
+  per enabled modifier and per output family (`TerrainBuildProgress.ForStep`); the panel ticks the clock
+  on a timer because progress only arrives at stage boundaries.
 - `TerrainController.Grasshopper.cs`, `TerrainGrasshopperBridge.cs`, `TerrainReferenceResolver.cs`,
   `TerrainDocumentIdentity.cs`, and `TerrainSnapshotFingerprint.cs` - expose completed terrain
   snapshots through the separately shipped `MoleHill.Interop` contract. A document identity is saved

@@ -170,6 +170,24 @@ internal sealed partial class TerrainController
             lastDispatch.HasValue ? DateTime.UtcNow - lastDispatch.Value : null);
     }
 
+    /// <summary>What the terrain's build is doing now, or null when it is idle. See <see cref="TerrainBuildActivity"/>.</summary>
+    internal TerrainBuildActivity? GetBuildActivity(RhinoDoc doc, Guid terrainId)
+    {
+        uint docSerial = doc.RuntimeSerialNumber;
+        if (_rebuildStates.TryGetValue((docSerial, terrainId), out TerrainRebuildState? rebuildState) && rebuildState.IsBuilding)
+        {
+            TerrainBuildProgress? step = rebuildState.LatestStep;
+            TimeSpan elapsed = rebuildState.BuildStartedUtc is { } started ? DateTime.UtcNow - started : TimeSpan.Zero;
+            return new TerrainBuildActivity(true, rebuildState.RunningMode, step?.Stage, step?.Step, step?.StepCount, elapsed);
+        }
+
+        // Only a dispatch actually waiting on its debounce: a version gap alone also survives a failed
+        // build, and would leave the header saying "queued" for good.
+        return _pendingRebuilds.ContainsKey((docSerial, terrainId, TerrainBuildMode.Final))
+            ? new TerrainBuildActivity(false, TerrainBuildMode.Final, null, null, null, TimeSpan.Zero)
+            : null;
+    }
+
     private bool HasPendingFinalBuild(uint docSerial, Guid terrainId)
     {
         if (_pendingRebuilds.ContainsKey((docSerial, terrainId, TerrainBuildMode.Final)))
@@ -332,6 +350,8 @@ internal sealed partial class TerrainController
         rebuildState.RunningMode = mode;
         rebuildState.CancelRequested = false;
         rebuildState.IsBuilding = true;
+        rebuildState.BuildStartedUtc = DateTime.UtcNow;
+        rebuildState.LatestStep = null;
         rebuildState.WorkerCancellation = cancellation;
         Action<TerrainBuildProgress> reportProgress = progress =>
             rebuildState.ProgressUpdates.Enqueue(new QueuedBuildProgress(buildVersion, buildGeneration, mode, progress));
@@ -439,6 +459,8 @@ internal sealed partial class TerrainController
         rebuildState.RunningMode = mode;
         rebuildState.CancelRequested = false;
         rebuildState.IsBuilding = true;
+        rebuildState.BuildStartedUtc = DateTime.UtcNow;
+        rebuildState.LatestStep = null;
 
         if (!ConfirmLongRunningBuild(doc, terrain, GetRuntimeCache(doc.RuntimeSerialNumber, terrain.TerrainId), rebuildState, mode, buildVersion))
         {
