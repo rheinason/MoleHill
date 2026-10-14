@@ -35,6 +35,11 @@ instead.
 Fast lane. Native tests skip here and the lane prints how many, followed by an explicit reminder that
 skips are not acceptance.
 
+It includes `GradingEnvelopeSweepTests`: 60 seeded random Grade Path scenes (in both tier orders) and 60
+Grade Pad scenes, each required to stay inside the grading envelope and watertight. After a grading
+change, run it deeper — `MOLEHILL_GRADING_SWEEP=500 dotnet test tests/MoleHill.Core.Tests --filter
+GradingEnvelopeSweepTests` takes about half a minute — and a failure names the seeds to replay.
+
 ## native
 
 Sets `MOLEHILL_REQUIRE_NATIVE=1`. `RhinoNativeFactAttribute` then stops skipping, and
