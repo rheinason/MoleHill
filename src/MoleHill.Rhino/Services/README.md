@@ -205,6 +205,11 @@ layer table, dimension styles, and layouts can act on. See `docs/architecture.md
   per frame in `DrawForeground` (curves depth-tested, labels and dots on top), because shadowed Shaded modes run ~10 passes
   and re-submitting thousands of labels per pass cost ~160 ms a frame. `TerrainDisplayColors` caches
   layer colours per document (cleared on layer-table events) for the same reason.
+- `DocumentTextDotOverlay.cs` - redraws the document's own text dots, in display order, after the
+  preview's labels. Rhino draws a dot without depth before any conduit's `PostDrawObjects`, so the
+  preview mesh painted over every dot on the terrain (BringToFront cannot help: display order only orders
+  Rhino's pass). Drawing the mesh in `PreDrawObjects` instead fixes the dots but shades it darker, because
+  the viewport's lights are not set up yet — both measured live.
 - `ScatterBlockPreview.cs` - per-definition cache the conduit draws scatter's "Real (capped)" preview
   from: members meshed once and joined per colour, drawn under a model transform. Never use
   `DrawInstanceDefinition` for scatter — per instance it is slow and leaks display memory until the

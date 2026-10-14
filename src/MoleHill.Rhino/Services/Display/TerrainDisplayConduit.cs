@@ -59,7 +59,9 @@ internal sealed class TerrainDisplayConduit : DisplayConduit
     ///
     /// Curves are depth-tested (testing is turned back on here), so a contour behind a hill or under a
     /// wall stays hidden, as its bake would be. Labels and dots are drawn on top of everything, after
-    /// the curves: a label exists to be read, and one half-buried in a slope is no use.
+    /// the curves: a label exists to be read, and one half-buried in a slope is no use. The document's
+    /// own text dots go last, over the preview, as they would over a baked terrain — see
+    /// <see cref="DocumentTextDotOverlay"/>.
     /// </summary>
     protected override void DrawForeground(DrawEventArgs e)
     {
@@ -85,6 +87,9 @@ internal sealed class TerrainDisplayConduit : DisplayConduit
         {
             foreach (var view in views)
                 DrawTerrainLinework(e, e.RhinoDoc, view.Terrain, view.DisplayState, labels: true);
+
+            if (views.Count > 0)
+                DocumentTextDotOverlay.Draw(e, e.RhinoDoc);
         }
         finally
         {
