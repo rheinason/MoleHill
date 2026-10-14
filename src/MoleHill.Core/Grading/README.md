@@ -199,6 +199,16 @@ both is a fault: a batter that never met the ground, or a spike.
 - A hard-constraint cap still extends the slope to the constraint: the clamp bounds it, and the step left
   against a wall or kerb is what the constraint is for.
 
+## Smoothing rules (`MeshSmoother`)
+
+Smooth has no design to grade toward, so its rules are its own: a held point — the mesh border, outside
+every region, at zero strength, or on a fully held breakline — does not move, and every other point stays
+within the input range of the points it could have mixed with (its k-ring after k passes): smoothing makes
+no new peak or pit. Each pass's target is a plane fitted through the one-ring, which keeps a uniform slope
+exactly planar, then clamped to the ring's current range (`ClampToRing`), because on an irregular ring a
+fitted plane can land outside it. `MeshSmoother.FindViolations` checks either entry point's result;
+`MeshSmootherSweepTests` runs random irregular meshes through both.
+
 ## Shared building blocks
 - `BreaklineHeightConflicts` - where two sets of breaklines cross in plan at different heights (a breakline-mode
   wall rail over a constrained contour). No 2.5D terrain can honour both lines, so the Retaining Wall stage

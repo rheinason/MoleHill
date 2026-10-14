@@ -41,7 +41,9 @@ change, run it deeper — `MOLEHILL_GRADING_SWEEP=500 dotnet test tests/MoleHill
 GradingEnvelopeSweepTests` takes about half a minute — and a failure names the seeds to replay.
 `WallGradingEnvelopeSweepTests` (Rhino tests, managed) does the same for Retaining Wall grading through the
 real rail planner — straight, bent and ring walls, terraced pairs — 24 scenes by default, and honours the
-same variable (200 scenes take about 50 s).
+same variable (200 scenes take about 50 s). `MeshSmootherSweepTests` holds Smooth to its own rules (held
+points stay put, no new peak or pit) on random irregular meshes through both the prepared and one-shot
+paths; the same variable deepens it (5,000 scenes take about 10 s).
 
 ## native
 

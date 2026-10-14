@@ -115,6 +115,7 @@ public static class MeshSmoother
                     return;
                 }
 
+                targetZ = ClampToRing(result, i, neighborIndices, start, end, targetZ);
                 newZ[i] = result[i * 3 + 2] + s * (targetZ - result[i * 3 + 2]);
             });
 
@@ -209,6 +210,8 @@ public static class MeshSmoother
                     return;
                 }
 
+                targetZ = ClampToRing(result, i, prepared.NeighborIndices, start, end, targetZ);
+
                 newZ[i] = result[i * 3 + 2] + effectiveStrength * (targetZ - result[i * 3 + 2]);
             });
 
@@ -217,6 +220,113 @@ public static class MeshSmoother
         }
 
         return result;
+    }
+
+    /// <summary>
+    /// Points of a <see cref="SmoothPrepared"/> result that broke smoothing's rules. A held point — the mesh
+    /// border, outside every region, at zero strength, or on a breakline held fully — must not move. Every
+    /// other point mixes only with points within <paramref name="iterations"/> steps of it, so it must stay
+    /// within their input range: smoothing makes no new peak or pit. Empty for a sound smooth.
+    /// </summary>
+    public static IReadOnlyList<SmoothingViolation> FindViolations(
+        double[] input,
+        double[] output,
+        PreparedSmoothingData prepared,
+        double globalStrength,
+        double breaklineFixity,
+        int iterations,
+        double tolerance)
+    {
+        ArgumentNullException.ThrowIfNull(prepared);
+        double strength = Math.Clamp(globalStrength, 0.0, 1.0);
+        bool breaklinesHeld = Math.Clamp(breaklineFixity, 0.0, 1.0) >= 1.0;
+        var held = new bool[prepared.VertexCount];
+        for (int i = 0; i < held.Length; i++)
+        {
+            held[i] = !prepared.InsideBoundaries[i] || prepared.IsMeshBoundary[i] || strength <= 0.0 ||
+                (prepared.IsOnBreakline[i] && breaklinesHeld);
+        }
+
+        return FindViolationsCore(input, output, prepared.VertexCount, prepared.NeighborOffsets, prepared.NeighborIndices, held, iterations, tolerance);
+    }
+
+    /// <summary>The rules of <see cref="FindViolations(double[], double[], PreparedSmoothingData, double, double, int, double)"/>
+    /// for a <see cref="Smooth(IndexedTriMesh, (double[], int, double)[], double, BreaklinePolyline[], double, double, int)"/> result.</summary>
+    public static IReadOnlyList<SmoothingViolation> FindViolations(
+        IndexedTriMesh mesh,
+        double[] output,
+        (double[] xyVerts, int vertCount, double strength)[] boundaries,
+        double globalStrength,
+        BreaklinePolyline[] breaklines,
+        double breaklineFixity,
+        double snapTolerance,
+        int iterations,
+        double tolerance)
+    {
+        (double[] vertices, int vertexCount, int[] faces, int faceCount) = mesh;
+        BuildNeighborGraph(vertexCount, faces, faceCount, out var neighborOffsets, out var neighborIndices, out var isMeshBoundary);
+        double[] vertexStrength = BuildVertexStrengths(vertices, vertexCount, boundaries, globalStrength);
+        bool[] onBreakline = breaklines.Length > 0 && breaklineFixity > 0
+            ? BuildBreaklineMask(vertices, vertexCount, breaklines, snapTolerance, vertexStrength: vertexStrength)
+            : new bool[vertexCount];
+        bool breaklinesHeld = Math.Clamp(breaklineFixity, 0.0, 1.0) >= 1.0;
+        var held = new bool[vertexCount];
+        for (int i = 0; i < vertexCount; i++)
+            held[i] = isMeshBoundary[i] || vertexStrength[i] <= 0.0 || (onBreakline[i] && breaklinesHeld);
+
+        return FindViolationsCore(vertices, output, vertexCount, neighborOffsets, neighborIndices, held, iterations, tolerance);
+    }
+
+    private static List<SmoothingViolation> FindViolationsCore(
+        double[] input,
+        double[] output,
+        int vertexCount,
+        int[] neighborOffsets,
+        int[] neighborIndices,
+        bool[] held,
+        int iterations,
+        double tolerance)
+    {
+        // The input range over each point's k-ring, grown one ring per pass.
+        var low = new double[vertexCount];
+        var high = new double[vertexCount];
+        for (int i = 0; i < vertexCount; i++)
+            low[i] = high[i] = input[(i * 3) + 2];
+
+        var nextLow = new double[vertexCount];
+        var nextHigh = new double[vertexCount];
+        for (int pass = 0; pass < Math.Max(0, iterations); pass++)
+        {
+            for (int i = 0; i < vertexCount; i++)
+            {
+                double lo = low[i];
+                double hi = high[i];
+                for (int k = neighborOffsets[i]; k < neighborOffsets[i + 1]; k++)
+                {
+                    int neighbor = neighborIndices[k];
+                    lo = Math.Min(lo, low[neighbor]);
+                    hi = Math.Max(hi, high[neighbor]);
+                }
+
+                nextLow[i] = lo;
+                nextHigh[i] = hi;
+            }
+
+            (low, nextLow) = (nextLow, low);
+            (high, nextHigh) = (nextHigh, high);
+        }
+
+        var violations = new List<SmoothingViolation>();
+        for (int i = 0; i < vertexCount; i++)
+        {
+            double before = input[(i * 3) + 2];
+            double after = output[(i * 3) + 2];
+            bool moved = Math.Abs(after - before) > tolerance;
+            if (held[i] ? moved : after > high[i] + tolerance || after < low[i] - tolerance)
+                violations.Add(new SmoothingViolation(i, before, after, low[i], high[i], held[i]));
+        }
+
+        return violations;
     }
 
     private static double[] BuildVertexStrengths(
@@ -479,6 +589,26 @@ public static class MeshSmoother
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// <paramref name="targetZ"/> held within the current heights of the point and its neighbours. The
+    /// target is a plane fitted through the one-ring, which keeps a uniform slope exactly planar — but on an
+    /// irregular ring the fitted plane can land outside every neighbour's height, and the point then becomes
+    /// a new peak or pit (1-2 cm in a random sweep). Within the ring, smoothing can only even the ground out.
+    /// </summary>
+    private static double ClampToRing(double[] current, int vertexIndex, int[] neighborIndices, int start, int end, double targetZ)
+    {
+        double low = current[vertexIndex * 3 + 2];
+        double high = low;
+        for (int index = start; index < end; index++)
+        {
+            double z = current[neighborIndices[index] * 3 + 2];
+            low = Math.Min(low, z);
+            high = Math.Max(high, z);
+        }
+
+        return Math.Clamp(targetZ, low, high);
     }
 
     private static bool TryEstimatePlaneZ(
