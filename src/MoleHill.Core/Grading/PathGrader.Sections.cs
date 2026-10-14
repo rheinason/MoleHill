@@ -712,19 +712,53 @@ public static partial class PathGrader
 
         double resolvedReach = 0.0;
         bool capToTerrainZ = false;
-        if (TryFindPathDaylightReach(
-                interpolateOriginalZ,
-                edgeX,
-                edgeY,
-                edgeZ,
-                dirX,
-                dirY,
-                slopeRatio,
-                branchSign,
-                clippedReach,
-                width,
-                out double daylightReach,
-                out double bestApproachReach))
+        bool daylit = TryFindPathDaylightReach(
+            interpolateOriginalZ,
+            edgeX,
+            edgeY,
+            edgeZ,
+            dirX,
+            dirY,
+            slopeRatio,
+            branchSign,
+            clippedReach,
+            width,
+            out double daylightReach,
+            out double bestApproachReach);
+
+        // The branch follows the section's largest height difference, but a batter can only daylight
+        // on the side the ground starts on: ground 0.13 m below the road edge and then 0.5 m above it
+        // (a flat terrace behind a low verge) picked cut, and a cut batter starting above the ground
+        // only climbs away from it. With a kerb behind the verge the section was capped there, so the
+        // batter rose 45° for 4 m and stood up to 5 m above the ground. When the chosen branch cannot
+        // meet the ground, the other one is tried before any cap.
+        if (!daylit)
+        {
+            double otherSign = -branchSign;
+            double otherSlopeRatio = otherSign < 0.0 ? fillSlopeRatio : cutSlopeRatio;
+            if (otherSlopeRatio > 1e-12 &&
+                TryFindPathDaylightReach(
+                    interpolateOriginalZ,
+                    edgeX,
+                    edgeY,
+                    edgeZ,
+                    dirX,
+                    dirY,
+                    otherSlopeRatio,
+                    otherSign,
+                    clippedReach,
+                    width,
+                    out double otherDaylightReach,
+                    out _))
+            {
+                daylit = true;
+                branchSign = otherSign;
+                slopeRatio = otherSlopeRatio;
+                daylightReach = otherDaylightReach;
+            }
+        }
+
+        if (daylit)
         {
             resolvedReach = daylightReach;
             status = PathSectionResolutionStatus.ResolvedDaylight;
