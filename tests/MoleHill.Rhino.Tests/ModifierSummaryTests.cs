@@ -148,9 +148,20 @@ public sealed class ModifierSummaryTests
     }
 
     [Fact]
+    public void Displace_Summary_NoiseAndImage()
+    {
+        Assert.Equal("Noise | Size 10 | Height 0.5 | Seed 3 | whole terrain", Summary(new DisplaceModifierDefinition
+        { NoiseSize = 10.0, Height = 0.5, Seed = 3 }));
+        Assert.Equal("Image dunes.png | Tile 20 x 15 | Height 1 | 2 boundaries", Summary(new DisplaceModifierDefinition
+        {
+            Source = DisplaceSources.Image, ImagePath = @"C:\maps\dunes.png", TileSizeX = 20.0, TileSizeY = 15.0, Height = 1.0, Boundaries = Refs(2)
+        }));
+    }
+
+    [Fact]
     public void ModifierDescriptors_AllCoveredBySummaryTests()
     {
-        // 13 types are covered above; a new modifier type must add a case here.
-        Assert.Equal(13, TerrainTypeRegistry.Modifiers.Count);
+        // 14 types are covered above; a new modifier type must add a case here.
+        Assert.Equal(14, TerrainTypeRegistry.Modifiers.Count);
     }
 }

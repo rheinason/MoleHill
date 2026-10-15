@@ -12,6 +12,9 @@
 
   <ItemGroup>
     <PackageReference Include="BitMiracle.LibTiff.NET" Version="2.4.660" />
+    <!-- Displace decodes heightmap images through System.Drawing (Services/Import/HeightmapImageLoader);
+         the plugin takes it from the WindowsDesktop pack Rhino runs on, a plain net8.0 test host from here. -->
+    <PackageReference Include="System.Drawing.Common" Version="8.0.0" />
     <!-- No RhinoCommon package pin. These tests load the real Rhino: managed RhinoCommon, native
          rhcommon_c.dll and the installed Grasshopper are a version-locked set, so the reference
          below takes RhinoCommon from $(RhinoSystemDir) and it always matches whatever Rhino is
