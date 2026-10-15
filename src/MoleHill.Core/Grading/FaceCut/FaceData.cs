@@ -71,6 +71,19 @@ internal readonly struct FaceData
     /// <summary>True when the face runs clockwise in plan.</summary>
     public bool IsClockwise => Cross(B.X - A.X, B.Y - A.Y, C.X - A.X, C.Y - A.Y) < 0.0;
 
+    /// <summary>The face's smallest height in plan (twice its plan area over its longest plan edge); zero for a
+    /// vertical wall face.</summary>
+    public double PlanWidth
+    {
+        get
+        {
+            double longestSquared = Math.Max(DistanceSquared(A, B), Math.Max(DistanceSquared(B, C), DistanceSquared(C, A)));
+            return longestSquared <= 0.0
+                ? 0.0
+                : Math.Abs(Cross(B.X - A.X, B.Y - A.Y, C.X - A.X, C.Y - A.Y)) / Math.Sqrt(longestSquared);
+        }
+    }
+
     public bool IsNearVertex(Point2D point, double tolerance)
     {
         double tolSq = tolerance * tolerance;

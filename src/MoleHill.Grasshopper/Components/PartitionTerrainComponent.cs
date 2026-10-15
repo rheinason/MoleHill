@@ -176,7 +176,8 @@ public sealed class PartitionTerrainComponent : GH_Component
             new IndexedTriMesh(vertices, extracted.VertexCount, faces, extracted.FaceCount),
             boundaries.ToArray(),
             tolerance,
-            out string? splitWarning);
+            out string? splitWarning,
+            snap: MeshAreaSplitter.BoundarySnap.FollowDrawnLine);
         if (result == null)
         {
             AddRuntimeMessage(GH_RuntimeMessageLevel.Error, splitWarning ?? "Terrain partition failed.");

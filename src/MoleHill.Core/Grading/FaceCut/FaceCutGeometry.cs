@@ -464,9 +464,10 @@ internal static class FaceCutGeometry
         double rxs = Cross(rx, ry, sx, sy);
         double qpx = b0.X - a0.X;
         double qpy = b0.Y - a0.Y;
-        double qpxr = Cross(qpx, qpy, rx, ry);
+        double rLength = Math.Sqrt((rx * rx) + (ry * ry));
+        double sLength = Math.Sqrt((sx * sx) + (sy * sy));
 
-        if (Math.Abs(rxs) <= tolerance && Math.Abs(qpxr) <= tolerance)
+        if (AreCollinear(a0, a1, rLength, b0, b1, sLength, tolerance))
         {
             double t0 = ParameterOnSegment(a0, a1, b0);
             double t1 = ParameterOnSegment(a0, a1, b1);
@@ -499,7 +500,7 @@ internal static class FaceCutGeometry
             };
         }
 
-        if (Math.Abs(rxs) <= tolerance)
+        if (Math.Abs(rxs) <= 1e-12 * rLength * sLength)
             return NoIntersection(a0);
 
         double t = Cross(qpx, qpy, sx, sy) / rxs;
@@ -517,6 +518,32 @@ internal static class FaceCutGeometry
             P0 = intersectionPoint,
             P1 = intersectionPoint
         };
+    }
+
+    /// <summary>
+    /// True when both ends of the shorter segment lie within <paramref name="tolerance"/> of the longer one's
+    /// line. Measured as distances: the cross products this replaced were lengths squared compared against a
+    /// length, so a short boundary segment crossing a terrain edge at 50 degrees read as collinear, and its
+    /// "overlap" placed a cut point outside the face.
+    /// </summary>
+    private static bool AreCollinear(Point2D a0, Point2D a1, double aLength, Point2D b0, Point2D b1, double bLength, double tolerance)
+    {
+        if (aLength < bLength)
+            return AreCollinear(b0, b1, bLength, a0, a1, aLength, tolerance);
+
+        // Both shorter than the tolerance have no line to measure against: collinear only when b lies on a.
+        if (aLength <= tolerance)
+        {
+            double toleranceSquared = tolerance * tolerance;
+            return DistanceSquared(b0, Lerp(a0, a1, ParameterOnEdge(a0, a1, b0))) <= toleranceSquared &&
+                   DistanceSquared(b1, Lerp(a0, a1, ParameterOnEdge(a0, a1, b1))) <= toleranceSquared;
+        }
+
+        double ax = a1.X - a0.X;
+        double ay = a1.Y - a0.Y;
+        double limit = tolerance * aLength;
+        return Math.Abs(Cross(b0.X - a0.X, b0.Y - a0.Y, ax, ay)) <= limit &&
+               Math.Abs(Cross(b1.X - a0.X, b1.Y - a0.Y, ax, ay)) <= limit;
     }
 
     private static SegmentIntersection NoIntersection(Point2D a0) => new()

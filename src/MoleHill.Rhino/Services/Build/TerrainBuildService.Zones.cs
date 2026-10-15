@@ -89,7 +89,8 @@ internal sealed partial class TerrainBuildService
             boundaries,
             tolerance,
             out var splitWarning,
-            shouldCancel);
+            shouldCancel,
+            MeshAreaSplitter.BoundarySnap.FollowDrawnLine);
         splitTimer.Stop();
 
         if (result == null)

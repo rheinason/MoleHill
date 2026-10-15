@@ -227,6 +227,12 @@ reuse exactly the same seam coordinates while untouched source triangles retain 
 outlines in one zone use odd/even containment, allowing disjoint parts and nested holes, and each output
 carries only source breakline segments projected onto its mesh. Users remain free to deconstruct,
 split/join/merge with standard Grasshopper tools, and reconstruct.
+Both zone paths split with `MeshAreaSplitter.BoundarySnap.FollowDrawnLine`: a cut point moves onto a
+terrain edge or corner only within the tolerance, so a seam stays on the line as drawn. The grading
+conform's 8x snap (`ConformToTerrain`, still the default) put one seam vertex in five more than 1 cm off
+its curve on a 0.2 m remesh, up to 7 cm. Wall faces, narrower in plan than that conform radius, take no
+cut of their own; they only follow the splits their neighbours make, so the seam crosses a wall within
+the wall's own plan width.
 Rhino's zone stage orders boundaries through Core `ZonePriorityResolver` using stack position, source
 order, and optional input elevation. Stack-priority zones separate elevation-sorted runs; this makes
 mixed priority modes deterministic where the former pairwise comparator could cycle. GH does not yet

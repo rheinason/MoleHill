@@ -47,6 +47,27 @@ public static class MeshAreaSplitter
     }
 
     /// <summary>
+    /// How far <see cref="SplitPreservingTopology(IndexedTriMesh, AreaBoundary[], double, out string?, Func{bool}?, BoundarySnap)"/>
+    /// may move a boundary to land its cut points on the terrain's own edges and corners.
+    /// </summary>
+    public enum BoundarySnap
+    {
+        /// <summary>
+        /// Snap within several model tolerances (<c>ConformSnapToleranceFactor</c>), for loops a grading or trim
+        /// stage carves the terrain to: a near-miss there leaves a sliver along the shared edge, and the line
+        /// moves negligibly against the terrain it was derived from.
+        /// </summary>
+        ConformToTerrain,
+
+        /// <summary>
+        /// Snap only within the model tolerance, for drawn lines such as zone boundaries. On a dense terrain
+        /// almost every cut point lies within the conform radius of some edge or corner, so a conform zig-zags
+        /// the seam along a line drawn straight; this keeps it on the line.
+        /// </summary>
+        FollowDrawnLine
+    }
+
+    /// <summary>
     /// Result of splitting a mesh by area boundaries.
     /// </summary>
     public sealed class SplitResult
@@ -154,14 +175,16 @@ public static class MeshAreaSplitter
         AreaBoundary[] areas,
         double boundaryTolerance,
         out string? errorMessage,
-        Func<bool>? shouldCancel = null)
+        Func<bool>? shouldCancel = null,
+        BoundarySnap snap = BoundarySnap.ConformToTerrain)
     {
         return MeshAreaTopologySplitter.Split(
             mesh,
             areas,
             boundaryTolerance,
             out errorMessage,
-            shouldCancel);
+            shouldCancel,
+            snap);
     }
 
     internal static SplitResult? SplitPreservingTopology(

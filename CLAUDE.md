@@ -180,7 +180,10 @@ When Triangle.NET inserts Steiner points, their Z must be interpolated. Check in
   `GlobalPointLookup`) serves both `MeshAreaTopologySplitter` and `MeshConstraintTopologyInserter`; they were
   forks that drifted. Fix face-cutting there, once. What legitimately differs is named, not copied:
   `EdgePointMerge` (line insertion merges same-edge points only), and the splitter's 8× conform snaps,
-  which line insertion must never use (a wall rail moved 8 mm leaves needles).
+  which line insertion must never use (a wall rail moved 8 mm leaves needles). The splitter's snap is itself
+  a choice, `MeshAreaSplitter.BoundarySnap`: grading and Outer/Hide/Show conform (`ConformToTerrain`, the
+  default); zones and Partition Terrain follow the drawn line (`FollowDrawnLine`, snap within tolerance, wall
+  faces take no cut of their own) - on a dense remesh a conform zig-zagged every zone seam by up to 7 cm.
 - **Modifier build stages are classes.** Each lives in `Services/Build/Stages/XxxStage` (`Run(ModifierBuildContext)`
   plus its own helpers); its descriptor's `RunBuildStage` calls it. A helper a second stage needs is raised to
   `internal static` on `TerrainBuildService`, never copied.

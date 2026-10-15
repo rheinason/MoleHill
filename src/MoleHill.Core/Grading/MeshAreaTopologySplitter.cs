@@ -17,6 +17,31 @@ internal static class MeshAreaTopologySplitter
     /// </summary>
     internal const double ConformSnapToleranceFactor = 8.0;
 
+    /// <summary>
+    /// The snap radius, in multiples of the model tolerance, for <see cref="MeshAreaSplitter.BoundarySnap.FollowDrawnLine"/>:
+    /// a cut point moves onto a terrain edge or corner only when it is already within tolerance of it, so
+    /// the split follows the line as drawn however dense the terrain is.
+    /// </summary>
+    internal const double DrawnLineSnapToleranceFactor = 1.0;
+
+    internal static double SnapToleranceFactor(MeshAreaSplitter.BoundarySnap snap) => snap switch
+    {
+        MeshAreaSplitter.BoundarySnap.FollowDrawnLine => DrawnLineSnapToleranceFactor,
+        _ => ConformSnapToleranceFactor
+    };
+
+    /// <summary>
+    /// The plan width below which a face takes no cut of its own: a wall, whose plan is a line, or a needle.
+    /// Following a drawn line, the conform snap no longer absorbs the cut points such a face finds on both of
+    /// its long edges at once, and neighbouring wall faces disagreed about them - a dense terrain's walls
+    /// cracked wherever a zone seam crossed them. Uncut, the face still subdivides every edge a neighbour
+    /// split, through the shared-edge registry, so it stays watertight, and its pieces join whichever area
+    /// holds them; the seam can move at most the face's own plan width, under the conform radius. A conform
+    /// cuts every face (its snap already covers these), so this is zero there.
+    /// </summary>
+    internal static double UncutPlanWidth(MeshAreaSplitter.BoundarySnap snap, double tolerance) =>
+        snap == MeshAreaSplitter.BoundarySnap.FollowDrawnLine ? tolerance * ConformSnapToleranceFactor : 0.0;
+
     /// <summary>A face whose middle corner lies within this distance of its long edge is treated as a cap:
     /// far below any terrain detail, and above the few micrometres float rounding leaves.</summary>
     internal const double ThinCapApexDistance = 1e-5;
@@ -108,7 +133,8 @@ internal static class MeshAreaTopologySplitter
         MeshAreaSplitter.AreaBoundary[] areas,
         double boundaryTolerance,
         out string? errorMessage,
-        Func<bool>? shouldCancel = null)
+        Func<bool>? shouldCancel = null,
+        MeshAreaSplitter.BoundarySnap snap = MeshAreaSplitter.BoundarySnap.ConformToTerrain)
     {
         return Split(
             mesh,
@@ -116,7 +142,8 @@ internal static class MeshAreaTopologySplitter
             boundaryTolerance,
             out errorMessage,
             performanceTimings: null,
-            shouldCancel);
+            shouldCancel,
+            snap);
     }
 
     internal static MeshAreaSplitter.SplitResult? Split(
@@ -125,7 +152,8 @@ internal static class MeshAreaTopologySplitter
         double boundaryTolerance,
         out string? errorMessage,
         PerformanceTimings? performanceTimings,
-        Func<bool>? shouldCancel = null)
+        Func<bool>? shouldCancel = null,
+        MeshAreaSplitter.BoundarySnap snap = MeshAreaSplitter.BoundarySnap.ConformToTerrain)
     {
         (double[] vertices, int vertexCount, int[] faces, int faceCount) = mesh;
 
@@ -156,6 +184,8 @@ internal static class MeshAreaTopologySplitter
         faces = MeshArrayNormalizer.SplitCollinearCaps(vertices, faces, faceCount, out faceCount, out _, ThinCapApexDistance);
 
         double tolerance = Math.Max(boundaryTolerance, 1e-9);
+        double snapRadius = tolerance * SnapToleranceFactor(snap);
+        double snapRadiusSquared = snapRadius * snapRadius;
         Stopwatch? phaseTimer = performanceTimings != null ? Stopwatch.StartNew() : null;
         long phaseAllocatedBefore = performanceTimings != null
             ? GC.GetTotalAllocatedBytes(precise: true)
@@ -190,7 +220,7 @@ internal static class MeshAreaTopologySplitter
         }
 
         cancellation.ThrowIfCancelled();
-        var faceCuts = MapBoundarySegmentsToFaces(faceData, boundarySegments, tolerance, cancellation);
+        var faceCuts = MapBoundarySegmentsToFaces(faceData, boundarySegments, tolerance, snapRadiusSquared, UncutPlanWidth(snap, tolerance), cancellation);
         if (performanceTimings != null)
         {
             performanceTimings.FaceMappingMilliseconds = phaseTimer!.Elapsed.TotalMilliseconds;
@@ -281,7 +311,7 @@ internal static class MeshAreaTopologySplitter
             }
 
             bool forceFailure = ForceRetriangulationFailureForTesting?.Invoke(faceIndex) == true;
-            if (!TriangulateTouchedFace(face, cuts, sharedEdgePoints, pointLookup, edgeSplits, globalFaces, tolerance, forceFailure, out string? faceError))
+            if (!TriangulateTouchedFace(face, cuts, sharedEdgePoints, pointLookup, edgeSplits, globalFaces, tolerance, snapRadiusSquared, forceFailure, out string? faceError))
             {
                 // One face that cannot be re-triangulated must not discard the split for the whole
                 // terrain. On a multi-million-face GIS mesh a handful of faces are degenerate or carry
@@ -482,6 +512,8 @@ internal static class MeshAreaTopologySplitter
         FaceSource faceData,
         List<CutSegment> boundarySegments,
         double tolerance,
+        double edgeSnapToleranceSquared,
+        double uncutPlanWidth,
         CancellationProbe? cancellation = null)
     {
         CancellationProbe probe = cancellation ?? CancellationProbe.None;
@@ -502,10 +534,8 @@ internal static class MeshAreaTopologySplitter
         probe.ThrowIfCancelled();
         var result = new FaceCutData[faceData.Count];
 
-        // Cut endpoints within this distance of a terrain edge are projected onto it so they conform
-        // (see the snap rationale in the clipped-piece loop). Several times the model tolerance - large
-        // enough to absorb near-edge cut points, far below terrain detail.
-        double edgeSnapToleranceSquared = (tolerance * ConformSnapToleranceFactor) * (tolerance * ConformSnapToleranceFactor);
+        // Cut endpoints within edgeSnapToleranceSquared of a terrain edge are projected onto it so they
+        // conform (see the snap rationale in the clipped-piece loop); the radius comes from the BoundarySnap.
 
         // Each worker gets its own probe: a shared countdown is decremented by all of them at once,
         // which would consult the callback far more often than once per interval per worker.
@@ -525,6 +555,9 @@ internal static class MeshAreaTopologySplitter
         {
             state.Cancellation.ThrowIfCancelledOften();
             FaceData face = faceData.Get(faceIndex);
+            if (face.PlanWidth < uncutPlanWidth)
+                return state;
+
             Bounds2D faceBounds = face.Bounds;
 
             grid.GatherCandidates(faceBounds, state.Candidates, state.Scratch);
@@ -567,8 +600,8 @@ internal static class MeshAreaTopologySplitter
                     // terrain. Projecting onto the edge makes the point register in the shared-edge
                     // registry, so BOTH faces subdivide the edge identically (no sliver). Projection onto
                     // a shared edge is position-identical from either side, so it is consistent by
-                    // construction. The snap radius is several times the model tolerance but far below
-                    // terrain detail, so the carve boundary moves negligibly.
+                    // construction. The snap radius comes from the BoundarySnap: several times the model
+                    // tolerance for a conform, within tolerance when following a drawn line.
                     var clippedPiece = new SegmentPiece(
                         SnapPointToNearEdge(face, rawPiece.Start, edgeSnapToleranceSquared),
                         SnapPointToNearEdge(face, rawPiece.End, edgeSnapToleranceSquared));
@@ -610,6 +643,7 @@ internal static class MeshAreaTopologySplitter
         MeshEdgeSplitRegistry edgeSplits,
         FaceBuffer globalFaces,
         double tolerance,
+        double cornerSnapTolSq,
         bool forceFailure,
         out string? errorMessage)
     {
@@ -632,9 +666,8 @@ internal static class MeshAreaTopologySplitter
         // different near-corner point — producing two overlapping sliver triangles, i.e. a non-manifold
         // edge in the conformed terrain. Snapping to the shared corner is consistent across both faces
         // by construction (same global vertex), so the slivers collapse to degenerate and drop out. The
-        // snap radius is several times the model tolerance but far below terrain detail, so the carve
-        // boundary moves negligibly.
-        double cornerSnapTolSq = (tolerance * ConformSnapToleranceFactor) * (tolerance * ConformSnapToleranceFactor);
+        // snap radius (cornerSnapTolSq, from the BoundarySnap) is far below terrain detail for a conform, and
+        // within tolerance when following a drawn line.
 
         List<(double Parameter, int LocalIndex)>[] edgePointLists = CreateEdgeChains(a, b, c);
 
@@ -690,10 +723,22 @@ internal static class MeshAreaTopologySplitter
         // merge tolerance, or a set that is entirely collinear - has no meaningful subdivision to
         // compute. Triangle.NET yields 0 triangles for every constrained tier on such input and throws
         // inside the plain-Delaunay fallback, which used to fail the ENTIRE split (and with it every
-        // zone in the terrain) over a single degenerate face. Emit the face unchanged instead: it is
-        // degenerate to within tolerance, so any T-junction left behind is below tolerance too.
-        if (!HasTriangulableArea(localPoints, tolerance))
+        // zone in the terrain) over a single degenerate face. Emit the face unchanged instead - unless a
+        // neighbour split one of its edges. Degenerate in plan is not degenerate: a vertical wall face is a
+        // line in plan with edges as long as the wall is wide, and emitted whole beside a neighbour that split
+        // their shared edge it left a crack wherever a zone ran along the wall. Fan it over those splits.
+        // The same holds for a face merely narrower in plan than the tolerance - a wall leaning a few
+        // micrometres, too thick to count as a cap. It still triangulates in plan, but its opposite edges lie
+        // within merge distance and the pieces between them fail the plan-area checks below, so a piece of
+        // wall went missing beside a split edge. It is fanned in 3D as well.
+        if (face.PlanWidth < tolerance || !HasTriangulableArea(localPoints, tolerance))
         {
+            if (edgePointCounts[0] > 2 || edgePointCounts[1] > 2 || edgePointCounts[2] > 2)
+            {
+                EmitBoundaryFan(face, edgePointLists, edgePointCounts, localPoints, ResolveLocal, pointLookup, globalFaces, planDegenerate: true);
+                return true;
+            }
+
             globalFaces.Add(face.I0);
             globalFaces.Add(face.I1);
             globalFaces.Add(face.I2);
@@ -709,7 +754,7 @@ internal static class MeshAreaTopologySplitter
                 $"face at ({face.A.X:0.###}, {face.A.Y:0.###}) with {localPoints.Count} local points and " +
                 $"{segments.Count} constraint segments - " +
                 (outcome.WarningMessage ?? "no triangles produced.");
-            EmitBoundaryFan(face, edgePointLists, edgePointCounts, localPoints, ResolveLocal, pointLookup, globalFaces);
+            EmitBoundaryFan(face, edgePointLists, edgePointCounts, localPoints, ResolveLocal, pointLookup, globalFaces, planDegenerate: false);
             return false;
         }
 
@@ -790,6 +835,10 @@ internal static class MeshAreaTopologySplitter
     /// face and the centroid is strictly inside it, so each fan triangle is valid, and the edges match
     /// the neighbours' subdivision exactly. The interior constraints are dropped, so classification
     /// assigns each fan triangle to a zone on its own and the boundary crosses this face approximately.
+    /// A face with no plan area (<paramref name="planDegenerate"/>, a vertical wall face) is fanned from its
+    /// centroid in 3D, as a vertex of its own: its plan centroid lies on the wall line, where the corners and
+    /// centres of the wall faces stacked with it share the plan position at other heights, and a lookup by
+    /// position would hang the fan from one of them.
     /// </summary>
     private static void EmitBoundaryFan(
         in FaceData face,
@@ -798,7 +847,8 @@ internal static class MeshAreaTopologySplitter
         LocalPointBuilder localPoints,
         Func<int, int> resolveLocal,
         GlobalPointLookup pointLookup,
-        FaceBuffer globalFaces)
+        FaceBuffer globalFaces,
+        bool planDegenerate)
     {
         // Resolve every ring point (corners included) exactly as the successful path resolves its
         // output vertices, so a neighbour that split the same edge lands on the same global vertices.
@@ -820,7 +870,9 @@ internal static class MeshAreaTopologySplitter
             ring.RemoveAt(ring.Count - 1);
 
         var center = new Point2D((face.A.X + face.B.X + face.C.X) / 3.0, (face.A.Y + face.B.Y + face.C.Y) / 3.0);
-        int centerIndex = pointLookup.Resolve(center, face.InterpolateZ(center));
+        int centerIndex = planDegenerate
+            ? pointLookup.AppendPrivate(center.X, center.Y, (face.Az + face.Bz + face.Cz) / 3.0)
+            : pointLookup.Resolve(center, face.InterpolateZ(center));
         for (int i = 0; i < ring.Count; i++)
         {
             int start = ring[i];

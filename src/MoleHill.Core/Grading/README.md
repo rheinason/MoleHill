@@ -273,7 +273,12 @@ fitted plane can land outside it. `MeshSmoother.FindViolations` checks either en
   also keeps a clockwise face's winding, never merges two corners, and emits a face with no triangulable
   area unchanged (`MeshConstraintInserterFaceCutParityTests`). What still differs is policy, named rather
   than copied: `EdgePointMerge` (the inserter merges same-edge points only) and the splitter's 8x conform
-  snaps, which line insertion must never use.
+  snaps, which line insertion must never use. The splitter snaps per `MeshAreaSplitter.BoundarySnap`:
+  `ConformToTerrain` (8x, grading and trims) or `FollowDrawnLine` (within tolerance, zones), where faces
+  narrower in plan than the conform radius - walls - take no cut of their own and only follow their
+  neighbours' edge splits. A face narrower in plan than the tolerance (a vertical or near-vertical wall face)
+  that a neighbour split is fanned over the split in 3D rather than triangulated in plan, where its pieces
+  fail the plan-area checks, or emitted whole (`MeshAreaSplitterDrawnLineTests`).
 - `MeshAreaTopologySplitter.cs` / `MeshAreaSplitter.cs` - conforming terrain subdivision along loops.
   Splits resolve per edge (`MeshEdgeSplitRegistry.cs`, `LocalPointIdentities.cs`, shared with the
   constraint inserter), caps are split before and near-twin vertices fused after

@@ -14,15 +14,17 @@ namespace MoleHill.Core.Tests;
 public sealed class ZoneSplitSliverCaseTests
 {
     [Theory]
-    [InlineData(0)]
-    [InlineData(1)]
-    public void SplitPreservingTopology_SliverTerrain_TilesTheTerrainExactly(int fixture)
+    [InlineData(0, MeshAreaSplitter.BoundarySnap.ConformToTerrain)]
+    [InlineData(1, MeshAreaSplitter.BoundarySnap.ConformToTerrain)]
+    [InlineData(0, MeshAreaSplitter.BoundarySnap.FollowDrawnLine)]
+    [InlineData(1, MeshAreaSplitter.BoundarySnap.FollowDrawnLine)]
+    public void SplitPreservingTopology_SliverTerrain_TilesTheTerrainExactly(int fixture, MeshAreaSplitter.BoundarySnap snap)
     {
         (double[] vertices, int[] faces, double[][] zones) = fixture == 0 ? (Vertices0, Faces0, Zones0) : (Vertices1, Faces1, Zones1);
         var areas = zones.Select(xy => new MeshAreaSplitter.AreaBoundary(xy, xy.Length / 2)).ToArray();
 
         MeshAreaSplitter.SplitResult? result = MeshAreaSplitter.SplitPreservingTopology(
-            IndexedTriMesh.FromArrays(vertices, faces), areas, 0.0125, out string? error);
+            IndexedTriMesh.FromArrays(vertices, faces), areas, 0.0125, out string? error, snap: snap);
 
         Assert.NotNull(result);
         var uses = IndexedMeshTools.CreateEdgeKeyMap<int>(result!.FaceCount * 3);

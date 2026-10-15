@@ -48,6 +48,21 @@ internal sealed class GlobalPointLookup
         return index;
     }
 
+    /// <summary>
+    /// Adds a vertex that only its own face uses, without registering it: no later lookup may resolve to it.
+    /// A fan centre inside a vertical wall face shares its plan position with the wall's rails and with the
+    /// centres of the faces stacked above it, so a registered one would hand its height to them.
+    /// </summary>
+    public int AppendPrivate(double x, double y, double z)
+    {
+        int index = _vertices.Count / 3;
+        _vertices.Add(x);
+        _vertices.Add(y);
+        _vertices.Add(z);
+        _next.Add(-1); // keeps the cell chains indexed by vertex; no cell links to it
+        return index;
+    }
+
     /// <summary>Twice the plan area of the triangle on three resolved vertices.</summary>
     public double ProjectedCross(int a, int b, int c)
     {
