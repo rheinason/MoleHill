@@ -3,6 +3,35 @@
 Released through Rhino's Package Manager (Yak) as `MoleHill`. Versions before 1.0.0 were
 beta prereleases. Earlier versions are recorded only in the git history.
 
+## 1.4.1-beta — 2026-10-15
+
+A beta that keeps grading between the design and the ground, makes zones follow the lines as drawn,
+and fixes text dots and block labels around the terrain preview.
+
+**Grading**
+- Every batter now chooses cut or fill by the same rule: the side the ground starts on. A Grade Path
+  beside a low verge with a terrace behind it no longer climbs into a 45° bank standing metres above the
+  ground; it daylights on the side it can reach.
+- Grade Pad and Grade Path check every result against the grading envelope: outside the road or pad, a
+  graded point lies between the existing ground and the design height. Points outside it are pulled back
+  and the card warns that a grading fault was clamped, so a spike can no longer ship silently. In a cut,
+  dips that are already at grade are left alone rather than filled into a band.
+- Smooth never makes a new peak or pit, and leaves held points (the border, points outside its regions,
+  fully held breaklines) where they are.
+- Copy Case for grading now records tolerance, detail size and walls, and the copied test checks the
+  grading rules instead of pinning the faulty output.
+
+**Zones**
+- Zones and Partition Terrain split along the line as drawn. On dense terrains the seam used to zig-zag
+  up to 7 cm off a straight zone edge. Seams along and across retaining walls no longer crack.
+
+**Display and annotations**
+- Rhino's own text dots stay visible over the terrain preview instead of being painted over by it.
+- Annotation and marker blocks are sized by the label text they actually contain, so a block drawn under
+  a scaled dimension style no longer bakes many times too large, and block text previews at the size it
+  bakes. Editing a block's text rebuilds the terrains that place it.
+- The collapsed Status header shows a running build: "Building · Remesh (3 of 9) · 12 s".
+
 ## 1.4.0 — 2026-10-09
 
 Stable release incorporating the changes from 1.3.0-beta through 1.4.0-beta. No functional changes
