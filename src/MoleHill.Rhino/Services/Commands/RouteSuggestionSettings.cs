@@ -1,0 +1,101 @@
+using MoleHill.Core.Routing;
+using MoleHill.Shared;
+
+namespace MoleHill.Rhino.Services;
+
+/// <summary>
+/// The mhSuggestRoute options other than the grade limit (which is a <see cref="SlopeCommandOption"/>),
+/// remembered between runs through <see cref="CommandOptionCache"/>. Lengths are held in model units and
+/// cached in metres, so a value chosen in a metre model reads correctly when the next model is in
+/// millimetres.
+/// </summary>
+internal sealed class RouteSuggestionSettings
+{
+    /// <summary>1:12.5. Steeper than an accessible ramp, gentle for a road; a starting point, not a rule.</summary>
+    public const double DefaultMaxGrade = 0.08;
+
+    public const double DefaultCorridorWidthMeters = 4.0;
+
+    public const double MaxWeight = 100.0;
+
+    public const string MaxGradeCacheKey = "MoleHill.SuggestRoute.MaxGrade";
+    private const string DistanceKey = "MoleHill.SuggestRoute.DistanceWeight";
+    private const string SteepnessKey = "MoleHill.SuggestRoute.SteepnessWeight";
+    private const string EarthworksKey = "MoleHill.SuggestRoute.EarthworksWeight";
+    private const string CorridorKey = "MoleHill.SuggestRoute.CorridorWidth";
+    private const string CellKey = "MoleHill.SuggestRoute.CellSize";
+    private const string AlternativesKey = "MoleHill.SuggestRoute.Alternatives";
+
+    public double DistanceWeight { get; set; } = 1.0;
+
+    public double SteepnessWeight { get; set; } = 1.0;
+
+    public double EarthworksWeight { get; set; } = 1.0;
+
+    /// <summary>Model units.</summary>
+    public double CorridorWidth { get; set; }
+
+    /// <summary>Model units; 0 lets the command choose from the size of the job.</summary>
+    public double CellSize { get; set; }
+
+    public int AlternativeCount { get; set; } = RouteSuggester.MaxAlternatives;
+
+    public bool IsAutomaticCellSize => !(CellSize > 0.0);
+
+    public static RouteSuggestionSettings Load(ModelUnitContext units) => new()
+    {
+        DistanceWeight = CommandOptionCache.GetValue(DistanceKey, 1.0),
+        SteepnessWeight = CommandOptionCache.GetValue(SteepnessKey, 1.0),
+        EarthworksWeight = CommandOptionCache.GetValue(EarthworksKey, 1.0),
+        CorridorWidth = CommandOptionCache.GetLength(CorridorKey, units, DefaultCorridorWidthMeters),
+        CellSize = CommandOptionCache.GetLength(CellKey, units, 0.0),
+        AlternativeCount = CommandOptionCache.GetValue(AlternativesKey, RouteSuggester.MaxAlternatives),
+    };
+
+    public void Save(ModelUnitContext units)
+    {
+        CommandOptionCache.SetValue(DistanceKey, DistanceWeight);
+        CommandOptionCache.SetValue(SteepnessKey, SteepnessWeight);
+        CommandOptionCache.SetValue(EarthworksKey, EarthworksWeight);
+        CommandOptionCache.SetLength(CorridorKey, units, CorridorWidth);
+        CommandOptionCache.SetLength(CellKey, units, Math.Max(0.0, CellSize));
+        CommandOptionCache.SetValue(AlternativesKey, AlternativeCount);
+    }
+
+    /// <summary>Why these settings cannot be searched with, or null when they can.</summary>
+    public string? Validate(double maxGrade)
+    {
+        if (!(maxGrade > 0.0))
+            return "MaxGrade must be steeper than level: a route has to be allowed to climb.";
+        if (DistanceWeight + SteepnessWeight + EarthworksWeight <= 0.0)
+            return "At least one of Distance, Steepness and Earthworks must be weighted above zero.";
+        if (!(CorridorWidth > 0.0))
+            return "CorridorWidth must be greater than zero.";
+        return null;
+    }
+
+    public RouteRequest ToRequest(IReadOnlyList<(double X, double Y)> points, double maxGrade, double tolerance) => new()
+    {
+        Points = points,
+        MaxGrade = maxGrade,
+        DistanceWeight = DistanceWeight,
+        SteepnessWeight = SteepnessWeight,
+        EarthworksWeight = EarthworksWeight,
+        CorridorWidth = CorridorWidth,
+        AlternativeCount = Math.Clamp(AlternativeCount, 1, RouteSuggester.MaxAlternatives),
+        ProfileTolerance = tolerance,
+    };
+
+    /// <summary>
+    /// The cell size to search at over a domain, and whether a requested size had to be coarsened to
+    /// keep the grid within <see cref="RouteHeightGrid.MaximumNodeCount"/>.
+    /// </summary>
+    public (double CellSize, bool Coarsened) ResolveCellSize(double domainWidth, double domainHeight, double routeSpan)
+    {
+        if (IsAutomaticCellSize)
+            return (RouteHeightGrid.AutomaticCellSize(domainWidth, domainHeight, routeSpan), false);
+
+        double floor = RouteHeightGrid.MinimumCellSize(domainWidth, domainHeight);
+        return CellSize < floor ? (floor, true) : (CellSize, false);
+    }
+}

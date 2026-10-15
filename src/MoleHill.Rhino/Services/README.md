@@ -13,14 +13,14 @@ file that needs Rhino's runtime must be added to that `Exclude` at its new path.
 |---|---|
 | `Build/` | `TerrainBuildService.*` shared-helper partials, `Stages/` (one static class per modifier build stage), build snapshots and fingerprints, stage keys, tolerance/heuristics, the runtime cache, case recorders/exporters and `LargeTinDiagnostic` |
 | `Controller/` | `TerrainController.*` partials and the policies around it (debounce, superseded builds, interim publish, slow-build warning), undo snapshots, latency tracing, the Grasshopper bridge, reference-terrain resolution |
-| `Display/` | The display conduit, presentation/render meshes, colours, preview view, runtime overlay, scatter block preview, analysis preview builder, drainage preview cache |
+| `Display/` | The display conduit, presentation/render meshes, colours, preview view, runtime overlay, scatter block preview, analysis preview builder, drainage preview cache, the route-suggestion review overlay |
 | `Output/` | Layer roles/templates/creation/routing, annotation styles, hatch patterns, generated-object model, block catalog and templates, `AnnotationBlockLibrary` (copy the built-in annotation block, field inspection and preview field resolution) and `AnnotationBlockEditor` (open a block in Rhino's block editor by name), per-terrain layer rename/cleanup, content visibility |
 | `Annotation/` | Annotation, legend, report and section builders, section layout/profile comparison, zone analysis and gradient-compliance evaluation |
 | `Persistence/` | Terrain JSON serializer, document store/identity/ownership, unit scaling, colour-ramp and field-code stores |
 | `Import/` | GeoTIFF and raster georeferencing, DEM sampling, LandXML, survey import geometry/placement/naming, project-base plane, document north |
 | `CurveReview/` | The curve-review conduit, form, rules, labeller and analysis |
 | `Sculpt/` | The sculpt session controller and its field codec, mask builder, live contours, normal patcher, colouriser and zone follower |
-| `Commands/` | `*CommandService` / `*CommandAlgorithms` backing the `mh*` commands, script runner, option cache, toolbar installer |
+| `Commands/` | `*CommandService` / `*CommandAlgorithms` backing the `mh*` commands, the shared slope option, route-suggestion options/readout, script runner, option cache, toolbar installer |
 | (root) | Shared utilities: `RhinoSourceResolver`, `TerrainMeshProjection`, `ModelUnits`, `ModelUnitGuard`, `SlopeUnitPreference`, `ReferenceEqualityComparer`, `ResolvedSourceObject`, `TerrainRegionState` |
 
 ## Build pipeline
@@ -404,6 +404,22 @@ layer table, dimension styles, and layouts can act on. See `docs/architecture.md
   the exact case stays silent instead of printing a zero users learn to skip. The measurement is opt-in
   per call (`measureDeviation`) and the live preview opts out: under blend-to-terrain every sample is a
   mesh ray, and the preview redraws on each mouse move.
+- `Commands/SlopeCommandOption.cs` - the `Slope` + `Units` option pair every slope-taking command shares
+  (`mhSlopeCurve`, `mhGradientInterpolation`, `mhOffsetFeature`, `mhSuggestRoute`'s `MaxGrade`). It was
+  a private class inside `GeometryCommandService`; it has its own file so commands in other services
+  can take a slope the same way. The label is a constructor argument; everything else is unchanged.
+- `Commands/RouteSuggestionCommandService.cs` / `RouteOptionSet.cs` / `RouteSuggestionSettings.cs` /
+  `RouteSuggestionReadout.cs` + `Display/RouteSuggestionConduit.cs` - `mhSuggestRoute`. The service is
+  the picking (terrain as in `mhDrapeCurve`, via the now-internal
+  `TerrainInputCommandService.CreateProjectionMeshes`; points constrained to the terrain, `Undo`), the
+  review loop and the commit (one undo record, current layer, name + `MoleHill.Route.*` user text). The
+  search runs on a worker while the command pumps `RhinoApp.Wait()`, so the viewport stays live and Esc
+  cancels; the height grid is reused while only the weights change. `RouteOptionSet` offers the same
+  options at both stages and says whether a change needs a new search. `RouteSuggestionSettings`
+  (cached in metres, so a millimetre model reads the same corridor) and `RouteSuggestionReadout` (every
+  word printed or stored, slopes through `SlopeInput`) are managed and tested in
+  `RouteSuggestionCommandTests`; the service is excluded from the test project because it reaches
+  `TerrainController`. The math is Core's `Routing/`.
 - `CurveReviewService.cs` / `CurveReviewForm.cs` / `CurveReviewAnalysis.cs` / `CurveReviewConduit.cs` /
   `CurveReviewPalette.cs` - the `mhInspectCurve` plan-station inspector. **It reports; it never edits** -
   see `docs/architecture.md` for why the profile-editing stack was removed rather than restyled. The

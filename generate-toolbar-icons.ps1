@@ -268,6 +268,20 @@ $designs = @{
         }
         $pa.Dispose()
     }
+    # Two picked points joined round a hill: the green route chosen, a thinner ink alternative on the
+    # far side, the hill itself as two contour rings. Contours, not a filled mound, so it reads as plan.
+    'mhSuggestRoute' = {
+        param($g, $s)
+        $pc = InkPen $s 0.06
+        $g.DrawEllipse($pc, ($s * 0.36), ($s * 0.36), ($s * 0.28), ($s * 0.28))
+        $g.DrawEllipse($pc, ($s * 0.44), ($s * 0.44), ($s * 0.12), ($s * 0.12)); $pc.Dispose()
+        $pi = InkPen $s 0.06
+        $g.DrawBezier($pi, ($s * 0.14), ($s * 0.84), ($s * 0.10), ($s * 0.30), ($s * 0.40), ($s * 0.14), ($s * 0.86), ($s * 0.16)); $pi.Dispose()
+        $pa = AccentPen $s 0.12
+        $g.DrawBezier($pa, ($s * 0.14), ($s * 0.84), ($s * 0.60), ($s * 0.90), ($s * 0.90), ($s * 0.66), ($s * 0.86), ($s * 0.16)); $pa.Dispose()
+        Draw-Dot $g $s 0.14 0.84 0.10 $ink
+        Draw-Dot $g $s 0.86 0.16 0.10 $ink
+    }
 
     # Two curves crossing, opened up where they meet.
     'mhSplitAtIntersections' = {
