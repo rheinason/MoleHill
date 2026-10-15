@@ -831,6 +831,43 @@ public sealed partial class MoleHillPanel
         return new PropertyRow(CreateHelpLabel(label, help, 0), textBox, expandWidget: true);
     }
 
+    /// <summary>A file's full path, typed or picked with Browse; committed like any text row.</summary>
+    private Control CreateFilePathEditor(
+        string label,
+        string value,
+        Action<string> onCommit,
+        string help,
+        string filterName,
+        IReadOnlyList<string> extensions)
+    {
+        var textBox = new TextBox { Text = value };
+        StyleTextBox(textBox);
+        ApplyHelp(textBox, help);
+        BindCommittedText(textBox, () => value, onCommit);
+
+        Button browse = MakeInlineButton("Browse…", (_, _) =>
+        {
+            var dialog = new OpenFileDialog { Title = label, MultiSelect = false };
+            if (extensions.Count > 0)
+                dialog.Filters.Add(new FileFilter(filterName, extensions.ToArray()));
+            if (!string.IsNullOrWhiteSpace(value) && File.Exists(value))
+                dialog.FileName = value;
+            if (dialog.ShowDialog(this) != DialogResult.Ok || string.IsNullOrWhiteSpace(dialog.FileName))
+                return;
+            if (!string.Equals(dialog.FileName, value, StringComparison.Ordinal))
+                onCommit(dialog.FileName);
+        }, "Choose the file.");
+
+        var widget = new StackLayout
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 4,
+            VerticalContentAlignment = VerticalAlignment.Center,
+            Items = { new StackLayoutItem(textBox, expand: true), browse }
+        };
+        return new PropertyRow(CreateHelpLabel(label, help, 0), widget, expandWidget: true);
+    }
+
     private void BindCommittedText(TextBox textBox, Func<string> getCurrentValue, Action<string> onCommit, bool trim = true)
     {
         void Commit()
