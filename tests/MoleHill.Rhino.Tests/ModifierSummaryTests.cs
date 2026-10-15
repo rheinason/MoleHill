@@ -76,6 +76,11 @@ public sealed class ModifierSummaryTests
         { Iterations = 5, Strength = 0.5, Breaklines = Refs(2) }));
 
     [Fact]
+    public void Smooth_Summary_RoundModeShowsLengthAndAngle() =>
+        Assert.Equal("Round Creases | Rounding Length 2 | Crease Angle 10 deg | 1 protect curves", Summary(new SmoothModifierDefinition
+        { Mode = SmoothModes.Round, RoundingLength = 2.0, CreaseAngle = 10.0, Breaklines = Refs(1) }));
+
+    [Fact]
     public void Sculpt_Summary_EmptyAndWithTiles()
     {
         Assert.Equal("no strokes", Summary(new SculptModifierDefinition()));

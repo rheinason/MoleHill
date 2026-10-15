@@ -117,7 +117,7 @@ internal sealed partial class TerrainController
         var terrain = GetState(doc).Terrains.FirstOrDefault(item => item.TerrainId == terrainId);
         int modifierIndex = terrain?.Modifiers.FindIndex(item => item.Id == modifierId) ?? -1;
         if (terrain == null || modifierIndex < 0 ||
-            terrain.Modifiers[modifierIndex] is not (SmoothModifierDefinition or SculptModifierDefinition))
+            terrain.Modifiers[modifierIndex] is not (SmoothModifierDefinition { Mode: not SmoothModes.Round } or SculptModifierDefinition))
         {
             return null;
         }

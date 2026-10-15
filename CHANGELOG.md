@@ -3,6 +3,17 @@
 Released through Rhino's Package Manager (Yak) as `MoleHill`. Versions before 1.0.0 were
 beta prereleases. Earlier versions are recorded only in the git history.
 
+## Unreleased
+
+**Terrain shaping**
+- Smooth has a new **Round Creases** mode. It rounds batter crests, toes and slope breaks with a vertical
+  curve of a stated **Rounding Length**, so graded terrain reads as landform instead of CAD. Crests drop,
+  toes rise, and the plan never moves.
+  - Crease Angle sets which folds count as creases.
+  - Protect curves keep a kerb, road edge or pad edge sharp.
+  - Walls are never touched.
+  - Coarse triangles beside a crease are split first, so no Remesh is needed.
+
 ## 1.4.1-beta — 2026-10-15
 
 A beta that keeps grading between the design and the ground, makes zones follow the lines as drawn,

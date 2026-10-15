@@ -583,7 +583,11 @@ internal sealed class SmoothStageCacheEntry
 {
     public ulong Fingerprint { get; init; }
 
-    public required MeshSmoother.PreparedSmoothingData Prepared { get; init; }
+    /// <summary>Smooth mode's prepared data; null on an entry prepared for Round Creases.</summary>
+    public MeshSmoother.PreparedSmoothingData? Prepared { get; init; }
+
+    /// <summary>Round Creases mode's prepared data; null on an entry prepared for Smooth.</summary>
+    public CreaseRounder.PreparedCreaseRounding? Rounding { get; init; }
 }
 
 /// <summary>

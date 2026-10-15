@@ -423,6 +423,32 @@ to round into, so it inherits Smooth's existing "remesh first" regularity warnin
 on purpose, and the persistent hard-constraint stack already identifies them. A rounded wall top would
 be an obvious bug, so this exclusion is part of the first implementation, not a refinement.
 
+**Plan, agreed 2026-10-15** (supersedes the note above where they differ):
+
+- **Profile: a parabolic vertical curve of horizontal length L across each crease**, the road designer's
+  answer to a grade change. A crease whose grade changes by κ moves a point at plan distance d from it by
+  κ·(L/2 − d)² / 2L: κL/8 on the crease, nothing at L/2. That is exactly a box blur of width L across
+  the kink, so bands of neighbouring creases (a short batter's crest and toe) add up correctly into an
+  S-curve. Crests only drop, toes only rise, plan never moves, and detail inside the band rides on top.
+  Built as a line integral of κ along the creases against a radial kernel whose every line projection
+  is that box, so bends and pad corners round continuously and no fold is counted twice (summing each
+  chain's nearest point counted a pad corner up to 4×).
+- **The control is a length, not a radius.** It reads in plan, and a radius is ill-defined across
+  unequal grades. `RoundingLength` is `[ModelLength]`; `CreaseAngle` is a true dihedral angle
+  (`ParameterUnit.Degrees`), defaulting low (10°) because a 1:3 batter meets level ground at only 18°.
+- **The constraint exclusion is loosened.** Constraint creases (pad edges included) round like any
+  other; what must stay sharp is named with the card's **Protect** curves, which in this mode keep their
+  creases sharp. Wall faces (≥70°) are never touched — walls are never buried — and the offset fades to
+  zero over L/2 approaching Protect curves, walls, the mesh border and the card's boundaries, so nothing
+  steps where rounding stops.
+- **Resolution is handled, not just reported:** triangles in the band that are coarser than L/4 are
+  midpoint-split first (`LocalMeshRefiner` with a whole-triangle gate), so a pad top meshed from its
+  outline alone does not sink whole. A wall face never asks for a split, though one sharing a split
+  edge is bisected to stay conforming; its height never changes. Previews skip the split (final builds
+  do it), and it is refused with a diagnostic when the band would need over 500k vertices. (A chamfer is
+  still reported if any remains.)
+- **Grasshopper parity is deferred** to B7b's parity matrix.
+
 ---
 
 ### B13 — Gradient compliance analysis, against a settable standard

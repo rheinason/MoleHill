@@ -133,7 +133,8 @@ public sealed partial class MoleHillPanel
 
     private Control? CreateModifierMeshQualityWarning(TerrainDefinition terrain, ModifierDefinition modifier)
     {
-        if (modifier is not (SmoothModifierDefinition or SculptModifierDefinition))
+        // Round Creases splits its own band, so it needs no Remesh advice.
+        if (modifier is not (SmoothModifierDefinition { Mode: not SmoothModes.Round } or SculptModifierDefinition))
             return null;
 
         var doc = RhinoDoc.ActiveDoc;

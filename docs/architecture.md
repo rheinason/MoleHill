@@ -296,9 +296,9 @@ The modifier cards share one set of words, because the same idea used to carry t
 | **Breakline** | A curve whose edges the mesh keeps, with its Z as the height along the edge | "constraint", "feature line" |
 | **Boundary** | A closed plan curve that scopes a region (Smooth, Project To, Grade Pad, Triangulate clips) | an edge of the mesh |
 | **Border** | The mesh's own outer edge (Peel Border, Simplify, Retopo) | "TIN boundary" |
-| **Crease** | A fold detected from the mesh (Remesh/Retopo Crease Angle); kept, never saved as a breakline | "feature edge" |
+| **Crease** | A fold detected from the mesh (Remesh/Retopo Crease Angle keep them; Smooth's Round Creases rounds them); never saved as a breakline | "feature edge" |
 | **Incoming mesh** | The stage's input — what Simplify measures against and what a failed stage keeps | "upstream mesh", "original mesh" |
-| **Protect** | Sculpt and Smooth: curves that shield terrain from the edit and add no mesh edge (Sculpt: closed = interior, open = the line; Smooth: the line's own vertices) | breakline |
+| **Protect** | Sculpt and Smooth: curves that shield terrain from the edit and add no mesh edge (Sculpt: closed = interior, open = the line; Smooth: the line's own vertices, and in Round Creases the creases along it stay sharp) | breakline |
 | **Protect Hold** | Smooth only: how firmly protected curves keep their height (`BreaklineFixity` on disk) | "fixity" |
 | **Batter** | The graded slope surface between a rail/edge and daylight; a *slope* is the angle that shapes it | "shoulder" |
 

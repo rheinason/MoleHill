@@ -209,6 +209,38 @@ exactly planar, then clamped to the ring's current range (`ClampToRing`), becaus
 fitted plane can land outside it. `MeshSmoother.FindViolations` checks either entry point's result;
 `MeshSmootherSweepTests` runs random irregular meshes through both.
 
+## Crease rounding (`CreaseRounder`)
+
+Smooth's **Round Creases** mode. It rounds batter crests, toes and slope breaks with a parabolic vertical
+curve of horizontal length L. A crease whose grade changes by κ moves a point at plan distance d by
+κ(L/2 − d)²/2L: κL/8 on the crease and nothing at L/2. That is exactly a box blur of width L across the
+kink. Crests only drop, toes only rise, the plan never moves, and detail inside the band rides on top.
+
+It is computed as a blur, not crease by crease. Every crease edge pulls each nearby point by its κ,
+integrated along the edge against a radial kernel. The kernel solves ∇²Φ = G − δ, where G is the 2D
+kernel whose every line projection is that 1D box, so a straight crease gets exactly the parabola. The
+mesh splits a pad corner or a coned batter end into many short folds. The first version summed the
+nearest point of each crease chain and counted such a corner up to four times. The line integral is
+linear, so those folds add up as one surface and no crease is counted twice.
+
+What it never touches:
+- Wall faces (70° or steeper) and their edges, so walls are never buried.
+- Creases along Protect curves.
+- Networks of creases shorter than L, which are surface detail.
+
+The offset fades to zero over L/2 approaching a Protect curve, a wall, the mesh border or a boundary
+edge. Constraint creases (pad edges, road edges) round like any other, and Protect is how a sharp one is
+kept. A crease with nothing beside it to round into would move only its own vertices, and a wide face (a
+pad top meshed from its outline) would tilt whole. So `DensifyBand` first midpoint-splits the band's
+triangles longer than L/4 through `LocalMeshRefiner`'s whole-triangle gate. The surface doesn't change.
+A wall face never asks for a split, but it is bisected along an edge a band triangle splits, to keep the
+mesh conforming. The split costs a whole-mesh refine and a fresh `Prepare`, so it runs on final builds
+only: a preview (scrubbing the length) rounds at the mesh's own resolution. It is refused, with a
+diagnostic, when the band could need more than 500k vertices (or twice the mesh), the case of a short
+length over long creases. `CoarseCreaseLength` reports any chamfer left. `Prepare` holds the incoming
+mesh's creases, which do not depend on the length, and is cached. `CreaseRounderTests` pins the parabola, the
+superposition of crest and toe, and the pad corner on a symmetric triangulation.
+
 ## Shared building blocks
 - `BreaklineHeightConflicts` - where two sets of breaklines cross in plan at different heights (a breakline-mode
   wall rail over a constrained contour). No 2.5D terrain can honour both lines, so the Retaining Wall stage

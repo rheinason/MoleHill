@@ -48,7 +48,20 @@ public static class LocalMeshRefiner
         /// displacement field.
         /// </summary>
         public Func<double, double, bool>? RegionFilter { get; init; }
+
+        /// <summary>
+        /// Optional whole-triangle gate for subdivision, checked with <see cref="RegionFilter"/>: only
+        /// triangles it passes are subdivided. For a region a large triangle can reach without its centroid
+        /// being in it — a band along a crease, which a wide triangle touches at one edge.
+        /// </summary>
+        public Func<RegionTriangle, bool>? TriangleFilter { get; init; }
     }
+
+    /// <summary>A triangle's corners, as handed to <see cref="Options.TriangleFilter"/>.</summary>
+    public readonly record struct RegionTriangle(
+        double Ax, double Ay, double Az,
+        double Bx, double By, double Bz,
+        double Cx, double Cy, double Cz);
 
     public sealed class Result
     {
@@ -99,8 +112,8 @@ public static class LocalMeshRefiner
         // Region-limited early-out (the sculpt session calls this per stroke segment): when no
         // in-region triangle is coarse there is nothing to do — skip feature detection and the list
         // copies entirely.
-        if (options.RegionFilter != null && target > 0 &&
-            !HasCoarseTriangleInRegion(vertices, faces, faceCount, target, options.RegionFilter))
+        if ((options.RegionFilter != null || options.TriangleFilter != null) && target > 0 &&
+            !HasCoarseTriangleInRegion(vertices, faces, faceCount, target, options.RegionFilter, options.TriangleFilter))
         {
             return new Result { Success = true, Vertices = vertices, Faces = faces };
         }
@@ -127,7 +140,7 @@ public static class LocalMeshRefiner
         int addedVertices = 0;
         var midpointParents = new List<int>();
         if (target > 0)
-            addedVertices = SubdivideCoarse(verts, ref tris, featureEdges, target, options.RegionFilter, midpointParents);
+            addedVertices = SubdivideCoarse(verts, ref tris, featureEdges, target, options.RegionFilter, options.TriangleFilter, midpointParents);
 
         double[] outVertices = verts.ToArray();
         int[] outFaces = tris.ToArray();
@@ -166,7 +179,8 @@ public static class LocalMeshRefiner
         int[] faces,
         int faceCount,
         double target,
-        Func<double, double, bool> regionFilter)
+        Func<double, double, bool>? regionFilter,
+        Func<RegionTriangle, bool>? triangleFilter)
     {
         double targetSquared = target * target;
         for (int t = 0; t < faceCount; t++)
@@ -178,14 +192,21 @@ public static class LocalMeshRefiner
             if (d0 <= targetSquared && d1 <= targetSquared && d2 <= targetSquared)
                 continue;
 
-            if (regionFilter(
+            if (regionFilter != null && !regionFilter(
                     (vertices[v0 * 3] + vertices[v1 * 3] + vertices[v2 * 3]) / 3.0,
                     (vertices[v0 * 3 + 1] + vertices[v1 * 3 + 1] + vertices[v2 * 3 + 1]) / 3.0))
+                continue;
+            if (triangleFilter == null || triangleFilter(Corners(vertices, v0, v1, v2)))
                 return true;
         }
 
         return false;
     }
+
+    private static RegionTriangle Corners(IReadOnlyList<double> v, int a, int b, int c) => new(
+        v[a * 3], v[a * 3 + 1], v[a * 3 + 2],
+        v[b * 3], v[b * 3 + 1], v[b * 3 + 2],
+        v[c * 3], v[c * 3 + 1], v[c * 3 + 2]);
 
     private static double EdgeLengthSquared(double[] v, int a, int b)
     {
@@ -221,6 +242,7 @@ public static class LocalMeshRefiner
         HashSet<long> featureEdges,
         double target,
         Func<double, double, bool>? regionFilter,
+        Func<RegionTriangle, bool>? triangleFilter,
         List<int> midpointParents)
     {
         double targetSquared = target * target;
@@ -236,14 +258,18 @@ public static class LocalMeshRefiner
             for (int t = 0; t < faceCount; t++)
             {
                 int v0 = tris[t * 3], v1 = tris[t * 3 + 1], v2 = tris[t * 3 + 2];
+                // Length first: the region gates cost a spatial query, and most triangles are fine already.
+                long longest = LongestEdgeKey(verts, v0, v1, v2, out double longestSquared);
+                if (longestSquared <= targetSquared)
+                    continue;
                 if (regionFilter != null && !regionFilter(
                         (verts[v0 * 3] + verts[v1 * 3] + verts[v2 * 3]) / 3.0,
                         (verts[v0 * 3 + 1] + verts[v1 * 3 + 1] + verts[v2 * 3 + 1]) / 3.0))
                     continue;
+                if (triangleFilter != null && !triangleFilter(Corners(verts, v0, v1, v2)))
+                    continue;
 
-                long longest = LongestEdgeKey(verts, v0, v1, v2, out double longestSquared);
-                if (longestSquared > targetSquared)
-                    marked.Add(longest);
+                marked.Add(longest);
             }
 
             if (marked.Count == 0)

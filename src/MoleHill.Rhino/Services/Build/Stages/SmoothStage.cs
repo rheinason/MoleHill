@@ -13,7 +13,8 @@ using RhinoMesh = Rhino.Geometry.Mesh;
 namespace MoleHill.Rhino.Services;
 
 /// <summary>
-/// Smooth modifier build stage: Laplacian smoothing within boundaries, with selected Grade Path roads held as breaklines.
+/// Smooth modifier build stage: Laplacian smoothing within boundaries, or (Round Creases mode) rounding the
+/// terrain's creases with <see cref="CreaseRounder"/>. Selected Grade Path roads are held as protect curves in both.
 /// </summary>
 internal static class SmoothStage
 {
@@ -58,6 +59,11 @@ internal static class SmoothStage
         var builder = new FingerprintBuilder();
         builder.Add("SmoothPrepared");
         builder.Add(upstreamFingerprint);
+        // The two modes prepare different data under one key; the crease angle is a Round input only.
+        bool round = SmoothModes.IsRound(modifier);
+        builder.Add(round ? SmoothModes.Round : SmoothModes.Smooth);
+        if (round)
+            builder.Add(modifier.CreaseAngle);
         builder.Add(snapshot.ModelAbsoluteTolerance);
         builder.Add(terrain.GlobalTolerance);
         builder.Add(TerrainBuildService.ComputeSourceSetFingerprint(snapshot, modifier.Boundaries));
@@ -153,9 +159,31 @@ internal static class SmoothStage
             modifierIndex,
             TerrainBuildService.ComputeMeshFingerprint(mesh));
         Phase("fingerprint");
+        runtimeCache.SmoothEntries.TryGetValue(preparedStageKey, out var cachedPrepared);
+        if (cachedPrepared != null && cachedPrepared.Fingerprint != preparedFingerprint)
+            cachedPrepared = null;
+
+        if (SmoothModes.IsRound(modifier))
+        {
+            return ApplyRound(
+                mesh,
+                new IndexedTriMesh(vertices, vertexCount, faces, faceCount),
+                boundaries,
+                breaklines,
+                modifier,
+                tolerance,
+                build,
+                runtimeCache,
+                preparedStageKey,
+                preparedFingerprint,
+                cachedPrepared?.Rounding,
+                mode,
+                Phase,
+                phases);
+        }
+
         MeshSmoother.PreparedSmoothingData prepared;
-        if (runtimeCache.SmoothEntries.TryGetValue(preparedStageKey, out var cachedPrepared) &&
-            cachedPrepared.Fingerprint == preparedFingerprint)
+        if (cachedPrepared?.Prepared != null)
         {
             // Prepared smoothing data is immutable after construction. Share it between the UI cache
             // and worker builds instead of copying the full adjacency/mask arrays on every scrub.
@@ -211,6 +239,115 @@ internal static class SmoothStage
         Phase("validity");
         build.Diagnostics.Add($"Smooth phases: {phases}.");
         return smoothedMesh;
+    }
+
+    /// <summary>Densifying may add this many vertices (or twice the incoming count, if more) before it is refused.</summary>
+    private const int MaxDensifyVertices = 500_000;
+
+    private static RhinoMesh ApplyRound(
+        RhinoMesh mesh,
+        IndexedTriMesh indexed,
+        List<(double[] xyVerts, int vertCount)> boundaries,
+        List<MeshSmoother.BreaklinePolyline> protect,
+        SmoothModifierDefinition modifier,
+        double tolerance,
+        TerrainBuildResult build,
+        TerrainRuntimeCache runtimeCache,
+        string preparedStageKey,
+        ulong preparedFingerprint,
+        CreaseRounder.PreparedCreaseRounding? cached,
+        TerrainBuildMode mode,
+        Action<string> phase,
+        System.Text.StringBuilder phases)
+    {
+        CreaseRounder.PreparedCreaseRounding prepared = cached ?? CreaseRounder.Prepare(
+            indexed,
+            boundaries.ToArray(),
+            protect.ToArray(),
+            modifier.CreaseAngle,
+            tolerance);
+        if (cached == null)
+        {
+            // Immutable once built, like Smooth's prepared data. It holds the incoming mesh's creases, which
+            // do not depend on the length; densifying the band does, and runs per build.
+            runtimeCache.SmoothEntries[preparedStageKey] = new SmoothStageCacheEntry
+            {
+                Fingerprint = preparedFingerprint,
+                Rounding = prepared
+            };
+        }
+
+        phase("prepare");
+
+        // A crease with nothing beside it to round into would only move its own vertices, and a wide face
+        // (a pad top meshed from its outline alone) would tilt whole. Split the band first; the split keeps
+        // the surface, so the rounding still starts from the incoming terrain. Splitting costs a whole-mesh
+        // refine and a fresh prepare, too slow to repeat per scrub tick, so a preview rounds at the mesh's
+        // own resolution and the final build that follows densifies.
+        int addedVertices = 0;
+        bool overBudget = false;
+        if (mode != TerrainBuildMode.Preview &&
+            CreaseRounder.DensifyBand(
+                indexed,
+                prepared,
+                modifier.RoundingLength,
+                tolerance,
+                Math.Max(MaxDensifyVertices, indexed.VertexCount * 2),
+                out overBudget) is { } dense)
+        {
+            addedVertices = dense.AddedVertices;
+            indexed = dense.Mesh;
+            prepared = CreaseRounder.Prepare(indexed, boundaries.ToArray(), protect.ToArray(), modifier.CreaseAngle, tolerance);
+            phase("densify");
+        }
+
+        CreaseRounder.CreaseRoundingResult rounded = CreaseRounder.Round(indexed.Vertices, prepared, modifier.RoundingLength);
+        phase("round");
+        if (overBudget)
+        {
+            build.Diagnostics.Add(
+                $"{modifier.Label}: the Rounding Length is too short to split the triangles beside {rounded.RoundedCreaseLength:0.##} of crease, " +
+                "so they were rounded at the mesh's own resolution. Lengthen it, or Remesh first.");
+        }
+
+        if (rounded.MovedVertexCount == 0)
+        {
+            build.Diagnostics.Add(
+                prepared.CreaseEdgeCount == 0 ? $"{modifier.Label}: no crease folds {modifier.CreaseAngle:G4} deg or more; terrain unchanged." :
+                rounded.RoundedCreaseLength <= 0.0 ? $"{modifier.Label}: no crease is as long as the Rounding Length; terrain unchanged." :
+                $"{modifier.Label}: every point the creases reach is held (by Protect, a wall, the border or the boundaries); terrain unchanged.");
+            return mesh;
+        }
+
+        if (rounded.Vertices.Any(value => double.IsNaN(value) || double.IsInfinity(value)))
+        {
+            build.Diagnostics.Add("Round Creases produced invalid mesh data. Incoming mesh kept.");
+            return mesh;
+        }
+
+        // Without densifying, rounding moves heights only and the incoming topology is reused.
+        var roundedMesh = addedVertices == 0
+            ? RhinoGeometryConversions.BuildMeshWithNewHeights(mesh, rounded.Vertices, indexed.VertexCount)
+            : TerrainBuildService.BuildMeshFromArrays(rounded.Vertices, indexed.Faces);
+        if (roundedMesh.Faces.Count == 0 || roundedMesh.Vertices.Count == 0 || !roundedMesh.IsValid)
+        {
+            build.Diagnostics.Add("Round Creases produced an invalid mesh. Incoming mesh kept.");
+            return mesh;
+        }
+
+        phase("mesh build");
+        build.Diagnostics.Add(
+            $"{modifier.Label}: rounded {rounded.RoundedCreaseLength:0.##} of crease; largest height change {rounded.MaxOffset:0.###}" +
+            (addedVertices > 0 ? $"; split the band beside it ({addedVertices:N0} vertices added)." : "."));
+        if (rounded.CoarseCreaseLength > 0.0)
+        {
+            build.Diagnostics.Add(
+                $"{modifier.Label}: along {rounded.CoarseCreaseLength:0.##} of crease the triangles are still wider than half the Rounding Length, " +
+                "so the rounding there is a chamfer.");
+        }
+
+        build.Diagnostics.Add($"Smooth phases: {phases}.");
+        return roundedMesh;
     }
 
     private static void AddSelectedGradePathRoadBreaklines(
