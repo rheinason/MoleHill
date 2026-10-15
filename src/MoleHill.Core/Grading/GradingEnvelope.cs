@@ -74,7 +74,6 @@ internal static class GradingEnvelope
         if (violations.Count == 0)
             return result;
 
-
         double[] vertices = (double[])result.Vertices.Clone();
         double worst = 0.0;
         foreach (GradingEnvelopeViolation violation in violations)

@@ -43,13 +43,22 @@ internal static class DocumentTextDotOverlay
             return;
 
         Guid viewportId = e.Viewport.Id;
+        bool isPageView = e.Viewport.ViewportType == ViewportType.PageViewMainViewport;
         Color selectedColor = AppearanceSettings.SelectedObjectColor;
         foreach (RhinoObject dotObject in dots)
         {
             if (dotObject.IsDeleted || !dotObject.Visible || dotObject.Geometry is not TextDot dot)
                 continue;
 
-            int layerIndex = dotObject.Attributes.LayerIndex;
+            // Only where Rhino draws the dot itself: a layout's own dots on that layout, model dots in
+            // model views and details, and a dot restricted to one viewport in that viewport alone.
+            ObjectAttributes attributes = dotObject.Attributes;
+            if ((attributes.Space == ActiveSpace.PageSpace) != isPageView)
+                continue;
+            if (attributes.ViewportId != Guid.Empty && attributes.ViewportId != viewportId)
+                continue;
+
+            int layerIndex = attributes.LayerIndex;
             if (layerIndex >= 0 && layerIndex < doc.Layers.Count && !doc.Layers[layerIndex].IsVisible)
                 continue;
 
@@ -58,7 +67,7 @@ internal static class DocumentTextDotOverlay
 
             Color fill = dotObject.IsSelected(false) > 0
                 ? selectedColor
-                : dotObject.Attributes.DrawColor(doc, viewportId);
+                : attributes.DrawColor(doc, viewportId);
             Color text = fill.GetBrightness() > 0.5f ? Color.Black : Color.White;
             e.Display.DrawDot(dot, fill, text, text);
         }
