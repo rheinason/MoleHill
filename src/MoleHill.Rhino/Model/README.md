@@ -23,6 +23,12 @@ A definition normalizes its own fields after load in a `virtual NormalizeAfterLo
   and the ramp card hides the bounds. Defaults to the cyclic `aspect-wheel` preset in `Constant` mode,
   which reads as eight sectors. `FlatSlopeThresholdDegrees` is a slope like every other in the model —
   stored in degrees, typed in whatever unit the user works in.
+- `CurvatureAnalysisDefinition.cs` / `CurvatureDisplay.cs` — curvature and landform (backlog B17). One
+  card, two colourings of one measurement: `Display` picks landform classes or a curvature value on the
+  ramp, and `Measure` picks mean, profile or plan; both are `[NotBuildInput]`, so switching recolours
+  without re-measuring. `FeatureSize` (labelled "Landform Size" on the card, because "feature" is a
+  retired word) is the fit radius and `PlanarRadius` the flatness threshold, both `[ModelLength]`; the
+  colour range is promoted to an inverse length. Defaults: 5 m, 100 m, `cool-warm`, auto range.
 - `ReportTableAnnotationDefinition.cs` — the quantity summary drawn into the model. Which sections to
   include, the rules, spacing as multiples of the text height, and an insertion origin (unset places it
   beside the terrain). It carries its own slope `Unit` because that unit is part of the drawing; the CSV
@@ -116,7 +122,9 @@ the descriptor; objects/markers/analyses/annotations still have bespoke card bod
 annotations keep their `TerrainBuildService.Analysis.cs` build stage).
 
 **Unit scaling is declared on the property.** Every `double`/`double?` on a definition type carries
-`[ModelLength]`, `[ModelArea]`, `[ModelVolume]`, `[InverseModelArea]` or `[UnitFree(reason)]`
-(`ModelUnitAttributes.cs`); `Services/Persistence/TerrainUnitScaler` multiplies by reflection, and
+`[ModelLength]`, `[ModelArea]`, `[ModelVolume]`, `[InverseModelArea]`, `[InverseModelLength]` or
+`[UnitFree(reason)]` (`ModelUnitAttributes.cs`); `Services/Persistence/TerrainUnitScaler` multiplies by reflection, and
 `ModelUnitAttributeGuardTests` fails on an undeclared one. A concrete type may promote an inherited unit-free
-property with `[ModelLengthMembers]` (Elevation and Cut/Fill promote the colour range).
+property with `[ModelLengthMembers]` (Elevation and Cut/Fill promote the colour range), or with
+`[InverseModelLengthMembers]` (Curvature: its colour range is a curvature in 1/model-unit, so it shrinks as
+lengths grow; a summary owned by a curvature card scales its owner-dependent range the same way).

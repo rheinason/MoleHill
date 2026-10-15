@@ -53,6 +53,8 @@ internal static class TerrainReportBuilder
             AppendCatchments(document, terrain, analysisSummaries, unitContext);
         if (sections.HasFlag(TerrainReportSections.GradientCompliance))
             AppendGradientCompliance(document, terrain, analysisSummaries, unitContext, slopeUnit);
+        if (sections.HasFlag(TerrainReportSections.Landforms))
+            AppendLandforms(document, terrain, analysisSummaries, unitContext);
         document.RemoveEmptyTables();
         return document;
     }
@@ -314,6 +316,43 @@ internal static class TerrainReportBuilder
                 OptionalCount(summary.RouteRunCount),
                 OptionalCount(summary.RouteFailedRunCount),
                 OptionalCount(summary.RouteLandingCount));
+        }
+    }
+
+    private static void AppendLandforms(
+        ReportDocument document,
+        TerrainDefinition terrain,
+        IReadOnlyList<TerrainAnalysisSummary> analysisSummaries,
+        ModelUnitContext unitContext)
+    {
+        ReportTable table = document.AddTable(
+            "Landforms",
+            new ReportColumn("Analysis"),
+            new ReportColumn("Landform Size", unitContext.Abbreviation, ReportAlignment.Right),
+            new ReportColumn("Landform"),
+            new ReportColumn("Plan Area", AreaUnit(unitContext), ReportAlignment.Right),
+            new ReportColumn("Share", "%", ReportAlignment.Right));
+
+        // One row per class, every class listed (a zero is a measured answer here: the card measured the
+        // ground and found no hollow), in the legend's order. A card that measured nothing writes no rows,
+        // rather than eight zeros that would read as "all of it is nothing".
+        foreach (CurvatureAnalysisDefinition analysis in terrain.Analyses.OfType<CurvatureAnalysisDefinition>())
+        {
+            TerrainAnalysisSummary? summary = Find(analysisSummaries, analysis.Id);
+            if (summary?.LandformMeasuredArea is not { } measured || summary.LandformClassShares is not { } shares)
+                continue;
+
+            foreach (LandformClass landform in LandformClassifier.All)
+            {
+                int index = (int)landform;
+                double share = index < shares.Length ? shares[index] : 0.0;
+                table.AddRow(
+                    analysis.Label,
+                    CsvWriter.Number(analysis.FeatureSize),
+                    LandformClassifier.NameOf(landform),
+                    CsvWriter.Number(share * measured),
+                    CsvWriter.Number(share * 100.0));
+            }
         }
     }
 

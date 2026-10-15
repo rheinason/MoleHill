@@ -214,6 +214,23 @@ public sealed class TerrainAnalysisSummary
     [ModelLength]
     public double? RouteLargestRunRise { get; set; }
 
+    /// <summary>
+    /// Plan area a curvature card could measure (and so classify), or null when it measured none.
+    ///
+    /// Nullable, not zero, for the reason at <see cref="PondTotalVolume"/>: "nothing was measured" and
+    /// "every face was measured and the shares below cover it" are different answers.
+    /// </summary>
+    [ModelArea]
+    public double? LandformMeasuredArea { get; set; }
+
+    /// <summary>
+    /// Each landform class's share of <see cref="LandformMeasuredArea"/>, indexed by Core's
+    /// <c>LandformClass</c> (Peak, Ridge, Shoulder, Planar, Saddle, Toe, Valley, Hollow), or null when
+    /// nothing was measured. Shares rather than areas so the array is unit-free: the unit scaler scales
+    /// declared double properties, and an area array would silently keep its old units.
+    /// </summary>
+    public double[]? LandformClassShares { get; set; }
+
     /// <summary>Delta contour curves the cut/fill analysis drew on its last build.</summary>
     public int CutFillDeltaContourCount { get; set; }
 

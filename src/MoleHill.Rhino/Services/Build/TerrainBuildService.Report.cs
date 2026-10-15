@@ -66,6 +66,8 @@ internal sealed partial class TerrainBuildService
             sections |= TerrainReportSections.Catchments;
         if (annotation.IncludeGradientCompliance)
             sections |= TerrainReportSections.GradientCompliance;
+        if (annotation.IncludeLandforms)
+            sections |= TerrainReportSections.Landforms;
         return sections;
     }
 

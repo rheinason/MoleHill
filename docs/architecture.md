@@ -774,7 +774,7 @@ Remesh card from 37 s to 0.5 s.
 which family a type belongs to:
 
 - **Analysis** (`Model/AnalysisDefinition`, `Registry/AnalysisTypeRegistry`) — slope, aspect, elevation,
-  cut/fill, earthworks, waterflow, catchments, ponding, gradient compliance. The result is a measurement: a number, or a colour mapped
+  cut/fill, earthworks, waterflow, catchments, ponding, gradient compliance, curvature. The result is a measurement: a number, or a colour mapped
   onto the mesh. Only these carry the colour-ramp apparatus (`PalettePreset`, `PaletteStops`, `ColorMode`,
   `ResolveRamp()`) — though carrying it is not the same as using it, see catchments below.
 - **Annotation** (`Model/AnnotationDefinition`, `Registry/AnnotationTypeRegistry`) — contours, spot heights,
@@ -868,6 +868,31 @@ keeping:
 - **Presets ship only when checked against the published text**, and each cites its clause. A wrong
   built-in compliance preset looks authoritative and is the one value nobody re-checks. Standards whose
   text was not available (DIN 18040, AS 1428.1 so far) are not presets; their users start from Custom.
+
+**Curvature is measured at a landform size, and colours either way.** The curvature analysis
+(`Model/CurvatureAnalysisDefinition`, Core `CurvatureAnalyzer` / `LandformClassifier`, backlog B17) has one
+measurement and two colourings, switched by `Display`: landform classes (categorical, like compliance: no
+ramp row, no range, a swatch key in the Legend) or a curvature value (the diverging `cool-warm` ramp,
+`RangeShape.SymmetricAboutZero`, so straight ground is the middle colour). Three decisions are worth keeping:
+
+- **Never per triangle.** A triangle is flat, so per-face curvature maps the triangulation. Each vertex is
+  fitted with a weighted quadric over everything within the landform size (`FeatureSize`, labelled
+  "Landform Size" because "feature" is a retired word), plan-area weighted so dense survey does not
+  out-vote the ground it covers. The size is the scale control: a 0.3 m hump on a 40 m mound dominates at
+  0.5 m and is gone at 10 m. The class threshold is a **radius** (`PlanarRadius`, "bending more gently
+  than this is straight"), because a length reads on a card and an inverse length does not.
+- **Convex is positive**, in 1/model-unit, for mean, profile (along the fall line) and plan (tangential,
+  across it). The colour range is therefore an inverse length: `[InverseModelLengthMembers]` promotes the
+  inherited range, and `TerrainUnitScaler` scales a curvature card's summary range by the reciprocal.
+- **Eight classes: shape from the principal curvatures, orientation from plan vs profile.** Peak, Ridge,
+  Shoulder, Planar, Saddle, Toe, Valley, Hollow (Wood 1996 plus the plan-by-profile hillslope units). The
+  principal curvatures decide the shape because profile and plan both vanish along a saddle's diagonals;
+  plan vs profile then splits one-way convexity into ridge (across the fall line) and shoulder (along it).
+  The fit depends only on the mesh and the size, so the preview caches it in the drainage cards' preview
+  slot (`DrainagePreviewCache`, keyed by `CurvaturePreviewKey`) and the threshold, measure, display and
+  colours apply per refresh; `Display` and `Measure` are `[NotBuildInput]`. The build stage totals the
+  class areas as unit-free shares (`LandformClassShares`) of a nullable measured area, which the card and
+  the report's Landforms section read.
 
 The two are **peer families, not a base and a subclass** — the same shape as `ModifierDefinition`,
 `MarkerDefinition`, and `TerrainObjectDefinition`, each with its own definition root, type registry,

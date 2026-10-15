@@ -443,7 +443,7 @@ internal sealed class ParameterDescriptor<TDefinition>
     /// Always a refresh-only commit: colour is a display concern, and re-running the analysis to change a
     /// swatch would make dragging a stop unusable.
     /// </summary>
-    public static ParameterDescriptor<TDefinition> ColorRamp(string? help = null) =>
+    public static ParameterDescriptor<TDefinition> ColorRamp(string? help = null, Func<TDefinition, bool>? visibleWhen = null) =>
         new()
         {
             Kind = ParameterKind.ColorRamp,
@@ -451,6 +451,7 @@ internal sealed class ParameterDescriptor<TDefinition>
             Label = "Colour",
             Help = help,
             RefreshOnly = true,
+            VisibleWhen = visibleWhen,
         };
 
     public static ParameterDescriptor<TDefinition> Text(
