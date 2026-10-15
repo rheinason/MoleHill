@@ -65,10 +65,8 @@ public static class CreaseRounder
 
         internal SpatialHashGrid2D CreaseIndex { get; init; } = null!;
 
-        /// <summary>Lines the offset fades to zero at, flat [ax, ay, bx, by] per segment.</summary>
-        internal double[] FadeSegments { get; init; } = null!;
-
-        internal SpatialHashGrid2D FadeIndex { get; init; } = null!;
+        /// <summary>Lines the offset fades to zero at.</summary>
+        internal HeldLines Fade { get; init; } = null!;
     }
 
     public readonly record struct CreaseRoundingResult(
@@ -97,8 +95,9 @@ public static class CreaseRounder
         double tol = Math.Max(tolerance, 1e-9);
 
         bool[] wallFaces = FeaturePolylineGraph.BuildFrozenFaceMask(vertices, faces, faceCount, WallFaceMinSlopeDeg, degenerateAltitude: tol);
-        bool[] inside = BuildInsideMask(vertices, vertexCount, boundaries);
-        bool[] onProtect = BuildProtectMask(vertices, vertexCount, protect, tol, out var protectSegments, out var protectIndex);
+        bool[] inside = HeldLines.InsideBoundaries(vertices, vertexCount, boundaries);
+        HeldLines protectLines = HeldLines.FromPolylines(protect);
+        bool[] onProtect = BuildProtectMask(vertices, vertexCount, protectLines, tol);
 
         // Edge → its faces (count > 2 is non-manifold; such an edge is neither crease nor border).
         var edgeFaces = IndexedMeshTools.CreateEdgeKeyMap<(int F0, int F1, int Count)>(faceCount * 2);
@@ -122,18 +121,7 @@ public static class CreaseRounder
         for (int v = 0; v < vertexCount; v++)
             held[v] = !inside[v] || onProtect[v];
 
-        for (int f = 0; f < faceCount; f++)
-        {
-            if (!wallFaces[f])
-                continue;
-            for (int k = 0; k < 3; k++)
-            {
-                int a = faces[f * 3 + k];
-                int b = faces[f * 3 + ((k + 1) % 3)];
-                held[a] = true;
-                AddFadeSegment(fade, vertices, a, b);
-            }
-        }
+        HeldLines.HoldWallFaces(vertices, faces, faceCount, wallFaces, held, fade);
 
         double cosThreshold = Math.Cos(Math.Clamp(creaseAngleDeg, 0.1, 179.0) * Math.PI / 180.0);
         var creaseEdges = new List<(int A, int B, double Kappa, double Clearance)>();
@@ -146,7 +134,7 @@ public static class CreaseRounder
             {
                 held[a] = true;
                 held[b] = true;
-                AddFadeSegment(fade, vertices, a, b);
+                HeldLines.AddMeshEdge(fade, vertices, a, b);
                 continue;
             }
 
@@ -156,10 +144,10 @@ public static class CreaseRounder
                 continue;
             if (!inside[a] || !inside[b])
                 continue;
-            if (onProtect[a] && onProtect[b] && IsOnProtect(
+            if (onProtect[a] && onProtect[b] && protectLines.IsOn(
                     (vertices[a * 3] + vertices[b * 3]) * 0.5,
                     (vertices[a * 3 + 1] + vertices[b * 3 + 1]) * 0.5,
-                    protectSegments, protectIndex, tol))
+                    tol))
                 continue;
 
             creaseEdges.Add((a, b, kappa, clearance));
@@ -179,13 +167,7 @@ public static class CreaseRounder
             }
         }
 
-        for (int i = 0; i < protectSegments.Length; i += 4)
-        {
-            fade.Add(protectSegments[i]);
-            fade.Add(protectSegments[i + 1]);
-            fade.Add(protectSegments[i + 2]);
-            fade.Add(protectSegments[i + 3]);
-        }
+        fade.AddRange(protectLines.Segments);
 
         CreaseChain[] chains = BuildChains(vertices, creaseEdges);
         var segmentRefs = new List<(int, int)>();
@@ -196,14 +178,9 @@ public static class CreaseRounder
             for (int s = 0; s < chains[c].Vertices.Length - 1; s++)
             {
                 segmentRefs.Add((c, s));
-                segmentBounds.Add(SegmentBounds(xy[s * 2], xy[s * 2 + 1], xy[s * 2 + 2], xy[s * 2 + 3]));
+                segmentBounds.Add(HeldLines.SegmentBounds(xy[s * 2], xy[s * 2 + 1], xy[s * 2 + 2], xy[s * 2 + 3]));
             }
         }
-
-        double[] fadeSegments = fade.ToArray();
-        var fadeBounds = new Bounds2D[fadeSegments.Length / 4];
-        for (int i = 0; i < fadeBounds.Length; i++)
-            fadeBounds[i] = SegmentBounds(fadeSegments[i * 4], fadeSegments[i * 4 + 1], fadeSegments[i * 4 + 2], fadeSegments[i * 4 + 3]);
 
         return new PreparedCreaseRounding
         {
@@ -214,8 +191,7 @@ public static class CreaseRounder
             Chains = chains,
             CreaseSegments = segmentRefs.ToArray(),
             CreaseIndex = SpatialHashGrid2D.Build(segmentBounds.ToArray()),
-            FadeSegments = fadeSegments,
-            FadeIndex = SpatialHashGrid2D.Build(fadeBounds)
+            Fade = HeldLines.FromSegments(fade.ToArray())
         };
     }
 
@@ -286,7 +262,7 @@ public static class CreaseRounder
                 }
 
                 if (offset != 0.0)
-                    offsets[v] = offset * FadeWeight(px, py, r, prepared, local.Candidates, local.Scratch);
+                    offsets[v] = offset * prepared.Fade.Weight(px, py, r, local.Candidates, local.Scratch);
                 return local;
             },
             _ => { });
@@ -523,27 +499,6 @@ public static class CreaseRounder
     }
 
     /// <summary>
-    /// 0 on a held line, rising smoothly to 1 at <paramref name="r"/> from the nearest one, so the offset
-    /// never steps where rounding stops.
-    /// </summary>
-    private static double FadeWeight(double px, double py, double r, PreparedCreaseRounding prepared, List<int> candidates, SpatialHashGrid2D.QueryScratch scratch)
-    {
-        prepared.FadeIndex.GatherCandidates(Bounds2D.FromPoint(px, py, r), candidates, scratch);
-        double nearest = r;
-        double[] s = prepared.FadeSegments;
-        foreach (int i in candidates)
-        {
-            double ax = s[i * 4], ay = s[i * 4 + 1], bx = s[i * 4 + 2], by = s[i * 4 + 3];
-            double t = Geometry2D.ParameterOnSegmentClamped(ax, ay, bx, by, px, py);
-            double d = Math.Sqrt(Geometry2D.DistanceSquared(px, py, ax + ((bx - ax) * t), ay + ((by - ay) * t)));
-            nearest = Math.Min(nearest, d);
-        }
-
-        double u = nearest / r;
-        return u * u * (3.0 - (2.0 * u));
-    }
-
-    /// <summary>
     /// The edge (a, b) shared by faces f0 and f1 is a crease when they fold at least the threshold; its
     /// grade change is measured across the edge in plan, positive where the ground turns upward.
     /// </summary>
@@ -770,114 +725,19 @@ public static class CreaseRounder
         }
     }
 
-    private static bool[] BuildInsideMask(double[] vertices, int vertexCount, (double[] xyVerts, int vertCount)[] boundaries)
+    private static bool[] BuildProtectMask(double[] vertices, int vertexCount, HeldLines protect, double tolerance)
     {
-        var inside = new bool[vertexCount];
-        if (boundaries.Length == 0)
-        {
-            Array.Fill(inside, true);
-            return inside;
-        }
-
-        var bounds = new Bounds2D[boundaries.Length];
-        for (int i = 0; i < boundaries.Length; i++)
-            bounds[i] = PolylineBounds(boundaries[i].xyVerts, boundaries[i].vertCount);
-
-        for (int v = 0; v < vertexCount; v++)
-        {
-            double px = vertices[v * 3], py = vertices[v * 3 + 1];
-            var point = Bounds2D.FromPoint(px, py);
-            for (int i = 0; i < boundaries.Length && !inside[v]; i++)
-                inside[v] = bounds[i].Intersects(point) && Geometry2D.PointInPolygon(px, py, boundaries[i].xyVerts, boundaries[i].vertCount);
-        }
-
-        return inside;
-    }
-
-    private static bool[] BuildProtectMask(
-        double[] vertices,
-        int vertexCount,
-        MeshSmoother.BreaklinePolyline[] protect,
-        double tolerance,
-        out double[] segments,
-        out SpatialHashGrid2D index)
-    {
-        var flat = new List<double>();
-        foreach (MeshSmoother.BreaklinePolyline line in protect)
-        {
-            int count = Math.Min(line.PointCount, line.XyPts.Length / 2);
-            int segmentCount = line.IsClosed && count > 2 ? count : count - 1;
-            for (int i = 0; i < segmentCount; i++)
-            {
-                int j = (i + 1) % count;
-                flat.Add(line.XyPts[i * 2]);
-                flat.Add(line.XyPts[i * 2 + 1]);
-                flat.Add(line.XyPts[j * 2]);
-                flat.Add(line.XyPts[j * 2 + 1]);
-            }
-        }
-
-        segments = flat.ToArray();
-        var bounds = new Bounds2D[segments.Length / 4];
-        for (int i = 0; i < bounds.Length; i++)
-            bounds[i] = SegmentBounds(segments[i * 4], segments[i * 4 + 1], segments[i * 4 + 2], segments[i * 4 + 3]);
-        index = SpatialHashGrid2D.Build(bounds);
-
         var mask = new bool[vertexCount];
-        if (bounds.Length == 0)
+        if (protect.IsEmpty)
             return mask;
 
+        var candidates = new List<int>(4);
         for (int v = 0; v < vertexCount; v++)
-            mask[v] = IsOnProtect(vertices[v * 3], vertices[v * 3 + 1], segments, index, tolerance);
+            mask[v] = protect.IsOn(vertices[v * 3], vertices[v * 3 + 1], tolerance, candidates);
 
         return mask;
     }
 
-    private static bool IsOnProtect(double px, double py, double[] segments, SpatialHashGrid2D index, double tolerance)
-    {
-        if (segments.Length == 0)
-            return false;
-
-        var candidates = new List<int>(4);
-        index.GatherCandidates(Bounds2D.FromPoint(px, py, tolerance), candidates);
-        double tolSq = tolerance * tolerance;
-        foreach (int i in candidates)
-        {
-            double ax = segments[i * 4], ay = segments[i * 4 + 1], bx = segments[i * 4 + 2], by = segments[i * 4 + 3];
-            double t = Geometry2D.ParameterOnSegmentClamped(ax, ay, bx, by, px, py);
-            if (Geometry2D.DistanceSquared(px, py, ax + ((bx - ax) * t), ay + ((by - ay) * t)) <= tolSq)
-                return true;
-        }
-
-        return false;
-    }
-
-    private static void AddFadeSegment(List<double> fade, double[] vertices, int a, int b)
-    {
-        fade.Add(vertices[a * 3]);
-        fade.Add(vertices[a * 3 + 1]);
-        fade.Add(vertices[b * 3]);
-        fade.Add(vertices[b * 3 + 1]);
-    }
-
     private static double PlanDistance(double[] vertices, int a, int b) =>
         Math.Sqrt(Geometry2D.DistanceSquared(vertices[a * 3], vertices[a * 3 + 1], vertices[b * 3], vertices[b * 3 + 1]));
-
-    private static Bounds2D SegmentBounds(double ax, double ay, double bx, double by) =>
-        new(Math.Min(ax, bx), Math.Max(ax, bx), Math.Min(ay, by), Math.Max(ay, by));
-
-    private static Bounds2D PolylineBounds(double[] xy, int count)
-    {
-        double minX = double.PositiveInfinity, maxX = double.NegativeInfinity;
-        double minY = double.PositiveInfinity, maxY = double.NegativeInfinity;
-        for (int i = 0; i < count; i++)
-        {
-            minX = Math.Min(minX, xy[i * 2]);
-            maxX = Math.Max(maxX, xy[i * 2]);
-            minY = Math.Min(minY, xy[i * 2 + 1]);
-            maxY = Math.Max(maxY, xy[i * 2 + 1]);
-        }
-
-        return new Bounds2D(minX, maxX, minY, maxY);
-    }
 }
