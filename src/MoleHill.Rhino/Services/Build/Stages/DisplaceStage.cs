@@ -97,7 +97,18 @@ internal static class DisplaceStage
 
         TerrainTolerancePolicy.Profile profile = TerrainBuildService.GetToleranceProfile(snapshot, terrain);
         double curveTolerance = profile.CurveChordTolerance;
-        IDisplacementSource source = CreateSource(displace, image);
+        MappingRectangle? rectangle = null;
+        if (image != null)
+        {
+            if (!TryResolveMappingRectangle(snapshot, displace, out rectangle, out string? mappingError))
+            {
+                // InertReason has already vetted the rectangle, so it changed under the build.
+                build.Diagnostics.Add($"{displace.Label}: {mappingError} Terrain unchanged.");
+                return mesh;
+            }
+        }
+
+        IDisplacementSource source = CreateSource(displace, image, rectangle);
 
         var boundaries = new List<(double[] xyVerts, int vertCount)>();
         foreach (ConstraintPolyline boundary in TerrainBuildService.CreateConstraintPolylines(
@@ -132,12 +143,12 @@ internal static class DisplaceStage
         });
 
         string Length(double value) => ModelUnits.FormatLength(value, snapshot.ModelUnitSystem, "G3");
-        report = DisplaceModifierDescriptor.DescribeResult(result, source, Length);
+        report = DisplaceModifierDescriptor.DescribeResult(result, source, Length, rectangle);
         if (report.Warning != null)
             build.Diagnostics.Add($"{displace.Label}: {report.Warning}");
 
         if (image != null && displace.ShowMapping)
-            AddMappingGuide(build, displace, (ImageDisplacementSource)source, indexed, result);
+            AddMappingGuide(build, displace, (ImageDisplacementSource)source, indexed, result, rectangle != null);
 
         if (result.MovedVertexCount == 0)
         {
@@ -165,14 +176,20 @@ internal static class DisplaceStage
         return displaced;
     }
 
-    internal static IDisplacementSource CreateSource(DisplaceModifierDefinition displace, HeightmapImage? image)
+    /// <summary>
+    /// The pattern source. A mapping rectangle, when given, overrides the typed origin, tile size and rotation
+    /// of an image; noise always uses the typed placement.
+    /// </summary>
+    internal static IDisplacementSource CreateSource(DisplaceModifierDefinition displace, HeightmapImage? image, MappingRectangle? rectangle = null)
     {
-        var placement = new DisplacementPlacement(displace.OriginX, displace.OriginY, displace.Rotation);
+        if (image == null)
+            rectangle = null;
+        var placement = rectangle?.Placement ?? new DisplacementPlacement(displace.OriginX, displace.OriginY, displace.Rotation);
         return image != null
             ? new ImageDisplacementSource(
                 image,
-                displace.TileSizeX,
-                displace.TileSizeY,
+                rectangle?.Width ?? displace.TileSizeX,
+                rectangle?.Height ?? displace.TileSizeY,
                 displace.Height,
                 displace.Neutral,
                 DisplaceSources.ParseWrap(displace.Wrap),
@@ -184,6 +201,60 @@ internal static class DisplaceStage
                 displace.Roughness,
                 displace.Seed,
                 placement);
+    }
+
+    /// <summary>
+    /// The image's mapping rectangle: null (and true) when none is picked, else the one picked curve read as a
+    /// level rectangle (<see cref="MappingRectangle"/>). False, with the reason, when it is gone, more than one,
+    /// or not a rectangle. The curve is a source set, so moving, turning or scaling it rebuilds the stage.
+    /// </summary>
+    internal static bool TryResolveMappingRectangle(
+        TerrainBuildSnapshot snapshot,
+        DisplaceModifierDefinition displace,
+        out MappingRectangle? rectangle,
+        out string? error)
+    {
+        rectangle = null;
+        error = null;
+        if (!displace.Mapping.HasReferences)
+            return true;
+
+        List<Curve> curves = TerrainBuildSnapshotResolver.ResolveCurves(snapshot, displace.Mapping);
+        if (curves.Count == 0)
+        {
+            error = "Its mapping rectangle is no longer in the document. Pick a new one, or clear Mapping to place the image by Origin and Tile Size.";
+            return false;
+        }
+
+        if (curves.Count > 1)
+        {
+            error = $"Mapping has {curves.Count} curves; pick one rectangle.";
+            return false;
+        }
+
+        Curve curve = curves[0];
+        if (!curve.IsClosed || !curve.TryGetPolyline(out Polyline polyline))
+        {
+            error = "The mapping curve is not a rectangle: it must be a closed polyline. Draw it with Rhino's Rectangle command.";
+            return false;
+        }
+
+        var xyz = new double[polyline.Count * 3];
+        for (int i = 0; i < polyline.Count; i++)
+        {
+            xyz[i * 3] = polyline[i].X;
+            xyz[i * 3 + 1] = polyline[i].Y;
+            xyz[i * 3 + 2] = polyline[i].Z;
+        }
+
+        double tolerance = Math.Max(
+            TerrainBuildService.GetToleranceProfile(snapshot, snapshot.Terrain).CurveChordTolerance,
+            snapshot.ModelAbsoluteTolerance);
+        if (!MappingRectangle.TryFromPolyline(xyz, polyline.Count, tolerance, out MappingRectangle read, out error))
+            return false;
+
+        rectangle = read;
+        return true;
     }
 
     private static (double[] Xy, int Count)? ToXy(ConstraintPolyline line, bool dropClosingPoint)
@@ -219,7 +290,8 @@ internal static class DisplaceStage
         DisplaceModifierDefinition displace,
         ImageDisplacementSource source,
         IndexedTriMesh mesh,
-        TerrainDisplacer.Result result)
+        TerrainDisplacer.Result result,
+        bool fromRectangle)
     {
         double minX, minY, maxX, maxY;
         double topZ = double.NegativeInfinity;
@@ -293,8 +365,11 @@ internal static class DisplaceStage
         }
 
         var primitives = new List<RuntimeOverlayPrimitive>();
+        // A drawn rectangle already shows its own tile: draw the others, not it again.
         foreach ((long i, long j) in tiles)
         {
+            if (fromRectangle && i == 0 && j == 0)
+                continue;
             primitives.Add(RuntimeOverlayPrimitive.Polyline(
                 new[] { World(i, j), World(i + 1, j), World(i + 1, j + 1), World(i, j + 1) },
                 isClosed: true,
@@ -302,16 +377,19 @@ internal static class DisplaceStage
         }
 
         // The image's top edge, heavier, on the tile under the terrain's centre: which way up it lies.
-        (long ti, long tj) = tiles[tiles.Count / 2];
+        (long ti, long tj) = fromRectangle ? (0L, 0L) : tiles[tiles.Count / 2];
         primitives.Add(RuntimeOverlayPrimitive.Polyline(new[] { World(ti, tj + 1), World(ti + 1, tj + 1) }, thickness: 3));
         primitives.Add(RuntimeOverlayPrimitive.Label(World(ti + 0.5, tj + 1), "image top", size: 11));
 
         (double ox, double oy) = (placement.OriginX, placement.OriginY);
         double padX = source.TileSizeX, padY = source.TileSizeY;
-        if (ox >= minX - padX && ox <= maxX + padX && oy >= minY - padY && oy <= maxY + padY)
+        if (fromRectangle || (ox >= minX - padX && ox <= maxX + padX && oy >= minY - padY && oy <= maxY + padY))
         {
             primitives.Add(RuntimeOverlayPrimitive.Marker(new Point3d(ox, oy, topZ), size: 6));
-            primitives.Add(RuntimeOverlayPrimitive.Label(new Point3d(ox, oy, topZ), "origin", size: 11));
+            primitives.Add(RuntimeOverlayPrimitive.Label(
+                new Point3d(ox, oy, topZ),
+                fromRectangle ? "image bottom-left (rectangle start)" : "image bottom-left (origin)",
+                size: 11));
         }
 
         build.RuntimeOverlays.Add(new RuntimeOverlayItem

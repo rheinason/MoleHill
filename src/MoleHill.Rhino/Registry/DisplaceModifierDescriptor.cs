@@ -39,7 +39,7 @@ internal sealed class DisplaceModifierDescriptor : ModifierTypeDescriptor
         var d = (DisplaceModifierDefinition)modifier;
         string region = d.Boundaries.HasReferences ? $"{CountSources(d.Boundaries)} boundaries" : "whole terrain";
         return DisplaceSources.IsImage(d)
-            ? $"Image {DescribeFileName(d.ImagePath)} | Tile {d.TileSizeX:G4} x {d.TileSizeY:G4} | Height {d.Height:G4} | {region}"
+            ? $"Image {DescribeFileName(d.ImagePath)} | {(d.Mapping.HasReferences ? "Tile from rectangle" : $"Tile {d.TileSizeX:G4} x {d.TileSizeY:G4}")} | Height {d.Height:G4} | {region}"
             : $"Noise | Size {d.NoiseSize:G4} | Height {d.Height:G4} | Seed {d.Seed} | {region}";
     }
 
@@ -54,8 +54,16 @@ internal sealed class DisplaceModifierDescriptor : ModifierTypeDescriptor
         if (!DisplaceSources.IsImage(d))
             return d.NoiseSize > 0.0 ? null : "Set a Noise Size.";
 
-        if (!(d.TileSizeX > 0.0) || !(d.TileSizeY > 0.0))
+        if (d.Mapping.HasReferences)
+        {
+            // Judged on the resolved curve; without a snapshot (tests) only the typed fallbacks are checked.
+            if (snapshot != null && !DisplaceStage.TryResolveMappingRectangle(snapshot, d, out _, out string? mappingError))
+                return mappingError;
+        }
+        else if (!(d.TileSizeX > 0.0) || !(d.TileSizeY > 0.0))
+        {
             return "Set the Tile Size the image covers on the ground.";
+        }
 
         // A missing or unreadable image would otherwise displace by nothing and look like a working card.
         return HeightmapImageLoader.TryLoad(d.ImagePath, out _, out _, out string? error) ? null : error;
@@ -69,9 +77,19 @@ internal sealed class DisplaceModifierDescriptor : ModifierTypeDescriptor
     internal static ModifierStageReport DescribeResult(
         TerrainDisplacer.Result result,
         IDisplacementSource source,
-        Func<double, string> length)
+        Func<double, string> length,
+        MappingRectangle? rectangle = null)
     {
         var rows = new List<ResultRow>();
+        if (rectangle is { } r)
+        {
+            rows.Add(ResultRow.Of(
+                "Mapping",
+                $"rectangle {length(r.Width)} x {length(r.Height)}, turned {r.RotationDegrees.ToString("0.##", CultureInfo.InvariantCulture)} deg, " +
+                $"bottom-left at {r.OriginX.ToString("0.###", CultureInfo.InvariantCulture)}, {r.OriginY.ToString("0.###", CultureInfo.InvariantCulture)}",
+                "The image placement read from the Mapping rectangle, which overrides the typed Origin, Tile Width, Tile Height and Rotation."));
+        }
+
         if (result.MovedVertexCount == 0)
         {
             rows.Add(ResultRow.Of(
@@ -162,6 +180,11 @@ internal sealed class DisplaceModifierDescriptor : ModifierTypeDescriptor
 
     private static bool IsImage(ModifierDefinition m) => DisplaceSources.IsImage((DisplaceModifierDefinition)m);
 
+    /// <summary>An image placed by a rectangle: the typed placement rows give way to the curve.</summary>
+    private static bool IsMapped(ModifierDefinition m) => IsImage(m) && ((DisplaceModifierDefinition)m).Mapping.HasReferences;
+
+    private static bool IsTypedImage(ModifierDefinition m) => IsImage(m) && !IsMapped(m);
+
     public override IReadOnlyList<ModifierParam> Parameters { get; } = new[]
     {
         ModifierParam.Choice(
@@ -238,6 +261,12 @@ internal sealed class DisplaceModifierDescriptor : ModifierTypeDescriptor
             HeightmapImageLoader.Extensions,
             "A greyscale image file (PNG, JPEG, BMP, GIF or TIFF), read as brightness. The document keeps only its path: save over the image and the terrain rebuilds; move or delete it and the card stops until you point it at the file again.",
             visibleWhen: IsImage),
+        ModifierParam.Sources(
+            "Mapping", "Mapping",
+            m => ((DisplaceModifierDefinition)m).Mapping,
+            RhinoObjectType.Curve,
+            "Optional: one rectangle drawn in plan that places the image. Its start point is the image's bottom-left corner, and the image's bottom edge runs from there counter-clockwise around the rectangle, so the drawing direction never flips the image; start at another corner to turn it. Its sides are the tile's width and height. While set it replaces Origin, Tile Width, Tile Height and Rotation, and moving, turning or scaling it in Rhino moves the image.",
+            visibleWhen: IsImage),
         ModifierParam.Number(
             "TileSizeX", "Tile Width",
             m => ((DisplaceModifierDefinition)m).TileSizeX,
@@ -245,7 +274,7 @@ internal sealed class DisplaceModifierDescriptor : ModifierTypeDescriptor
             "How wide the whole image is on the ground, along its own X axis.",
             min: 0.0,
             unit: ParameterUnit.ModelLength,
-            visibleWhen: IsImage),
+            visibleWhen: IsTypedImage),
         ModifierParam.Number(
             "TileSizeY", "Tile Height",
             m => ((DisplaceModifierDefinition)m).TileSizeY,
@@ -253,7 +282,7 @@ internal sealed class DisplaceModifierDescriptor : ModifierTypeDescriptor
             "How tall the whole image is on the ground, along its own Y axis (towards the image's top).",
             min: 0.0,
             unit: ParameterUnit.ModelLength,
-            visibleWhen: IsImage),
+            visibleWhen: IsTypedImage),
         ModifierParam.Slider(
             "Neutral", "Neutral",
             m => ((DisplaceModifierDefinition)m).Neutral,
@@ -275,21 +304,24 @@ internal sealed class DisplaceModifierDescriptor : ModifierTypeDescriptor
             min: -360.0,
             max: 360.0,
             decimalPlaces: 2,
-            unit: ParameterUnit.Degrees),
+            unit: ParameterUnit.Degrees,
+            visibleWhen: m => !IsMapped(m)),
         ModifierParam.Number(
             "OriginX", "Origin X",
             m => ((DisplaceModifierDefinition)m).OriginX,
             (m, v) => ((DisplaceModifierDefinition)m).OriginX = v,
             "World X of the pattern's origin: the image's lower-left corner, and the point the pattern turns about.",
             min: null,
-            unit: ParameterUnit.ModelLength),
+            unit: ParameterUnit.ModelLength,
+            visibleWhen: m => !IsMapped(m)),
         ModifierParam.Number(
             "OriginY", "Origin Y",
             m => ((DisplaceModifierDefinition)m).OriginY,
             (m, v) => ((DisplaceModifierDefinition)m).OriginY = v,
             "World Y of the pattern's origin: the image's lower-left corner, and the point the pattern turns about.",
             min: null,
-            unit: ParameterUnit.ModelLength),
+            unit: ParameterUnit.ModelLength,
+            visibleWhen: m => !IsMapped(m)),
         ModifierParam.Bool(
             "ShowMapping", "Show Mapping",
             m => ((DisplaceModifierDefinition)m).ShowMapping,

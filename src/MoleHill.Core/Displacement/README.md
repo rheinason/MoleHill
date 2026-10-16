@@ -26,6 +26,10 @@ Key files:
   `DisplacementWrap`: Repeat, Clamp (edge pixels carry on) or Once (the caller leaves the outside alone).
 - `ImageDisplacementSource.cs` — the image as one tile of a stated width and height with its lower-left
   corner at the origin; offset = (value − Neutral) × Height, zero outside the tile in Once mode.
+- `MappingRectangle.cs` — reads a drawn closed polyline as the image tile: start point = image bottom-left,
+  bottom edge counter-clockwise from it (so the drawing direction never mirrors the image), side lengths =
+  tile size, bottom bearing = rotation. Refuses, with a reason, anything not level, not four square corners,
+  or not starting at a corner.
 - `TerrainDisplacer.cs` — applies a source to an `IndexedTriMesh`, Z only. Boundaries scope it (nothing
   outside moves; inside, the offset rises from zero at the drawn line to full strength at the feather).
   Walls (faces at or above 70°), hold lines and, optionally, the border keep their height exactly, and the

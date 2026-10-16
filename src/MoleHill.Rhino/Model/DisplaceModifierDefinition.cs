@@ -61,6 +61,15 @@ public sealed class DisplaceModifierDefinition : ModifierDefinition
     /// <summary>Full path of a greyscale image; its file is fingerprinted, so editing it rebuilds.</summary>
     public string ImagePath { get; set; } = string.Empty;
 
+    /// <summary>
+    /// An optional closed rectangle that places the image: its start point is the image's bottom-left
+    /// corner, its bottom edge runs counter-clockwise from there (<c>MappingRectangle</c>), and its sides are
+    /// the tile's width and height. When set it overrides <see cref="OriginX"/>, <see cref="OriginY"/>,
+    /// <see cref="TileSizeX"/>, <see cref="TileSizeY"/> and <see cref="Rotation"/>, which are kept, unused,
+    /// for when it is cleared. Image source only.
+    /// </summary>
+    public SourceReferenceSet Mapping { get; set; } = new();
+
     /// <summary>Plan width of one image along its own X axis.</summary>
     [ModelLength]
     public double TileSizeX { get; set; }
@@ -92,6 +101,7 @@ public sealed class DisplaceModifierDefinition : ModifierDefinition
     {
         yield return Boundaries;
         yield return Protect;
+        yield return Mapping;
     }
 
     public override void NormalizeAfterLoad()
@@ -99,6 +109,7 @@ public sealed class DisplaceModifierDefinition : ModifierDefinition
         base.NormalizeAfterLoad();
         Boundaries ??= new SourceReferenceSet();
         Protect ??= new SourceReferenceSet();
+        Mapping ??= new SourceReferenceSet();
         Source ??= DisplaceSources.Noise;
         Wrap ??= DisplaceSources.Repeat;
         ImagePath ??= string.Empty;
