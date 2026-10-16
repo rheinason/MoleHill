@@ -69,6 +69,76 @@ public static class PadElevationBalancer
         };
     }
 
+    /// <summary>
+    /// The elevation range (of the first boundary vertex, as <see cref="Balance"/> takes it) that must
+    /// contain the balance: at its bottom the whole pad sits at or below the terrain under it, so the pad
+    /// can only cut; at its top it sits at or above, so it can only fill. The terrain is read at every
+    /// terrain vertex inside the footprint and at the boundary's own vertices, and the range is widened by
+    /// <paramref name="marginFraction"/> of its span so the batters, which reach beyond the footprint, are
+    /// bracketed too. False when no terrain lies under the pad.
+    /// </summary>
+    public static bool TrySuggestRange(
+        IndexedTriMesh terrain,
+        PadGrader.PadBoundary pad,
+        out double minimumElevation,
+        out double maximumElevation,
+        double marginFraction = 0.25)
+    {
+        ArgumentNullException.ThrowIfNull(pad);
+        (double[] vertices, int vertexCount, int[] faces, int faceCount) = terrain;
+        minimumElevation = double.NaN;
+        maximumElevation = double.NaN;
+        double lowest = double.PositiveInfinity;
+        double highest = double.NegativeInfinity;
+
+        void Observe(double x, double y, double z)
+        {
+            double offset = z - pad.EvaluateZ(x, y);
+            lowest = Math.Min(lowest, offset);
+            highest = Math.Max(highest, offset);
+        }
+
+        double minX = double.PositiveInfinity, minY = double.PositiveInfinity;
+        double maxX = double.NegativeInfinity, maxY = double.NegativeInfinity;
+        for (int index = 0; index < pad.VertexCount; index++)
+        {
+            minX = Math.Min(minX, pad.XyVertices[index * 2]);
+            maxX = Math.Max(maxX, pad.XyVertices[index * 2]);
+            minY = Math.Min(minY, pad.XyVertices[index * 2 + 1]);
+            maxY = Math.Max(maxY, pad.XyVertices[index * 2 + 1]);
+        }
+
+        for (int vertex = 0; vertex < vertexCount; vertex++)
+        {
+            double x = vertices[vertex * 3], y = vertices[vertex * 3 + 1];
+            if (x < minX || x > maxX || y < minY || y > maxY)
+                continue;
+            if (Geometry.Geometry2D.PointInPolygon(x, y, pad.XyVertices, pad.VertexCount))
+                Observe(x, y, vertices[vertex * 3 + 2]);
+        }
+
+        var projector = new Analysis.MeshHeightProjector(vertices, vertexCount, faces, faceCount);
+        for (int index = 0; index < pad.VertexCount; index++)
+        {
+            double x = pad.XyVertices[index * 2], y = pad.XyVertices[index * 2 + 1];
+            if (projector.TryProjectZ(x, y, pad.EvaluateZ(x, y), GradingTolerances.DefaultModelTolerance,
+                    out double z, out _))
+                Observe(x, y, z);
+        }
+
+        if (!double.IsFinite(lowest) || !double.IsFinite(highest))
+            return false;
+
+        // A pad already lying on flat ground has no span; a unit of slack keeps the bracket open.
+        double span = Math.Max(highest - lowest, 1e-6);
+        double margin = span * Math.Max(0.0, marginFraction) + 1e-6;
+        // Translating the pad by d moves its plane by d, so it clears the terrain once d passes an offset.
+        double firstZ = pad.BoundaryVertices[2];
+        minimumElevation = firstZ + lowest - margin;
+        maximumElevation = firstZ + highest + margin;
+        return true;
+    }
+
     private static PadGrader.PadBoundary Translate(PadGrader.PadBoundary pad, double elevationDelta)
     {
         double[] vertices = (double[])pad.BoundaryVertices.Clone();

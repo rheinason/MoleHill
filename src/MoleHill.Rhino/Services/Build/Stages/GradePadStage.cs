@@ -550,7 +550,7 @@ internal static class GradePadStage
         };
     }
 
-    private static bool TryCreatePlanarPadBoundary(
+    internal static bool TryCreatePlanarPadBoundary(
         Polyline polyline,
         int vertexCount,
         double slopeAngle,
