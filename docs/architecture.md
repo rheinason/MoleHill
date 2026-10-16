@@ -565,9 +565,23 @@ change. A missing, relative or unreadable path makes the card inert with the rea
 (`InertReason` decodes through the loader's small cache, so a build that finds the file unchanged never
 decodes it twice) — never a silent zero offset.
 
+**Mapping rectangle.** An image may instead be placed by one drawn rectangle (the `Mapping` source set,
+read by `Core/Displacement/MappingRectangle`). Convention: the curve's **start point is the image's
+bottom-left corner**, and the image's bottom edge runs from it **counter-clockwise** around the rectangle,
+so the rest of the rectangle lies above the bottom and the image is never mirrored. The drawing direction
+therefore does not matter; the start corner does (start at another corner for a quarter turn). The two
+side lengths are the tile's width and height and the bottom edge's bearing is the rotation. While set it
+overrides the typed Origin, Tile Width/Height and Rotation; those rows hide and the card's report shows
+the derived placement. It must be one closed, level, square-cornered polyline within tolerance (points
+along a side are ignored, the start must be a corner); anything else, or a deleted curve, makes the card
+inert with the reason. Being a source set, its geometry is fingerprinted, so moving, rotating or scaling
+it in Rhino rebuilds the stage. Noise ignores it: noise has no frame, and its typed origin and rotation
+are rarely worth a curve.
+
 **Mapping preview** is a Guide-channel runtime overlay owned by the card (`displace.mapping`): the frame of
 every image tile over the edited ground (or, past 400, the one under its centre), the image's top edge
-and the origin, drawn at the top of the terrain. A guide, not a `GeneratedRhinoObject`, because it is
+(heavy, labelled "image top") and its bottom-left corner, drawn at the top of the terrain. With a mapping
+rectangle the labels sit on the rectangle's own tile and that tile's frame is not drawn again. A guide, not a `GeneratedRhinoObject`, because it is
 construction information about the card rather than drawing output: it is never baked, so it has no
 `LayerRole`. **Show Mapping** is deliberately a build input — the stage emits the guide, and toggling it
 re-runs only this cheap stage (its output mesh is unchanged, so nothing below re-runs). Noise draws no

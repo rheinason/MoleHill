@@ -82,7 +82,8 @@ A definition normalizes its own fields after load in a `virtual NormalizeAfterLo
   `DisplaceModifierDefinition` stores a `Source` (`noise` or `image`, `DisplaceSources`), Boundaries and
   Protect source sets, Feather, Hold Border, the shared Height / Rotation / Origin, the noise's size,
   octaves, roughness and seed, and the image's **path** (never its pixels), tile width and height, neutral
-  value and wrap (`repeat` / `clamp` / `once`). `ShowMapping` is a build input on purpose: the mapping
+  value and wrap (`repeat` / `clamp` / `once`), and an optional `Mapping` rectangle reference that, when set,
+  overrides the typed origin, tile size and rotation (kept for when it is cleared). `ShowMapping` is a build input on purpose: the mapping
   guide is emitted by the stage.
 - **Analyses** — `AnalysisDefinition` → `Slope`, `Elevation`, `CutFill`, `Earthwork`,
   `WaterflowAnalysisDefinition`. Content that **evaluates** the terrain: the result is a measurement, a
