@@ -165,8 +165,24 @@ internal static class AnalysisFormatting
         SlopeAnalysisDefinition slope => value => SlopeInput.FormatWithUnit(
             SlopeAnalyzer.ConvertUnitToRatio(value, slope.Unit), slope.Unit),
         CutFillAnalysisDefinition => value => value.ToString("+0.00;-0.00;0.00", CultureInfo.CurrentCulture),
+
+        // Curvatures are small numbers in 1/model-unit (0.02 per metre is a 50 m radius), so a fixed two
+        // decimals would print every tick as 0.00. Three significant figures, signed so convex reads "+".
+        CurvatureAnalysisDefinition => FormatCurvature,
         _ => value => value.ToString("F2", CultureInfo.CurrentCulture)
     };
+
+    /// <summary>A curvature in 1/model-unit: three significant figures, with an explicit sign.</summary>
+    public static string FormatCurvature(double value)
+    {
+        if (!double.IsFinite(value))
+            return "n/a";
+        if (value == 0.0)
+            return "0";
+
+        string magnitude = Math.Abs(value).ToString("G3", CultureInfo.CurrentCulture);
+        return value > 0.0 ? "+" + magnitude : "-" + magnitude;
+    }
 
     /// <summary>A slope stored as degrees, shown in the user's chosen slope unit.</summary>
     public static string FormatSlopeDegrees(double degrees) =>

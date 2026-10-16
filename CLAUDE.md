@@ -193,9 +193,10 @@ When Triangle.NET inserts Steiner points, their Z must be interpolated. Check in
   `case`/`is` over a concrete definition type outside `Registry/` and `Model/`; their exemption lists only
   shrink.
 - **Every `double` on a definition declares its unit.** `TerrainUnitScaler` scales by attribute:
-  `[ModelLength]`, `[ModelArea]`, `[ModelVolume]`, `[InverseModelArea]`, or `[UnitFree("why")]`.
-  `ModelUnitAttributeGuardTests` fails on an undeclared one, so a new length field cannot silently miss a
-  model-unit change.
+  `[ModelLength]`, `[ModelArea]`, `[ModelVolume]`, `[InverseModelArea]`, `[InverseModelLength]`, or
+  `[UnitFree("why")]`. `ModelUnitAttributeGuardTests` fails on an undeclared one, so a new length field
+  cannot silently miss a model-unit change. An inherited unit-free colour range is promoted per type with
+  `[ModelLengthMembers]` (elevation, cut/fill) or `[InverseModelLengthMembers]` (curvature, in 1/model-unit).
 - **Schema migrations are ordered steps.** A document-shape change adds a step to `TerrainSchemaMigrations`
   (runs when the document's version is below the step's), with a characterization test; per-type load
   clean-up is `NormalizeAfterLoad` on the definition.

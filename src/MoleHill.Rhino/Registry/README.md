@@ -18,7 +18,9 @@ There are four parallel families, each with a `*TypeDescriptor` base + reflectio
   the descriptor: `Build(AnalysisBuildContext, definition)` runs the type in the analysis pass (returning
   null means "nothing built here"), and `DescribeResult(definition, summary, ResultFormatter)` returns the
   card's read-only "what the last build measured" rows as `ResultRow` data, which the panel draws
-  generically (`AddResultRows`). Rows are data so a test can assert the text.
+  generically (`AddResultRows`). Rows are data so a test can assert the text. A schema row can hide itself
+  with `VisibleWhen`, including the `ColorRamp` row: Curvature shows its ramp only when it colours by value,
+  since its landform classes are categories.
 - **Annotations** — `AnnotationTypeDescriptor`/`AnnotationTypeRegistry`, the same shape against
   `AnnotationDefinition`. Its bespoke rows (section sources, insertion-origin picker, comparison terrains)
   live in `MoleHillPanel.Annotations.cs` (`AppendBespokeAnnotationRowsBefore`/`After`; the After hook keeps

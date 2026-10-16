@@ -715,6 +715,10 @@ internal static class TerrainRuntimeCacheCloner
             RouteFailedRunCount = analysis.RouteFailedRunCount,
             RouteLandingCount = analysis.RouteLandingCount,
             RouteLargestRunRise = analysis.RouteLargestRunRise,
+            LandformMeasuredArea = analysis.LandformMeasuredArea,
+            LandformClassShares = analysis.LandformClassShares == null
+                ? null
+                : (double[])analysis.LandformClassShares.Clone(),
             ContourCurveCount = analysis.ContourCurveCount,
             ContourLevelCount = analysis.ContourLevelCount,
             ContourFirstLevel = analysis.ContourFirstLevel,

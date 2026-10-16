@@ -39,7 +39,10 @@ file that needs Rhino's runtime must be added to that `Exclude` at its new path.
 - `TerrainBuildService.cs` + `TerrainBuildService.*.cs` partials - the staged build orchestrator and the
   helpers every stage shares. The partials are the shared surface (`.Tin`, `.MeshConstraints`, `.Grading`,
   `.GradingWindows`, `.Boundaries`, `.Cache`, `.Fingerprints`, `.Types`) plus the non-modifier content
-  stages (`.Zones`, `.Analysis`, `.Objects`, `.Scatter`, `.Report`, `.Waterflow`, `.GradientCompliance`).
+  stages (`.Zones`, `.Analysis`, `.Objects`, `.Scatter`, `.Report`, `.Waterflow`, `.GradientCompliance`,
+  `.Curvature`). `.Curvature` measures the curvature field and stores the landform class shares; the preview
+  re-measures through `Display/DrainagePreviewCache` under a `CurvaturePreviewKey`, so a display, measure or
+  colour edit only recolours.
 - `Stages/` - one `internal static class XxxStage` per modifier, each with a `Run(ModifierBuildContext)`
   that its descriptor's `RunBuildStage` calls, plus the helpers only that modifier uses: `SculptStage`
   (replays the sculpt displacement field as displacement-only), `ProjectToStage` (Z-only conform to one
@@ -303,7 +306,8 @@ layer table, dimension styles, and layouts can act on. See `docs/architecture.md
 - `TerrainReportBuilder.cs` - assembles the last build's summaries into a `Core.Reporting.ReportDocument`,
   in model units, with the slope unit the caller asks for. The single place a figure is rounded and
   labelled, so the CSV export and the drawn table cannot disagree. A quantity nothing measured is blank,
-  never zero: in a quantity report a zero is a claim.
+  never zero: in a quantity report a zero is a claim. The Landforms section lists every class per
+  measured Curvature card (area and share), and nothing for a card that measured nothing.
 - `TerrainReportTableBuilder.cs` - lays that document out as text and rules on the `ReportTable` role.
   Column widths are estimated from the longest cell (`CharacterWidthRatio`) because measuring glyphs needs
   a font and a device, and the build has no document thread; everything is sized in multiples of the text

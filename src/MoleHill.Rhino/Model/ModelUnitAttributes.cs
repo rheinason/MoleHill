@@ -3,8 +3,8 @@ namespace MoleHill.Rhino.Model;
 /// <summary>
 /// What a stored number measures, so a change of model units can rescale it (<c>TerrainUnitScaler</c>).
 /// Every <c>double</c> / <c>double?</c> property on a definition type carries exactly one of these, a
-/// <see cref="UnitFreeAttribute"/>, or is named by a <see cref="ModelLengthMembersAttribute"/> on its
-/// class; <c>ModelUnitAttributeGuardTests</c> fails the build otherwise, so a new length field cannot
+/// <see cref="UnitFreeAttribute"/>, or is named by a <see cref="ModelLengthMembersAttribute"/> or
+/// <see cref="InverseModelLengthMembersAttribute"/> on its class; <c>ModelUnitAttributeGuardTests</c> fails the build otherwise, so a new length field cannot
 /// silently skip scaling.
 /// </summary>
 public enum ModelUnitKind
@@ -19,7 +19,10 @@ public enum ModelUnitKind
     Volume,
 
     /// <summary>A per-area quantity (a density): scales by the reciprocal of the area factor.</summary>
-    InverseArea
+    InverseArea,
+
+    /// <summary>A per-length quantity (a curvature): scales by the reciprocal of the length factor.</summary>
+    InverseLength
 }
 
 /// <summary>Base of the unit markers; use <see cref="ModelLengthAttribute"/> and friends.</summary>
@@ -67,6 +70,12 @@ public sealed class InverseModelAreaAttribute : ModelUnitAttribute
     public InverseModelAreaAttribute() : base(ModelUnitKind.InverseArea) { }
 }
 
+/// <summary>A quantity per unit length (a curvature, 1/radius).</summary>
+public sealed class InverseModelLengthAttribute : ModelUnitAttribute
+{
+    public InverseModelLengthAttribute() : base(ModelUnitKind.InverseLength) { }
+}
+
 /// <summary>
 /// A number that does not change with model units (an angle, percentage, count, ratio, normalized vector
 /// component, or paper-space weight), or one the scaler deliberately leaves alone. The reason is required
@@ -89,6 +98,19 @@ public sealed class UnitFreeAttribute : Attribute
 public sealed class ModelLengthMembersAttribute : Attribute
 {
     public ModelLengthMembersAttribute(params string[] propertyNames) => PropertyNames = propertyNames;
+
+    public IReadOnlyList<string> PropertyNames { get; }
+}
+
+/// <summary>
+/// Marks inherited properties that are inverse lengths on this concrete type only, overriding the
+/// <see cref="UnitFreeAttribute"/> on the base declaration (a curvature analysis's colour range is in
+/// 1/model-unit). The counterpart of <see cref="ModelLengthMembersAttribute"/>.
+/// </summary>
+[AttributeUsage(AttributeTargets.Class, Inherited = true)]
+public sealed class InverseModelLengthMembersAttribute : Attribute
+{
+    public InverseModelLengthMembersAttribute(params string[] propertyNames) => PropertyNames = propertyNames;
 
     public IReadOnlyList<string> PropertyNames { get; }
 }

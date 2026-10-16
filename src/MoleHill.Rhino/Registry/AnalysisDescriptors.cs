@@ -947,3 +947,140 @@ internal sealed class GradientComplianceAnalysisDescriptor : AnalysisTypeDescrip
         return custom;
     }
 }
+
+/// <summary>
+/// Curvature and landform: convex and concave ground, and the landforms that make (ridge, valley,
+/// shoulder, toe, peak, hollow, saddle, planar), measured at a landform size. See Core
+/// <c>CurvatureAnalyzer</c> and <c>LandformClassifier</c>.
+/// </summary>
+/// <remarks>
+/// The ramp row only shows in Curvature mode: in Landforms mode the colours are classes, not positions on
+/// a continuum, for the reason Gradient Compliance has no ramp. "Landform Size" rather than "feature size"
+/// on the card, because "feature" is retired from user-facing text (it used to mean a kept edge).
+/// </remarks>
+internal sealed class CurvatureAnalysisDescriptor : AnalysisTypeDescriptor
+{
+    public override string Kind => "curvature";
+    public override Type DefinitionType => typeof(CurvatureAnalysisDefinition);
+    public override string TypeLabel => "Curvature";
+    public override string MenuLabel => "Curvature / Landform";
+    public override string IconLabel => "CV";
+    public override int AccentArgb => unchecked((int)0xFFAD1457);
+    public override string Subtitle => "Ridges, valleys, shoulders";
+    public override string? ActiveSubtitle => "Preview colors";
+    public override int SortOrder => 9;
+    public override AnalysisDefinition Create() => new CurvatureAnalysisDefinition();
+
+    public override TerrainAnalysisSummary? Build(AnalysisBuildContext c, AnalysisDefinition analysis) =>
+        TerrainBuildService.BuildCurvatureSummary(c.Mesh, (CurvatureAnalysisDefinition)analysis, c.SurfaceArea, c.ShouldCancel);
+
+    public override IReadOnlyList<ResultRow> DescribeResult(AnalysisDefinition analysis, TerrainAnalysisSummary? summary, ResultFormatter format)
+    {
+        if (summary == null)
+            return Array.Empty<ResultRow>();
+
+        if (summary.LandformMeasuredArea is not { } measured || summary.LandformClassShares is not { } shares)
+        {
+            return new[]
+            {
+                ResultRow.Of(
+                    "Landforms",
+                    "None measured",
+                    "Too few points to fit a surface anywhere: the terrain needs a few triangles in every direction.")
+            };
+        }
+
+        var lines = new List<string>();
+        foreach (LandformClass landform in LandformClassifier.All)
+        {
+            int index = (int)landform;
+            double share = index < shares.Length ? shares[index] : 0.0;
+            if (share <= 0.0)
+                continue;
+
+            lines.Add($"{LandformClassifier.NameOf(landform)}: {share:P0} ({format.Area(share * measured)})");
+        }
+
+        return new[]
+        {
+            ResultRow.Summary(
+                "Landforms",
+                string.Join(Environment.NewLine, lines),
+                "Plan area of each landform on the last build, at this card's landform size and planar radius. " +
+                "Click into the field to select and copy values.")
+        };
+    }
+
+    private static CurvatureAnalysisDefinition Curvature(AnalysisDefinition analysis) => (CurvatureAnalysisDefinition)analysis;
+
+    private static readonly IReadOnlyList<(string Key, string Label)> DisplayOptions = new[]
+    {
+        (nameof(CurvatureDisplay.Landforms), "Landforms"),
+        (nameof(CurvatureDisplay.Curvature), "Curvature value"),
+    };
+
+    private static readonly IReadOnlyList<(string Key, string Label)> MeasureOptions = new[]
+    {
+        (nameof(CurvatureMeasure.Mean), "Mean"),
+        (nameof(CurvatureMeasure.Profile), "Profile (down the slope)"),
+        (nameof(CurvatureMeasure.Plan), "Plan (across the slope)"),
+    };
+
+    public override IReadOnlyList<AnalysisParam> Parameters { get; } = new[]
+    {
+        AnalysisParam.Choice(
+            "Display", "Show",
+            DisplayOptions,
+            a => Curvature(a).Display.ToString(),
+            (a, key) =>
+            {
+                if (Enum.TryParse(key, out CurvatureDisplay display))
+                    Curvature(a).Display = display;
+            },
+            "Landforms colours each face by the landform it belongs to. Curvature value colours it by how " +
+            "sharply it bends, convex warm and concave cool. Both read the same measurement, so switching " +
+            "recolours without measuring again.",
+            refreshOnly: true),
+        AnalysisParam.Choice(
+            "Measure", "Measure",
+            MeasureOptions,
+            a => Curvature(a).Measure.ToString(),
+            (a, key) =>
+            {
+                if (Enum.TryParse(key, out CurvatureMeasure measure))
+                    Curvature(a).Measure = measure;
+            },
+            "Mean is how the ground bends overall. Profile is the bend along the fall line: positive where a " +
+            "slope steepens over an edge, negative where it eases out at the foot. Plan is the bend across " +
+            "the fall line: positive on ridges and spurs that shed water, negative in valleys that gather it.",
+            refreshOnly: true,
+            visibleWhen: a => Curvature(a).Display == CurvatureDisplay.Curvature),
+        AnalysisParam.ColorRamp(
+            "Colours the terrain by curvature in 1/model-unit, convex positive. The range is symmetric about " +
+            "zero, so the middle colour is straight ground.",
+            visibleWhen: a => Curvature(a).Display == CurvatureDisplay.Curvature),
+        AnalysisParam.Number(
+            "FeatureSize", "Landform Size",
+            a => Curvature(a).FeatureSize,
+            (a, v) => Curvature(a).FeatureSize = Math.Max(0.0, v),
+            "The radius the surface is measured over. Landforms about this size and larger are what the map " +
+            "shows; smaller surface detail averages away. A 0.3 m hump on a mound shows at a 0.5 m size and " +
+            "is gone at 10 m. Below the survey spacing it measures at the spacing.",
+            min: 0.0,
+            unit: ParameterUnit.ModelLength),
+        AnalysisParam.Number(
+            "PlanarRadius", "Planar Radius",
+            a => Curvature(a).PlanarRadius,
+            (a, v) => Curvature(a).PlanarRadius = Math.Max(0.0, v),
+            "Ground bending more gently than a circle of this radius counts as straight, and ground straight " +
+            "every way is Planar. Raise it to pick out gentler landforms; lower it to keep only sharp ones. " +
+            "Measured curvature shrinks as the landform size grows, so a larger size usually wants a larger radius.",
+            min: 0.0,
+            unit: ParameterUnit.ModelLength),
+    };
+
+    public override string? DescribeBasis(TerrainDefinition terrain, AnalysisDefinition analysis) =>
+        Curvature(analysis).Display == CurvatureDisplay.Curvature
+            ? "Convex is positive and concave negative, in 1/model-unit."
+            : null;
+}
