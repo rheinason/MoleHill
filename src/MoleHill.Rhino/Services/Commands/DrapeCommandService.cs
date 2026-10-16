@@ -75,28 +75,47 @@ internal static class DrapeCommandService
         bool replaceInput = CommandOptionCache.GetValue("MoleHill.DrapeCurve.ReplaceInput", false);
         bool lowest = CommandOptionCache.GetValue("MoleHill.DrapeCurve.Lowest", false);
         int missIndex = CommandOptionCache.GetValue("MoleHill.DrapeCurve.Miss", 0);
+        bool loose = CommandOptionCache.GetValue("MoleHill.DrapeCurve.Loose", false);
+        int looseMissIndex = CommandOptionCache.GetValue("MoleHill.DrapeCurve.LooseMiss", 0);
 
         while (true)
         {
             var getOptions = new GetOption();
-            getOptions.SetCommandPrompt("Adjust drape options or press Enter to accept");
+            getOptions.SetCommandPrompt(loose
+                ? "Loose drape: only the curve's own edit points move. Press Enter to accept"
+                : "Adjust drape options or press Enter to accept");
             getOptions.AcceptNothing(true);
             var spacingOption = new OptionDouble(spacing, doc.ModelAbsoluteTolerance, 1000000000.0);
             var replaceOption = new OptionToggle(replaceInput, "Copy", "Replace");
             var hitOption = new OptionToggle(lowest, "Top", "Lowest");
-            getOptions.AddOptionDouble("Spacing", ref spacingOption);
+            bool shownLoose = loose;
+            var looseOption = new OptionToggle(loose, "No", "Yes");
+            getOptions.AddOptionToggle("Loose", ref looseOption);
+
+            // Loose adds no stations, so it has no spacing, and an edit point cannot be left out, so it has no Split.
+            if (!loose)
+                getOptions.AddOptionDouble("Spacing", ref spacingOption);
             getOptions.AddOptionToggle("Hit", ref hitOption);
-            int missOption = getOptions.AddOptionList("Miss", MissLabels, Math.Clamp(missIndex, 0, MissLabels.Length - 1));
+            int missOption = loose
+                ? getOptions.AddOptionList("Miss", SectionMissLabels, Math.Clamp(looseMissIndex, 0, 1))
+                : getOptions.AddOptionList("Miss", MissLabels, Math.Clamp(missIndex, 0, MissLabels.Length - 1));
             getOptions.AddOptionToggle("Output", ref replaceOption);
 
             GetResult optionResult = getOptions.Get();
             spacing = spacingOption.CurrentValue;
             replaceInput = replaceOption.CurrentValue;
             lowest = hitOption.CurrentValue;
+            loose = looseOption.CurrentValue;
             if (optionResult == GetResult.Option)
             {
                 if (getOptions.OptionIndex() == missOption)
-                    missIndex = getOptions.Option().CurrentListOptionIndex;
+                {
+                    if (shownLoose)
+                        looseMissIndex = getOptions.Option().CurrentListOptionIndex;
+                    else
+                        missIndex = getOptions.Option().CurrentListOptionIndex;
+                }
+
                 continue;
             }
 
@@ -113,8 +132,12 @@ internal static class DrapeCommandService
         CommandOptionCache.SetValue("MoleHill.DrapeCurve.ReplaceInput", replaceInput);
         CommandOptionCache.SetValue("MoleHill.DrapeCurve.Lowest", lowest);
         CommandOptionCache.SetValue("MoleHill.DrapeCurve.Miss", missIndex);
+        CommandOptionCache.SetValue("MoleHill.DrapeCurve.Loose", loose);
+        CommandOptionCache.SetValue("MoleHill.DrapeCurve.LooseMiss", looseMissIndex);
 
-        var policy = (DrapeMissPolicy)Math.Clamp(missIndex, 0, 2);
+        var policy = loose
+            ? (looseMissIndex == 1 ? DrapeMissPolicy.Bridge : DrapeMissPolicy.KeepOriginal)
+            : (DrapeMissPolicy)Math.Clamp(missIndex, 0, 2);
         var options = new CurveDrapeOptions
         {
             Spacing = spacing,
@@ -122,10 +145,27 @@ internal static class DrapeCommandService
             MissPolicy = policy
         };
 
-        var outputs = new List<(Guid SourceId, ObjectAttributes Attributes, List<PolylineCurve> Pieces)>();
+        var outputs = new List<(Guid SourceId, ObjectAttributes Attributes, List<Curve> Pieces)>();
         int failed = 0;
         for (int index = 0; index < sources.Count; index++)
         {
+            if (loose)
+            {
+                Curve? looseCurve = TerrainInputCommandAlgorithms.DrapeCurveLoose(
+                    sources[index].Curve, targets!, lowest, policy, out LooseDrapeResult looseResult);
+                string looseLabel = sources.Count == 1 ? "Curve" : $"Curve {index + 1}";
+                if (looseCurve == null)
+                {
+                    failed++;
+                    RhinoApp.WriteLine($"{looseLabel}: not draped. {looseResult.Failure}");
+                    continue;
+                }
+
+                RhinoApp.WriteLine($"{looseLabel}: {DescribeLooseDrape(looseResult)}");
+                outputs.Add((sources[index].ObjectId, sources[index].Attributes, new List<Curve> { looseCurve }));
+                continue;
+            }
+
             CurveDrapeResult drape = TerrainInputCommandAlgorithms.DrapeCurve(sources[index].Curve, targets!, lowest, options);
             string label = sources.Count == 1 ? "Curve" : $"Curve {index + 1}";
             if (!drape.Succeeded)
@@ -137,7 +177,7 @@ internal static class DrapeCommandService
 
             RhinoApp.WriteLine($"{label}: {DescribeDrape(drape, policy)}");
             outputs.Add((sources[index].ObjectId, sources[index].Attributes,
-                drape.Runs.Select(TerrainInputCommandAlgorithms.ToPolylineCurve).ToList()));
+                drape.Runs.Select(run => (Curve)TerrainInputCommandAlgorithms.ToPolylineCurve(run)).ToList()));
         }
 
         try
@@ -317,6 +357,16 @@ internal static class DrapeCommandService
         return Result.Success;
     }
 
+    private static string DescribeLooseDrape(LooseDrapeResult drape)
+    {
+        if (drape.MissedPoints == 0)
+            return $"loose, all {drape.PointCount} edit points on a surface.";
+        string handled = drape.BridgedPoints > 0
+            ? $"{drape.BridgedPoints} bridged, {drape.KeptPoints} kept at their own Z"
+            : $"kept at their own Z";
+        return $"loose; {drape.MissedPoints} of {drape.PointCount} edit points off the surface ({handled}).";
+    }
+
     private static string DescribeDrape(CurveDrapeResult drape, DrapeMissPolicy policy)
     {
         string pieces = drape.Runs.Count == 1 ? "1 piece" : $"{drape.Runs.Count} pieces";
@@ -406,7 +456,7 @@ internal static class DrapeCommandService
     private static bool Commit(
         RhinoDoc doc,
         IReadOnlyList<(Guid ObjectId, Curve Curve, ObjectAttributes Attributes)> sources,
-        IReadOnlyList<(Guid SourceId, ObjectAttributes Attributes, List<PolylineCurve> Pieces)> outputs,
+        IReadOnlyList<(Guid SourceId, ObjectAttributes Attributes, List<Curve> Pieces)> outputs,
         bool replaceInput)
     {
         uint undoRecord = doc.BeginUndoRecord("Drape Curves");

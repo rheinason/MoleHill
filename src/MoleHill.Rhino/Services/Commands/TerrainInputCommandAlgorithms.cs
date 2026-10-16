@@ -286,6 +286,77 @@ internal static class TerrainInputCommandAlgorithms
         return joined[0];
     }
 
+    /// <summary>
+    /// The loose drape: moves the curve's existing edit points straight down (or up) onto the targets and
+    /// adds none, so the curve keeps its type and point count. A polyline's edit points are its vertices; any
+    /// other curve's are its Greville points, which <see cref="NurbsCurve.SetGrevillePoints"/> puts back.
+    /// Null when no edit point lies over a target.
+    /// </summary>
+    public static Curve? DrapeCurveLoose(
+        Curve source,
+        DrapeTargets targets,
+        bool lowestHit,
+        DrapeMissPolicy missPolicy,
+        out LooseDrapeResult result)
+    {
+        double? Probe(double x, double y) => targets.HeightAt(x, y, lowestHit);
+        if (source.TryGetPolyline(out Polyline polyline))
+        {
+            var xyz = new double[polyline.Count * 3];
+            var stations = new double[polyline.Count];
+            for (int i = 0; i < polyline.Count; i++)
+            {
+                xyz[i * 3] = polyline[i].X;
+                xyz[i * 3 + 1] = polyline[i].Y;
+                xyz[i * 3 + 2] = polyline[i].Z;
+                if (i > 0)
+                    stations[i] = stations[i - 1] + polyline[i].DistanceTo(polyline[i - 1]);
+            }
+
+            result = CurveDrape.DrapeEditPoints(stations, xyz, Probe, missPolicy);
+            if (!result.Succeeded)
+                return null;
+            var draped = new Polyline(polyline.Count);
+            for (int i = 0; i < polyline.Count; i++)
+                draped.Add(polyline[i].X, polyline[i].Y, result.Elevations[i]);
+            return new PolylineCurve(draped);
+        }
+
+        NurbsCurve nurbs = source.ToNurbsCurve();
+        double[] greville = nurbs.GrevilleParameters();
+        var editPoints = new double[greville.Length * 3];
+        var editStations = new double[greville.Length];
+        for (int i = 0; i < greville.Length; i++)
+        {
+            Point3d point = nurbs.PointAt(greville[i]);
+            editPoints[i * 3] = point.X;
+            editPoints[i * 3 + 1] = point.Y;
+            editPoints[i * 3 + 2] = point.Z;
+            editStations[i] = greville[i] <= nurbs.Domain.T0
+                ? 0.0
+                : nurbs.GetLength(new Interval(nurbs.Domain.T0, Math.Min(greville[i], nurbs.Domain.T1)));
+        }
+
+        result = CurveDrape.DrapeEditPoints(editStations, editPoints, Probe, missPolicy);
+        if (!result.Succeeded)
+        {
+            nurbs.Dispose();
+            return null;
+        }
+
+        var moved = new Point3d[greville.Length];
+        for (int i = 0; i < greville.Length; i++)
+            moved[i] = new Point3d(editPoints[i * 3], editPoints[i * 3 + 1], result.Elevations[i]);
+        if (!nurbs.SetGrevillePoints(moved))
+        {
+            nurbs.Dispose();
+            result = result with { Failure = "The curve's edit points could not be moved." };
+            return null;
+        }
+
+        return nurbs;
+    }
+
     /// <summary>Distances along the curve of every corner (G1 discontinuity), ends excluded.</summary>
     public static IReadOnlyList<double> CornerStations(Curve curve)
     {

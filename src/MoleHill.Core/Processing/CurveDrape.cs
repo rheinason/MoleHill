@@ -68,6 +68,18 @@ public sealed class CurveDrapeResult
     public bool Succeeded => Runs.Count > 0;
 }
 
+/// <summary>A loose drape's new edit-point heights and what happened to the points with no surface under them.</summary>
+public sealed record LooseDrapeResult(
+    double[] Elevations,
+    int PointCount,
+    int MissedPoints,
+    int BridgedPoints,
+    int KeptPoints,
+    string? Failure)
+{
+    public bool Succeeded => Failure == null;
+}
+
 /// <summary>
 /// The drape kernel behind mhDrapeCurve and mhDrapeCurveSection. Geometry comes in as two callbacks — a
 /// point at a distance along the curve and a terrain probe returning the height under a plan point, or
@@ -258,6 +270,67 @@ public static class CurveDrape
 
             return inside.S == a.S || inside.S == b.S ? null : inside;
         }
+    }
+
+    /// <summary>
+    /// The loose drape: the curve's own edit points are dropped onto the terrain and nothing is added, so
+    /// the curve keeps its type, degree and point count (Rhino's ProjectToMesh Loose). Between edit points the
+    /// curve does not follow the ground. An edit point with no surface under it cannot be left out without
+    /// changing the curve, so <see cref="DrapeMissPolicy.Split"/> keeps its height like
+    /// <see cref="DrapeMissPolicy.KeepOriginal"/>; <see cref="DrapeMissPolicy.Bridge"/> grades across a gap
+    /// between hits by station and keeps the height of a gap at an end.
+    /// </summary>
+    /// <param name="stations">Distance along the curve of each edit point, ascending.</param>
+    /// <param name="pointsXyz">The edit points, flat XYZ.</param>
+    public static LooseDrapeResult DrapeEditPoints(
+        double[] stations,
+        double[] pointsXyz,
+        Func<double, double, double?> probe,
+        DrapeMissPolicy missPolicy)
+    {
+        ArgumentNullException.ThrowIfNull(stations);
+        ArgumentNullException.ThrowIfNull(pointsXyz);
+        ArgumentNullException.ThrowIfNull(probe);
+        int count = pointsXyz.Length / 3;
+        var z = new double[count];
+        var hit = new bool[count];
+        int missed = 0;
+        for (int i = 0; i < count; i++)
+        {
+            double? sampled = probe(pointsXyz[i * 3], pointsXyz[i * 3 + 1]);
+            hit[i] = sampled is { } value && double.IsFinite(value);
+            z[i] = hit[i] ? sampled!.Value : pointsXyz[i * 3 + 2];
+            if (!hit[i])
+                missed++;
+        }
+
+        if (missed == count)
+            return new LooseDrapeResult(z, count, missed, 0, missed, "No edit point lies over the terrain.");
+
+        int bridged = 0;
+        if (missPolicy == DrapeMissPolicy.Bridge)
+        {
+            int previous = -1;
+            for (int i = 0; i < count; i++)
+            {
+                if (!hit[i])
+                    continue;
+                if (previous >= 0 && i - previous > 1)
+                {
+                    double span = stations[i] - stations[previous];
+                    for (int j = previous + 1; j < i; j++)
+                    {
+                        double t = span > 0.0 ? (stations[j] - stations[previous]) / span : 0.0;
+                        z[j] = z[previous] + (z[i] - z[previous]) * t;
+                        bridged++;
+                    }
+                }
+
+                previous = i;
+            }
+        }
+
+        return new LooseDrapeResult(z, count, missed, bridged, missed - bridged, null);
     }
 
     /// <summary>

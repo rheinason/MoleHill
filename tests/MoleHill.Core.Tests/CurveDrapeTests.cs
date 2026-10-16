@@ -125,4 +125,37 @@ public sealed class CurveDrapeTests
     {
         Assert.Equal(expected, CurveDrape.TieInWeight(station, 10.0, 2.0, smooth: false), 9);
     }
+
+    [Fact]
+    public void DrapeEditPoints_MovesOnlyTheGivenPoints()
+    {
+        double[] points = { 0, 0, 100, 4, 0, 100, 10, 0, 100 };
+
+        LooseDrapeResult result = CurveDrape.DrapeEditPoints(new[] { 0.0, 4.0, 10.0 }, points, Plane, DrapeMissPolicy.Split);
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(new[] { 0.0, 0.4, 1.0 }, result.Elevations.Select(z => Math.Round(z, 9)));
+    }
+
+    [Fact]
+    public void DrapeEditPoints_BridgeGradesAGapAndKeepsAnEndGap()
+    {
+        double[] points = { 0, 0, 100, 5, 0, 100, 8, 0, 100, 12, 0, 100 };
+        double? Probe(double x, double y) => x > 4.0 && x < 6.0 || x > 11.0 ? null : x / 10.0;
+
+        LooseDrapeResult result = CurveDrape.DrapeEditPoints(new[] { 0.0, 5.0, 8.0, 12.0 }, points, Probe, DrapeMissPolicy.Bridge);
+
+        Assert.Equal(0.5, result.Elevations[1], 9);
+        Assert.Equal(100.0, result.Elevations[3], 9);
+        Assert.Equal(1, result.BridgedPoints);
+        Assert.Equal(1, result.KeptPoints);
+    }
+
+    [Fact]
+    public void DrapeEditPoints_NothingUnderneath_Fails()
+    {
+        LooseDrapeResult result = CurveDrape.DrapeEditPoints(new[] { 0.0 }, new double[] { 0, 0, 1 }, (_, _) => null, DrapeMissPolicy.Bridge);
+
+        Assert.False(result.Succeeded);
+    }
 }

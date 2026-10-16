@@ -314,6 +314,56 @@ public sealed class TerrainInputCommandAlgorithmsTests
         Assert.Equal(5.0, result.PointAt(t).Z, 6);
     }
 
+    [RhinoNativeFact]
+    public void DrapeCurveLoose_Polyline_MovesOnlyItsVertices()
+    {
+        using Mesh mesh = SlopedPlane();
+        using var source = new PolylineCurve(new[] { new Point3d(1, 1, 50), new Point3d(5, 2, 50), new Point3d(9, 8, 50) });
+        DrapeTargets targets = DrapeTargets.Create(new[] { mesh }, 0.001, out _);
+
+        using Curve? result = TerrainInputCommandAlgorithms.DrapeCurveLoose(
+            source, targets, lowestHit: false, DrapeMissPolicy.KeepOriginal, out LooseDrapeResult report);
+
+        Assert.True(report.Succeeded, report.Failure);
+        Assert.True(result!.TryGetPolyline(out Polyline polyline));
+        Assert.Equal(3, polyline.Count);
+        Assert.Equal(0.5, polyline[1].Z, 6);
+        Assert.True(polyline[2].EpsilonEquals(new Point3d(9, 8, 0.9), 1e-6));
+    }
+
+    [RhinoNativeFact]
+    public void DrapeCurveLoose_Nurbs_KeepsDegreeAndPointCount()
+    {
+        using Mesh mesh = SlopedPlane();
+        using var source = NurbsCurve.Create(false, 3, new[]
+        {
+            new Point3d(1, 5, 50), new Point3d(3, 6, 50), new Point3d(5, 4, 50), new Point3d(7, 6, 50), new Point3d(9, 5, 50)
+        });
+
+        using Curve? result = TerrainInputCommandAlgorithms.DrapeCurveLoose(
+            source, DrapeTargets.Create(new[] { mesh }, 0.001, out _), false, DrapeMissPolicy.KeepOriginal, out _);
+
+        var nurbs = Assert.IsType<NurbsCurve>(result);
+        Assert.Equal(3, nurbs.Degree);
+        Assert.Equal(5, nurbs.Points.Count);
+        foreach (double t in nurbs.GrevilleParameters())
+        {
+            Point3d point = nurbs.PointAt(t);
+            Assert.Equal(point.X / 10.0, point.Z, 6);
+        }
+    }
+
+    private static Mesh SlopedPlane()
+    {
+        var mesh = new Mesh();
+        int a = mesh.Vertices.Add(0, 0, 0);
+        int b = mesh.Vertices.Add(10, 0, 1);
+        int c = mesh.Vertices.Add(10, 10, 1);
+        int d = mesh.Vertices.Add(0, 10, 0);
+        mesh.Faces.AddFace(a, b, c, d);
+        return mesh;
+    }
+
     private static CurveDrapeResult Drape(Curve source, Mesh mesh, double spacing)
     {
         DrapeTargets targets = DrapeTargets.Create(new[] { mesh }, 0.001, out _);
