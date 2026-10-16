@@ -245,7 +245,10 @@ public static class SurfaceDeviationEvaluator
             double areaTolerance = Math.Max(
                 _lengthTolerance * _lengthTolerance * Math.Max(1, _candidates.Count),
                 candidateArea * 1e-10);
-            return Math.Abs(candidateArea - overlap.Value) <= areaTolerance;
+            // Covered at least once is inside. Requiring the overlap to equal the area also rejected a triangle
+            // under a reference that folds over itself in plan (a graded batter can), whose overlap counts
+            // twice; dropping it left a one-face hole and Simplify then refused its own candidate.
+            return overlap.Value >= candidateArea - areaTolerance;
         }
     }
 
