@@ -354,7 +354,7 @@ internal static class RouteSuggestionCommandService
         {
             RouteAlternative route = result.Alternatives[i];
             RhinoApp.WriteLine("  " + RouteSuggestionReadout.Describe(
-                i + 1, route.Metrics, route.Fillet, radius, units, SlopeUnitPreference.Current));
+                i + 1, route.Metrics, route.Fillet, radius, units, SlopeUnitPreference.Current, route.Complexity));
         }
     }
 
@@ -381,7 +381,7 @@ internal static class RouteSuggestionCommandService
                 attributes.LayerIndex = layerIndex;
                 attributes.Name = RouteSuggestionReadout.ObjectName(index + 1, metrics, units, SlopeUnitPreference.Current);
                 foreach ((string key, string value) in RouteSuggestionReadout.UserText(
-                             index + 1, metrics, gradeLimit, corridorWidth, route.Fillet, radius, units, SlopeUnitPreference.Current))
+                             index + 1, metrics, gradeLimit, corridorWidth, route.Fillet, radius, units, SlopeUnitPreference.Current, route.Complexity))
                 {
                     attributes.SetUserString(key, value);
                 }

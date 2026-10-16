@@ -31,11 +31,17 @@ internal static class RouteSuggestionReadout
         RouteFilletSummary fillet,
         double requestedRadius,
         ModelUnitContext units,
-        SlopeAnalyzer.SlopeUnit unit) =>
+        SlopeAnalyzer.SlopeUnit unit,
+        RouteComplexity? complexity = null) =>
         $"Route {rank}: {units.FormatLength(metrics.PlanLength)}, " +
         $"max grade {Slope(metrics.MaxGrade, unit)}, mean {Slope(metrics.MeanGrade, unit)}, " +
         $"cut {units.FormatVolume(metrics.CutVolume, "F1")}, fill {units.FormatVolume(metrics.FillVolume, "F1")}" +
+        (complexity is { } score ? $", complexity {Complexity(score)}" : string.Empty) +
         DescribeRadius(fillet, requestedRadius, units);
+
+    /// <summary>"5.6 (plan 4.3, profile 1.3)": the total first, since it is what routes are compared by.</summary>
+    public static string Complexity(RouteComplexity complexity) => FormattableString.Invariant(
+        $"{complexity.Total:F1} (plan {complexity.Plan:F1}, profile {complexity.Profile:F1})");
 
     /// <summary>The radius part of the readout; empty when corners were not rounded or the route has none.</summary>
     public static string DescribeRadius(RouteFilletSummary fillet, double requestedRadius, ModelUnitContext units)
@@ -74,7 +80,8 @@ internal static class RouteSuggestionReadout
         RouteFilletSummary fillet,
         double requestedRadius,
         ModelUnitContext units,
-        SlopeAnalyzer.SlopeUnit unit)
+        SlopeAnalyzer.SlopeUnit unit,
+        RouteComplexity? complexity = null)
     {
         var text = new List<(string Key, string Value)>
         {
@@ -87,6 +94,9 @@ internal static class RouteSuggestionReadout
         (UserTextPrefix + "GradeLimit", Slope(gradeLimit, unit)),
         (UserTextPrefix + "CorridorWidth", units.FormatLength(corridorWidth)),
         };
+
+        if (complexity is { } score)
+            text.Add((UserTextPrefix + "Complexity", Complexity(score)));
 
         if (requestedRadius > 0.0)
         {

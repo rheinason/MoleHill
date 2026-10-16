@@ -120,7 +120,7 @@ public static class RouteSuggester
         double cell = grid.CellSize;
         int bandCells = Math.Max(2, (int)Math.Ceiling(request.CorridorWidth / cell));
         int wanted = Math.Clamp(request.AlternativeCount, 1, MaxAlternatives);
-        double profileTolerance = request.ProfileTolerance > 0.0 ? request.ProfileTolerance : 0.01 * cell;
+        double profileTolerance = (request.ProfileTolerance > 0.0 ? request.ProfileTolerance : 0.01 * cell) * request.SimplicityScale;
 
         var accepted = new List<RouteAlternative>();
         var bands = new byte[grid.NodeCount];
@@ -178,7 +178,8 @@ public static class RouteSuggester
                 request.CorridorWidth,
                 0.5 * cell);
             accepted.Add(new RouteAlternative(
-                spans, points, metrics, fillet, RouteLegBuilder.PolylineCost(grid, new RouteCost(request), points)));
+                spans, points, metrics, fillet, RouteLegBuilder.PolylineCost(grid, new RouteCost(request), points),
+                RouteComplexity.Measure(spans, request.ReferenceRadius, request.MaxGrade)));
             search.Stamp(drawn, bandCells, bands, (byte)(1 << (accepted.Count - 1)));
             search.Penalise(drawn, bandCells, DiversityPenaltyStep);
         }
@@ -196,7 +197,8 @@ public static class RouteSuggester
             NonNegative(request.EarthworksWeight) &&
             request.DistanceWeight + request.SteepnessWeight + request.EarthworksWeight > 0.0 &&
             request.CorridorWidth > 0.0 && double.IsFinite(request.CorridorWidth) &&
-            NonNegative(request.MinimumRadius);
+            NonNegative(request.MinimumRadius) &&
+            NonNegative(request.Simplicity);
     }
 
     private static List<int> Concatenate(List<List<int>> legs)
@@ -320,9 +322,22 @@ public static class RouteSuggester
                 return false;
             }
 
-            bool TryBuildLeg(List<(double X, double Y)> plan, bool round, out List<RouteSpan> built, out RouteFilletSummary summary, out double need) =>
-                RouteLegBuilder.TryBuild(grid, request, plan, pins[leg], pins[leg + 1], round, profileTolerance,
+            // A plainer route rounds its bends towards the preferred radius; a broader curve is shorter, so on a
+            // leg climbing at the limit it can break the grade, and then the bends take the minimum radius instead
+            // of the leg falling further, to tight corners.
+            bool TryBuildLeg(List<(double X, double Y)> plan, bool round, out List<RouteSpan> built, out RouteFilletSummary summary, out double need)
+            {
+                double preferred = request.MinimumRadius * request.SimplicityScale;
+                if (round && preferred > request.MinimumRadius &&
+                    RouteLegBuilder.TryBuild(grid, request, plan, pins[leg], pins[leg + 1], true, profileTolerance,
+                        out built, out summary, out need, preferred))
+                {
+                    return true;
+                }
+
+                return RouteLegBuilder.TryBuild(grid, request, plan, pins[leg], pins[leg + 1], round, profileTolerance,
                     out built, out summary, out need);
+            }
         }
 
         var dense = new List<double>();
@@ -362,7 +377,7 @@ public static class RouteSuggester
             _columns = grid.Columns;
             _rows = grid.Rows;
             _cell = grid.CellSize;
-            _price = new RouteCost(request);
+            _price = new RouteCost(request, SearchGradeShare(request));
             _turnRadiusCost = TurnRadiusCost(request);
             int count = grid.NodeCount;
             int states = count * StatesPerNode;
@@ -613,15 +628,23 @@ public static class RouteSuggester
         private const double MaximumPricedTurn = 170.0 * Math.PI / 180.0;
 
         /// <summary>
+        /// The share of the grade limit the search plans to. Rounding a bend shortens a route, so a route
+        /// planned to climb at exactly the limit has no length to give its bends and keeps them tight where it
+        /// climbs hardest (a hairpin rounded at 10 m gives up tens of metres). With a minimum radius the search
+        /// plans to 90% of the limit; the profile is still fitted to the full limit, so the spare length goes
+        /// to the bends.
+        /// </summary>
+        internal static double SearchGradeShare(RouteRequest request) => request.MinimumRadius > 0.0 ? 0.9 : 1.0;
+
+        /// <summary>
         /// The turning radius the turn cost is scaled by, priced at the distance weight (or 1 where distance is
-        /// weighted at nothing): the minimum radius, or the corridor width when none is asked for, since a road
-        /// of that width cannot turn on the spot either.
+        /// weighted at nothing): the reference radius (<see cref="RouteRequest.ReferenceRadius"/>) widened by
+        /// <see cref="RouteRequest.Simplicity"/>, so a plainer route pays more for each turn.
         /// </summary>
         internal static double TurnRadiusCost(RouteRequest request)
         {
-            double radius = request.MinimumRadius > 0.0 ? request.MinimumRadius : request.CorridorWidth;
             double weight = request.DistanceWeight > 0.0 ? request.DistanceWeight : 1.0;
-            return radius * weight;
+            return request.ReferenceRadius * request.SimplicityScale * weight;
         }
 
         private static double[] BuildUnitLengths()

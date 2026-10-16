@@ -32,13 +32,18 @@ internal static class PlanFillet
 
     /// <summary>As <see cref="Fillet(IReadOnlyList{ValueTuple{double, double}}, double, out double?, out int)"/>,
     /// also counting the reduced corners that are near-reversals (left sharp).</summary>
+    /// <param name="reportBelow">The radius a corner counts as reduced under; 0 (the default) is
+    /// <paramref name="minimumRadius"/>. A caller rounding towards a larger preferred radius passes the real
+    /// minimum here, so a corner that takes less than preferred but at least the minimum is not reported.</param>
     public static List<PlanPiece> Fillet(
         IReadOnlyList<(double X, double Y)> plan,
         double minimumRadius,
         out double? smallestRadius,
         out int reducedCorners,
-        out int reversalCorners)
+        out int reversalCorners,
+        double reportBelow = 0.0)
     {
+        double reportRadius = reportBelow > 0.0 ? reportBelow : minimumRadius;
         smallestRadius = null;
         reducedCorners = 0;
         reversalCorners = 0;
@@ -83,7 +88,7 @@ internal static class PlanFillet
                 double radius = tangent[i] / Math.Tan(0.5 * Math.Abs(deflection[i]));
                 radii[i] = radius;
                 smallestRadius = smallestRadius is double known ? Math.Min(known, radius) : radius;
-                if (!(radius < minimumRadius * (1.0 - (2.0 * FillTolerance))))
+                if (!(radius < reportRadius * (1.0 - (2.0 * FillTolerance))))
                     continue;
 
                 // Two corners turning the same way that share a filled segment at the same radius meet

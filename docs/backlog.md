@@ -695,6 +695,14 @@ length it needs (and `MakeRoom` respects that floor) before falling back to the 
 ground: wide switchbacks, two routes with every corner at 10 m, the third with 7 tight corners at its far
 hairpins. `RouteSwitchbackTests` holds it (it fails at a 2.8 m median leg without the turn cost).
 
+**Third follow-up 2026-10-16**: the user scored their hand-drawn road against the suggestions and asked for
+a complexity measure ("grade breaks, total turning and control points as a number"). Added `RouteComplexity`
+(curvature change x reference radius + grade change / limit; control points and straight-piece counts were
+rejected as representation-dependent) in the readout and user text, and a `Simplicity` option (default 2)
+that widens the turn radius, the rounding radius and the profile tolerance. The user's road is a reference
+for the kind of curve wanted, not a target. Still open: ranking alternatives by anything but search cost,
+and building arcs as single spans so control points drop too.
+
 **Shipped 2026-10-16** as `mhSuggestRoute`: A* over a sampled height grid with a hard max grade, distance /
 steepness / earthworks weights, up to three distinct alternatives, a grade-limited profile, a minimum plan
 radius and a Layer option. Short straightened segments left 9–11 corners under the

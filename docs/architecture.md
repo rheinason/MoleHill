@@ -178,7 +178,9 @@ TriangleNet (vendored)  ←  MoleHill.Core  ←  MoleHill.Grasshopper (GH host)
   slope unit, cut/fill over the corridor width, smallest radius) in its name and `MoleHill.Route.*`
   user text. The search is Core's `Routing/`: a top-surface height grid rasterised from the mesh (NaN for
   holes and outside), 16-connected A* over (node, heading) — a turn through θ costs `2R·tan(θ/2)`, so a
-  climb steeper than the limit switches back in long legs instead of zig-zagging a cell at a time — whose
+  climb steeper than the limit switches back in long legs instead of zig-zagging a cell at a time;
+  `Simplicity` widens that turning radius, the radius bends are rounded towards and the profile tolerance,
+  and every route reports a **complexity** score (`RouteComplexity`: curvature change and grade change) — whose
   move cost is
   `L * (wDistance + wSteepness * min(r,1)^2 + wEarthworks * E(r))` with `r` the move's ground grade over
   the limit, cost-aware string pulling to turn the grid path back into the straight lines it

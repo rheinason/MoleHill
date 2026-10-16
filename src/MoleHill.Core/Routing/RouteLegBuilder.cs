@@ -67,10 +67,16 @@ internal static class RouteLegBuilder
         double profileTolerance,
         out List<RouteSpan> spans,
         out RouteFilletSummary filletSummary,
-        out double requiredGrade)
+        out double requiredGrade,
+        double preferredRadius = 0.0)
     {
+        // Bends are rounded towards the preferred radius when one is given (the minimum widened by
+        // Simplicity) and only count as tight under the minimum: a corner with room for less than the
+        // preferred radius takes what fits.
+        double radius = preferredRadius > request.MinimumRadius ? preferredRadius : request.MinimumRadius;
         List<PlanPiece> pieces = PlanFillet.Fillet(
-            plan, fillet ? request.MinimumRadius : 0.0, out double? smallest, out int reduced, out int reversals);
+            plan, fillet ? radius : 0.0, out double? smallest, out int reduced, out int reversals,
+            fillet ? request.MinimumRadius : 0.0);
         filletSummary = new RouteFilletSummary(smallest, reduced, reversals);
         spans = new List<RouteSpan>();
         requiredGrade = 0.0;

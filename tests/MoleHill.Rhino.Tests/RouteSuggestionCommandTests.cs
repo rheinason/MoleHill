@@ -71,6 +71,15 @@ public sealed class RouteSuggestionCommandTests
     }
 
     [Fact]
+    public void Describe_WithComplexity_ShowsTheTotalThenItsParts()
+    {
+        Assert.Equal(
+            "Route 1: 523.40 m, max grade 4.9%, mean 2.1%, cut 12.0 m³, fill 9.5 m³, complexity 5.6 (plan 4.3, profile 1.3)",
+            RouteSuggestionReadout.Describe(1, Sample, RouteFilletSummary.None, 0.0, Metres, SlopeAnalyzer.SlopeUnit.Percent,
+                new RouteComplexity(4.3, 1.3)));
+    }
+
+    [Fact]
     public void Describe_ReadsInModelUnitsAndTheUsersSlopeUnit()
     {
         Assert.Equal(

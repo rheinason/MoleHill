@@ -38,4 +38,22 @@ public sealed class RouteRequest
 
     /// <summary>Vertical tolerance for thinning the fitted profile, in model units. 0 picks one from the cell size.</summary>
     public double ProfileTolerance { get; init; }
+
+    /// <summary>
+    /// How much plainer a route may be at the price of earthwork; 0 (the default) is the route that follows
+    /// the ground as closely as the other weights allow. At s, the turning radius the search prices turns
+    /// at, the radius bends are rounded towards (never under <see cref="MinimumRadius"/>) and the profile's
+    /// thinning tolerance are all (1 + s) times their base, so a route takes fewer, broader bends and
+    /// longer grades. See <see cref="RouteComplexity"/> for how plainness is scored.
+    /// </summary>
+    public double Simplicity { get; init; }
+
+    /// <summary>The factor <see cref="Simplicity"/> scales radii and tolerances by.</summary>
+    internal double SimplicityScale => 1.0 + Math.Max(0.0, Simplicity);
+
+    /// <summary>
+    /// The radius a turn is priced at and a bend counts 2 at in <see cref="RouteComplexity"/>: the minimum
+    /// radius, or the corridor width when none is asked for (a road that wide cannot turn on the spot).
+    /// </summary>
+    internal double ReferenceRadius => MinimumRadius > 0.0 ? MinimumRadius : CorridorWidth;
 }

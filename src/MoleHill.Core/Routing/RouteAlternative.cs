@@ -12,13 +12,15 @@ public sealed class RouteAlternative
         double[] pointsXyz,
         RouteMetrics metrics,
         RouteFilletSummary fillet,
-        double searchCost)
+        double searchCost,
+        RouteComplexity complexity)
     {
         Spans = spans;
         PointsXyz = pointsXyz;
         Metrics = metrics;
         Fillet = fillet;
         SearchCost = searchCost;
+        Complexity = complexity;
     }
 
     /// <summary>
@@ -40,6 +42,9 @@ public sealed class RouteAlternative
     public RouteMetrics Metrics { get; }
 
     public RouteFilletSummary Fillet { get; }
+
+    /// <summary>How much the route's curvature and grade change (<see cref="RouteComplexity"/>).</summary>
+    public RouteComplexity Complexity { get; }
 
     /// <summary>
     /// The drawn polyline priced by the search's own cost function, without the diversity penalty —

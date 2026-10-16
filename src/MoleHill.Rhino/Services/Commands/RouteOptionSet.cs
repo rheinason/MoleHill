@@ -9,12 +9,13 @@ namespace MoleHill.Rhino.Services;
 /// <summary>
 /// mhSuggestRoute's command-line options, offered identically while points are picked and while the
 /// alternatives are reviewed, so a setting can be changed at either stage and the routes searched again:
-/// <c>MaxGrade Units MinRadius Distance Steepness Earthworks CorridorWidth CellSize Alternatives Layer</c>.
+/// <c>MaxGrade Units MinRadius Simplicity Distance Steepness Earthworks CorridorWidth CellSize Alternatives Layer</c>.
 /// </summary>
 internal sealed class RouteOptionSet
 {
     private readonly RhinoDoc _doc;
     private OptionDouble _minimumRadius = new(0.0);
+    private OptionDouble _simplicity = new(0.0);
     private OptionDouble _distance = new(1.0);
     private OptionDouble _steepness = new(1.0);
     private OptionDouble _earthworks = new(1.0);
@@ -49,6 +50,7 @@ internal sealed class RouteOptionSet
     {
         MaxGrade.AddTo(get);
         _minimumRadius = new OptionDouble(Math.Max(0.0, Settings.MinimumRadius), 0.0, 1e12);
+        _simplicity = new OptionDouble(Math.Clamp(Settings.Simplicity, 0.0, RouteSuggestionSettings.MaxSimplicity), 0.0, RouteSuggestionSettings.MaxSimplicity);
         _distance = new OptionDouble(Settings.DistanceWeight, 0.0, RouteSuggestionSettings.MaxWeight);
         _steepness = new OptionDouble(Settings.SteepnessWeight, 0.0, RouteSuggestionSettings.MaxWeight);
         _earthworks = new OptionDouble(Settings.EarthworksWeight, 0.0, RouteSuggestionSettings.MaxWeight);
@@ -56,6 +58,7 @@ internal sealed class RouteOptionSet
         _cellSize = new OptionDouble(Math.Max(0.0, Settings.CellSize), 0.0, 1e12);
         _alternatives = new OptionInteger(Settings.AlternativeCount, 1, RouteSuggester.MaxAlternatives);
         get.AddOptionDouble("MinRadius", ref _minimumRadius, "Smallest plan radius at corners; 0 keeps sharp corners");
+        get.AddOptionDouble("Simplicity", ref _simplicity, "Fewer, broader bends and longer grades for more earthwork; 0 follows the ground");
         get.AddOptionDouble("Distance", ref _distance, "Weight on route length");
         get.AddOptionDouble("Steepness", ref _steepness, "Weight on grade, up to MaxGrade");
         get.AddOptionDouble("Earthworks", ref _earthworks, "Weight on ground the route cannot follow");
@@ -91,8 +94,9 @@ internal sealed class RouteOptionSet
         MaxGrade.Commit(get, result);
 
         var before = (Settings.DistanceWeight, Settings.SteepnessWeight, Settings.EarthworksWeight,
-            Settings.CorridorWidth, Settings.CellSize, Settings.AlternativeCount, Settings.MinimumRadius);
+            Settings.CorridorWidth, Settings.CellSize, Settings.AlternativeCount, Settings.MinimumRadius, Settings.Simplicity);
         Settings.MinimumRadius = _minimumRadius.CurrentValue;
+        Settings.Simplicity = _simplicity.CurrentValue;
         Settings.DistanceWeight = _distance.CurrentValue;
         Settings.SteepnessWeight = _steepness.CurrentValue;
         Settings.EarthworksWeight = _earthworks.CurrentValue;
@@ -100,7 +104,7 @@ internal sealed class RouteOptionSet
         Settings.CellSize = _cellSize.CurrentValue;
         Settings.AlternativeCount = _alternatives.CurrentValue;
         var after = (Settings.DistanceWeight, Settings.SteepnessWeight, Settings.EarthworksWeight,
-            Settings.CorridorWidth, Settings.CellSize, Settings.AlternativeCount, Settings.MinimumRadius);
+            Settings.CorridorWidth, Settings.CellSize, Settings.AlternativeCount, Settings.MinimumRadius, Settings.Simplicity);
 
         return before != after || gradeBefore != MaxGrade.Ratio;
     }

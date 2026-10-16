@@ -32,6 +32,16 @@ internal sealed class RouteSuggestionSettings
 
     public const double MaxWeight = 100.0;
 
+    /// <summary>
+    /// The default plainness (<see cref="RouteRequest.Simplicity"/>). At 0 a route follows every fold of
+    /// the ground it can; on a 10% climb in the reporting file that gave 15–17 on the complexity score
+    /// against 3–4 for a hand-drawn road. At 2 the alternatives span both: one still close to the ground,
+    /// one as plain as the hand-drawn line, so the trade is on screen to choose from.
+    /// </summary>
+    public const double DefaultSimplicity = 2.0;
+
+    public const double MaxSimplicity = 10.0;
+
     public const string MaxGradeCacheKey = "MoleHill.SuggestRoute.MaxGrade";
     private const string DistanceKey = "MoleHill.SuggestRoute.DistanceWeight";
     private const string SteepnessKey = "MoleHill.SuggestRoute.SteepnessWeight";
@@ -40,6 +50,7 @@ internal sealed class RouteSuggestionSettings
     private const string CellKey = "MoleHill.SuggestRoute.CellSize";
     private const string AlternativesKey = "MoleHill.SuggestRoute.Alternatives";
     private const string RadiusKey = "MoleHill.SuggestRoute.MinRadius";
+    private const string SimplicityKey = "MoleHill.SuggestRoute.Simplicity";
 
     public double DistanceWeight { get; set; } = 1.0;
 
@@ -58,6 +69,9 @@ internal sealed class RouteSuggestionSettings
     /// <summary>Model units; 0 keeps the corners sharp.</summary>
     public double MinimumRadius { get; set; }
 
+    /// <summary>How much plainer a route may be for more earthwork (<see cref="RouteRequest.Simplicity"/>).</summary>
+    public double Simplicity { get; set; } = DefaultSimplicity;
+
     public bool IsAutomaticCellSize => !(CellSize > 0.0);
 
     public static RouteSuggestionSettings Load(ModelUnitContext units) => new()
@@ -69,6 +83,7 @@ internal sealed class RouteSuggestionSettings
         CellSize = CommandOptionCache.GetLength(CellKey, units, 0.0),
         AlternativeCount = CommandOptionCache.GetValue(AlternativesKey, RouteSuggester.MaxAlternatives),
         MinimumRadius = CommandOptionCache.GetLength(RadiusKey, units, DefaultMinimumRadiusMeters),
+        Simplicity = CommandOptionCache.GetValue(SimplicityKey, DefaultSimplicity),
     };
 
     public void Save(ModelUnitContext units)
@@ -80,6 +95,7 @@ internal sealed class RouteSuggestionSettings
         CommandOptionCache.SetLength(CellKey, units, Math.Max(0.0, CellSize));
         CommandOptionCache.SetValue(AlternativesKey, AlternativeCount);
         CommandOptionCache.SetLength(RadiusKey, units, Math.Max(0.0, MinimumRadius));
+        CommandOptionCache.SetValue(SimplicityKey, Math.Clamp(Simplicity, 0.0, MaxSimplicity));
     }
 
     /// <summary>Why these settings cannot be searched with, or null when they can.</summary>
@@ -105,6 +121,7 @@ internal sealed class RouteSuggestionSettings
         AlternativeCount = Math.Clamp(AlternativeCount, 1, RouteSuggester.MaxAlternatives),
         MinimumRadius = Math.Max(0.0, MinimumRadius),
         ProfileTolerance = tolerance,
+        Simplicity = Math.Clamp(Simplicity, 0.0, MaxSimplicity),
     };
 
     /// <summary>

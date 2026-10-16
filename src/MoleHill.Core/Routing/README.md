@@ -84,6 +84,20 @@ a polyline the user edits and then assigns to a Grade Path.
   Thinning keeps chords between fitted points, and a chord's grade is an average of the grades it
   spans — so the simplified output still obeys the limit, which the tests check segment by segment.
   Reusable for any "fit this curve to the ground within a grade" command.
+- `RouteComplexity.cs` — how complicated a route is, as two counts: **plan** = total change of plan
+  curvature x the reference radius (a bend at that radius counts 2, a sharp corner too, a long gentle
+  curve little) and **profile** = total grade change / the limit (level to the limit counts 1). Asked for
+  after a user compared a hand-drawn road (11 control points) with suggestions (~100): control points
+  count how a curve is built, and counting the straights that trace a line scores a smooth curve as the
+  most complex, so neither was used. On the reporting file the hand-drawn road scored 3.8, the
+  suggestions 16–21 at Simplicity 0.
+- **Simplicity** (`RouteRequest.Simplicity`, s >= 0): the turning radius the search prices turns at, the
+  radius bends are rounded towards (never under the minimum, falling back to the minimum where the broader
+  curve breaks the grade) and the profile thinning tolerance are all (1 + s) times their base. With a
+  minimum radius the search also plans to 90% of the grade limit (`SearchGradeShare`): rounding shortens a
+  route, and one planned to climb at exactly the limit kept its hairpins tight. On the reporting file:
+  s = 0 gave complexity 15–17, s = 2 a spread of 3–18 (the plainest 7,500 m³ of earthwork against ~2,000
+  for the closest to the ground), s = 4 4–11. `RouteComplexityTests` holds the direction.
 - `RouteMetrics.cs` — the readout: plan length, max and mean (rise over length) grade from the output
   segments, and cut/fill as profile-minus-ground over the corridor width (a flat prism, no side
   slopes), integrated every half cell.

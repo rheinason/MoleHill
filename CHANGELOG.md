@@ -23,6 +23,12 @@ beta prereleases. Earlier versions are recorded only in the git history.
     few metres apart instead of a vertex every half metre.
   - The search grid is scaled to the route (about 1.3 m for a 250 m route, and faster).
   - Route numbers are drawn on top of every route, larger, and spread along them, so each one stays readable.
+  - A new **Simplicity** option trades earthwork for plainer routes: fewer, broader bends and longer
+    grades. At 0 a route follows the ground as closely as it can; the default, 2, offers routes from
+    close to the ground to as plain as a hand-drawn road.
+  - Every route reports a **complexity** score next to its earthwork, also stored on the kept curve: how
+    much its curvature and its grade change. A bend at the minimum radius counts 2, a swing from level to
+    the grade limit counts 1.
   - A climb steeper than the limit now switches back in long legs. The search used to gain the length it
     needed by zig-zagging every couple of metres, and rounding then left dozens of corners sharp.
 - **Inspect Curve** shows grades in your slope unit everywhere: the summary, the labels on the curve, the

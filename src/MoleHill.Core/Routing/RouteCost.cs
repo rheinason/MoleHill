@@ -12,9 +12,9 @@ internal readonly struct RouteCost
     private readonly double _steepness;
     private readonly double _earthworks;
 
-    public RouteCost(RouteRequest request)
+    public RouteCost(RouteRequest request, double gradeShare = 1.0)
     {
-        _maxGrade = request.MaxGrade;
+        _maxGrade = request.MaxGrade * gradeShare;
         _distance = request.DistanceWeight;
         _steepness = request.SteepnessWeight;
         _earthworks = request.EarthworksWeight;
