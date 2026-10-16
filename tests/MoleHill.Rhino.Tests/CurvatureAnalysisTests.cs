@@ -266,22 +266,31 @@ public class CurvatureAnalysisTests
         Assert.Equal(200.0, summary.LandformSize!.Value, 9);
     }
 
+    /// <summary>
+    /// Auto shows the way grading modifiers show an inherited slope: the box stays blank and the resolved
+    /// size is its greyed placeholder, read from the last build's summary for this card (0 before any build).
+    /// </summary>
     [Fact]
-    public void DescribeResult_Auto_ShowsTheResolvedSize_AndATypedSizeShowsNone()
+    public void LandformSize_IsAnOptionalNumber_WhoseGreyedValueIsTheResolvedSize()
     {
         AnalysisTypeDescriptor descriptor = AnalysisTypeRegistry.ForKind("curvature")!;
+        var size = descriptor.Parameters.Single(p => p.Key == "FeatureSize");
+        var analysis = new CurvatureAnalysisDefinition();
+        var terrain = new TerrainDefinition();
+
+        Assert.Equal(ParameterKind.OptionalNumber, size.Kind);
+        Assert.Equal(0.0, size.InheritedValueFromTerrain!(terrain, analysis));
+
+        terrain.LastAnalysisResults.Add(new TerrainAnalysisSummary { AnalysisId = Guid.NewGuid(), LandformSize = 5.0 });
+        terrain.LastAnalysisResults.Add(new TerrainAnalysisSummary { AnalysisId = analysis.Id, LandformSize = 20.0 });
+        Assert.Equal(20.0, size.InheritedValueFromTerrain!(terrain, analysis));
+
         var format = new ResultFormatter(a => a.ToString("0"), a => a.ToString("0"), l => $"{l:0} m", a => a.ToString("0"));
-        var shares = new[] { 0.5, 0.5, 0.0 };
         var summary = new TerrainAnalysisSummary
         {
-            LandformMeasuredArea = 100.0, LandformClassShares = shares, LandformSize = 20.0,
+            LandformMeasuredArea = 100.0, LandformClassShares = new[] { 0.5, 0.5, 0.0 }, LandformSize = 20.0,
         };
-
-        var auto = descriptor.DescribeResult(new CurvatureAnalysisDefinition(), summary, format);
-        var typed = descriptor.DescribeResult(new CurvatureAnalysisDefinition { FeatureSize = 20.0 }, summary, format);
-
-        Assert.Contains(auto, row => row.Label == "Landform Size" && row.Value == "Auto (20 m)");
-        Assert.DoesNotContain(typed, row => row.Label == "Landform Size");
+        Assert.DoesNotContain(descriptor.DescribeResult(analysis, summary, format), row => row.Label == "Landform Size");
     }
 
     /// <summary>

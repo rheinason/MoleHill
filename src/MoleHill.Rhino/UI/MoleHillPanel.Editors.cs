@@ -250,7 +250,8 @@ public sealed partial class MoleHillPanel
         {
             Width = UiMetrics.NumericField,
             Text = value > 0.0 ? FormatUserNumber(value, decimalPlaces) : string.Empty,
-            PlaceholderText = FormatUserNumber(inheritedValue, decimalPlaces)
+            // Greyed: what a blank box stands for. Nothing resolved yet (0) reads as Auto.
+            PlaceholderText = inheritedValue > 0.0 ? FormatUserNumber(inheritedValue, decimalPlaces) : "Auto"
         };
         ApplyHelp(textBox, help);
 

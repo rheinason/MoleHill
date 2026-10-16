@@ -88,7 +88,7 @@ public sealed partial class MoleHillPanel
                 return CreateOptionalNumericEditor(
                     label,
                     parameter.GetNumber!(definition),
-                    parameter.InheritedValue!(definition),
+                    parameter.InheritedValueFromTerrain?.Invoke(terrain, definition) ?? parameter.InheritedValue!(definition),
                     value => commit(item => parameter.SetNumber!(item, value)),
                     parameter.DecimalPlaces,
                     parameter.Help,

@@ -102,6 +102,11 @@ internal sealed class ParameterDescriptor<TDefinition>
     /// <summary>OptionalNumber: the value shown as the greyed "inherited" placeholder when blank.</summary>
     public Func<TDefinition, double>? InheritedValue { get; init; }
 
+    /// <summary>OptionalNumber: an inherited value that needs the terrain, such as a size the last build
+    /// resolved and stored in its summary. Wins over <see cref="InheritedValue"/> when set; 0 shows no
+    /// placeholder (nothing resolved yet).</summary>
+    public Func<TerrainDefinition, TDefinition, double>? InheritedValueFromTerrain { get; init; }
+
     // ---- Commit hints ----
     // Inert here by design: the family's commit closure reads whichever of these it honours. Leaving one
     // unset is how a family opts out, so no family has to carry another's semantics.
@@ -245,7 +250,8 @@ internal sealed class ParameterDescriptor<TDefinition>
         string? help = null,
         int decimalPlaces = 3,
         ParameterUnit unit = ParameterUnit.None,
-        Func<TDefinition, bool>? visibleWhen = null) =>
+        Func<TDefinition, bool>? visibleWhen = null,
+        Func<TerrainDefinition, TDefinition, double>? inheritedValueFromTerrain = null) =>
         new()
         {
             Kind = ParameterKind.OptionalNumber,
@@ -254,6 +260,7 @@ internal sealed class ParameterDescriptor<TDefinition>
             GetNumber = get,
             SetNumber = set,
             InheritedValue = inheritedValue,
+            InheritedValueFromTerrain = inheritedValueFromTerrain,
             Help = help,
             Unit = unit,
             DecimalPlaces = decimalPlaces,

@@ -989,15 +989,8 @@ internal sealed class CurvatureAnalysisDescriptor : AnalysisTypeDescriptor
             };
         }
 
+        // Auto's resolved size shows greyed in the Landform Size box itself (InheritedValueFromTerrain).
         var rows = new List<ResultRow>();
-        if (summary.LandformSize is { } size && ((CurvatureAnalysisDefinition)analysis).FeatureSize <= 0.0)
-        {
-            rows.Add(ResultRow.Of(
-                "Landform Size",
-                $"Auto ({format.Length(size)})",
-                "Resolved from the terrain's plan extent: a tenth of the shorter side, rounded to 1, 2, 2.5 or 5. " +
-                "Type a size above to override it."));
-        }
 
         var lines = new List<string>();
         foreach (LandformClass landform in LandformClassifier.All)
@@ -1019,6 +1012,10 @@ internal sealed class CurvatureAnalysisDescriptor : AnalysisTypeDescriptor
     }
 
     private static CurvatureAnalysisDefinition Curvature(AnalysisDefinition analysis) => (CurvatureAnalysisDefinition)analysis;
+
+    /// <summary>The size the last build resolved Auto to, for the greyed placeholder; 0 before any build.</summary>
+    private static double ResolvedLandformSize(TerrainDefinition terrain, AnalysisDefinition analysis) =>
+        terrain.LastAnalysisResults.FirstOrDefault(summary => summary.AnalysisId == analysis.Id)?.LandformSize ?? 0.0;
 
     private static readonly IReadOnlyList<(string Key, string Label)> DisplayOptions = new[]
     {
@@ -1066,17 +1063,18 @@ internal sealed class CurvatureAnalysisDescriptor : AnalysisTypeDescriptor
             "Colours the terrain by curvature in 1/model-unit, convex positive. The range is symmetric about " +
             "zero, so the middle colour is straight ground.",
             visibleWhen: a => Curvature(a).Display == CurvatureDisplay.Curvature),
-        AnalysisParam.Number(
+        AnalysisParam.OptionalNumber(
             "FeatureSize", "Landform Size",
             a => Curvature(a).FeatureSize,
             (a, v) => Curvature(a).FeatureSize = Math.Max(0.0, v),
+            _ => 0.0,
             "The radius the surface is measured over. Landforms about this size and larger are what the map " +
             "shows; smaller surface detail averages away. A 0.3 m hump on a mound shows at a 0.5 m size and " +
-            "is gone at 10 m. Below the survey spacing it measures at the spacing. 0 is Auto: a tenth of the " +
-            "shorter side of the terrain's plan, rounded to 1, 2, 2.5 or 5 (20 m on a 200 m site), shown " +
-            "under Landform Size after a build. Type a size to override it.",
-            min: 0.0,
-            unit: ParameterUnit.ModelLength),
+            "is gone at 10 m. Below the survey spacing it measures at the spacing. Blank is Auto: a tenth of " +
+            "the shorter side of the terrain's plan, rounded to 1, 2, 2.5 or 5 (20 m on a 200 m site), shown " +
+            "greyed once the terrain has built. Type a size to override it; clear the box to return to Auto.",
+            unit: ParameterUnit.ModelLength,
+            inheritedValueFromTerrain: ResolvedLandformSize),
         AnalysisParam.Number(
             "FlatnessTolerance", "Flatness Tolerance",
             a => Curvature(a).FlatnessTolerance,
