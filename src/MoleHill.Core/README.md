@@ -21,6 +21,7 @@ Two things about this project are not obvious from its file list:
 | [`Processing/`](Processing/README.md) | Input cleaning, simplification, constraint resolution |
 | [`Grading/`](Grading/README.md) | Pads, paths, walls, zone/area splitting — the watertight 2.5D invariant |
 | [`Analysis/`](Analysis/README.md) | Slope, aspect, elevation, cut/fill, contours, waterflow, drainage |
+| [`Routing/`](Routing/README.md) | Route suggestion between picked points: height grid, A*, grade-limited profile |
 | [`IO/`](IO/README.md) | Host-free file readers: classic TIFF / GeoTIFF tags and raster georeferencing |
 | [`Reporting/`](Reporting/README.md) | Quantity tables and CSV export |
 | [`Scattering/`](Scattering/README.md) | Deterministic weighted block scatter |

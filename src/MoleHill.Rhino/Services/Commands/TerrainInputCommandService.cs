@@ -596,7 +596,8 @@ internal static class TerrainInputCommandService
         }
     }
 
-    private static List<Mesh> CreateProjectionMeshes(GeometryBase geometry)
+    /// <summary>The meshes a picked mesh, surface, polysurface or extrusion stands for. Shared with mhSuggestRoute.</summary>
+    internal static List<Mesh> CreateProjectionMeshes(GeometryBase geometry)
     {
         var meshes = new List<Mesh>();
         switch (geometry)

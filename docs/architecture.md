@@ -16,7 +16,8 @@ TriangleNet (vendored)  ←  MoleHill.Core  ←  MoleHill.Grasshopper (GH host)
 - **`src/TriangleNet/`** — vendored Triangle.NET CDT engine. Do not refactor; treat as a library.
 - **`src/MoleHill.Core/`** — all reusable terrain logic, **no Rhino/GH dependency**, unit-tested.
   Sub-namespaces: `Engine/` (triangulation), `Processing/` (input prep), `Grading/` (pad/path),
-  `Analysis/` (contours, slope, waterflow), `Scattering/` (object scatter sampling), `Sculpting/` (brush engine +
+  `Analysis/` (contours, slope, waterflow), `Routing/` (route suggestion: height grid, grade-limited
+  profile, A* with alternatives), `Scattering/` (object scatter sampling), `Sculpting/` (brush engine +
   displacement field).
 - **`src/MoleHill.Interop/`** — separately shipped, versioned RhinoCommon-only snapshot bridge contract,
   plus `IToposolidPreparation`, the package `MoleHill.gha` hands to `MoleHill.Revit.gha`.
@@ -44,8 +45,8 @@ TriangleNet (vendored)  ←  MoleHill.Core  ←  MoleHill.Grasshopper (GH host)
   bespoke. Compact action buttons use
   `UI/PanelButtonIcons.cs`, a theme-aware vector icon set rendered to Eto images.
 - Rhino command names use the compact `mh...` prefix. The installed toolbar exposes Geometry, Blocks,
-  and Document utilities — including the curve preparation that feeds a terrain (drape, split at
-  intersections, wall rails, input validation). Terrain *definition* work — creating a terrain, editing
+  and Document utilities — including the curve preparation that feeds a terrain (drape, route
+  suggestion, split at intersections, wall rails, input validation). Terrain *definition* work — creating a terrain, editing
   its modifier stack, bake/convert — stays in the dock panel and deliberately has no toolbar button.
   Diagnostics (`mhBenchmarkLargeTin`, `mhDebugAnnotationBlock`) are command-line only. A command that
   is a variant of another rides its sibling's right-click (`mhSlopeCurve` → `mhSlopeCurveSection`,
@@ -98,6 +99,28 @@ TriangleNet (vendored)  ←  MoleHill.Core  ←  MoleHill.Grasshopper (GH host)
   Rhino geometry for later assignment as points, breaklines, contours, or boundaries; they do not mutate
   managed terrain definitions. Validation replaces surviving objects in place to preserve ids and complete
   Rhino attributes; joining is layer-scoped, with one original object surviving each many-to-one join.
+- **`mhSuggestRoute` drafts the curve; Grade Path still follows it.** Modifiers follow drawn geometry
+  exactly, so help with *where* a path should go belongs upstream, in a command that draws the curve.
+  The user picks a terrain (any mesh/surface, or Enter for the active MoleHill terrain, as
+  `mhDrapeCurve`), a start, optional waypoints and an end; the command returns up to three distinct
+  alternatives as ordinary editable polylines, previewed by `RouteSuggestionConduit` (categorical
+  colours, numbered dots, `DrawOverlay` with depth off — the inspector rule above) and kept with
+  `KeepAll` / `Keep1..3` / Enter. Every option (`MaxGrade` through the shared `SlopeCommandOption`,
+  `Distance`/`Steepness`/`Earthworks` weights, `CorridorWidth`, `CellSize`, `Alternatives`) is offered
+  both while picking and while reviewing, and changing one during review searches again. Each kept
+  curve carries its readout (length, max/mean grade in the user's slope unit, cut/fill over the
+  corridor width) in its name and `MoleHill.Route.*` user text, on the current layer like other drawing
+  aids. The search is Core's `Routing/`: a top-surface height grid rasterised from the mesh (NaN for
+  holes and outside), 16-connected A* whose move cost is
+  `L * (wDistance + wSteepness * min(r,1)^2 + wEarthworks * E(r))` with `r` the move's ground grade over
+  the limit, cost-aware string pulling to turn the grid path back into the straight lines it
+  approximates, and a **grade-limited profile** (`GradeLimitedProfile`: the ground wherever the ground is
+  within the limit, an even cut/fill split where not, held to the ground at the picked points). The grade
+  limit is therefore hard on the output — the centreline Z is what Grade Path treats as the design —
+  while ground steeper than the limit is a priced choice (cut through or go round) rather than a wall.
+  Alternatives come from penalising each kept route's corridor and searching again; a candidate whose
+  drawn line still shares 70% of its length with an earlier corridor is dropped. See
+  `src/MoleHill.Core/Routing/README.md`.
 - Project-local ↔ real-world coordinates use the validated horizontal `MoleHill_ProjectBase` plane as a
   reversible local-to-real-world rigid transform; object replacement ids are reconciled across terrain
   source/output tracking. Legacy Python `FOTM` planes (the inverse convention) and legacy C# `Georef`
