@@ -509,8 +509,10 @@ $designs = @{
 
 # ── Render + repack ──────────────────────────────────────────────────────────
 
-[xml]$rui = Get-Content $ruiPath -Raw
-$raw = Get-Content $ruiPath -Raw
+# Read as UTF-8 explicitly: Windows PowerShell 5.1 reads a BOM-less file as ANSI, and writing that back
+# as UTF-8 below double-encoded every localised macro label on each run (the .rui grew to 2 MB of mojibake).
+$raw = [System.IO.File]::ReadAllText($ruiPath, [System.Text.Encoding]::UTF8)
+[xml]$rui = $raw
 
 $sizeNodes = @{
     'small_bitmap'  = 16
