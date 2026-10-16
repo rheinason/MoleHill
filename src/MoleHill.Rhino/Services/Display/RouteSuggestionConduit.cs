@@ -17,6 +17,9 @@ internal sealed class RouteSuggestionConduit : DisplayConduit
     private const int EndPointSize = 7;
     private static readonly Color LabelTextColor = Color.White;
 
+    /// <summary>Larger than Rhino's default dot, whose single digit was hard to read on a busy terrain.</summary>
+    private const int LabelFontHeight = 18;
+
     private IReadOnlyList<Polyline> _routes = Array.Empty<Polyline>();
     private IReadOnlyList<Point3d> _picked = Array.Empty<Point3d>();
     private BoundingBox _bounds = BoundingBox.Empty;
@@ -74,7 +77,11 @@ internal sealed class RouteSuggestionConduit : DisplayConduit
 
                 Color color = RouteColor(index);
                 double along = (index + 1.0) / (_routes.Count + 1.0);
-                e.Display.DrawDot(PointAlong(route, along), (index + 1).ToString(System.Globalization.CultureInfo.InvariantCulture), color, LabelTextColor);
+                using var dot = new TextDot((index + 1).ToString(System.Globalization.CultureInfo.InvariantCulture), PointAlong(route, along))
+                {
+                    FontHeight = LabelFontHeight,
+                };
+                e.Display.DrawDot(dot, color, LabelTextColor, LabelTextColor);
             }
 
             foreach (Point3d point in _picked)

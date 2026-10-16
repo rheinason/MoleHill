@@ -684,8 +684,9 @@ of 0.1–2 m under a 10 m minimum radius, the number dots sat under other routes
 Inspect. Fixed: radius is a requirement (consolidate within 5%, then give every corner room at any cost),
 profile thinned to 0.1 m, automatic cell = span/200, numbers drawn last and spread along the routes, and
 Inspect writes grades in the slope unit (the 17.6% is tan 10°: a degree limit read as percent — the likely
-cause, unconfirmed against the user's file). `RouteHillySiteTests` holds the case. Not yet live-tested in
-Rhino: the user's Rhino held the build output.
+cause, confirmed by the user). `RouteHillySiteTests` holds the case. Live-tested 2026-10-16 in a disposable
+Rhino on the same hilly site: every corner 10.00 m, Inspect agrees with the readout (+10.00° where it used to
+read 17.6%), 157–203 control points per 300 m route instead of 439–551, numbers drawn on top in larger dots.
 
 **Shipped 2026-10-16** as `mhSuggestRoute`: A* over a sampled height grid with a hard max grade, distance /
 steepness / earthworks weights, up to three distinct alternatives, a grade-limited profile, a minimum plan
