@@ -24,7 +24,8 @@ namespace MoleHill.Core.Routing;
 ///
 /// <para><b>Profile.</b> The plan path is straightened (string pulling: a chord replaces a stretch of grid
 /// path when it costs no more by the same pricing, so a grid route becomes the straight line it
-/// approximates, and a chord over a hole is never taken), sampled along its length, and given the grade-limited profile of
+/// approximates, and a chord over a hole is never taken), its corners rounded to the minimum radius if
+/// one is asked for (<see cref="PlanFillet"/>), sampled along its length, and given the grade-limited profile of
 /// <see cref="GradeLimitedProfile"/>: the ground wherever the ground is within the limit, an even split
 /// of cut and fill where it is not, held to the ground at the picked points. The grade limit is
 /// therefore hard on the output — the centreline Grade Path will take as its design — and the
@@ -141,7 +142,8 @@ public static class RouteSuggester
                 break;
 
             List<int> raw = Concatenate(legs);
-            if (!TryBuildRoute(grid, request, legs, pins, profileTolerance, out double[] points, out int failedLeg, out double required))
+            if (!TryBuildRoute(grid, request, legs, pins, profileTolerance,
+                    out List<RouteSpan> spans, out double[] points, out RouteFilletSummary fillet, out int failedLeg, out double required))
             {
                 if (accepted.Count == 0)
                     return RouteSuggestionResult.Fail(RouteFailure.ExceedsMaxGrade, leg: failedLeg, requiredGrade: required);
@@ -167,7 +169,8 @@ public static class RouteSuggester
                 (x, y) => grid.TrySample(x, y, out double z) ? z : null,
                 request.CorridorWidth,
                 0.5 * cell);
-            accepted.Add(new RouteAlternative(points, metrics, RouteLegBuilder.PolylineCost(grid, new RouteCost(request), points)));
+            accepted.Add(new RouteAlternative(
+                spans, points, metrics, fillet, RouteLegBuilder.PolylineCost(grid, new RouteCost(request), points)));
             search.Stamp(drawn, bandCells, bands, (byte)(1 << (accepted.Count - 1)));
             search.Penalise(drawn, bandCells, DiversityPenaltyStep);
         }
@@ -184,7 +187,8 @@ public static class RouteSuggester
             NonNegative(request.SteepnessWeight) &&
             NonNegative(request.EarthworksWeight) &&
             request.DistanceWeight + request.SteepnessWeight + request.EarthworksWeight > 0.0 &&
-            request.CorridorWidth > 0.0 && double.IsFinite(request.CorridorWidth);
+            request.CorridorWidth > 0.0 && double.IsFinite(request.CorridorWidth) &&
+            NonNegative(request.MinimumRadius);
     }
 
     private static List<int> Concatenate(List<List<int>> legs)
@@ -235,21 +239,28 @@ public static class RouteSuggester
         List<List<int>> legs,
         double[] pins,
         double profileTolerance,
+        out List<RouteSpan> spans,
         out double[] points,
+        out RouteFilletSummary fillet,
         out int failedLeg,
         out double requiredGrade)
     {
-        var output = new List<double>();
+        spans = new List<RouteSpan>();
+        fillet = RouteFilletSummary.None;
         failedLeg = -1;
         requiredGrade = 0.0;
+        bool rounded = request.MinimumRadius > 0.0;
         for (int leg = 0; leg < legs.Count; leg++)
         {
-            // Straightening shortens a leg; if that is what tips it over the limit, the raw grid path —
-            // the longest honest version of the same route — is tried before giving up.
-            if (!RouteLegBuilder.TryBuild(grid, request, legs[leg], request.Points[leg], request.Points[leg + 1],
-                    pins[leg], pins[leg + 1], straighten: true, profileTolerance, out List<double> legPoints, out double required) &&
-                !RouteLegBuilder.TryBuild(grid, request, legs[leg], request.Points[leg], request.Points[leg + 1],
-                    pins[leg], pins[leg + 1], straighten: false, profileTolerance, out legPoints, out required))
+            // Straightening shortens a leg, and so can rounding its corners; if that is what tips it over
+            // the limit, the sharp-cornered line and then the raw grid path — the longest honest version
+            // of the same route — are tried before giving up.
+            // Straightening is the expensive step, so each plan is made once and tried as many ways as needed.
+            List<(double X, double Y)> rawPlan = RouteLegBuilder.PlanFromNodes(grid, legs[leg], request.Points[leg], request.Points[leg + 1]);
+            List<(double X, double Y)> straightPlan = RouteLegBuilder.StraightenPlan(grid, new RouteCost(request), rawPlan);
+            if (!TryBuildLeg(straightPlan, rounded, out List<RouteSpan> legSpans, out RouteFilletSummary legFillet, out double required) &&
+                !(rounded && TryBuildLeg(straightPlan, false, out legSpans, out legFillet, out required)) &&
+                !TryBuildLeg(rawPlan, false, out legSpans, out legFillet, out required))
             {
                 points = Array.Empty<double>();
                 failedLeg = leg;
@@ -257,12 +268,19 @@ public static class RouteSuggester
                 return false;
             }
 
-            int skip = output.Count > 0 ? 3 : 0;
-            for (int i = skip; i < legPoints.Count; i++)
-                output.Add(legPoints[i]);
+            spans.AddRange(legSpans);
+            fillet = fillet.Merge(legFillet);
+
+            bool TryBuildLeg(List<(double X, double Y)> plan, bool round, out List<RouteSpan> built, out RouteFilletSummary summary, out double need) =>
+                RouteLegBuilder.TryBuild(grid, request, plan, pins[leg], pins[leg + 1], round, profileTolerance,
+                    out built, out summary, out need);
         }
 
-        points = output.ToArray();
+        var dense = new List<double>();
+        RouteLegBuilder.AppendDense(spans, dense);
+        if (dense.Count == 0)
+            dense.AddRange(new[] { request.Points[0].X, request.Points[0].Y, pins[0] });
+        points = dense.ToArray();
         return true;
     }
 

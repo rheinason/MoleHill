@@ -29,6 +29,19 @@ a polyline the user edits and then assigns to a Grade Path.
   cell of the straight line, so a tolerance cannot remove them. Then the leg is sampled every half cell,
   given its profile, and thinned per straight stretch (vertical Douglas-Peucker) keeping every corner.
   If straightening shortens a leg past what its height difference allows, the raw grid path is tried.
+- `PlanFillet.cs` / `PlanPiece.cs` — horizontal curves. With a minimum radius, every corner of the
+  straightened plan is rounded by a tangent arc (tangent length `R tan(θ/2)` on both segments). Where
+  corners want more of a segment than it has, their tangents on it shrink in proportion and each corner
+  takes the smaller shrink of its two segments — the largest radius that fits, reported as a tight
+  corner — so the plan is always G1. A near-reversal stays a corner. Legs are rounded separately, so a
+  waypoint is passed exactly and a turn there stays sharp. Rounding **shortens** a leg (an arc is
+  shorter than its two tangents), so the profile is fitted again along the rounded plan and the result
+  re-measured; a leg that no longer fits its height difference falls back to sharp corners.
+- `RouteSpan.cs` — the exact output: straights, and arcs as rational quadratic spans (weight
+  cos(sweep/2)) whose plan is exactly the circle, at most 15 degrees each. A span's elevation follows
+  the angle almost but not exactly, so the leg builder measures the built spans every degree and, if
+  an arc span strays past the limit, refits with a fractionally tighter one. `RouteFilletSummary`
+  carries the smallest radius used and the count of tight corners.
 - `GradeLimitedProfile.cs` — the profile: the L-infinity-optimal grade-limited fit to the ground with
   both ends held. Upper envelope `max(g_j - m|s - s_j|)` and lower `min(g_j + m|s - s_j|)` by two
   linear passes each; their mean is within the limit and splits departures evenly into cut and fill;
@@ -53,7 +66,10 @@ Routes come back ordered by their unpenalised cost.
 **Determinism.** Single-threaded, no hashing, no randomness: the same grid and request give the same
 arrays. `RouteSuggesterTests.Suggest_SameInput_IsDeterministic` holds it.
 
-**Speed.** A 1.5 km square at 1.5 m (1M nodes), rough ground, two legs, three alternatives: about
-3.6 s on the maintainer's machine (`Suggest_KilometreSite_IsInteractive`, performance lane). The search
+**Speed.** A 1.5 km square at 1.5 m (1M nodes), rough ground, two legs, three alternatives: 3.6–4.8 s
+on the maintainer's machine, about 6.8 s with a 10 m minimum radius (`Suggest_KilometreSite_IsInteractive`,
+performance lane). Nearly all of it is the A* search; building and rounding a route takes tens of
+milliseconds. The rounded case is slower only because the second and third searches work around the
+corridors of rounded lines. The search
 checks its cancellation token every 4096 expansions; the Rhino command runs it on a worker and Esc
 cancels.

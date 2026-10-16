@@ -20,11 +20,38 @@ internal static class RouteSuggestionReadout
         return unit == SlopeAnalyzer.SlopeUnit.Ratio ? value : value + SlopeInput.Suffix(unit);
     }
 
-    /// <summary>One command-line line per route: "Route 1: 523.40 m, max grade 4.9%, mean 2.1%, cut 12.0 m³, fill 9.5 m³".</summary>
-    public static string Describe(int rank, RouteMetrics metrics, ModelUnitContext units, SlopeAnalyzer.SlopeUnit unit) =>
+    /// <summary>
+    /// One command-line line per route: "Route 1: 523.40 m, max grade 4.9%, mean 2.1%, cut 12.0 m³,
+    /// fill 9.5 m³, min radius 10.00 m" — and, when segments were too short for the requested radius,
+    /// how many corners are tighter and why.
+    /// </summary>
+    public static string Describe(
+        int rank,
+        RouteMetrics metrics,
+        RouteFilletSummary fillet,
+        double requestedRadius,
+        ModelUnitContext units,
+        SlopeAnalyzer.SlopeUnit unit) =>
         $"Route {rank}: {units.FormatLength(metrics.PlanLength)}, " +
         $"max grade {Slope(metrics.MaxGrade, unit)}, mean {Slope(metrics.MeanGrade, unit)}, " +
-        $"cut {units.FormatVolume(metrics.CutVolume, "F1")}, fill {units.FormatVolume(metrics.FillVolume, "F1")}";
+        $"cut {units.FormatVolume(metrics.CutVolume, "F1")}, fill {units.FormatVolume(metrics.FillVolume, "F1")}" +
+        DescribeRadius(fillet, requestedRadius, units);
+
+    /// <summary>The radius part of the readout; empty when corners were not rounded or the route has none.</summary>
+    public static string DescribeRadius(RouteFilletSummary fillet, double requestedRadius, ModelUnitContext units)
+    {
+        if (!(requestedRadius > 0.0) || fillet.SmallestRadius is not double smallest)
+            return string.Empty;
+
+        string text = $", min radius {units.FormatLength(smallest)}";
+        if (fillet.ReducedCorners > 0)
+        {
+            string corners = fillet.ReducedCorners == 1 ? "1 corner" : $"{fillet.ReducedCorners} corners";
+            text += $" ({corners} under {units.FormatLength(requestedRadius)}: segments too short)";
+        }
+
+        return text;
+    }
 
     /// <summary>The curve's object name — short enough for the Properties panel, enough to tell the routes apart.</summary>
     public static string ObjectName(int rank, RouteMetrics metrics, ModelUnitContext units, SlopeAnalyzer.SlopeUnit unit) =>
@@ -36,9 +63,13 @@ internal static class RouteSuggestionReadout
         RouteMetrics metrics,
         double gradeLimit,
         double corridorWidth,
+        RouteFilletSummary fillet,
+        double requestedRadius,
         ModelUnitContext units,
-        SlopeAnalyzer.SlopeUnit unit) => new[]
+        SlopeAnalyzer.SlopeUnit unit)
     {
+        var text = new List<(string Key, string Value)>
+        {
         (UserTextPrefix + "Rank", rank.ToString(CultureInfo.InvariantCulture)),
         (UserTextPrefix + "Length", units.FormatLength(metrics.PlanLength)),
         (UserTextPrefix + "MaxGrade", Slope(metrics.MaxGrade, unit)),
@@ -47,7 +78,18 @@ internal static class RouteSuggestionReadout
         (UserTextPrefix + "Fill", units.FormatVolume(metrics.FillVolume, "F1")),
         (UserTextPrefix + "GradeLimit", Slope(gradeLimit, unit)),
         (UserTextPrefix + "CorridorWidth", units.FormatLength(corridorWidth)),
-    };
+        };
+
+        if (requestedRadius > 0.0)
+        {
+            text.Add((UserTextPrefix + "RadiusLimit", units.FormatLength(requestedRadius)));
+            if (fillet.SmallestRadius is double smallest)
+                text.Add((UserTextPrefix + "MinRadius", units.FormatLength(smallest)));
+            text.Add((UserTextPrefix + "TightCorners", fillet.ReducedCorners.ToString(CultureInfo.InvariantCulture)));
+        }
+
+        return text;
+    }
 
     /// <summary>What went wrong and what to change, in the user's units.</summary>
     public static string DescribeFailure(RouteSuggestionResult result, double gradeLimit, SlopeAnalyzer.SlopeUnit unit) =>

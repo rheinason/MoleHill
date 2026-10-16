@@ -3,8 +3,9 @@ using MoleHill.Core.Geometry;
 namespace MoleHill.Core.Routing;
 
 /// <summary>
-/// Turns one leg's grid path into a 3D polyline: the plan straightened, the profile fitted to the ground
-/// within the grade limit, and the profile thinned to the points that carry it.
+/// Turns one leg's grid path into exact 3D spans: the plan straightened and, when asked, its corners
+/// rounded to a minimum radius; the profile fitted to the ground along that plan within the grade
+/// limit; and the profile thinned to the points that carry it.
 /// </summary>
 internal static class RouteLegBuilder
 {
@@ -23,20 +24,13 @@ internal static class RouteLegBuilder
     /// <summary>Ground sample spacing along the leg, in cells.</summary>
     private const double StationSpacingCells = 0.5;
 
-    public static bool TryBuild(
-        RouteHeightGrid grid,
-        RouteRequest request,
-        List<int> nodes,
-        (double X, double Y) start,
-        (double X, double Y) end,
-        double startZ,
-        double endZ,
-        bool straighten,
-        double profileTolerance,
-        out List<double> pointsXyz,
-        out double requiredGrade)
+    /// <summary>
+    /// A leg's grid path as plan points. The path runs between grid nodes; the leg itself starts and
+    /// ends exactly at the picked points.
+    /// </summary>
+    public static List<(double X, double Y)> PlanFromNodes(
+        RouteHeightGrid grid, List<int> nodes, (double X, double Y) start, (double X, double Y) end)
     {
-        // The grid path runs between nodes; the leg itself starts and ends exactly at the picked points.
         var plan = new List<(double X, double Y)>(nodes.Count + 1);
         foreach (int node in nodes)
             plan.Add((grid.NodeX(node % grid.Columns), grid.NodeY(node / grid.Columns)));
@@ -44,47 +38,74 @@ internal static class RouteLegBuilder
             plan.Add(end);
         plan[0] = start;
         plan[^1] = end;
+        return plan;
+    }
 
-        if (straighten)
-            plan = StraightenPlan(grid, new RouteCost(request), plan);
+    /// <summary>Widest arc one span may carry. A rational quadratic span's elevation runs between its ends
+    /// almost, not exactly, in step with the angle; over 15 degrees the departure is a fraction of a
+    /// percent of the grade, and the build measures and corrects what is left.</summary>
+    private const double MaxArcSpan = Math.PI / 12.0;
 
+    /// <summary>Angular step at which an arc span is sampled to measure its grade and draw its preview.</summary>
+    private const double ArcSampleStep = Math.PI / 180.0;
+
+    /// <summary>
+    /// Builds one leg. <paramref name="fillet"/> rounds the plan corners to the request's minimum radius
+    /// (a no-op at radius 0); the profile is then fitted along the rounded plan, so a fillet changes the
+    /// elevations it carries, and the result is measured against the limit as built.
+    /// </summary>
+    public static bool TryBuild(
+        RouteHeightGrid grid,
+        RouteRequest request,
+        List<(double X, double Y)> plan,
+        double startZ,
+        double endZ,
+        bool fillet,
+        double profileTolerance,
+        out List<RouteSpan> spans,
+        out RouteFilletSummary filletSummary,
+        out double requiredGrade)
+    {
+        List<PlanPiece> pieces = PlanFillet.Fillet(
+            plan, fillet ? request.MinimumRadius : 0.0, out double? smallest, out int reduced);
+        filletSummary = new RouteFilletSummary(smallest, reduced);
+        spans = new List<RouteSpan>();
+        requiredGrade = 0.0;
+        if (pieces.Count == 0)
+            return true; // Both ends on the same spot: the leg is just its start.
+
+        // Stations every half cell along every piece; each arc is also cut into spans of at most
+        // MaxArcSpan, whose ends must survive thinning.
         double spacing = StationSpacingCells * grid.CellSize;
-        var stations = new List<double>();
-        var xs = new List<double>();
-        var ys = new List<double>();
-        var corners = new List<int>();
+        var stations = new List<double> { 0.0 };
+        var xs = new List<double> { pieces[0].StartX };
+        var ys = new List<double> { pieces[0].StartY };
+        var pieceOf = new List<int> { 0 };
+        var fraction = new List<double> { 0.0 };
+        var forced = new List<int> { 0 };
         double station = 0.0;
-        stations.Add(0.0);
-        xs.Add(plan[0].X);
-        ys.Add(plan[0].Y);
-        corners.Add(0);
-        for (int i = 1; i < plan.Count; i++)
+        for (int p = 0; p < pieces.Count; p++)
         {
-            (double ax, double ay) = plan[i - 1];
-            (double bx, double by) = plan[i];
-            double length = Math.Sqrt(Geometry2D.DistanceSquared(ax, ay, bx, by));
-            if (length <= 0.0)
-                continue;
-
-            int pieces = Math.Max(1, (int)Math.Ceiling(length / spacing));
-            for (int k = 1; k <= pieces; k++)
+            PlanPiece piece = pieces[p];
+            double length = piece.Length;
+            int count = Math.Max(1, (int)Math.Ceiling(length / spacing));
+            int arcSpans = piece.IsArc ? Math.Max(1, (int)Math.Ceiling(Math.Abs(piece.Sweep) / MaxArcSpan)) : 1;
+            count = arcSpans * (int)Math.Ceiling((double)count / arcSpans);
+            int forcedEvery = count / arcSpans;
+            for (int k = 1; k <= count; k++)
             {
-                double t = (double)k / pieces;
-                stations.Add(station + (length * t));
-                xs.Add(Geometry2D.Lerp(ax, bx, t));
-                ys.Add(Geometry2D.Lerp(ay, by, t));
+                double f = (double)k / count;
+                (double x, double y) = piece.PointAt(f);
+                stations.Add(station + (length * f));
+                xs.Add(x);
+                ys.Add(y);
+                pieceOf.Add(p);
+                fraction.Add(f);
+                if (k % forcedEvery == 0)
+                    forced.Add(stations.Count - 1);
             }
 
             station += length;
-            corners.Add(stations.Count - 1);
-        }
-
-        if (stations.Count == 1)
-        {
-            // Both ends on the same spot: a degenerate leg is just its start.
-            pointsXyz = new List<double> { plan[0].X, plan[0].Y, startZ };
-            requiredGrade = 0.0;
-            return true;
         }
 
         var ground = new double[stations.Count];
@@ -96,30 +117,122 @@ internal static class RouteLegBuilder
             ground[i] = last;
         }
 
-        if (!GradeLimitedProfile.TryFit(stations, ground, request.MaxGrade, startZ, endZ, out double[] profile, out requiredGrade))
+        double limit = request.MaxGrade;
+        for (int attempt = 0; attempt < 6; attempt++)
         {
-            pointsXyz = new List<double>();
-            return false;
+            if (!GradeLimitedProfile.TryFit(stations, ground, limit, startZ, endZ, out double[] profile, out requiredGrade))
+                return false;
+
+            // Thin within each span only, so every plan corner and arc span end keeps its own elevation.
+            var keep = new bool[stations.Count];
+            foreach (int index in forced)
+                keep[index] = true;
+            for (int c = 1; c < forced.Count; c++)
+                MarkProfileBreaks(stations, profile, forced[c - 1], forced[c], profileTolerance, keep);
+
+            spans.Clear();
+            int previous = 0;
+            for (int i = 1; i < stations.Count; i++)
+            {
+                if (!keep[i])
+                    continue;
+
+                PlanPiece piece = pieces[pieceOf[i]];
+                double fromFraction = pieceOf[previous] == pieceOf[i] ? fraction[previous] : 0.0;
+                spans.Add(piece.IsArc
+                    ? ArcSpan(piece, fromFraction, fraction[i], profile[previous], profile[i])
+                    : RouteSpan.Line(xs[previous], ys[previous], profile[previous], xs[i], ys[i], profile[i]));
+                previous = i;
+            }
+
+            double built = MeasureMaxGrade(spans);
+            if (built <= (request.MaxGrade * (1.0 + 1e-9)) + 1e-12)
+                return true;
+
+            // An arc span's elevation strayed from the fitted profile by a hair: fit to a slightly
+            // tighter limit so the curve as drawn obeys the real one.
+            limit *= request.MaxGrade / built * (1.0 - 1e-4);
         }
 
-        // Thin within each straight stretch only, so every plan corner survives with its own elevation.
-        var keep = new bool[stations.Count];
-        foreach (int corner in corners)
-            keep[corner] = true;
-        for (int c = 1; c < corners.Count; c++)
-            MarkProfileBreaks(stations, profile, corners[c - 1], corners[c], profileTolerance, keep);
+        return false;
+    }
 
-        pointsXyz = new List<double>();
-        for (int i = 0; i < stations.Count; i++)
+    /// <summary>The steepest grade along the spans as built, arcs sampled every degree.</summary>
+    internal static double MeasureMaxGrade(IReadOnlyList<RouteSpan> spans)
+    {
+        var dense = new List<double>();
+        AppendDense(spans, dense);
+        double worst = 0.0;
+        for (int i = 3; i < dense.Count; i += 3)
         {
-            if (!keep[i])
+            double plan = Math.Sqrt(Geometry2D.DistanceSquared(dense[i - 3], dense[i - 2], dense[i], dense[i + 1]));
+            if (plan > 0.0)
+                worst = Math.Max(worst, Math.Abs(dense[i + 2] - dense[i - 1]) / plan);
+        }
+
+        return worst;
+    }
+
+    /// <summary>
+    /// Appends the spans as XYZ points: a straight by its end, an arc sampled every degree. Starts with
+    /// the first span's start when <paramref name="output"/> is empty.
+    /// </summary>
+    internal static void AppendDense(IReadOnlyList<RouteSpan> spans, List<double> output)
+    {
+        foreach (RouteSpan span in spans)
+        {
+            if (output.Count == 0)
+            {
+                output.Add(span.StartX);
+                output.Add(span.StartY);
+                output.Add(span.StartZ);
+            }
+
+            if (!span.IsArc)
+            {
+                output.Add(span.EndX);
+                output.Add(span.EndY);
+                output.Add(span.EndZ);
                 continue;
-            pointsXyz.Add(xs[i]);
-            pointsXyz.Add(ys[i]);
-            pointsXyz.Add(profile[i]);
-        }
+            }
 
-        return true;
+            double sweep = 2.0 * Math.Acos(Math.Clamp(span.Weight, -1.0, 1.0));
+            int samples = Math.Max(4, (int)Math.Ceiling(sweep / ArcSampleStep));
+            for (int k = 1; k <= samples; k++)
+            {
+                (double x, double y, double z) = span.Evaluate((double)k / samples);
+                output.Add(x);
+                output.Add(y);
+                output.Add(z);
+            }
+        }
+    }
+
+    /// <summary>
+    /// The rational quadratic span for the stretch of <paramref name="piece"/> between two fractions: the
+    /// control point where the end tangents meet, weighted cos(half the sweep), so the plan is exactly
+    /// the arc; its elevation is the mean of the ends, which keeps the span symmetric about its middle.
+    /// </summary>
+    private static RouteSpan ArcSpan(PlanPiece piece, double fromFraction, double toFraction, double fromZ, double toZ)
+    {
+        double a0 = piece.StartAngle + (piece.Sweep * fromFraction);
+        double a1 = piece.StartAngle + (piece.Sweep * toFraction);
+        double half = 0.5 * (a1 - a0);
+        double weight = Math.Cos(half);
+        double reach = piece.Radius / weight;
+        double mid = a0 + half;
+        return new RouteSpan(
+            true,
+            piece.CenterX + (piece.Radius * Math.Cos(a0)),
+            piece.CenterY + (piece.Radius * Math.Sin(a0)),
+            fromZ,
+            piece.CenterX + (reach * Math.Cos(mid)),
+            piece.CenterY + (reach * Math.Sin(mid)),
+            0.5 * (fromZ + toZ),
+            piece.CenterX + (piece.Radius * Math.Cos(a1)),
+            piece.CenterY + (piece.Radius * Math.Sin(a1)),
+            toZ,
+            weight);
     }
 
     /// <summary>
