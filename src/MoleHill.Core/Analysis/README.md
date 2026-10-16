@@ -116,7 +116,14 @@ Terrain analysis math. Pure, unit-tested.
   exact legacy projection behavior there. Faces are registered in every touched grid cell, so queries
   inspect only the owning cell rather than repeating work across a 3x3 neighbourhood. Cell storage is
   flat CSR built by a count pass then a fill pass, both in face order, so each cell's run is ascending -
-  the order the first-match rule depends on.
+  the order the first-match rule depends on. `TryGetHeightExtremes` returns the lowest and highest
+  surface over a point instead of refusing stacked faces, for callers that choose top or bottom
+  (`mhDrapeCurve`'s `Hit` option, the long-section ground line).
+- `LongSectionProfile.cs` — the long-section round trip behind `mhExtractProfile` / `mhApplyProfile`:
+  a `LongSectionFrame` (origin, datum, vertical exaggeration) maps station/elevation to drawing XY and
+  back; `TryRead` reads a drawn profile as strictly increasing stations, refusing one that doubles back
+  or steps vertically; `Apply` re-elevates a plan path by station, keeping its XY and adding the
+  profile's own breaks.
 - `MeshRegularityAnalyzer.cs` — sampled density and minimum-angle checks used to identify coarse or
   skinny triangulations before vertex-based Smooth/Sculpt operations.
 - `WaterflowTracer.cs` — deterministic downhill path tracing from XY starts through adjacent 2.5D

@@ -14,6 +14,22 @@ beta prereleases. Earlier versions are recorded only in the git history.
   - Walls are never touched.
   - Coarse triangles beside a crease are split first, so no Remesh is needed.
 
+**Input commands**
+- **Drape Curve** drapes onto several meshes and surfaces at once and takes the top or the lowest
+  surface (`Hit`). Stretches with nothing under them are split, bridged with a straight grade, or kept
+  at the curve's own height (`Miss`); a split ends exactly on the terrain's edge. Each curve is reported
+  on its own, and one that cannot be draped no longer stops the others. Polyline corners are kept.
+- **Drape Curve Section** (right-click Drape Curve) drapes just a picked stretch and ties both ends back
+  into the curve over a transition length.
+- **Balance Pad** finds the height at which a pad's cut and fill balance and moves its boundary curve
+  there. A curve already used by a Grade Pad card is balanced with that card's slopes, against the ground
+  the card grades.
+- **Extract Profile / Apply Profile** (prototype): draw a curve as a flat long section with the ground
+  under it, edit the design line with any Rhino tool, and apply it back. The curve keeps its plan; a
+  profile that doubles back is refused.
+- **Terrain to Curves** turns a dense terrain (a DEM or point-cloud mesh) into a border, spot points on
+  peaks and pits, and as few contours as rebuild it within a tolerance, ready to use as editable input.
+
 ## 1.4.1-beta — 2026-10-15
 
 A beta that keeps grading between the design and the ground, makes zones follow the lines as drawn,

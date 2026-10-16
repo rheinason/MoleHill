@@ -17,7 +17,9 @@ an unbracketed target returns the nearer end, and bisection records every sample
 `Converged`, `NoBracket`, `IterationCap`, `NonMonotone`, and `GradingFallback` outcomes.
 `PadElevationBalancer` translates one planar pad boundary in Z and evaluates each candidate through
 `PadGrader.Grade`, returning the actual best graded mesh and adjusted input boundary. GH integration
-and the first example graph remain B7 work.
+and the first example graph remain B7 work. `PadElevationBalancer.TrySuggestRange` brackets the search
+from the terrain under the footprint (all cut at the bottom, all fill at the top, widened for the
+batters), so Rhino's `mhBalancePad` needs no bounds from the user.
 
 `GradingWindows` + `PadGrader.Windowed.cs` / `PathGrader.Windowed.cs` (`GradeWindowed`) grade each group
 of pads or paths on the faces within their reach (a pad's filled outline, a path's centreline, grown by how

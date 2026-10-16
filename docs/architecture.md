@@ -121,12 +121,36 @@ TriangleNet (vendored)  ←  MoleHill.Core  ←  MoleHill.Grasshopper (GH host)
   does not remove points or join separate curves; unsupported grip layouts require NURBS conversion.
 - Terrain input preparation commands are selected-geometry workflows in the Rhino host: `mhValidateTerrainInputs`
   cleans selected points/curves through a parented Eto dialog, `mhSplitAtIntersections` splits only selected
-  curves, `mhDrapeCurve` selects the curves first and then samples them along World Z onto a selected
-  mesh/surface (or the active MoleHill terrain), and `mhCreateWall`
+  curves, `mhDrapeCurve` selects the curves first and then samples them along World Z onto any number of
+  meshes/surfaces (or the active MoleHill terrain), taking the top or lowest hit, and `mhCreateWall`
   interactively draws a rail plus a parallel plan/elevation-offset rail. These commands create ordinary
   Rhino geometry for later assignment as points, breaklines, contours, or boundaries; they do not mutate
   managed terrain definitions. Validation replaces surviving objects in place to preserve ids and complete
   Rhino attributes; joining is layer-scoped, with one original object surviving each many-to-one join.
+- **Draping is a Core kernel with a miss policy.** `mhDrapeCurve` stations each curve (spacing plus its
+  corners) through `Core/Processing/CurveDrape`, reading heights from `DrapeTargets` (one
+  `MeshHeightProjector` per target, so a station is a grid lookup rather than a whole-mesh ray). A
+  station with no surface under it is split, bridged or kept at its own Z (`Miss`), each terrain edge is
+  bisected so a run ends on it, and each curve reports on its own — a curve that fails no longer fails
+  the others. `mhDrapeCurveSection` (the button's right-click) drapes a picked stretch and joins it back
+  between the untouched ends, ramping in over `Transition` so it ties into the curve.
+- **`mhBalancePad` writes the balance into the curve.** It balances one closed boundary with
+  `PadElevationBalancer` (range from `TrySuggestRange`, tolerance = pad area x 1 mm) and translates the
+  curve in Z. When the curve is a boundary of a Grade Pad card on the active terrain, the card's slopes and
+  reach are used and the ground is the mesh that card received (`TerrainController.DuplicateIncomingModifierMesh`),
+  not the final terrain, which already carries the pad; otherwise the slopes are options. Auto-balance as
+  a modifier stays declined: the drawn boundary still says what the pad does.
+- **The long section is drawn geometry with its frame attached (prototype).** `mhExtractProfile` draws a
+  plan curve's elevations (design line), the active terrain under it (ground line), a datum and station
+  ticks at a chosen vertical exaggeration, grouped; the design line carries `MoleHill.Profile.*` user
+  strings (source id, origin, datum, exaggeration, plan length). After editing it with any Rhino tool,
+  `mhApplyProfile` reads it back through `Core/Analysis/LongSectionProfile` and replaces the plan curve
+  with a polyline at the same XY; a profile that doubles back is refused, and points beyond its ends keep
+  their elevation.
+- **`mhTerrainToCurves` turns a terrain back into input.** `Core/Processing/TerrainCurveRecovery` returns
+  borders, peak/pit spot points and the fewest contours that rebuild the terrain within a vertical
+  tolerance (vertex-sampled); the command adds them to the current layer, grouped and named by role.
+  Esc stops the search and keeps what it found.
 - **`mhSuggestRoute` drafts the curve; Grade Path still follows it.** Modifiers follow drawn geometry
   exactly, so help with *where* a path should go belongs upstream, in a command that draws the curve.
   The user picks a terrain (any mesh/surface, or Enter for the active MoleHill terrain, as
@@ -692,7 +716,8 @@ For exploratory cut/fill balancing, `Core/Grading/BracketedVolumeSearch` measure
 elevation bounds and bisects only when they bracket the target net volume. It keeps every cut/fill/net
 sample and the nearest result, detects non-monotone measurements and grading tier fallbacks, and has a
 finite iteration cap. `PadElevationBalancer` supplies actual one-pad grading and translated boundary
-geometry through `PadGrader`. `Balance Grade Pad` exposes that one-pad search in GH with a chosen
+geometry through `PadGrader`; Rhino's `mhBalancePad` runs the same search and writes the result into the
+boundary curve. `Balance Grade Pad` exposes that one-pad search in GH with a chosen
 boundary, graded mesh, volumes, status, and sample lists. It currently uses a mesh port, so the output
 does not carry terrain constraints or zones; the terrain-aware Grade Pad migration remains B7 work.
 

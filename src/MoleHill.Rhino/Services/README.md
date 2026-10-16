@@ -424,6 +424,22 @@ layer table, dimension styles, and layouts can act on. See `docs/architecture.md
   the exact case stays silent instead of printing a zero users learn to skip. The measurement is opt-in
   per call (`measureDeviation`) and the live preview opts out: under blend-to-terrain every sample is a
   mesh ray, and the preview redraws on each mouse move.
+- `Commands/DrapeCommandService.cs` / `DrapeTargets.cs` - `mhDrapeCurve` and `mhDrapeCurveSection`. Targets
+  are any number of meshes/surfaces/polysurfaces (or the active terrain), each indexed once as a
+  `MeshHeightProjector`; `Hit` takes the top or lowest surface. Stationing and the miss policy are Core's
+  `CurveDrape`; `TerrainInputCommandAlgorithms.DrapeCurve` adds the source's corners as stations and
+  `TryBuildDrapedSection` joins a draped stretch back between the untouched ends (both linked into the
+  tests). Every curve is reported; the good ones commit in one undo record, a split curve replacing the
+  source with its first piece. The service is excluded from the test project (it reaches `TerrainController`).
+- `Commands/BalancePadCommandService.cs` - `mhBalancePad`: finds the Grade Pad card that owns the curve
+  (by id or layer, `OfType`, since the command is pad-specific), balances against that card's incoming
+  mesh with the card's slopes, or against the final terrain with `CutSlope`/`FillSlope` options, and
+  translates the curve to the balancing elevation.
+- `Commands/LongSectionCommandService.cs` - `mhExtractProfile` / `mhApplyProfile` (prototype): the drawing,
+  its `MoleHill.Profile.*` frame user strings and the mapping back, through Core's `LongSectionProfile`.
+- `Commands/TerrainToCurvesCommandService.cs` - `mhTerrainToCurves`: runs Core's `TerrainCurveRecovery` on a
+  picked mesh or the active terrain with `Tolerance`, `PlanTolerance` and `MaxContours`, pumping
+  `RhinoApp.Wait()` per round so Esc stops it.
 - `Commands/SlopeCommandOption.cs` - the `Slope` + `Units` option pair every slope-taking command shares
   (`mhSlopeCurve`, `mhGradientInterpolation`, `mhOffsetFeature`, `mhSuggestRoute`'s `MaxGrade`). It was
   a private class inside `GeometryCommandService`; it has its own file so commands in other services

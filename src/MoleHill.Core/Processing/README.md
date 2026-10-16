@@ -47,6 +47,16 @@ Pure, unit-tested.
   target vertex count. It protects every boundary
   and required-chain vertex/edge, refines from certified overlay-error witnesses and source errors,
   and returns the unchanged input with an explicit reason when it cannot prove a smaller result.
+- `CurveDrape.cs` — the drape kernel behind `mhDrapeCurve` / `mhDrapeCurveSection`, Rhino-free: geometry
+  arrives as a point-at-distance callback and a terrain probe. Stations every spacing plus the source's
+  corners; each change between hit and miss is bisected so a run ends on the terrain's edge;
+  `DrapeMissPolicy` splits, bridges (linear Z between hits; an end gap is dropped) or keeps the curve's Z;
+  a `TieInLength` makes it a section drape whose ends stay on the curve and ramp in.
+- `TerrainCurveRecovery.cs` — B25, terrain to editable input: simplified border loops, spot points on
+  landform-scale peaks and pits, then a greedy loop that rebuilds a TIN from what is chosen, finds the
+  terrain vertex it misses by most and adds the contour through it (or a spot point when the contour
+  collapses), until within the vertical tolerance or out of budget. Deviation is vertex-sampled; ridge and
+  valley lines are not seeded yet.
 - `ZonePriorityResolver.cs` — deterministic boundary ordering before a shared area split, using zone
   stack index, source boundary index, input elevation, and elevation-priority flag. Stack-priority zones
   separate elevation-sorted runs, avoiding the old mixed-mode comparator cycle. Rhino's zone stage calls
