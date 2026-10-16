@@ -102,19 +102,13 @@ internal sealed class DisplaceModifierDescriptor : ModifierTypeDescriptor
         double median = result.MedianEdgeLength;
         double detail = source.DetailSize;
         string? warning = null;
-        if (source is ImageDisplacementSource)
+        if (source is ImageDisplacementSource image)
         {
             rows.Add(ResultRow.Of(
                 "Sampling",
-                $"edges {length(median)} (median), pixels {length(detail)}",
-                "Displace moves the terrain's vertices only, so the median edge length where it reaches is the resolution the image is read at."));
-            if (median > 0.5 * detail)
-            {
-                warning =
-                    $"The terrain here is sampled every {length(median)}, coarser than half an image pixel ({length(0.5 * detail)}), " +
-                    $"so image detail finer than about {length(2.0 * median)} is lost. For the image's full detail, add a Remesh below " +
-                    $"this card with an Edge Length of {length(0.5 * detail)} or less, or use a smaller image.";
-            }
+                $"edges {length(median)} (median), resolves detail down to about {length(2.0 * median)}; pixels {length(detail)}",
+                "Displace moves the terrain's vertices only, so the median edge length where it reaches is the resolution the image is read at: detail smaller than about two edges is lost."));
+            warning = DescribeImageUndersampling(result, image, length);
         }
         else
         {
@@ -147,6 +141,70 @@ internal sealed class DisplaceModifierDescriptor : ModifierTypeDescriptor
         }
 
         return new ModifierStageReport(rows, warning);
+    }
+
+    /// <summary>
+    /// The mesh must take at least this many samples across the tile's shorter side to read the image's broad
+    /// pattern. 16 shows the shapes of a tile (ridges, ramps, blobs) and keeps an ordinary 2.5 m terrain mesh on a
+    /// 40 m or larger tile quiet; fewer samples lose the shapes themselves.
+    /// </summary>
+    internal const double ImageMinSamplesAcrossTile = 16.0;
+
+    /// <summary>The Remesh suggested for an image: this many edges across the tile's shorter side.</summary>
+    internal const double ImageSuggestedSamplesAcrossTile = 64.0;
+
+    /// <summary>
+    /// The most faces worth asking a Remesh for over the displaced region; beyond it the build stops being
+    /// interactive, so the advice is to change the tile or the image rather than the mesh.
+    /// </summary>
+    internal const double ImageFaceBudget = 2_000_000.0;
+
+    /// <summary>
+    /// The warning for an image the mesh samples too coarsely, or null. Judged against the tile, not the pixel:
+    /// a pixel is usually far finer than any terrain mesh, so comparing against it would warn on nearly every
+    /// image. Warns when the median edge exceeds a 16th of the tile's shorter side (or one pixel, for an image
+    /// too small to have 16 pixels across).
+    /// </summary>
+    internal static string? DescribeImageUndersampling(
+        TerrainDisplacer.Result result,
+        ImageDisplacementSource image,
+        Func<double, string> length)
+    {
+        double median = result.MedianEdgeLength;
+        double pixel = image.PixelSize;
+        double shorter = Math.Min(image.TileSizeX, image.TileSizeY);
+        double threshold = Math.Max(shorter / ImageMinSamplesAcrossTile, pixel);
+        if (!(median > threshold))
+            return null;
+
+        // Never finer than a pixel (that adds no image detail), never coarser than the warning threshold.
+        double edge = Math.Min(Math.Max(RoundDownReadable(shorter / ImageSuggestedSamplesAcrossTile), pixel), threshold);
+        double area = Math.Max(0.0, result.MaxX - result.MinX) * Math.Max(0.0, result.MaxY - result.MinY);
+        double faces = 2.0 * area / (edge * edge);
+
+        string prefix =
+            $"The terrain here is sampled every {length(median)}, too coarse to read the image: it needs at least " +
+            $"{ImageMinSamplesAcrossTile.ToString("0", CultureInfo.InvariantCulture)} samples across the Tile Size's shorter side ({length(shorter)}), so its pattern is lost. ";
+        if (faces > ImageFaceBudget)
+        {
+            return prefix +
+                $"An Edge Length of {length(edge)} would make about {(faces / 1_000_000.0).ToString("0.#", CultureInfo.InvariantCulture)} million faces, " +
+                "too many to build, so fine detail cannot be resolved at this size. Use a larger Tile Size or a smaller image.";
+        }
+
+        return prefix + $"Add a Remesh below this card with an Edge Length of {length(edge)} or less.";
+    }
+
+    /// <summary>The largest 1, 2 or 5 times a power of ten at or below the value, so a suggested length reads cleanly.</summary>
+    internal static double RoundDownReadable(double value)
+    {
+        if (!(value > 0.0) || !double.IsFinite(value))
+            return value;
+
+        double magnitude = Math.Pow(10.0, Math.Floor(Math.Log10(value)));
+        double lead = value / magnitude;
+        double step = lead >= 5.0 ? 5.0 : lead >= 2.0 ? 2.0 : 1.0;
+        return step * magnitude;
     }
 
     private static string DescribeFileName(string? path)

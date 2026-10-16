@@ -36,3 +36,12 @@ Key files:
   offset fades back in over the feather from them, through `Grading/HeldLines` — the hold and fade Round
   Creases uses, shared rather than copied. Returns the moved/held counts, the offset range, the plan extent
   reached and the median plan length of the edges reached: the resolution the pattern was sampled at.
+
+**Sampling check (Rhino `DisplaceModifierDescriptor.DescribeResult`).** The Sampling row always states what the
+mesh resolves (detail down to about two median edges). The warning differs by source. Noise compares the
+median edge with half the Noise Size. An Image is judged against the *tile*, not the pixel (a pixel is far
+finer than any terrain mesh and would warn on nearly every image): it warns when the median edge exceeds a 16th
+of the tile's shorter side (or one pixel, for an image under 16 px across). It then suggests a Remesh Edge Length
+of tile/64, never finer than a pixel and rounded down to 1, 2 or 5 x 10^n. If that edge would need more than
+about 2 million faces (2 x region plan area / edge^2) it says fine detail cannot be resolved at this size and
+advises a larger Tile Size or a smaller image instead.
