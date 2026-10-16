@@ -168,7 +168,7 @@ public class CurvatureAnalyzerTests
         IndexedTriMesh mesh = Grid(20.0, 1.0, (x, y) => (0.1 * x) + (0.05 * y) + 3.0);
 
         CurvatureField field = CurvatureAnalyzer.Measure(mesh, 5.0);
-        sbyte[] classes = LandformClassifier.Classify(field, 1000.0);
+        sbyte[] classes = LandformClassifier.Classify(field, 0.001);
 
         for (int f = 0; f < mesh.FaceCount; f++)
         {
@@ -182,7 +182,7 @@ public class CurvatureAnalyzerTests
 
     /// <summary>A paraboloid dome z = -(x²+y²)/(2ρ) has curvature 1/ρ at its summit in every direction.</summary>
     [Fact]
-    public void Measure_Dome_IsConvexPositiveAndPeaks()
+    public void Measure_Dome_IsConvexPositive()
     {
         const double rho = 50.0;
         IndexedTriMesh mesh = Grid(15.0, 0.5, (x, y) => -((x * x) + (y * y)) / (2.0 * rho));
@@ -193,12 +193,12 @@ public class CurvatureAnalyzerTests
         Assert.Equal(1.0 / rho, field.Value(summit, CurvatureMeasure.Mean), 4);
         Assert.Equal(1.0 / rho, field.Value(summit, CurvatureMeasure.Profile), 4);
         Assert.Equal(1.0 / rho, field.Value(summit, CurvatureMeasure.Plan), 4);
-        sbyte[] classes = LandformClassifier.Classify(field, 200.0);
-        Assert.All(Faces(mesh, (x, y) => Math.Abs(x) < 10 && Math.Abs(y) < 10), f => Assert.Equal((sbyte)LandformClass.Peak, classes[f]));
+        sbyte[] classes = LandformClassifier.Classify(field, 0.01);
+        Assert.All(Faces(mesh, (x, y) => Math.Abs(x) < 10 && Math.Abs(y) < 10), f => Assert.Equal((sbyte)LandformClass.Convex, classes[f]));
     }
 
     [Fact]
-    public void Measure_Bowl_IsConcaveNegativeAndHollow()
+    public void Measure_Bowl_IsConcaveNegative()
     {
         const double rho = 50.0;
         IndexedTriMesh mesh = Grid(15.0, 0.5, (x, y) => ((x * x) + (y * y)) / (2.0 * rho));
@@ -207,16 +207,16 @@ public class CurvatureAnalyzerTests
         int floor = NearestFace(mesh, 0.0, 0.0);
 
         Assert.Equal(-1.0 / rho, field.Value(floor, CurvatureMeasure.Mean), 4);
-        sbyte[] classes = LandformClassifier.Classify(field, 200.0);
-        Assert.All(Faces(mesh, (x, y) => Math.Abs(x) < 10 && Math.Abs(y) < 10), f => Assert.Equal((sbyte)LandformClass.Hollow, classes[f]));
+        sbyte[] classes = LandformClassifier.Classify(field, 0.01);
+        Assert.All(Faces(mesh, (x, y) => Math.Abs(x) < 10 && Math.Abs(y) < 10), f => Assert.Equal((sbyte)LandformClass.Concave, classes[f]));
     }
 
     /// <summary>
     /// A level, rounded berm z = -x²/(2ρ). Across it the ground is convex along the fall line (profile),
-    /// and along it straight (plan zero). Its crest is the ridge; its rounded flanks are shoulders.
+    /// and along it straight (plan zero). All of it bulges, so all of it is convex.
     /// </summary>
     [Fact]
-    public void Measure_LevelBerm_ProfileCarriesTheBendAndTheCrestIsTheRidge()
+    public void Measure_LevelBerm_ProfileCarriesTheBend_AndItReadsConvex()
     {
         const double rho = 20.0;
         IndexedTriMesh mesh = Grid(15.0, 0.5, (x, y) => -(x * x) / (2.0 * rho));
@@ -228,17 +228,16 @@ public class CurvatureAnalyzerTests
         Assert.Equal(expectedProfile, field.Value(flank, CurvatureMeasure.Profile), 3);
         Assert.Equal(0.0, field.Value(flank, CurvatureMeasure.Plan), 4);
 
-        sbyte[] classes = LandformClassifier.Classify(field, 100.0);
-        Assert.All(Faces(mesh, (x, y) => Math.Abs(x) < 1.0 && Math.Abs(y) < 10), f => Assert.Equal((sbyte)LandformClass.Ridge, classes[f]));
-        Assert.All(Faces(mesh, (x, y) => Math.Abs(x) > 4.0 && Math.Abs(x) < 12 && Math.Abs(y) < 10), f => Assert.Equal((sbyte)LandformClass.Shoulder, classes[f]));
+        sbyte[] classes = LandformClassifier.Classify(field, 0.01);
+        Assert.All(Faces(mesh, (x, y) => Math.Abs(x) < 12 && Math.Abs(y) < 10), f => Assert.Equal((sbyte)LandformClass.Convex, classes[f]));
     }
 
     /// <summary>
     /// A spur falling along its length, z = -x²/(2ρ) - 0.2y: the bend is across the fall line, so it is plan
-    /// curvature, and the crest is a ridge all the way down.
+    /// curvature, and the spur reads convex all the way down.
     /// </summary>
     [Fact]
-    public void Measure_DescendingSpur_PlanCarriesTheBendAndReadsAsRidge()
+    public void Measure_DescendingSpur_PlanCarriesTheBend_AndItReadsConvex()
     {
         const double rho = 20.0;
         IndexedTriMesh mesh = Grid(15.0, 0.5, (x, y) => (-(x * x) / (2.0 * rho)) - (0.2 * y));
@@ -248,12 +247,12 @@ public class CurvatureAnalyzerTests
 
         Assert.Equal((1.0 / rho) / Math.Sqrt(1.04), field.Value(crest, CurvatureMeasure.Plan), 3);
         Assert.Equal(0.0, field.Value(crest, CurvatureMeasure.Profile), 3);
-        sbyte[] classes = LandformClassifier.Classify(field, 100.0);
-        Assert.All(Faces(mesh, (x, y) => Math.Abs(x) < 3.0 && Math.Abs(y) < 10), f => Assert.Equal((sbyte)LandformClass.Ridge, classes[f]));
+        sbyte[] classes = LandformClassifier.Classify(field, 0.01);
+        Assert.All(Faces(mesh, (x, y) => Math.Abs(x) < 3.0 && Math.Abs(y) < 10), f => Assert.Equal((sbyte)LandformClass.Convex, classes[f]));
     }
 
     [Fact]
-    public void Measure_DescendingSwale_PlanIsConcaveAndReadsAsValley()
+    public void Measure_DescendingSwale_PlanIsConcave_AndItReadsConcave()
     {
         const double rho = 20.0;
         IndexedTriMesh mesh = Grid(15.0, 0.5, (x, y) => ((x * x) / (2.0 * rho)) - (0.2 * y));
@@ -262,16 +261,15 @@ public class CurvatureAnalyzerTests
         int floor = NearestFace(mesh, 0.0, 0.0);
 
         Assert.Equal(-(1.0 / rho) / Math.Sqrt(1.04), field.Value(floor, CurvatureMeasure.Plan), 3);
-        sbyte[] classes = LandformClassifier.Classify(field, 100.0);
-        Assert.All(Faces(mesh, (x, y) => Math.Abs(x) < 3.0 && Math.Abs(y) < 10), f => Assert.Equal((sbyte)LandformClass.Valley, classes[f]));
+        sbyte[] classes = LandformClassifier.Classify(field, 0.01);
+        Assert.All(Faces(mesh, (x, y) => Math.Abs(x) < 3.0 && Math.Abs(y) < 10), f => Assert.Equal((sbyte)LandformClass.Concave, classes[f]));
     }
 
     /// <summary>
-    /// The foot of a slope easing out onto the level: concave along the fall line only, so a toe, while a
-    /// slope steepening over an edge is a shoulder.
+    /// The foot of a slope easing out onto the level is concave; a slope steepening over an edge is convex.
     /// </summary>
     [Fact]
-    public void Measure_SlopeEasingOut_IsAToe_AndSteepening_IsAShoulder()
+    public void Measure_SlopeEasingOut_IsConcave_AndSteepening_IsConvex()
     {
         // Both fall along +x everywhere in the tested window (the slope never levels out there), so the
         // whole bend runs along the fall line.
@@ -279,30 +277,53 @@ public class CurvatureAnalyzerTests
         IndexedTriMesh easing = Grid(10.0, 0.5, (x, y) => (-0.5 * x) + ((x * x) / (2.0 * rho)));
         IndexedTriMesh steepening = Grid(10.0, 0.5, (x, y) => (-0.5 * x) - ((x * x) / (2.0 * rho)));
 
-        sbyte[] toe = LandformClassifier.Classify(CurvatureAnalyzer.Measure(easing, 3.0), 100.0);
-        sbyte[] shoulder = LandformClassifier.Classify(CurvatureAnalyzer.Measure(steepening, 3.0), 100.0);
+        CurvatureField easingField = CurvatureAnalyzer.Measure(easing, 3.0);
+        sbyte[] toe = LandformClassifier.Classify(easingField, 0.005);
+        sbyte[] shoulder = LandformClassifier.Classify(CurvatureAnalyzer.Measure(steepening, 3.0), 0.005);
 
-        Assert.All(Faces(easing, (x, y) => Math.Abs(x) < 6 && Math.Abs(y) < 6), f => Assert.Equal((sbyte)LandformClass.Toe, toe[f]));
-        Assert.All(Faces(steepening, (x, y) => Math.Abs(x) < 6 && Math.Abs(y) < 6), f => Assert.Equal((sbyte)LandformClass.Shoulder, shoulder[f]));
+        Assert.All(Faces(easing, (x, y) => Math.Abs(x) < 6 && Math.Abs(y) < 6), f =>
+        {
+            Assert.Equal((sbyte)LandformClass.Concave, toe[f]);
+            Assert.True(easingField.Value(f, CurvatureMeasure.Profile) < 0.0);
+        });
+        Assert.All(Faces(steepening, (x, y) => Math.Abs(x) < 6 && Math.Abs(y) < 6), f => Assert.Equal((sbyte)LandformClass.Convex, shoulder[f]));
     }
 
     /// <summary>
-    /// z = (x² - y²)/(2ρ) is a saddle everywhere, including along its diagonals, where profile and plan
-    /// curvature are both zero. The principal curvatures catch it; profile-by-plan alone would call those
-    /// diagonals planar.
+    /// z = (x² - y²)/(2ρ) bends up one way and down the other by the same amount, so its mean curvature is
+    /// about zero and the landform map calls it planar; the Gaussian curvature shows what it is.
     /// </summary>
     [Fact]
-    public void Measure_Saddle_IsASaddleEverywhere_WithZeroMean()
+    public void Measure_Saddle_HasNoMeanBend_SoReadsPlanar()
     {
         const double rho = 20.0;
         IndexedTriMesh mesh = Grid(15.0, 0.5, (x, y) => ((x * x) - (y * y)) / (2.0 * rho));
 
         CurvatureField field = CurvatureAnalyzer.Measure(mesh, 3.0);
-        sbyte[] classes = LandformClassifier.Classify(field, 100.0);
+        sbyte[] classes = LandformClassifier.Classify(field, 0.01);
 
         int col = NearestFace(mesh, 0.0, 0.0);
         Assert.Equal(0.0, field.Value(col, CurvatureMeasure.Mean), 4);
-        Assert.All(Faces(mesh, (x, y) => Math.Abs(x) < 8 && Math.Abs(y) < 8), f => Assert.Equal((sbyte)LandformClass.Saddle, classes[f]));
+        field.GetDerivatives(col, out double p, out double q, out double r, out double s, out double t);
+        Assert.True(CurvatureField.GaussianCurvature(p, q, r, s, t) < 0.0);
+        Assert.All(Faces(mesh, (x, y) => Math.Abs(x) < 8 && Math.Abs(y) < 8), f => Assert.Equal((sbyte)LandformClass.Planar, classes[f]));
+    }
+
+    /// <summary>
+    /// The tolerance is a height across one landform size, so it follows the size: a dome whose sagitta is
+    /// 10 mm across 2 m and 90 mm across 6 m is planar at 2 m and convex at 6 m under a 30 mm tolerance.
+    /// </summary>
+    [Fact]
+    public void Classify_ToleranceIsAHeightAcrossTheLandformSize()
+    {
+        const double rho = 50.0;
+        IndexedTriMesh mesh = Grid(15.0, 0.25, (x, y) => -((x * x) + (y * y)) / (2.0 * rho));
+        int summit = NearestFace(mesh, 0.0, 0.0);
+
+        Assert.Equal(8.0 * 0.05 / 25.0, LandformClassifier.CurvatureThreshold(0.05, 5.0), 12);
+        Assert.Equal(0.0, LandformClassifier.CurvatureThreshold(0.05, 0.0));
+        Assert.Equal((sbyte)LandformClass.Planar, LandformClassifier.Classify(CurvatureAnalyzer.Measure(mesh, 2.0), 0.03)[summit]);
+        Assert.Equal((sbyte)LandformClass.Convex, LandformClassifier.Classify(CurvatureAnalyzer.Measure(mesh, 6.0), 0.03)[summit]);
     }
 
     /// <summary>
@@ -330,21 +351,21 @@ public class CurvatureAnalyzerTests
         IndexedTriMesh withHump = Triangulate(points, (x, y) => Mound(x, y) + Hump(x, y));
         IndexedTriMesh moundOnly = Triangulate(points, Mound);
         int face = NearestFace(withHump, 6.0, 0.0);
-        const double planarRadius = 10.0;
+        const double tolerance = 0.002;
 
         CurvatureField smallWith = CurvatureAnalyzer.Measure(withHump, 0.5);
         CurvatureField smallWithout = CurvatureAnalyzer.Measure(moundOnly, 0.5);
         Assert.True(smallWith.Value(face, CurvatureMeasure.Mean) > 5.0 * smallWithout.Value(face, CurvatureMeasure.Mean),
             $"At 0.5 m the hump must dominate: {smallWith.Value(face, CurvatureMeasure.Mean)} vs mound {smallWithout.Value(face, CurvatureMeasure.Mean)}.");
-        Assert.Equal((sbyte)LandformClass.Peak, LandformClassifier.Classify(smallWith, planarRadius)[face]);
-        Assert.Equal((sbyte)LandformClass.Planar, LandformClassifier.Classify(smallWithout, planarRadius)[face]);
+        Assert.Equal((sbyte)LandformClass.Convex, LandformClassifier.Classify(smallWith, tolerance)[face]);
+        Assert.Equal((sbyte)LandformClass.Planar, LandformClassifier.Classify(smallWithout, tolerance)[face]);
 
         CurvatureField largeWith = CurvatureAnalyzer.Measure(withHump, 10.0);
         CurvatureField largeWithout = CurvatureAnalyzer.Measure(moundOnly, 10.0);
         Assert.Equal(largeWithout.Value(face, CurvatureMeasure.Mean), largeWith.Value(face, CurvatureMeasure.Mean), 3);
         Assert.Equal(
-            LandformClassifier.Classify(largeWithout, planarRadius)[face],
-            LandformClassifier.Classify(largeWith, planarRadius)[face]);
+            LandformClassifier.Classify(largeWithout, tolerance)[face],
+            LandformClassifier.Classify(largeWith, tolerance)[face]);
     }
 
     /// <summary>
@@ -377,7 +398,7 @@ public class CurvatureAnalyzerTests
         IndexedTriMesh mesh = Grid(10.0, 0.5, (x, y) => -((x * x) + (y * y)) / (2.0 * rho));
 
         CurvatureField field = CurvatureAnalyzer.Measure(mesh, 3.0);
-        sbyte[] classes = LandformClassifier.Classify(field, 200.0);
+        sbyte[] classes = LandformClassifier.Classify(field, 0.005);
 
         foreach (int f in Faces(mesh, (x, y) => Math.Abs(x) > 9.5 || Math.Abs(y) > 9.5))
         {
@@ -385,7 +406,7 @@ public class CurvatureAnalyzerTests
             (double x, double y) = Centroid(mesh, f);
             double expected = CurvatureField.MeanCurvature(-x / rho, -y / rho, -1.0 / rho, 0.0, -1.0 / rho);
             Assert.InRange(field.Value(f, CurvatureMeasure.Mean), expected * 0.9, expected * 1.1);
-            Assert.Equal((sbyte)LandformClass.Peak, classes[f]);
+            Assert.Equal((sbyte)LandformClass.Convex, classes[f]);
         }
     }
 
@@ -411,7 +432,7 @@ public class CurvatureAnalyzerTests
         CurvatureField field = CurvatureAnalyzer.Measure(IndexedTriMesh.Empty, 5.0);
 
         Assert.Equal(0, field.FaceCount);
-        Assert.Empty(LandformClassifier.Classify(field, 100.0));
+        Assert.Empty(LandformClassifier.Classify(field, 0.05));
     }
 
     /// <summary>One triangle is three samples: no quadric is determined, and it is left unmeasured rather
@@ -425,7 +446,7 @@ public class CurvatureAnalyzerTests
 
         Assert.False(field.IsMeasured(0));
         Assert.True(double.IsNaN(field.Value(0, CurvatureMeasure.Mean)));
-        Assert.Equal(LandformClassifier.Unmeasured, LandformClassifier.Classify(field, 100.0)[0]);
+        Assert.Equal(LandformClassifier.Unmeasured, LandformClassifier.Classify(field, 0.05)[0]);
     }
 
     /// <summary>Points on one line (zero-area faces) cannot determine a surface either way.</summary>
@@ -481,13 +502,13 @@ public class CurvatureAnalyzerTests
     [Fact]
     public void SumPlanAreas_TotalsEachClassAndSkipsUnmeasured()
     {
-        sbyte[] classes = { (sbyte)LandformClass.Ridge, (sbyte)LandformClass.Ridge, LandformClassifier.Unmeasured, (sbyte)LandformClass.Hollow };
+        sbyte[] classes = { (sbyte)LandformClass.Convex, (sbyte)LandformClass.Convex, LandformClassifier.Unmeasured, (sbyte)LandformClass.Concave };
         double[] areas = { 1.0, 2.0, 5.0, 4.0 };
 
         double[] sums = LandformClassifier.SumPlanAreas(classes, areas, out double measured);
 
-        Assert.Equal(3.0, sums[(int)LandformClass.Ridge]);
-        Assert.Equal(4.0, sums[(int)LandformClass.Hollow]);
+        Assert.Equal(3.0, sums[(int)LandformClass.Convex]);
+        Assert.Equal(4.0, sums[(int)LandformClass.Concave]);
         Assert.Equal(7.0, measured);
     }
 

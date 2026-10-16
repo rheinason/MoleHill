@@ -51,12 +51,12 @@ Terrain analysis math. Pure, unit-tested.
   derivatives `p, q, r, s, t` per face (the three vertex fits averaged), from which mean, profile (along
   the fall line), plan (tangential, across it), Gaussian and principal curvatures follow. Convention:
   **convex positive**, 1/model-unit; profile and plan fall back to the mean on directionless (level) ground.
-- `LandformClassifier.cs` / `LandformClass.cs` — eight classes from the field: shape from the principal
-  curvatures against `1 / planarRadius` (Peak, Hollow, Saddle, Planar, or curved one way), then, for
-  ground curved one way, orientation from plan vs profile (Ridge/Valley across the fall line,
-  Shoulder/Toe along it), with a level crest or floor within half a landform size kept as the ridge or
-  valley. Wood 1996's morphometric classes plus the plan-by-profile hillslope reading. Fixed colours,
-  warm convex and cool concave; plan-area totals per class.
+- `LandformClassifier.cs` / `LandformClass.cs` — three classes from the mean curvature: Convex, Planar,
+  Concave. The threshold is a flatness tolerance stated as a height: a face is planar when the sagitta
+  across one landform size, `|H| L2 / 8`, is within it (`CurvatureThreshold` = `8 tol / L2`), so the same
+  tolerance means the same at every landform size. An eight-class set (ridge, shoulder, saddle and the
+  rest) was tried and dropped as too many to read; the direction of a bend stays in the profile and plan
+  measures. Fixed colours, warm convex, pale planar, cool concave; plan-area totals per class.
 - `AspectAnalyzer.cs` — aspect: the compass bearing each face drains towards, which is the other angle of
   the normal `SlopeAnalyzer` already takes. Shaped like it — same flat arrays, same plan-area weighting,
   same palette/band apparatus, a `Summarize` that allocates no colours. Two things it needs that slope

@@ -120,7 +120,7 @@ internal static class TerrainLegendBuilder
     }
 
     /// <summary>
-    /// Every landform class, convex to concave, plus the grey of ground too sparse to measure. All eight
+    /// Every landform class, convex to concave, plus the grey of ground too sparse to measure. All three
     /// are keyed whether or not this terrain shows them, so two legends on one sheet always read alike.
     /// </summary>
     private static AnalysisLegend LandformKey()

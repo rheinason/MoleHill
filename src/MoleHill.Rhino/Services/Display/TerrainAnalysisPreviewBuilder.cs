@@ -386,7 +386,7 @@ internal static class TerrainAnalysisPreviewBuilder
         CurvatureField field = solved.Field;
         if (analysis.Display == CurvatureDisplay.Landforms)
         {
-            byte[] classColors = LandformClassifier.BuildFaceColors(LandformClassifier.Classify(field, analysis.PlanarRadius));
+            byte[] classColors = LandformClassifier.BuildFaceColors(LandformClassifier.Classify(field, analysis.FlatnessTolerance));
             return BuildFaceColorMesh(solved.Vertices, solved.Faces, solved.FaceCount, classColors, alpha);
         }
 

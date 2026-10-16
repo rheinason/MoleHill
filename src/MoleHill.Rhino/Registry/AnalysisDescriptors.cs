@@ -949,8 +949,7 @@ internal sealed class GradientComplianceAnalysisDescriptor : AnalysisTypeDescrip
 }
 
 /// <summary>
-/// Curvature and landform: convex and concave ground, and the landforms that make (ridge, valley,
-/// shoulder, toe, peak, hollow, saddle, planar), measured at a landform size. See Core
+/// Curvature and landform: convex, planar and concave ground, measured at a landform size. See Core
 /// <c>CurvatureAnalyzer</c> and <c>LandformClassifier</c>.
 /// </summary>
 /// <remarks>
@@ -966,7 +965,7 @@ internal sealed class CurvatureAnalysisDescriptor : AnalysisTypeDescriptor
     public override string MenuLabel => "Curvature / Landform";
     public override string IconLabel => "CV";
     public override int AccentArgb => unchecked((int)0xFFAD1457);
-    public override string Subtitle => "Ridges, valleys, shoulders";
+    public override string Subtitle => "Convex, planar, concave";
     public override string? ActiveSubtitle => "Preview colors";
     public override int SortOrder => 9;
     public override AnalysisDefinition Create() => new CurvatureAnalysisDefinition();
@@ -1006,7 +1005,7 @@ internal sealed class CurvatureAnalysisDescriptor : AnalysisTypeDescriptor
             ResultRow.Summary(
                 "Landforms",
                 string.Join(Environment.NewLine, lines),
-                "Plan area of each landform on the last build, at this card's landform size and planar radius. " +
+                "Plan area of each landform on the last build, at this card's landform size and flatness tolerance. " +
                 "Click into the field to select and copy values.")
         };
     }
@@ -1037,7 +1036,7 @@ internal sealed class CurvatureAnalysisDescriptor : AnalysisTypeDescriptor
                 if (Enum.TryParse(key, out CurvatureDisplay display))
                     Curvature(a).Display = display;
             },
-            "Landforms colours each face by the landform it belongs to. Curvature value colours it by how " +
+            "Landforms colours each face convex, planar or concave. Curvature value colours it by how " +
             "sharply it bends, convex warm and concave cool. Both read the same measurement, so switching " +
             "recolours without measuring again.",
             refreshOnly: true),
@@ -1069,12 +1068,12 @@ internal sealed class CurvatureAnalysisDescriptor : AnalysisTypeDescriptor
             min: 0.0,
             unit: ParameterUnit.ModelLength),
         AnalysisParam.Number(
-            "PlanarRadius", "Planar Radius",
-            a => Curvature(a).PlanarRadius,
-            (a, v) => Curvature(a).PlanarRadius = Math.Max(0.0, v),
-            "Ground bending more gently than a circle of this radius counts as straight, and ground straight " +
-            "every way is Planar. Raise it to pick out gentler landforms; lower it to keep only sharp ones. " +
-            "Measured curvature shrinks as the landform size grows, so a larger size usually wants a larger radius.",
+            "FlatnessTolerance", "Flatness Tolerance",
+            a => Curvature(a).FlatnessTolerance,
+            (a, v) => Curvature(a).FlatnessTolerance = Math.Max(0.0, v),
+            "Ground within this height of flat across one landform size counts as planar. Ground that " +
+            "bulges up more is convex, ground that dips down more is concave. It follows the landform " +
+            "size, so the same tolerance means the same at any size.",
             min: 0.0,
             unit: ParameterUnit.ModelLength),
     };

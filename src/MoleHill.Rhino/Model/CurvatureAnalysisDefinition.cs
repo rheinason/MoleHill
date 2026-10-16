@@ -3,8 +3,8 @@ using MoleHill.Core.Analysis;
 namespace MoleHill.Rhino.Model;
 
 /// <summary>
-/// Curvature and landform: where the ground is convex or concave, and which landform that makes (ridge,
-/// valley, shoulder, toe, peak, hollow, saddle, planar), measured at a stated landform size.
+/// Curvature and landform: where the ground is convex, planar or concave, measured at a stated landform
+/// size.
 /// </summary>
 /// <remarks>
 /// <para>One measurement, two colourings. <see cref="Display"/> picks between the landform classes (flat
@@ -35,12 +35,15 @@ public sealed class CurvatureAnalysisDefinition : AnalysisDefinition
     public double FeatureSize { get; set; } = 5.0;
 
     /// <summary>
-    /// Ground bending more gently than a circle of this radius, in a direction, counts as straight in that
-    /// direction. A radius rather than a curvature so it reads as a length on the card: "flatter than a
-    /// 100 m radius is planar".
+    /// How far, in model units, the ground may depart from a plane across one landform size and still count
+    /// as planar: the sagitta <c>|mean curvature| * L^2 / 8</c> with <c>L</c> = <see cref="FeatureSize"/>. A
+    /// height rather than a curvature so it reads on the card and follows the landform size by itself.
+    /// The default, 50 mm at the 5 m default size, is a curvature radius of 62.5 m.
     /// </summary>
+    /// <remarks>Replaced the unreleased <c>PlanarRadius</c> (a radius of curvature). A stored
+    /// <c>PlanarRadius</c> is ignored on load, which falls back to this default.</remarks>
     [ModelLength]
-    public double PlanarRadius { get; set; } = 100.0;
+    public double FlatnessTolerance { get; set; } = 0.05;
 
     public CurvatureAnalysisDefinition()
     {
@@ -57,7 +60,7 @@ public sealed class CurvatureAnalysisDefinition : AnalysisDefinition
     {
         if (!double.IsFinite(FeatureSize) || FeatureSize < 0.0)
             FeatureSize = 0.0;
-        if (!double.IsFinite(PlanarRadius) || PlanarRadius < 0.0)
-            PlanarRadius = 0.0;
+        if (!double.IsFinite(FlatnessTolerance) || FlatnessTolerance < 0.0)
+            FlatnessTolerance = 0.0;
     }
 }
