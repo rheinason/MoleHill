@@ -429,7 +429,10 @@ layer table, dimension styles, and layouts can act on. See `docs/architecture.md
   a private class inside `GeometryCommandService`; it has its own file so commands in other services
   can take a slope the same way. The label is a constructor argument; everything else is unchanged.
 - `Commands/RouteSuggestionCommandService.cs` / `RouteOptionSet.cs` / `RouteSuggestionSettings.cs` /
-  `RouteSuggestionReadout.cs` + `Display/RouteSuggestionConduit.cs` - `mhSuggestRoute`. The service is
+  `RouteSuggestionReadout.cs` / `RouteOutputLayer.cs` + `Display/RouteSuggestionConduit.cs` -
+  `mhSuggestRoute`. A route with rounded corners is committed as one degree-2 NURBS built from Core's
+  `RouteSpan`s (a polyline otherwise). `RouteOutputLayer` remembers a chosen output layer by id per
+  document and falls back to the current layer when it is gone. The service is
   the picking (terrain as in `mhDrapeCurve`, via the now-internal
   `TerrainInputCommandService.CreateProjectionMeshes`; points constrained to the terrain, `Undo`), the
   review loop and the commit (one undo record, current layer, name + `MoleHill.Route.*` user text). The

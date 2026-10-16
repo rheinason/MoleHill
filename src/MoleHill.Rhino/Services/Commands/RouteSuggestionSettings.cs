@@ -16,6 +16,12 @@ internal sealed class RouteSuggestionSettings
 
     public const double DefaultCorridorWidthMeters = 4.0;
 
+    /// <summary>
+    /// 10 m: comfortable on a footpath or a cycle path, and the tight end of what a slow access road
+    /// takes. A road designer raises it; 0 keeps sharp corners.
+    /// </summary>
+    public const double DefaultMinimumRadiusMeters = 10.0;
+
     public const double MaxWeight = 100.0;
 
     public const string MaxGradeCacheKey = "MoleHill.SuggestRoute.MaxGrade";
@@ -25,6 +31,7 @@ internal sealed class RouteSuggestionSettings
     private const string CorridorKey = "MoleHill.SuggestRoute.CorridorWidth";
     private const string CellKey = "MoleHill.SuggestRoute.CellSize";
     private const string AlternativesKey = "MoleHill.SuggestRoute.Alternatives";
+    private const string RadiusKey = "MoleHill.SuggestRoute.MinRadius";
 
     public double DistanceWeight { get; set; } = 1.0;
 
@@ -40,6 +47,9 @@ internal sealed class RouteSuggestionSettings
 
     public int AlternativeCount { get; set; } = RouteSuggester.MaxAlternatives;
 
+    /// <summary>Model units; 0 keeps the corners sharp.</summary>
+    public double MinimumRadius { get; set; }
+
     public bool IsAutomaticCellSize => !(CellSize > 0.0);
 
     public static RouteSuggestionSettings Load(ModelUnitContext units) => new()
@@ -50,6 +60,7 @@ internal sealed class RouteSuggestionSettings
         CorridorWidth = CommandOptionCache.GetLength(CorridorKey, units, DefaultCorridorWidthMeters),
         CellSize = CommandOptionCache.GetLength(CellKey, units, 0.0),
         AlternativeCount = CommandOptionCache.GetValue(AlternativesKey, RouteSuggester.MaxAlternatives),
+        MinimumRadius = CommandOptionCache.GetLength(RadiusKey, units, DefaultMinimumRadiusMeters),
     };
 
     public void Save(ModelUnitContext units)
@@ -60,6 +71,7 @@ internal sealed class RouteSuggestionSettings
         CommandOptionCache.SetLength(CorridorKey, units, CorridorWidth);
         CommandOptionCache.SetLength(CellKey, units, Math.Max(0.0, CellSize));
         CommandOptionCache.SetValue(AlternativesKey, AlternativeCount);
+        CommandOptionCache.SetLength(RadiusKey, units, Math.Max(0.0, MinimumRadius));
     }
 
     /// <summary>Why these settings cannot be searched with, or null when they can.</summary>
@@ -83,6 +95,7 @@ internal sealed class RouteSuggestionSettings
         EarthworksWeight = EarthworksWeight,
         CorridorWidth = CorridorWidth,
         AlternativeCount = Math.Clamp(AlternativeCount, 1, RouteSuggester.MaxAlternatives),
+        MinimumRadius = Math.Max(0.0, MinimumRadius),
         ProfileTolerance = tolerance,
     };
 

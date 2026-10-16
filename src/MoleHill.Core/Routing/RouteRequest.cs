@@ -27,6 +27,12 @@ public sealed class RouteRequest
     /// </summary>
     public required double CorridorWidth { get; init; }
 
+    /// <summary>
+    /// Smallest plan radius the route's corners are rounded to, in model units; 0 keeps the corners
+    /// sharp (a polyline). Waypoints stay exact, so a turn at a waypoint is not rounded.
+    /// </summary>
+    public double MinimumRadius { get; init; }
+
     /// <summary>How many distinct routes to return at most (1 to <see cref="RouteSuggester.MaxAlternatives"/>).</summary>
     public int AlternativeCount { get; init; } = 3;
 

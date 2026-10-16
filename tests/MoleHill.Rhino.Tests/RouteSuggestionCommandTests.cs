@@ -75,10 +75,10 @@ public sealed class RouteSuggestionCommandTests
     {
         Assert.Equal(
             "Route 1: 523.40 m, max grade 4.9%, mean 2.1%, cut 12.0 m³, fill 9.5 m³",
-            RouteSuggestionReadout.Describe(1, Sample, Metres, SlopeAnalyzer.SlopeUnit.Percent));
+            RouteSuggestionReadout.Describe(1, Sample, RouteFilletSummary.None, 0.0, Metres, SlopeAnalyzer.SlopeUnit.Percent));
         Assert.Equal(
             "Route 2: 523.40 mm, max grade 1:20.4, mean 1:47.6, cut 12.0 mm³, fill 9.5 mm³",
-            RouteSuggestionReadout.Describe(2, Sample, Millimetres, SlopeAnalyzer.SlopeUnit.Ratio));
+            RouteSuggestionReadout.Describe(2, Sample, RouteFilletSummary.None, 0.0, Millimetres, SlopeAnalyzer.SlopeUnit.Ratio));
         Assert.Equal("49.0‰", RouteSuggestionReadout.Slope(0.049, SlopeAnalyzer.SlopeUnit.Promille));
     }
 
@@ -89,7 +89,7 @@ public sealed class RouteSuggestionCommandTests
             "Suggested route 3 (523 m, max 4.9%)",
             RouteSuggestionReadout.ObjectName(3, Sample, Metres, SlopeAnalyzer.SlopeUnit.Percent));
 
-        var text = RouteSuggestionReadout.UserText(3, Sample, 0.05, 4.0, Metres, SlopeAnalyzer.SlopeUnit.Percent)
+        var text = RouteSuggestionReadout.UserText(3, Sample, 0.05, 4.0, new RouteFilletSummary(8.5, 2), 10.0, Metres, SlopeAnalyzer.SlopeUnit.Percent)
             .ToDictionary(pair => pair.Key, pair => pair.Value);
         Assert.Equal("3", text["MoleHill.Route.Rank"]);
         Assert.Equal("523.40 m", text["MoleHill.Route.Length"]);
@@ -97,6 +97,9 @@ public sealed class RouteSuggestionCommandTests
         Assert.Equal("5.0%", text["MoleHill.Route.GradeLimit"]);
         Assert.Equal("12.0 m³", text["MoleHill.Route.Cut"]);
         Assert.Equal("4.00 m", text["MoleHill.Route.CorridorWidth"]);
+        Assert.Equal("10.00 m", text["MoleHill.Route.RadiusLimit"]);
+        Assert.Equal("8.50 m", text["MoleHill.Route.MinRadius"]);
+        Assert.Equal("2", text["MoleHill.Route.TightCorners"]);
         Assert.All(text.Keys, key => Assert.StartsWith(RouteSuggestionReadout.UserTextPrefix, key));
     }
 
@@ -122,5 +125,52 @@ public sealed class RouteSuggestionCommandTests
             Assert.False(string.IsNullOrWhiteSpace(message));
             Assert.NotEqual("No route was found.", message);
         }
+    }
+
+    [Fact]
+    public void Describe_MinimumRadius_ReportsTheSmallestAndTheCornersThatCouldNotTakeIt()
+    {
+        Assert.EndsWith(
+            ", min radius 10.00 m",
+            RouteSuggestionReadout.Describe(1, Sample, new RouteFilletSummary(10.0, 0), 10.0, Metres, SlopeAnalyzer.SlopeUnit.Percent));
+        Assert.EndsWith(
+            ", min radius 4.25 m (2 corners under 10.00 m: segments too short)",
+            RouteSuggestionReadout.Describe(1, Sample, new RouteFilletSummary(4.25, 2), 10.0, Metres, SlopeAnalyzer.SlopeUnit.Percent));
+        Assert.Equal(string.Empty, RouteSuggestionReadout.DescribeRadius(new RouteFilletSummary(4.0, 1), 0.0, Metres));
+        Assert.Equal(string.Empty, RouteSuggestionReadout.DescribeRadius(RouteFilletSummary.None, 10.0, Metres));
+    }
+
+    [Fact]
+    public void Settings_MinimumRadius_DefaultsToTenMetresInAnyUnit()
+    {
+        RouteSuggestionSettings inMillimetres = RouteSuggestionSettings.Load(Millimetres);
+        Assert.Equal(RouteSuggestionSettings.DefaultMinimumRadiusMeters * 1000.0, inMillimetres.MinimumRadius, 9);
+        Assert.Equal(inMillimetres.MinimumRadius, inMillimetres.ToRequest(new[] { (0.0, 0.0), (1.0, 1.0) }, 0.05, 0.01).MinimumRadius, 9);
+    }
+
+    [Fact]
+    public void OutputLayer_RememberedPerDocument_FallsBackToCurrentWhenDeleted()
+    {
+        uint document = 900_001, other = 900_002;
+        var layer = Guid.NewGuid();
+        RouteOutputLayer.Remember(document, layer);
+
+        Assert.Equal(layer, RouteOutputLayer.Remembered(document));
+        Assert.Equal(Guid.Empty, RouteOutputLayer.Remembered(other));
+
+        Assert.Equal(layer, RouteOutputLayer.Resolve(layer, id => id == layer, out bool kept));
+        Assert.False(kept);
+        Assert.Equal(Guid.Empty, RouteOutputLayer.Resolve(layer, _ => false, out bool fellBack));
+        Assert.True(fellBack);
+        Assert.Equal(Guid.Empty, RouteOutputLayer.Resolve(Guid.Empty, _ => false, out bool current));
+        Assert.False(current);
+    }
+
+    [Fact]
+    public void OutputLayer_OptionValue_IsOneWord()
+    {
+        Assert.Equal("Current", RouteOutputLayer.OptionValue(null));
+        Assert.Equal("Road_centrelines", RouteOutputLayer.OptionValue("Road centrelines"));
+        Assert.Equal("Layer", RouteOutputLayer.OptionValue("::"));
     }
 }

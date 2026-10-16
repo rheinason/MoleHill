@@ -287,6 +287,21 @@ public sealed class RouteSuggesterTests
             _output.WriteLine($"  {route.Metrics.PlanLength:F0} m, max {route.Metrics.MaxGrade:P1}, {route.PointCount} vertices");
         Assert.True(result.Succeeded);
         Assert.True(watch.ElapsedMilliseconds < 10_000, $"Took {watch.ElapsedMilliseconds} ms.");
+
+        RouteRequest rounded = new()
+        {
+            Points = request.Points,
+            MaxGrade = request.MaxGrade,
+            CorridorWidth = request.CorridorWidth,
+            MinimumRadius = 10.0,
+        };
+        watch.Restart();
+        RouteSuggestionResult filleted = RouteSuggester.Suggest(grid, rounded);
+        watch.Stop();
+        _output.WriteLine($"with 10 m min radius: {filleted.Alternatives.Count} routes, {watch.ElapsedMilliseconds} ms");
+        Assert.True(filleted.Succeeded);
+        Assert.All(filleted.Alternatives, route => Assert.True(route.Metrics.MaxGrade <= 0.06 * (1 + 1e-9)));
+        Assert.True(watch.ElapsedMilliseconds < 10_000, $"Took {watch.ElapsedMilliseconds} ms with fillets.");
     }
 
     [Fact]

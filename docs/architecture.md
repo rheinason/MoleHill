@@ -134,11 +134,16 @@ TriangleNet (vendored)  ←  MoleHill.Core  ←  MoleHill.Grasshopper (GH host)
   alternatives as ordinary editable polylines, previewed by `RouteSuggestionConduit` (categorical
   colours, numbered dots, `DrawOverlay` with depth off — the inspector rule above) and kept with
   `KeepAll` / `Keep1..3` / Enter. Every option (`MaxGrade` through the shared `SlopeCommandOption`,
-  `Distance`/`Steepness`/`Earthworks` weights, `CorridorWidth`, `CellSize`, `Alternatives`) is offered
-  both while picking and while reviewing, and changing one during review searches again. Each kept
-  curve carries its readout (length, max/mean grade in the user's slope unit, cut/fill over the
-  corridor width) in its name and `MoleHill.Route.*` user text, on the current layer like other drawing
-  aids. The search is Core's `Routing/`: a top-surface height grid rasterised from the mesh (NaN for
+  `MinRadius`, `Distance`/`Steepness`/`Earthworks` weights, `CorridorWidth`, `CellSize`, `Alternatives`,
+  `Layer`) is offered both while picking and while reviewing, and changing a search input during review
+  searches again. `MinRadius` (default 10 m; 0 keeps a polyline) rounds the corners with tangent arcs,
+  and the kept curve is then one degree-2 NURBS of straights and exact plan arcs, which Grade Path and
+  the curve commands discretise like any other curve; a corner whose segments are too short takes the
+  largest radius that fits and the readout says how many. `Layer` is the current layer or one picked in
+  Rhino's layer dialog, remembered by layer id per document for the session and dropped back to Current
+  when that layer is deleted. Each kept curve carries its readout (length, max/mean grade in the user's
+  slope unit, cut/fill over the corridor width, smallest radius) in its name and `MoleHill.Route.*`
+  user text. The search is Core's `Routing/`: a top-surface height grid rasterised from the mesh (NaN for
   holes and outside), 16-connected A* whose move cost is
   `L * (wDistance + wSteepness * min(r,1)^2 + wEarthworks * E(r))` with `r` the move's ground grade over
   the limit, cost-aware string pulling to turn the grid path back into the straight lines it
