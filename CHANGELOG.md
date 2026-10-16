@@ -22,7 +22,9 @@ beta prereleases. Earlier versions are recorded only in the git history.
   - Bends that only followed small folds of the ground are merged, and the profile has grade breaks a
     few metres apart instead of a vertex every half metre.
   - The search grid is scaled to the route (about 1.3 m for a 250 m route, and faster).
-  - Route numbers are drawn on top of every route and spread along them, so each one stays readable.
+  - Route numbers are drawn on top of every route, larger, and spread along them, so each one stays readable.
+  - A climb steeper than the limit now switches back in long legs. The search used to gain the length it
+    needed by zig-zagging every couple of metres, and rounding then left dozens of corners sharp.
 - **Inspect Curve** shows grades in your slope unit everywhere: the summary, the labels on the curve, the
   hover readout and grade breaks. They were always percent, so a route built to 10° read 17.6%.
 - **Drape Curve** drapes onto several meshes and surfaces at once and takes the top or the lowest

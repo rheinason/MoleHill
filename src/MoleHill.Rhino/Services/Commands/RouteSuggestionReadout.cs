@@ -50,7 +50,7 @@ internal static class RouteSuggestionReadout
         var reasons = new List<(int Count, string Why)>
         {
             (fillet.TerrainLimitedCorners, "where a wider curve costs more than allowed or leaves the terrain"),
-            (fillet.GradeLimitedCorners, "left sharp because rounding broke the grade"),
+            (fillet.GradeLimitedCorners, "kept tighter because a wider curve would break the grade"),
             (fillet.ReversalCorners, "turning back on themselves"),
         };
         reasons.RemoveAll(reason => reason.Count <= 0);

@@ -17,7 +17,16 @@ a polyline the user edits and then assigns to a Grade Path.
   least that. A move's grade is the steeper of its two halves, measured against the ground at its
   midpoint, so a diagonal or knight move cannot step over a ridge or ditch between its end nodes; a
   move touching an off-terrain node is impossible. `SearchDomain` is the points' box grown by half its
-  diagonal, room to swing round a hill or zig-zag up a slope.
+  diagonal, room to swing round a hill or zig-zag up a slope. The search state is (node, arrival
+  heading), 17 per node, so a **turn is priced**: `2R·tan(θ/2)` at the distance weight, the line a corner
+  through θ occupies once rounded, with R the minimum radius (the corridor width when there is none).
+  Without it a climb steeper than the limit was lengthened by zig-zagging a cell or two at a time (a
+  2.8 m median leg on an 18% slope, `RouteSwitchbackTests`); priced, it switches back in long legs and a
+  near-reversal is dear. That is also why `MaximumNodeCount` is 500,000.
+  A leg straightened too short for its climb is straightened again **held to the length the climb needs**
+  (`StraightenPlan`'s `minimumLength`, 5%, 15% then 30% over it, and `MakeRoom` refuses edits below it),
+  before the sharp line and the raw grid path are tried; corners left under the radius there are counted
+  as grade-limited.
 - `RouteCost.cs` — the one pricing function, shared by the search and the straightening:
   `wDistance + wSteepness * min(r,1)^2 + wEarthworks * E(r)` per unit length, `r` = ground grade over
   the limit, `E` = `2x + 4x^2` on the excess `x = r - 1`. Ground steeper than the limit is not
@@ -65,7 +74,7 @@ a polyline the user edits and then assigns to a Grade Path.
   degree (a whole degree read a hair under the curve's own steepest) and, if an arc span strays past
   the limit, refits with a fractionally tighter one. `RouteFilletSummary` carries the smallest radius
   used and the count of tight corners with their reasons: terrain-limited (a wider curve costs more
-  than allowed or leaves the terrain), grade-limited (left sharp because rounding broke the grade) and
+  than allowed or leaves the terrain), grade-limited (left sharp or rounded tighter because a wider curve would break the grade) and
   reversals.
 - `GradeLimitedProfile.cs` — the profile: the L-infinity-optimal grade-limited fit to the ground with
   both ends held. Upper envelope `max(g_j - m|s - s_j|)` and lower `min(g_j + m|s - s_j|)` by two

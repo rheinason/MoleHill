@@ -86,10 +86,12 @@ public sealed class RouteFilletTests
     }
 
     [Fact]
-    public void Suggest_RoundingBreaksTheGrade_KeepsTheCornerSharpAndSaysWhy()
+    public void Suggest_RoundingBreaksTheGrade_RoundsOnlyAsFarAsTheGradeAllowsAndSaysWhy()
     {
         // An L-shaped strip of ground climbing 4.8% along its length: just inside 5% as drawn, but a
-        // 10 m curve at the bend cuts 4.3 m off the 100 m leg, which would need over 5%.
+        // 10 m curve at the bend cuts 4.3 m off the 100 m leg, which would need over 5%. Held to the
+        // length its climb needs, the leg keeps the bend tighter than 10 m — rounded as far as the
+        // grade allows, no further — and says the grade is why.
         RouteHeightGrid grid = RouteHeightGrid.FromFunction(0, 0, 0.5, 121, 121, (x, y) =>
             (Math.Abs(y - 5.0) <= 1.5 && x <= 57.0) || (Math.Abs(x - 55.0) <= 1.5 && y <= 57.0)
                 ? 0.048 * ((x - 5.0) + (y - 5.0))
@@ -107,11 +109,10 @@ public sealed class RouteFilletTests
 
         Assert.True(result.Succeeded, result.Failure.ToString());
         RouteAlternative route = Assert.Single(result.Alternatives);
-        Assert.False(route.HasArcs);
         Assert.True(route.Fillet.GradeLimitedCorners > 0);
         Assert.Equal(route.Fillet.GradeLimitedCorners, route.Fillet.ReducedCorners);
         Assert.Equal(0, route.Fillet.TerrainLimitedCorners);
-        Assert.Equal(0.0, route.Fillet.SmallestRadius);
+        Assert.True(route.Fillet.SmallestRadius < 10.0);
         Assert.True(route.Metrics.MaxGrade <= 0.05 * (1 + 1e-9));
     }
 

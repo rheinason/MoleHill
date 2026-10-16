@@ -7,9 +7,10 @@ namespace MoleHill.Core.Routing;
 /// simplified 3D polyline whose profile never exceeds the grade limit.
 /// </summary>
 /// <remarks>
-/// <para><b>Search.</b> A* over the nodes of a <see cref="RouteHeightGrid"/>, 16-connected (the eight
-/// neighbours plus the eight knight moves, so a route can hold a bearing within ~13 degrees of any
-/// direction instead of zig-zagging between 45-degree ones). A move of plan length L costs</para>
+/// <para><b>Search.</b> A* over the nodes of a <see cref="RouteHeightGrid"/> and the move each was reached
+/// by, 16-connected (the eight neighbours plus the eight knight moves, so a route can hold a bearing
+/// within ~13 degrees of any direction instead of zig-zagging between 45-degree ones). A turn through θ
+/// costs 2R·tan(θ/2) (see <c>GridSearch.FindPath</c>), and a move of plan length L costs</para>
 /// <code>
 /// L * (wDistance + wSteepness * min(r, 1)^2 + wEarthworks * E(r))     r = moveGrade / maxGrade
 /// E(r) = 0 for r &lt;= 1, else 2x + 4x^2 with x = r - 1
@@ -53,6 +54,12 @@ public static class RouteSuggester
     internal const double NearDuplicateShare = 0.7;
 
     private const int AttemptsPerAlternative = 4;
+
+    /// <summary>
+    /// How much longer than its climb strictly needs a leg is held when straightening has to be limited:
+    /// rounding a switchback shortens a leg by a few metres, so the first try leaves 5% for it.
+    /// </summary>
+    private static readonly double[] LengthSlacks = { 1.05, 1.15, 1.3 };
 
     /// <summary>
     /// The plan rectangle worth searching: the points' bounding box grown by half its diagonal, so a
@@ -267,7 +274,8 @@ public static class RouteSuggester
             List<(double X, double Y)>? sharpPlan = null;
             if (!TryBuildLeg(roomyPlan, rounded, out List<RouteSpan> legSpans, out RouteFilletSummary legFillet, out double required) &&
                 !(rounded && !roomyPlan.SequenceEqual(straightPlan) &&
-                    TryBuildLeg(straightPlan, true, out legSpans, out legFillet, out required)))
+                    TryBuildLeg(straightPlan, true, out legSpans, out legFillet, out required)) &&
+                !TryHeldToLength(out legSpans, out legFillet, out required))
             {
                 sharpPlan = TryBuildLeg(straightPlan, false, out legSpans, out legFillet, out required) ? straightPlan
                     : TryBuildLeg(rawPlan, false, out legSpans, out legFillet, out required) ? rawPlan
@@ -286,6 +294,31 @@ public static class RouteSuggester
 
             spans.AddRange(legSpans);
             fillet = fillet.Merge(legFillet);
+
+            // Straightened too short for its climb: straighten again, held to the length the climb needs plus
+            // room for rounding to shorten it, before falling back to sharp corners and the grid staircase.
+            bool TryHeldToLength(out List<RouteSpan> built, out RouteFilletSummary summary, out double need)
+            {
+                double climb = Math.Abs(pins[leg + 1] - pins[leg]) / request.MaxGrade;
+                foreach (double slack in LengthSlacks)
+                {
+                    List<(double X, double Y)> held = RouteLegBuilder.StraightenPlan(grid, price, rawPlan, climb * slack);
+                    List<(double X, double Y)> heldRoomy = rounded
+                        ? PlanRadiusSimplifier.MakeRoom(grid, price, held, request.MinimumRadius, climb * slack)
+                        : held;
+                    if (TryBuildLeg(heldRoomy, rounded, out built, out summary, out need))
+                    {
+                        // Whatever stayed under the radius here did so because the climb needed the length.
+                        summary = summary with { GradeLimitedCorners = summary.ReducedCorners - summary.ReversalCorners };
+                        return true;
+                    }
+                }
+
+                built = new List<RouteSpan>();
+                summary = RouteFilletSummary.None;
+                need = 0.0;
+                return false;
+            }
 
             bool TryBuildLeg(List<(double X, double Y)> plan, bool round, out List<RouteSpan> built, out RouteFilletSummary summary, out double need) =>
                 RouteLegBuilder.TryBuild(grid, request, plan, pins[leg], pins[leg + 1], round, profileTolerance,
@@ -312,6 +345,7 @@ public static class RouteSuggester
         private readonly int _rows;
         private readonly double _cell;
         private readonly RouteCost _price;
+        private readonly double _turnRadiusCost;
         private readonly double[] _cost;
         private readonly int[] _parent;
         private readonly int[] _seen;
@@ -329,11 +363,13 @@ public static class RouteSuggester
             _rows = grid.Rows;
             _cell = grid.CellSize;
             _price = new RouteCost(request);
+            _turnRadiusCost = TurnRadiusCost(request);
             int count = grid.NodeCount;
-            _cost = new double[count];
-            _parent = new int[count];
-            _seen = new int[count];
-            _closed = new int[count];
+            int states = count * StatesPerNode;
+            _cost = new double[states];
+            _parent = new int[states];
+            _seen = new int[states];
+            _closed = new int[states];
             _mark = new int[count];
             _penalty = new float[count];
         }
@@ -345,32 +381,44 @@ public static class RouteSuggester
             return _cell * Math.Sqrt((dc * dc) + (dr * dr));
         }
 
+        /// <summary>
+        /// A* over (node, heading): the heading is the move the node was reached by, so a move that changes
+        /// direction can be charged for the turn. Without it every path of equal length and grade cost the
+        /// same however often it turned, and where a route had to be longer than the straight line to keep
+        /// its grade it lengthened itself by zig-zagging a cell or two at a time (2026-10-16): a staircase no
+        /// rounding can turn into a road. A turn through θ costs the line its rounding occupies,
+        /// 2R·tan(θ/2) (at the distance weight), so a long leg with one wide switchback is cheap and a
+        /// jitter every few metres is dear.
+        /// </summary>
         public List<int>? FindPath(int start, int goal, CancellationToken cancellationToken)
         {
             _generation++;
             _open.Clear();
             int goalColumn = goal % _columns;
             int goalRow = goal / _columns;
-            _cost[start] = 0.0;
-            _seen[start] = _generation;
-            _parent[start] = -1;
-            _open.Enqueue(start, Heuristic(start % _columns, start / _columns, goalColumn, goalRow));
+            int first = State(start, NoHeading);
+            _cost[first] = 0.0;
+            _seen[first] = _generation;
+            _parent[first] = -1;
+            _open.Enqueue(first, Heuristic(start % _columns, start / _columns, goalColumn, goalRow));
             int pops = 0;
 
-            while (_open.TryDequeue(out int node, out _))
+            while (_open.TryDequeue(out int state, out _))
             {
-                if (_closed[node] == _generation)
+                if (_closed[state] == _generation)
                     continue;
-                _closed[node] = _generation;
+                _closed[state] = _generation;
+                int node = state / StatesPerNode;
+                int heading = state % StatesPerNode;
                 if (node == goal)
-                    return Reconstruct(goal);
+                    return Reconstruct(state);
 
                 if ((++pops & 0xFFF) == 0)
                     cancellationToken.ThrowIfCancellationRequested();
 
                 int column = node % _columns;
                 int row = node / _columns;
-                double reached = _cost[node];
+                double reached = _cost[state];
                 for (int move = 0; move < Dx.Length; move++)
                 {
                     int toColumn = column + Dx[move];
@@ -379,17 +427,19 @@ public static class RouteSuggester
                         continue;
 
                     int to = (toRow * _columns) + toColumn;
-                    if (_closed[to] == _generation || !TryMoveCost(column, row, move, out double moveCost))
+                    int toState = State(to, move);
+                    if (_closed[toState] == _generation || !TryMoveCost(column, row, move, out double moveCost))
                         continue;
 
-                    double cost = reached + (moveCost * (1.0 + _penalty[to]));
-                    if (_seen[to] == _generation && cost >= _cost[to])
+                    double turn = heading == NoHeading ? 0.0 : TurnCost[(heading * Dx.Length) + move] * _turnRadiusCost;
+                    double cost = reached + (moveCost * (1.0 + _penalty[to])) + turn;
+                    if (_seen[toState] == _generation && cost >= _cost[toState])
                         continue;
 
-                    _seen[to] = _generation;
-                    _cost[to] = cost;
-                    _parent[to] = node;
-                    _open.Enqueue(to, cost + Heuristic(toColumn, toRow, goalColumn, goalRow));
+                    _seen[toState] = _generation;
+                    _cost[toState] = cost;
+                    _parent[toState] = state;
+                    _open.Enqueue(toState, cost + Heuristic(toColumn, toRow, goalColumn, goalRow));
                 }
             }
 
@@ -517,13 +567,61 @@ public static class RouteSuggester
             return true;
         }
 
-        private List<int> Reconstruct(int goal)
+        private List<int> Reconstruct(int goalState)
         {
             var path = new List<int>();
-            for (int node = goal; node >= 0; node = _parent[node])
-                path.Add(node);
+            for (int state = goalState; state >= 0; state = _parent[state])
+                path.Add(state / StatesPerNode);
             path.Reverse();
             return path;
+        }
+
+        /// <summary>One state per arrival move, plus one for the start, which was reached by none.</summary>
+        private const int StatesPerNode = 17;
+
+        private const int NoHeading = 16;
+
+        private static int State(int node, int heading) => (node * StatesPerNode) + heading;
+
+        /// <summary>
+        /// The room a turn between every pair of moves takes, per unit of turning radius, by [from * 16 + to]:
+        /// <c>2 tan(θ/2)</c>, the length of line a corner through θ occupies once rounded. It is what a turn
+        /// really costs the plan — a sharper corner eats far more of the legs either side and shortens the
+        /// route more when rounded — so a near-reversal (whose rounding would need legs tens of metres long)
+        /// is dear, a 90-degree switchback twice its radius, and a slight bend almost free. Capped at 170
+        /// degrees, past which the tangent runs away.
+        /// </summary>
+        private static readonly double[] TurnCost = BuildTurnCosts();
+
+        private static double[] BuildTurnCosts()
+        {
+            var angles = new double[Dx.Length * Dx.Length];
+            for (int a = 0; a < Dx.Length; a++)
+            {
+                for (int b = 0; b < Dx.Length; b++)
+                {
+                    double dot = (Dx[a] * Dx[b]) + (Dy[a] * Dy[b]);
+                    double lengths = Math.Sqrt(((Dx[a] * Dx[a]) + (Dy[a] * Dy[a])) * ((Dx[b] * Dx[b]) + (Dy[b] * Dy[b])));
+                    double turn = Math.Min(Math.Acos(Math.Clamp(dot / lengths, -1.0, 1.0)), MaximumPricedTurn);
+                    angles[(a * Dx.Length) + b] = 2.0 * Math.Tan(0.5 * turn);
+                }
+            }
+
+            return angles;
+        }
+
+        private const double MaximumPricedTurn = 170.0 * Math.PI / 180.0;
+
+        /// <summary>
+        /// The turning radius the turn cost is scaled by, priced at the distance weight (or 1 where distance is
+        /// weighted at nothing): the minimum radius, or the corridor width when none is asked for, since a road
+        /// of that width cannot turn on the spot either.
+        /// </summary>
+        internal static double TurnRadiusCost(RouteRequest request)
+        {
+            double radius = request.MinimumRadius > 0.0 ? request.MinimumRadius : request.CorridorWidth;
+            double weight = request.DistanceWeight > 0.0 ? request.DistanceWeight : 1.0;
+            return radius * weight;
         }
 
         private static double[] BuildUnitLengths()

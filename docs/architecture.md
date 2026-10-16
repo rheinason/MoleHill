@@ -177,7 +177,9 @@ TriangleNet (vendored)  ←  MoleHill.Core  ←  MoleHill.Grasshopper (GH host)
   when that layer is deleted. Each kept curve carries its readout (length, max/mean grade in the user's
   slope unit, cut/fill over the corridor width, smallest radius) in its name and `MoleHill.Route.*`
   user text. The search is Core's `Routing/`: a top-surface height grid rasterised from the mesh (NaN for
-  holes and outside), 16-connected A* whose move cost is
+  holes and outside), 16-connected A* over (node, heading) — a turn through θ costs `2R·tan(θ/2)`, so a
+  climb steeper than the limit switches back in long legs instead of zig-zagging a cell at a time — whose
+  move cost is
   `L * (wDistance + wSteepness * min(r,1)^2 + wEarthworks * E(r))` with `r` the move's ground grade over
   the limit, cost-aware string pulling to turn the grid path back into the straight lines it
   approximates, and a **grade-limited profile** (`GradeLimitedProfile`: the ground wherever the ground is

@@ -9,8 +9,8 @@ namespace MoleHill.Core.Routing;
 /// <param name="ReducedCorners">Corners under the requested radius, for any reason.</param>
 /// <param name="ReversalCorners">Of those, corners that turn back on themselves and stay sharp.</param>
 /// <param name="GradeLimitedCorners">
-/// Of those, corners left sharp because rounding their leg broke the grade limit (an arc is shorter
-/// than its tangents, so the leg had no longer the length its height difference needs).
+/// Of those, corners left sharp or rounded tighter because a wider curve broke the grade limit (an arc
+/// is shorter than its tangents, so the leg had no longer the length its height difference needs).
 /// </param>
 public readonly record struct RouteFilletSummary(
     double? SmallestRadius,

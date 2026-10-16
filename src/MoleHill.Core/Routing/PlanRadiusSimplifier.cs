@@ -60,11 +60,14 @@ internal static class PlanRadiusSimplifier
 
     private static readonly bool[] SlideModes = { false, true };
 
+    /// <param name="minimumLength">The plan length the leg may not be edited below: a leg that winds to
+    /// gain the length its climb needs would otherwise have its switchbacks merged away.</param>
     public static List<(double X, double Y)> MakeRoom(
         RouteHeightGrid grid,
         RouteCost price,
         List<(double X, double Y)> plan,
-        double radius)
+        double radius,
+        double minimumLength = 0.0)
     {
         if (!(radius > 0.0) || plan.Count < 3)
             return plan;
@@ -100,7 +103,7 @@ internal static class PlanRadiusSimplifier
 
                     // A segment found unaffordable is priced again only if an edit has since made room.
                     if (cheapest[j] is not Priced known || (double.IsPositiveInfinity(known.Delta) && known.Headroom < headroom))
-                        cheapest[j] = Cheapest(pricer, points, current, slid, j, headroom, candidate, consolidate);
+                        cheapest[j] = Cheapest(pricer, points, current, slid, j, headroom, candidate, consolidate, minimumLength);
                     if (cheapest[j]!.Value.Delta < (chosen < 0 ? double.PositiveInfinity : cheapest[chosen]!.Value.Delta))
                         chosen = j;
                 }
@@ -159,7 +162,8 @@ internal static class PlanRadiusSimplifier
         int segment,
         double headroom,
         List<(double X, double Y)> candidate,
-        bool consolidate)
+        bool consolidate,
+        double minimumLength)
     {
         var best = new Priced(double.PositiveInfinity, default, headroom);
         foreach (Edit edit in Edits(points, segment, pricer.Radius))
@@ -175,6 +179,9 @@ internal static class PlanRadiusSimplifier
             // The corners from two before the edit to two after its new vertices change, and with them
             // the segments from the one ending at the first of those to the one starting at the last.
             Apply(points, edit, candidate);
+            if (minimumLength > 0.0 && PlanLength(candidate) < minimumLength)
+                continue;
+
             double delta = 0.0;
             for (int i = Math.Max(1, edit.First - 2); i <= Math.Min(points.Count - 2, edit.First + edit.Remove + 1); i++)
                 delta -= current.Corner[i];
@@ -191,6 +198,14 @@ internal static class PlanRadiusSimplifier
         }
 
         return best;
+    }
+
+    private static double PlanLength(List<(double X, double Y)> points)
+    {
+        double length = 0.0;
+        for (int i = 1; i < points.Count; i++)
+            length += Distance(points[i - 1], points[i]);
+        return length;
     }
 
     /// <summary>True when either end of segment <paramref name="j"/> is an interior corner that turns.</summary>

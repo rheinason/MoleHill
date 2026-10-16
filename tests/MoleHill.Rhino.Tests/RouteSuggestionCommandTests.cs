@@ -137,11 +137,11 @@ public sealed class RouteSuggestionCommandTests
             ", min radius 4.25 m (2 corners under 10.00 m where a wider curve costs more than allowed or leaves the terrain)",
             RouteSuggestionReadout.Describe(1, Sample, new RouteFilletSummary(4.25, 2), 10.0, Metres, SlopeAnalyzer.SlopeUnit.Percent));
         Assert.EndsWith(
-            ", min radius 0.00 m (1 corner under 10.00 m left sharp because rounding broke the grade)",
+            ", min radius 0.00 m (1 corner under 10.00 m kept tighter because a wider curve would break the grade)",
             RouteSuggestionReadout.Describe(1, Sample, new RouteFilletSummary(0.0, 1, 0, 1), 10.0, Metres, SlopeAnalyzer.SlopeUnit.Percent));
         Assert.EndsWith(
             " (4 corners under 10.00 m: 2 where a wider curve costs more than allowed or leaves the terrain, " +
-            "1 left sharp because rounding broke the grade, 1 turning back on themselves)",
+            "1 kept tighter because a wider curve would break the grade, 1 turning back on themselves)",
             RouteSuggestionReadout.Describe(1, Sample, new RouteFilletSummary(0.0, 4, 1, 1), 10.0, Metres, SlopeAnalyzer.SlopeUnit.Percent));
         Assert.Equal(string.Empty, RouteSuggestionReadout.DescribeRadius(new RouteFilletSummary(4.0, 1), 0.0, Metres));
         Assert.Equal(string.Empty, RouteSuggestionReadout.DescribeRadius(RouteFilletSummary.None, 10.0, Metres));

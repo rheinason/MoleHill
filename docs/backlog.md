@@ -688,6 +688,13 @@ cause, confirmed by the user). `RouteHillySiteTests` holds the case. Live-tested
 Rhino on the same hilly site: every corner 10.00 m, Inspect agrees with the readout (+10.00° where it used to
 read 17.6%), 157–203 control points per 300 m route instead of 439–551, numbers drawn on top in larger dots.
 
+**Second follow-up 2026-10-16** (user file, a climb needing ~1.8x the straight distance at 10%): the routes
+zig-zagged in ~3 m legs and rounding left 34–74 corners sharp. The search now carries the arrival heading and
+prices a turn at 2R·tan(θ/2); a leg straightened too short for its climb is re-straightened held to the
+length it needs (and `MakeRoom` respects that floor) before falling back to the grid path. On the user's
+ground: wide switchbacks, two routes with every corner at 10 m, the third with 7 tight corners at its far
+hairpins. `RouteSwitchbackTests` holds it (it fails at a 2.8 m median leg without the turn cost).
+
 **Shipped 2026-10-16** as `mhSuggestRoute`: A* over a sampled height grid with a hard max grade, distance /
 steepness / earthworks weights, up to three distinct alternatives, a grade-limited profile, a minimum plan
 radius and a Layer option. Short straightened segments left 9–11 corners under the

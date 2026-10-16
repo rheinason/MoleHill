@@ -22,7 +22,11 @@ public sealed class RouteHeightGrid
     public const double SpanCells = 200.0;
 
     /// <summary>Hard ceiling, applied to an explicit cell size as well, so a typo cannot exhaust memory.</summary>
-    public const int MaximumNodeCount = 6_000_000;
+    /// <summary>
+    /// The most nodes a grid may have. The search keeps a state per node and arrival heading (17 per node),
+    /// so this bounds its memory at about 170 MB; it was 6 million when a node was one state.
+    /// </summary>
+    public const int MaximumNodeCount = 500_000;
 
     private readonly double[] _heights;
 

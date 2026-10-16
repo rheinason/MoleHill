@@ -263,8 +263,17 @@ internal static class RouteLegBuilder
     /// straight line (a grid path is only ever an approximation of one); round a hill it is the tightest
     /// line the costs allow; and a chord over a hole is never taken, because off-terrain samples make it
     /// infinitely expensive.
+    /// <para>With a <paramref name="minimumLength"/>, a chord is taken only while the plan stays at least
+    /// that long. A leg that has to climb further than its straight line allows winds up the slope, and
+    /// unconstrained pulling straightens the winding away — the leg then cannot meet the grade, and used to
+    /// fall back to the raw grid staircase. Held to the length the climb needs, it keeps enough of its
+    /// switchbacks and straightens the rest.</para>
     /// </summary>
-    internal static List<(double X, double Y)> StraightenPlan(RouteHeightGrid grid, RouteCost price, List<(double X, double Y)> plan)
+    internal static List<(double X, double Y)> StraightenPlan(
+        RouteHeightGrid grid,
+        RouteCost price,
+        List<(double X, double Y)> plan,
+        double minimumLength = 0.0)
     {
         int n = plan.Count;
         if (n <= 2)
@@ -280,6 +289,11 @@ internal static class RouteLegBuilder
             prefix[i] = prefix[i - 1] + cost;
         }
 
+        var along = new double[n];
+        for (int i = 1; i < n; i++)
+            along[i] = along[i - 1] + Math.Sqrt(Geometry2D.DistanceSquared(plan[i - 1].X, plan[i - 1].Y, plan[i].X, plan[i].Y));
+        double length = along[n - 1];
+
         var straightened = new List<(double X, double Y)> { plan[0] };
         int anchor = 0;
         while (anchor < n - 1)
@@ -290,7 +304,9 @@ internal static class RouteLegBuilder
             {
                 double chord = ChordCost(grid, price, plan[anchor], plan[j], spacing, ChordGroundWeight);
                 double path = prefix[j] - prefix[anchor];
-                if (chord <= (path * (1.0 + 1e-9)) + 1e-12)
+                double shortening = along[j] - along[anchor] -
+                    Math.Sqrt(Geometry2D.DistanceSquared(plan[anchor].X, plan[anchor].Y, plan[j].X, plan[j].Y));
+                if (chord <= (path * (1.0 + 1e-9)) + 1e-12 && length - shortening >= minimumLength)
                 {
                     best = j;
                     misses = 0;
@@ -302,6 +318,8 @@ internal static class RouteLegBuilder
             }
 
             straightened.Add(plan[best]);
+            length -= along[best] - along[anchor] -
+                Math.Sqrt(Geometry2D.DistanceSquared(plan[anchor].X, plan[anchor].Y, plan[best].X, plan[best].Y));
             anchor = best;
         }
 
