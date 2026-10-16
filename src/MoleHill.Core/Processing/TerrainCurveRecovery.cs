@@ -150,14 +150,14 @@ public static class TerrainCurveRecovery
             if (worstVertex < 0 || worstDeviation <= verticalTolerance)
             {
                 termination = Termination.ToleranceSatisfied;
-                diagnostic = $"Within {verticalTolerance:G4} at every terrain vertex.";
+                diagnostic = FormattableString.Invariant($"Within {verticalTolerance:G4} at every terrain vertex.");
                 break;
             }
 
             if (contours.Count >= options.MaximumCurves)
             {
                 termination = Termination.CurveBudgetSpent;
-                diagnostic = $"Stopped at {contours.Count} contours with a {worstDeviation:G4} miss left.";
+                diagnostic = FormattableString.Invariant($"Stopped at {contours.Count} contours with a {worstDeviation:G4} miss left.");
                 break;
             }
 
@@ -180,7 +180,7 @@ public static class TerrainCurveRecovery
             else
             {
                 termination = Termination.NoProgress;
-                diagnostic = $"The worst vertex could not be captured; a {worstDeviation:G4} miss is left.";
+                diagnostic = FormattableString.Invariant($"The worst vertex could not be captured; a {worstDeviation:G4} miss is left.");
                 break;
             }
 

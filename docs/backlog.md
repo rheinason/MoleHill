@@ -699,7 +699,7 @@ and civil alignment exploration.
 Top/Lowest and `Miss` = Split/Bridge/KeepZ; a split ends on the terrain's edge (bisected), polyline corners
 are stations, every curve is reported and the good ones commit. `mhDrapeCurveSection` is the button's
 right-click: a picked stretch draped with a `Transition` tie-in at both ends. The kernel is Core's
-`CurveDrape`. Not yet live-tested in Rhino.
+`CurveDrape`. Live-tested in a disposable Rhino 2026-10-16.
 
 **Selected 2026-10-15.** `mhDrapeCurve` takes exactly one target, and one curve that fails to project fails
 the whole command. Accept several meshes and surfaces (topmost or lowest hit), give stations that miss the
@@ -714,7 +714,7 @@ still come out, and add a section variant for tie-ins on the button's right-clic
 footprint, the tolerance is pad area x 1 mm, and a curve owned by a Grade Pad card is balanced with the
 card's slopes against the mesh that card receives (not the finished terrain, which already carries the
 pad). The search grades with plain `PadGrader.Grade`, not the stage's windowed grading, so the stage's
-volumes can differ slightly. Not yet live-tested in Rhino.
+volumes can differ slightly. Live-tested in a disposable Rhino 2026-10-16.
 
 **Selected 2026-10-15.** Find the pad elevation whose cut and fill balance for a closed curve and its batter
 slope, and write it into the curve's Z, reusing the Grasshopper bracketed balance helper. The result lives
@@ -728,7 +728,7 @@ in the curve, so the drawn input still says what the pad will do (auto-balance a
 right-click). The design line carries its frame as `MoleHill.Profile.*` user strings; apply replaces the plan
 curve with a polyline, so a smooth curve comes back faceted at the curve tolerance. Open: re-extracting
 over an existing drawing, keeping a NURBS curve's type, and a ground line from any target rather than only
-the active terrain. Not yet live-tested in Rhino.
+the active terrain. Live-tested in a disposable Rhino 2026-10-16.
 
 **Selected 2026-10-15.** `mhExtractProfile` unrolls a plan curve into a flat long section (ground line,
 the curve's Z at a chosen exaggeration, station ticks); edited with ordinary Rhino tools, `mhApplyProfile`
@@ -745,7 +745,7 @@ terrain's vertices (not the full overlay — the simplified border changes the d
 evaluator refuses); a contour that collapses becomes a spot point; one contour per rebuild round. Still open:
 seeding ridge and valley lines from the Curvature analysis (contours stand in for them now, at a cost in
 curve count), adding several contours per round on large DEMs, and measuring it on a real survey.
-Not yet live-tested in Rhino.
+Live-tested in a disposable Rhino 2026-10-16.
 
 **Selected 2026-10-15; needs design.** From a DEM- or point-cloud-derived terrain, recover a minimal set of
 curves and spot points that rebuild it within a stated tolerance: landform lines (B17) and extremum

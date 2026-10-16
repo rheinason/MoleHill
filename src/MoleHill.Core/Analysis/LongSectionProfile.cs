@@ -70,7 +70,7 @@ public static class LongSectionProfile
             double step = s[i] - outStations[^1];
             if (step < -eps)
             {
-                error = $"The profile doubles back at station {s[i]:F3}; each station can have only one elevation.";
+                error = FormattableString.Invariant($"The profile doubles back at station {s[i]:F3}; each station can have only one elevation.");
                 return false;
             }
 
@@ -78,7 +78,7 @@ public static class LongSectionProfile
             {
                 if (Math.Abs(z[i] - outElevations[^1]) > eps)
                 {
-                    error = $"The profile steps vertically at station {s[i]:F3}; give the step a run.";
+                    error = FormattableString.Invariant($"The profile steps vertically at station {s[i]:F3}; give the step a run.");
                     return false;
                 }
 
