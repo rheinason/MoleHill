@@ -627,18 +627,30 @@ Inspiration: personal asset libraries and Rhino's embedded/linked block workflow
 
 ---
 
-### B17 — Curvature and landform analysis
+### B17 — Curvature and landform analysis — **shipped**
 
-**Selected 2026-10-15; not scheduled.** Colour convex shoulders, concave hollows, ridges and valleys,
+**Shipped 2026-10-16** as the Curvature analysis: Landforms (Convex / Planar / Concave from mean
+curvature; an eight-class set was dropped in review as too many) or a continuous Curvature value (mean,
+profile, plan) on the ramp, with a Landform Size and a Flatness Tolerance (height off flat across one
+landform size, so the threshold scales with the size). **Open:** the 5 m default reads a broad 8 m mound
+as Planar (live, 2026-10-16) — consider defaulting the size from the terrain extent.
+
+**Selected 2026-10-15.** Colour convex shoulders, concave hollows, ridges and valleys,
 with a feature-size control that distinguishes broad landforms from small surface detail. Add this
 to the analysis family using its existing colour-ramp and legend workflow. Inspiration: Gaea and
 Houdini terrain-feature analysis.
 
 ---
 
-### B18 — Image and noise displacement
+### B18 — Image and noise displacement — **shipped**
 
-**Selected 2026-10-15; not scheduled.** Add controlled vertical offsets to the incoming terrain from
+**Shipped 2026-10-16** as the Displace modifier: world-XY Perlin noise or a heightmap image, an optional
+drawn Mapping rectangle (start point = image bottom-left) placing the image, boundaries with feather,
+hard constraints and walls held, contours not held (they are initial input). **Open:** the undersampling
+warning compares the mesh with half an image pixel, so nearly every image warns and the suggested Remesh
+edge (0.078 m for a 256 px image on 60 m) is unusable — base it on a practical sampling density instead.
+
+**Selected 2026-10-15.** Add controlled vertical offsets to the incoming terrain from
 an image or procedural noise. Start with real-world texture size, displacement height, rotation and a
 neutral image value, with visible mapping geometry and drawn application regions plus feathering.
 Painted masks remain an option subject to B14's visibility concerns. This modifies existing ground;
@@ -664,13 +676,56 @@ Blender's sharpening/detail filters and terrain-processing workflows.
 
 ---
 
-### B21 — Suggested routes between picked points
+### B21 — Suggested routes between picked points — **shipped**
 
-**Selected 2026-10-15; not scheduled.** Suggest alternative paths between picked points, trading off
+**Shipped 2026-10-16** as `mhSuggestRoute`: A* over a sampled height grid with a hard max grade, distance /
+steepness / earthworks weights, up to three distinct alternatives, a grade-limited profile, a minimum plan
+radius and a Layer option. **Open:** on a live site two of three routes left 9–11 corners under the 10 m
+radius (down to 0.43 m) because the straightened path keeps short segments — merge short segments before
+filleting.
+
+**Selected 2026-10-15.** Suggest alternative paths between picked points, trading off
 distance, steepness and estimated earthworks. Output ordinary editable Rhino curves for inspection
 and refinement before assignment to Grade Path. This is an upstream curve-generation workflow: the
 grading modifier continues to follow its authored geometry. Inspiration: least-cost terrain routing
 and civil alignment exploration.
+
+---
+
+### B22 — Drape Curve robustness and a section variant
+
+**Selected 2026-10-15.** `mhDrapeCurve` takes exactly one target, and one curve that fails to project fails
+the whole command. Accept several meshes and surfaces (topmost or lowest hit), give stations that miss the
+terrain a policy (split, bridge with linear Z, or keep the original Z), report per curve so the good ones
+still come out, and add a section variant for tie-ins on the button's right-click.
+
+---
+
+### B23 — Balance Pad command
+
+**Selected 2026-10-15.** Find the pad elevation whose cut and fill balance for a closed curve and its batter
+slope, and write it into the curve's Z, reusing the Grasshopper bracketed balance helper. The result lives
+in the curve, so the drawn input still says what the pad will do (auto-balance as a modifier stays declined).
+
+---
+
+### B24 — Long-section round trip (prototype)
+
+**Selected 2026-10-15.** `mhExtractProfile` unrolls a plan curve into a flat long section (ground line,
+the curve's Z at a chosen exaggeration, station ticks); edited with ordinary Rhino tools, `mhApplyProfile`
+maps it back by station, keeping the plan XY and refusing a profile that doubles back.
+
+---
+
+### B25 — Terrain to as few editable curves as possible
+
+**Selected 2026-10-15; needs design.** From a DEM- or point-cloud-derived terrain, recover a minimal set of
+curves and spot points that rebuild it within a stated tolerance: landform lines (B17) and extremum
+points first, then contours where the rebuilt surface deviates most, repeated until within tolerance, so
+the terrain stays editable afterwards. B6 inverted: the output is editable input, not a reduced mesh.
+
+Smaller, recorded together: a **minimum-fall mode** on `mhSlopeCurveSection` (re-profile only the flat or
+uphill parts), and **more fixes in `mhValidateTerrainInputs`**.
 
 ---
 
