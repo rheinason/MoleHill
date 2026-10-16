@@ -51,12 +51,16 @@ Pure, unit-tested.
   arrives as a point-at-distance callback and a terrain probe. Stations every spacing plus the source's
   corners; each change between hit and miss is bisected so a run ends on the terrain's edge;
   `DrapeMissPolicy` splits, bridges (linear Z between hits; an end gap is dropped) or keeps the curve's Z;
-  a `TieInLength` makes it a section drape whose ends stay on the curve and ramp in.
+  a `TieInLength` makes it a section drape whose ends stay on the curve and ramp in. `DrapeEditPoints` is the
+  loose drape: only the given edit points move (Bridge grades a gap between hits, an end gap keeps its Z).
 - `TerrainCurveRecovery.cs` — B25, terrain to editable input: simplified border loops, spot points on
   landform-scale peaks and pits, then a greedy loop that rebuilds a TIN from what is chosen, finds the
   terrain vertex it misses by most and adds the contour through it (or a spot point when the contour
-  collapses), until within the vertical tolerance or out of budget. Deviation is vertex-sampled; ridge and
-  valley lines are not seeded yet.
+  collapses), until within the vertical tolerance or out of budget. Deviation is vertex-sampled. Before
+  contours it offers ridge and valley lines (`ExtractLandformLines`: priority-flood filling, then steepest-descent
+  flow accumulation on the terrain and on its inverse) and keeps each only if it earns its length. Several
+  contours are traced per round on larger terrains, and contours are simplified against the terrain under
+  each chord so they stay within the vertical tolerance and do not cross.
 - `ZonePriorityResolver.cs` — deterministic boundary ordering before a shared area split, using zone
   stack index, source boundary index, input elevation, and elevation-priority flag. Stack-priority zones
   separate elevation-sorted runs, avoiding the old mixed-mode comparator cycle. Rhino's zone stage calls

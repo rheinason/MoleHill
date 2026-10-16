@@ -133,7 +133,8 @@ TriangleNet (vendored)  ←  MoleHill.Core  ←  MoleHill.Grasshopper (GH host)
   station with no surface under it is split, bridged or kept at its own Z (`Miss`), each terrain edge is
   bisected so a run ends on it, and each curve reports on its own — a curve that fails no longer fails
   the others. `mhDrapeCurveSection` (the button's right-click) drapes a picked stretch and joins it back
-  between the untouched ends, ramping in over `Transition` so it ties into the curve.
+  between the untouched ends, ramping in over `Transition` so it ties into the curve. `Loose=Yes` moves only
+  the curve's existing edit points (`CurveDrape.DrapeEditPoints`), keeping its type and point count.
 - **`mhBalancePad` writes the balance into the curve.** It balances one closed boundary with
   `PadElevationBalancer` (range from `TrySuggestRange`, tolerance = pad area x 1 mm) and translates the
   curve in Z. When the curve is a boundary of a Grade Pad card on the active terrain, the card's slopes and
@@ -145,11 +146,13 @@ TriangleNet (vendored)  ←  MoleHill.Core  ←  MoleHill.Grasshopper (GH host)
   ticks at a chosen vertical exaggeration, grouped; the design line carries `MoleHill.Profile.*` user
   strings (source id, origin, datum, exaggeration, plan length). After editing it with any Rhino tool,
   `mhApplyProfile` reads it back through `Core/Analysis/LongSectionProfile` and replaces the plan curve
-  with a polyline at the same XY; a profile that doubles back is refused, and points beyond its ends keep
-  their elevation.
+  with the same XY; a profile that doubles back is refused, and points beyond its ends keep their elevation.
+  A polyline (or `Fit=Exact`) takes the profile exactly as a polyline; a smooth curve by default moves only its
+  edit points and reports its stray. Re-extracting redraws in place; `Ground` may be any picked targets.
 - **`mhTerrainToCurves` turns a terrain back into input.** `Core/Processing/TerrainCurveRecovery` returns
-  borders, peak/pit spot points and the fewest contours that rebuild the terrain within a vertical
-  tolerance (vertex-sampled); the command adds them to the current layer, grouped and named by role.
+  borders, peak/pit spot points, ridge/valley lines that earn their length, and the fewest contours that
+  rebuild the terrain within a vertical tolerance (vertex-sampled); `RidgesValleys=Auto` runs with and
+  without the lines and keeps the smaller result; the command adds them to the current layer, grouped and named by role.
   Esc stops the search and keeps what it found.
 - **`mhSuggestRoute` drafts the curve; Grade Path still follows it.** Modifiers follow drawn geometry
   exactly, so help with *where* a path should go belongs upstream, in a command that draws the curve.

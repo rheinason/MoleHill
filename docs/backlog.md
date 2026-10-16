@@ -699,7 +699,9 @@ and civil alignment exploration.
 Top/Lowest and `Miss` = Split/Bridge/KeepZ; a split ends on the terrain's edge (bisected), polyline corners
 are stations, every curve is reported and the good ones commit. `mhDrapeCurveSection` is the button's
 right-click: a picked stretch draped with a `Transition` tie-in at both ends. The kernel is Core's
-`CurveDrape`. Live-tested in a disposable Rhino 2026-10-16.
+`CurveDrape`. Live-tested in a disposable Rhino 2026-10-16. Follow-up the same day: `Loose=Yes` moves only
+the curve's own edit points (a polyline's vertices, otherwise its Greville points) and adds none, so the curve
+keeps its type, degree and point count — Rhino's ProjectToMesh Loose; `Miss` is then KeepZ/Bridge.
 
 **Selected 2026-10-15.** `mhDrapeCurve` takes exactly one target, and one curve that fails to project fails
 the whole command. Accept several meshes and surfaces (topmost or lowest hit), give stations that miss the
@@ -725,10 +727,12 @@ in the curve, so the drawn input still says what the pad will do (auto-balance a
 ### B24 — Long-section round trip (prototype) — **shipped as a prototype**
 
 **Shipped 2026-10-16** (unreleased) as `mhExtractProfile` / `mhApplyProfile` (one button, Apply on the
-right-click). The design line carries its frame as `MoleHill.Profile.*` user strings; apply replaces the plan
-curve with a polyline, so a smooth curve comes back faceted at the curve tolerance. Open: re-extracting
-over an existing drawing, keeping a NURBS curve's type, and a ground line from any target rather than only
-the active terrain. Live-tested in a disposable Rhino 2026-10-16.
+right-click). The design line carries its frame as `MoleHill.Profile.*` user strings. Live-tested in a
+disposable Rhino 2026-10-16. The three open items were closed the same day and live-tested: Enter at the
+placement prompt redraws an existing section in place (the old drawing's group is deleted, origin and
+exaggeration kept); `Ground` = ActiveTerrain/Objects/None takes the ground line from any meshes or surfaces;
+and a smooth curve applies with `Fit=EditPoints` by default, keeping its type and point count and reporting
+how far it strays between edit points (`Fit=Exact` gives the exact polyline, as polylines always get).
 
 **Selected 2026-10-15.** `mhExtractProfile` unrolls a plan curve into a flat long section (ground line,
 the curve's Z at a chosen exaggeration, station ticks); edited with ordinary Rhino tools, `mhApplyProfile`
@@ -742,10 +746,25 @@ maps it back by station, keeping the plan XY and refusing a profile that doubles
 loops, spot points on peaks and pits that top their three-ring neighbourhood, then contours added greedily
 at the worst-missed vertex until within tolerance. Design decisions taken: deviation is measured at the
 terrain's vertices (not the full overlay — the simplified border changes the domain, which the overlay
-evaluator refuses); a contour that collapses becomes a spot point; one contour per rebuild round. Still open:
-seeding ridge and valley lines from the Curvature analysis (contours stand in for them now, at a cost in
-curve count), adding several contours per round on large DEMs, and measuring it on a real survey.
-Live-tested in a disposable Rhino 2026-10-16.
+evaluator refuses); a contour that collapses becomes a spot point. Live-tested in a disposable Rhino 2026-10-16.
+
+**Follow-up 2026-10-16**, live-tested:
+- **Ridge and valley lines** come from flow accumulation after priority-flood depression filling (downhill for
+  valleys, on the inverted terrain for ridges), not from the Curvature analysis: curvature gives regions, and
+  a line is what is needed. Each line must earn its length (cut the summed miss by three tolerances per terrain
+  vertex along it). Measured: on a crease lying on mesh edges they save contours (1 line + 65 contours vs 78
+  live; 3 + 41 vs 47 in tests); on rough fractal ground they do not (151 x 151, 0.25 m: 11 + 229 vs 212). So
+  `mhTerrainToCurves` has `RidgesValleys=Auto`, which runs both and keeps the smaller result (twice the time).
+  On a raster DEM a crease between grid vertices is traced up to half a cell off, which is why lines help
+  little at fine tolerances there.
+- **Several contours per round**: one more per 5,000 vertices, up to eight, at worst vertices 10% of the plan
+  diagonal apart, traced in one contour pass.
+- **Contours are simplified by height**: a dropped point is judged by the terrain under the simplified chord,
+  so steep stretches keep their points. Before this, simplified contours could cross on steep ground and leave
+  a miss no spot point could fix (the fractal run stopped at 0.41 m against 0.25 m).
+- **Real data**: no DEM is in the repository, so the stand-in is a 151 x 151 fractal terrain (22,801 vertices,
+  about 20 m relief): within 0.25 m in about 12 s (212 contours, 214 spots), within 0.5 m in about 3 s (86
+  contours). A real survey or DEM is still the check to run; the spot count on rough ground is high.
 
 **Selected 2026-10-15; needs design.** From a DEM- or point-cloud-derived terrain, recover a minimal set of
 curves and spot points that rebuild it within a stated tolerance: landform lines (B17) and extremum

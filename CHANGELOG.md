@@ -19,6 +19,8 @@ beta prereleases. Earlier versions are recorded only in the git history.
   surface (`Hit`). Stretches with nothing under them are split, bridged with a straight grade, or kept
   at the curve's own height (`Miss`); a split ends exactly on the terrain's edge. Each curve is reported
   on its own, and one that cannot be draped no longer stops the others. Polyline corners are kept.
+  - `Loose=Yes` only moves the curve's own edit points onto the surface, so a smooth curve stays smooth
+    with the same number of points.
 - **Drape Curve Section** (right-click Drape Curve) drapes just a picked stretch and ties both ends back
   into the curve over a transition length.
 - **Balance Pad** finds the height at which a pad's cut and fill balance and moves its boundary curve
@@ -27,8 +29,14 @@ beta prereleases. Earlier versions are recorded only in the git history.
 - **Extract Profile / Apply Profile** (prototype): draw a curve as a flat long section with the ground
   under it, edit the design line with any Rhino tool, and apply it back. The curve keeps its plan; a
   profile that doubles back is refused.
+  - Run Extract Profile again and press Enter to redraw an existing section in place.
+  - `Ground` takes the ground line from the active terrain, from picked meshes or surfaces, or leaves it out.
+  - A smooth curve stays smooth: only its edit points take the profile, and the command says how far it
+    strays between them. `Fit=Exact` gives a polyline that follows the profile exactly.
 - **Terrain to Curves** turns a dense terrain (a DEM or point-cloud mesh) into a border, spot points on
   peaks and pits, and as few contours as rebuild it within a tolerance, ready to use as editable input.
+  - Ridge and valley lines are added where they save contours. `RidgesValleys=Auto` tries with and without
+    them and keeps whichever needs fewer curves.
 
 ## 1.4.1-beta — 2026-10-15
 
