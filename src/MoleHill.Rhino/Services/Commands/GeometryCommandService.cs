@@ -12,7 +12,7 @@ using Rhino.Input.Custom;
 
 namespace MoleHill.Rhino.Services;
 
-internal static class GeometryCommandService
+internal static partial class GeometryCommandService
 {
     private static Color TrackingColor => global::Rhino.ApplicationSettings.AppearanceSettings.TrackingColor;
 

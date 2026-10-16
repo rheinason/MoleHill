@@ -3,6 +3,10 @@
 Input preparation before triangulation — cleaning, deduplicating, and discretizing raw points/curves.
 Pure, unit-tested.
 
+- `PointMerge.cs` / `PointMergeMode.cs` — ordered merge targets without removing points: center,
+  first/last, or transitive 3D proximity clusters. Uses flat XYZ arrays and compensated centers;
+  pairwise checks are intended for manually selected sets. The Rhino host applies targets to grips.
+
 - `PointCloudProcessor.cs` — merges spot points + breakline vertices with Z-aware spatial-hash dedup
   (breakline-to-breakline merges require XY **and** Z proximity, preserving parallel retaining walls).
   Occupied cells use one shared linked-index store instead of one allocated list per cell, keeping sparse

@@ -7,6 +7,29 @@ All Rhino API calls belong here (or in `MoleHill.Grasshopper`); reusable computa
 `MoleHill.Core`. The rule is load-bearing rather than stylistic — Core is what the test suite can
 exercise without a host.
 
+Standalone Python experiments live in [`examples/Rhino/`](../../examples/Rhino/README.md),
+including moving a curve control point's elevation relative to a reference point and slope.
+They run independently of the compiled plugin.
+
+`mhSlopeControlPoints` is the compiled control-point workflow: turn PointsOn and select control points,
+or Ctrl+Shift-select polyline/polycurve segments, before or after starting the command. Pick a reference,
+then move vertically to preview/pick the
+slope or set `Slope` / `Units` and press Enter. It supports multiple grips on NURBS curves, polylines
+and lines, or multiple sections, shows the edited curves and signed slopes live, and changes only
+elevations. A selected section moves all its control points; neighbouring
+endpoints follow shared vertices so the curve stays connected. A selected arc section becomes NURBS;
+an adjoining section that cannot move its endpoint must be converted to NURBS first. Esc cancels;
+Undo restores the edit. Closed/periodic seam points remain coupled. The slope is between control
+point locations, not a tangent slope along the curve.
+
+`mhMergeControlPoints` accepts preselected curve grips or individual picks in order, including
+grips on separate curves. Choose `Mode` (`AtCenter`, `ByDistance`, `First`, `Last`), adjust `Distance`
+in model units for ByDistance, inspect the green curve/movement preview, and press Enter to apply.
+Esc cancels. ByDistance clusters selected points transitively in full 3D; First/Last use individual
+pick order or Rhino's returned preselection order (which is not historical click order). This merges
+locations without removing control points or joining curves. Invalid collapses cannot be accepted.
+Supports NURBS curves, polylines and lines; convert other curve types to NURBS first.
+
 ## Folders
 
 | Folder | What lives there |

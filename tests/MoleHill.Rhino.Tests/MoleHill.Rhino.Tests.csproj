@@ -58,5 +58,10 @@
              Exclude="..\..\src\MoleHill.Rhino\Services\Commands\BlockCommandService.cs;..\..\src\MoleHill.Rhino\Services\CurveReview\CurveReviewService.cs;..\..\src\MoleHill.Rhino\Services\CurveReview\CurveReviewForm.cs;..\..\src\MoleHill.Rhino\Services\CurveReview\CurveReviewRuleStore.cs;..\..\src\MoleHill.Rhino\Services\CurveReview\CurveReviewLabeller.cs;..\..\src\MoleHill.Rhino\Services\Commands\GeometryCommandService.cs;..\..\src\MoleHill.Rhino\Services\Commands\DocumentCommandService.cs;..\..\src\MoleHill.Rhino\Services\Import\LandXmlSurfaceService.cs;..\..\src\MoleHill.Rhino\Services\Commands\LayerTemplateCommandService.cs;..\..\src\MoleHill.Rhino\Services\Sculpt\SculptSessionController.cs;..\..\src\MoleHill.Rhino\Services\Commands\SurveyImportCommandService.cs;..\..\src\MoleHill.Rhino\Services\Import\SurveyPlacement.cs;..\..\src\MoleHill.Rhino\Services\Controller\TerrainController*.cs;..\..\src\MoleHill.Rhino\Services\Display\TerrainDisplayConduit.cs;..\..\src\MoleHill.Rhino\Services\Display\TerrainRenderMeshProvider.cs;..\..\src\MoleHill.Rhino\Services\Controller\TerrainGrasshopperBridge.cs;..\..\src\MoleHill.Rhino\Services\Commands\TerrainInputCommandService.cs;..\..\src\MoleHill.Rhino\Services\Commands\ToolbarInstaller.cs" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Compile Remove="..\..\src\MoleHill.Rhino\Services\Commands\GeometryCommandService.ControlPointSlope.cs" />
+    <Compile Remove="..\..\src\MoleHill.Rhino\Services\Commands\MergeControlPointsCommandService.cs" />
+  </ItemGroup>
+
   <Import Project="..\..\src\MoleHill.Shared\MoleHill.Shared.props" />
 </Project>

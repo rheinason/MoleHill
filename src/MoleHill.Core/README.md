@@ -30,3 +30,7 @@ Two things about this project are not obvious from its file list:
 
 Start from [docs/architecture.md](../../docs/architecture.md) for the pipeline, and
 [docs/file-index.md](../../docs/file-index.md) for a one-line summary of every file.
+
+`Processing/PointMerge` calculates ordered merge targets for selected XYZ locations (center,
+first/last, or transitive 3D distance clusters); the Rhino control-point command owns curve edits
+and preview. The calculator never removes points and has no host dependency.

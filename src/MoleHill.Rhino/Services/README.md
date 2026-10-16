@@ -23,6 +23,18 @@ file that needs Rhino's runtime must be added to that `Exclude` at its new path.
 | `Commands/` | `*CommandService` / `*CommandAlgorithms` backing the `mh*` commands, script runner, option cache, toolbar installer |
 | (root) | Shared utilities: `RhinoSourceResolver`, `TerrainMeshProjection`, `ModelUnits`, `ModelUnitGuard`, `SlopeUnitPreference`, `ReferenceEqualityComparer`, `ResolvedSourceObject`, `TerrainRegionState` |
 
+`GeometryCommandService.ControlPointSlope.cs` owns `mhSlopeControlPoints` selection, reference/slope
+picks, Ctrl+Shift segment selection and its temporary overlay. Its partial shares the slope/unit options with the other geometry
+commands. `ControlPointSlopeEdit` builds detached preview curves and handles selected control points,
+rational weights, seam coupling and connected polycurve section edits; the same curves are used for acceptance. The interactive partial
+is excluded from the linked-source test project; the geometry builder has native regression tests.
+
+`MergeControlPointsCommandService` implements `mhMergeControlPoints` with direct ordered grip picks,
+preselection, method/distance options and a detached preview. `MoleHill.Core.Processing.PointMerge`
+calculates the ordered XYZ targets; `ControlPointSlopeEdit.TryReplaceLocations` is the shared curve
+builder for merge and slope, preserving weights, knots and coupled seams. Invalid candidates stay
+out of the document; all accepted replacements form one command Undo, with rollback on failure.
+
 ## Build pipeline
 - Isotropic Remesh embeds the card's own constraints before refinement; insertion failure skips remeshing.
 - `TerrainPresentationMesh` provides a wall-seam shading copy for preview, RDK rendering and bake while

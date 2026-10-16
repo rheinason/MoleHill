@@ -90,6 +90,34 @@ TriangleNet (vendored)  ←  MoleHill.Core  ←  MoleHill.Grasshopper (GH host)
   stays parallel rather than dipping further at mitred corners. `Layer` places the result on the current
   or the source object's layer. The math lives in `GeometryCommandAlgorithms.TryResolveVerticalDelta` /
   `TryGetOffsetFeaturePolyline`, the latter also backing `mhCreateWall`'s parallel rail.
+- `mhSlopeControlPoints` edits selected curve grips or Ctrl+Shift-selected polyline/polycurve segments
+  directly, accepting preselection. After a reference point, a vertical cursor pick determines the
+  signed slope from the first selected grip's world XY
+  distance (the first point away from the reference for a section); every selected grip uses its own
+  plan distance to that same reference. A section edits all its control points, and adjoining endpoints
+  move with shared vertices to keep the polycurve connected; a section may start at the reference.
+  The shared `SlopeCommandOption` also accepts a typed slope and unit, committed with Enter. Independent curve
+  copies drive an overlay preview (curves, reference rays, elevations and slope labels), so Esc changes
+  no document geometry. `ControlPointSlopeEdit` preserves NURBS weights and closed/periodic seam pairs;
+  NURBS curves, polylines and lines are supported as grips; polycurve sections can also be selected,
+  converting a selected arc segment to exact NURBS before editing. Accepting replaces each curve in
+  place, retains its
+  object identity/attributes, and restores selected grips. The command is one Rhino Undo operation.
+  This is a control-polygon slope, not the curve's tangent grade. The host interaction lives in
+  `GeometryCommandService.ControlPointSlope.cs`; other geometry commands and the shared slope options
+  remain in `GeometryCommandService.cs`.
+- `mhMergeControlPoints` collapses selected curve grip locations within/across curves, retaining
+  curve identity and NURBS point counts, weights and knots. Core's `Processing.PointMerge` calculates
+  targets from ordered flat XYZ arrays: AtCenter, First, Last or ByDistance (transitive full-3D
+  proximity clusters, including the threshold). Its compensated means avoid overflow/cancellation;
+  pairwise clustering is scoped to selected sets. `MergeControlPointsCommandService` reads existing
+  grip preselection directly or records individual pick order, then previews detached curves, movement
+  rays and merge locations while choosing mode/distance. Preselection First/Last uses Rhino enumeration
+  order, not historical click order. `ControlPointSlopeEdit.TryReplaceLocations` builds both merge and
+  slope candidates, preserving rational weights and closed/periodic seam coupling. All candidates
+  must be valid before any replacement; Esc changes no geometry. Acceptance is one command Undo,
+  restores grip selection, and rolls earlier replacements back if a later one fails. Merging locations
+  does not remove points or join separate curves; unsupported grip layouts require NURBS conversion.
 - Terrain input preparation commands are selected-geometry workflows in the Rhino host: `mhValidateTerrainInputs`
   cleans selected points/curves through a parented Eto dialog, `mhSplitAtIntersections` splits only selected
   curves, `mhDrapeCurve` selects the curves first and then samples them along World Z onto a selected
