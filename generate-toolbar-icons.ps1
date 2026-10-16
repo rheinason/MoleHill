@@ -283,6 +283,43 @@ $designs = @{
         Draw-Dot $g $s 0.86 0.16 0.10 $ink
     }
 
+    # A pad in section where the ground crosses it: the cut wedge on one side (solid) matches the fill
+    # wedge on the other (open), balanced on a fulcrum under the pad.
+    'mhBalancePad' = {
+        param($g, $s)
+        $fill = @((PtF ($s * 0.14) ($s * 0.52)), (PtF ($s * 0.50) ($s * 0.52)), (PtF ($s * 0.14) ($s * 0.76)))
+        $cut = @((PtF ($s * 0.50) ($s * 0.52)), (PtF ($s * 0.86) ($s * 0.52)), (PtF ($s * 0.86) ($s * 0.28)))
+        $bw = Brush $paper; $g.FillPolygon($bw, $fill); $bw.Dispose()
+        $pf = InkPen $s 0.06; $g.DrawPolygon($pf, $fill); $pf.Dispose()
+        $b = Brush $ink; $g.FillPolygon($b, $cut); $b.Dispose()
+        $pg = InkPen $s 0.07; $g.DrawLine($pg, ($s * 0.04), ($s * 0.83), ($s * 0.96), ($s * 0.21)); $pg.Dispose()
+        $pa = AccentPen $s 0.12; $g.DrawLine($pa, ($s * 0.10), ($s * 0.52), ($s * 0.90), ($s * 0.52)); $pa.Dispose()
+        $bf = Brush $ink; $g.FillPolygon($bf, @((PtF ($s * 0.50) ($s * 0.60)), (PtF ($s * 0.40) ($s * 0.94)), (PtF ($s * 0.60) ($s * 0.94)))); $bf.Dispose()
+    }
+    # A long section: axes with station ticks, the ground in ink and the editable design line in green.
+    # Its right-click partner, Apply Profile, maps the edited line back; Rhino shows only this face.
+    'mhExtractProfile' = {
+        param($g, $s)
+        $p = InkPen $s 0.07
+        $g.DrawLines($p, @((PtF ($s * 0.08) ($s * 0.08)), (PtF ($s * 0.08) ($s * 0.86)), (PtF ($s * 0.94) ($s * 0.86))))
+        foreach ($f in 0.30, 0.52, 0.74) { $g.DrawLine($p, ($s * $f), ($s * 0.86), ($s * $f), ($s * 0.96)) }
+        $p.Dispose()
+        $pg = InkPen $s 0.06
+        $g.DrawLines($pg, @((PtF ($s * 0.10) ($s * 0.56)), (PtF ($s * 0.32) ($s * 0.70)), (PtF ($s * 0.54) ($s * 0.46)), (PtF ($s * 0.74) ($s * 0.62)), (PtF ($s * 0.94) ($s * 0.40)))); $pg.Dispose()
+        $pa = AccentPen $s 0.11
+        $g.DrawLines($pa, @((PtF ($s * 0.10) ($s * 0.50)), (PtF ($s * 0.52) ($s * 0.30)), (PtF ($s * 0.94) ($s * 0.32)))); $pa.Dispose()
+        Draw-Dot $g $s 0.52 0.30 0.08 $ink
+    }
+    # Terrain reduced to editable input: a border, two contour rings and the peak's spot point.
+    'mhTerrainToCurves' = {
+        param($g, $s)
+        $p = InkPen $s 0.07; $g.DrawRectangle($p, ($s * 0.06), ($s * 0.06), ($s * 0.88), ($s * 0.88)); $p.Dispose()
+        $pa = AccentPen $s 0.09
+        $g.DrawEllipse($pa, ($s * 0.18), ($s * 0.24), ($s * 0.64), ($s * 0.52))
+        $g.DrawEllipse($pa, ($s * 0.34), ($s * 0.36), ($s * 0.32), ($s * 0.26)); $pa.Dispose()
+        Draw-Dot $g $s 0.50 0.49 0.07 $ink
+    }
+
     # Two curves crossing, opened up where they meet.
     'mhSplitAtIntersections' = {
         param($g, $s)
