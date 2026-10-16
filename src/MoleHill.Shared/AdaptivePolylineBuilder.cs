@@ -28,7 +28,7 @@ internal static class AdaptivePolylineBuilder
 
         if (curve.TryGetPolyline(out polyline))
         {
-            SimplifyPolylineInPlace(polyline, simplifyTolerance, collapseCollinearVertices: false);
+            SimplifyPolylineInPlace(polyline, simplifyTolerance, collapseCollinearVertices: false, maxSegmentLength);
             return polyline.Count >= (requireClosed ? 3 : 2);
         }
 
@@ -38,7 +38,7 @@ internal static class AdaptivePolylineBuilder
             if (polyCurve == null || !polyCurve.TryGetPolyline(out polyline))
                 return false;
 
-            SimplifyPolylineInPlace(polyline, simplifyTolerance, collapseCollinearVertices: true);
+            SimplifyPolylineInPlace(polyline, simplifyTolerance, collapseCollinearVertices: true, maxSegmentLength);
             if (polyline.Count <= MaxPolylineVertexCount)
                 return polyline.Count >= (requireClosed ? 3 : 2);
 
@@ -83,46 +83,48 @@ internal static class AdaptivePolylineBuilder
         return Math.Max(Math.Min(normalizedModelTolerance, qualityLength * 0.1), floor);
     }
 
-    private static void SimplifyPolylineInPlace(Polyline polyline, double xyTolerance, bool collapseCollinearVertices)
+    private static void SimplifyPolylineInPlace(
+        Polyline polyline,
+        double tolerance,
+        bool collapseCollinearVertices,
+        double maxSegmentLength)
     {
         if (polyline.Count < 3)
             return;
 
         bool isClosed = polyline.IsClosed;
-        double xyToleranceSquared = xyTolerance * xyTolerance;
-        var simplified = new List<Point3d>(polyline.Count);
+        double toleranceSquared = tolerance * tolerance;
+        var deduplicated = new List<Point3d>(polyline.Count);
 
         int limit = isClosed && polyline.Count > 1 ? polyline.Count - 1 : polyline.Count;
         for (int i = 0; i < limit; i++)
         {
             Point3d current = polyline[i];
-            if (simplified.Count > 0)
+            if (deduplicated.Count > 0)
             {
-                Point3d previous = simplified[^1];
+                Point3d previous = deduplicated[^1];
                 double dx = current.X - previous.X;
                 double dy = current.Y - previous.Y;
-                if ((dx * dx) + (dy * dy) <= xyToleranceSquared)
+                if ((dx * dx) + (dy * dy) <= toleranceSquared)
                     continue;
             }
 
-            if (collapseCollinearVertices)
-            {
-                while (simplified.Count >= 2 && IsNearlyCollinear(simplified[^2], simplified[^1], current, xyToleranceSquared))
-                    simplified.RemoveAt(simplified.Count - 1);
-            }
-
-            simplified.Add(current);
+            deduplicated.Add(current);
         }
+
+        List<Point3d> simplified = collapseCollinearVertices
+            ? CollapseCollinearRuns(deduplicated, tolerance, maxSegmentLength)
+            : deduplicated;
 
         if (isClosed && simplified.Count >= 3)
         {
-            if (collapseCollinearVertices)
+            if (collapseCollinearVertices && simplified.Count >= 4 &&
+                LiesOnChord(simplified[^2], simplified[^1], simplified[0], tolerance))
             {
-                while (simplified.Count >= 3 && IsNearlyCollinear(simplified[^2], simplified[^1], simplified[0], xyToleranceSquared))
-                    simplified.RemoveAt(simplified.Count - 1);
+                simplified.RemoveAt(simplified.Count - 1);
             }
 
-            if (simplified[0].DistanceToSquared(simplified[^1]) > xyToleranceSquared)
+            if (simplified[0].DistanceToSquared(simplified[^1]) > toleranceSquared)
                 simplified.Add(simplified[0]);
         }
 
@@ -134,17 +136,72 @@ internal static class AdaptivePolylineBuilder
             polyline.Add(simplified[i]);
     }
 
-    private static bool IsNearlyCollinear(Point3d a, Point3d b, Point3d c, double toleranceSquared)
+    /// <summary>
+    /// Drops the interior vertices of every run that a single chord reproduces: each dropped vertex must lie on
+    /// the chord within <paramref name="tolerance"/> in plan <b>and in elevation</b>. Elevation matters because
+    /// a run that is straight in plan can still carry a profile (a draped line, a graded centreline), and a
+    /// plan-only test collapsed it to one chord and lost the heights. Every vertex dropped from a run is checked
+    /// against the run's final chord, not only the last one, so a gentle curve cannot drift off by accumulation.
+    /// A run never grows past <paramref name="maxSegmentLength"/> (when positive): that length is the edge length
+    /// the caller asked for, and merging past it undid the refinement it requested.
+    /// </summary>
+    private static List<Point3d> CollapseCollinearRuns(List<Point3d> points, double tolerance, double maxSegmentLength)
     {
+        if (points.Count < 3)
+            return points;
+
+        var kept = new List<Point3d>(points.Count) { points[0] };
+        int anchor = 0;
+        int end = 1;
+        while (end < points.Count - 1)
+        {
+            int candidate = end + 1;
+            bool fits = maxSegmentLength <= 0.0 ||
+                points[anchor].DistanceTo(points[candidate]) <= maxSegmentLength * (1.0 + 1e-9);
+            for (int k = anchor + 1; fits && k < candidate; k++)
+            {
+                if (!LiesOnChord(points[anchor], points[k], points[candidate], tolerance))
+                {
+                    fits = false;
+                    break;
+                }
+            }
+
+            if (!fits)
+            {
+                kept.Add(points[end]);
+                anchor = end;
+            }
+
+            end = candidate;
+        }
+
+        kept.Add(points[^1]);
+        return kept;
+    }
+
+    /// <summary>True when <paramref name="b"/> lies on the chord from <paramref name="a"/> to <paramref name="c"/>
+    /// within the tolerance, in plan and in elevation (the chord's height interpolated at b's plan position).</summary>
+    private static bool LiesOnChord(Point3d a, Point3d b, Point3d c, double tolerance)
+    {
+        double acx = c.X - a.X;
+        double acy = c.Y - a.Y;
+        double chordLengthSquared = (acx * acx) + (acy * acy);
+        double toleranceSquared = tolerance * tolerance;
+        if (chordLengthSquared <= toleranceSquared)
+            return Math.Abs(b.Z - a.Z) <= tolerance && Math.Abs(b.Z - c.Z) <= tolerance;
+
         double abx = b.X - a.X;
         double aby = b.Y - a.Y;
-        double bcx = c.X - b.X;
-        double bcy = c.Y - b.Y;
-        double cross = Math.Abs((abx * bcy) - (aby * bcx));
-        double chordLengthSquared = ((c.X - a.X) * (c.X - a.X)) + ((c.Y - a.Y) * (c.Y - a.Y));
-        if (chordLengthSquared <= toleranceSquared)
-            return true;
+        double cross = (abx * acy) - (aby * acx);
+        if (cross * cross > toleranceSquared * chordLengthSquared)
+            return false;
 
-        return (cross * cross) <= toleranceSquared * chordLengthSquared;
+        double t = ((abx * acx) + (aby * acy)) / chordLengthSquared;
+        if (t < 0.0 || t > 1.0)
+            return false;
+
+        double chordZ = a.Z + (t * (c.Z - a.Z));
+        return Math.Abs(b.Z - chordZ) <= tolerance;
     }
 }
