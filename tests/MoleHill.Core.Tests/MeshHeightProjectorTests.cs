@@ -180,4 +180,22 @@ public class MeshHeightProjectorTests
             }
         }
     }
+
+    [Fact]
+    public void TryGetHeightExtremes_StackedFaces_ReturnsBothHeights()
+    {
+        // Two overlapping triangles, one at z = 0 and one at z = 5.
+        double[] vertices =
+        {
+            0.0, 0.0, 0.0, 4.0, 0.0, 0.0, 0.0, 4.0, 0.0,
+            0.0, 0.0, 5.0, 4.0, 0.0, 5.0, 0.0, 4.0, 5.0
+        };
+        int[] faces = { 0, 1, 2, 3, 4, 5 };
+        var projector = new MeshHeightProjector(vertices, 6, faces, 2);
+
+        Assert.True(projector.TryGetHeightExtremes(1.0, 1.0, 1e-8, out double lowest, out double highest));
+        Assert.Equal(0.0, lowest, 12);
+        Assert.Equal(5.0, highest, 12);
+        Assert.False(projector.TryGetHeightExtremes(10.0, 10.0, 1e-8, out _, out _));
+    }
 }

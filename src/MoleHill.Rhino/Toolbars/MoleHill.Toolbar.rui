@@ -75,6 +75,7 @@
       </tool_bar_item>
       <tool_bar_item guid="60941fcb-a9e8-418b-9d60-3eeed44a594a">
         <left_macro_id>f24028c4-deb0-4011-a5db-0d41c60f8393</left_macro_id>
+        <right_macro_id>3f6c2a71-9d84-4e0b-b2c5-6a1e7d9f0c38</right_macro_id>
       </tool_bar_item>
       <tool_bar_item guid="3e07c634-6e4b-444b-ade8-82ea1e4bf609">
         <left_macro_id>56ba7d2f-1c06-49e5-b8cb-32e2c4ec8875</left_macro_id>
@@ -406,6 +407,15 @@ _CurveType=_Interpolated</script>
         <locale_1033>Drape Curve</locale_1033>
       </tooltip>
       <script>mhDrapeCurve</script>
+    </macro_item>
+    <macro_item guid="3f6c2a71-9d84-4e0b-b2c5-6a1e7d9f0c38" bitmap_id="12330654-fc94-46aa-b79f-df83b3a24158">
+      <text>
+        <locale_1033>mhDrapeCurveSection</locale_1033>
+      </text>
+      <tooltip>
+        <locale_1033>Drape Curve Section</locale_1033>
+      </tooltip>
+      <script>mhDrapeCurveSection</script>
     </macro_item>
     <macro_item guid="e56bad32-d9d7-41ad-b016-1471cfce3967" bitmap_id="766dae70-aea6-4af4-927a-e108e5f99701">
       <text>

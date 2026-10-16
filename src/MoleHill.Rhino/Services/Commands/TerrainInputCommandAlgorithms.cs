@@ -1,4 +1,5 @@
 // Reusable geometry algorithms for selected terrain-input preparation commands.
+using MoleHill.Core.Processing;
 using Rhino;
 using Rhino.DocObjects;
 using Rhino.Geometry;
@@ -190,99 +191,124 @@ internal static class TerrainInputCommandAlgorithms
         return unique.ToArray();
     }
 
-    public static bool TryCreateDrapedPolyline(
+    /// <summary>
+    /// Drapes one curve onto the targets with the shared kernel (<see cref="CurveDrape"/>). Stations fall
+    /// every <see cref="CurveDrapeOptions.Spacing"/> along the curve and at each of its corners, so a
+    /// polyline keeps its plan shape instead of having its corners cut between stations.
+    /// </summary>
+    public static CurveDrapeResult DrapeCurve(
         Curve source,
-        IReadOnlyList<Mesh> meshes,
-        double spacing,
-        double tolerance,
-        out Polyline polyline,
-        out string? error)
+        DrapeTargets targets,
+        bool lowestHit,
+        CurveDrapeOptions options)
     {
-        polyline = new Polyline();
-        error = null;
-
-        if (meshes.Count == 0)
-        {
-            error = "The drape source does not contain a usable mesh.";
-            return false;
-        }
-
         double length = source.GetLength();
-        double effectiveSpacing = Math.Max(Math.Abs(spacing), Math.Max(Math.Abs(tolerance), RhinoMath.ZeroTolerance));
-        if (length <= Math.Max(Math.Abs(tolerance), RhinoMath.ZeroTolerance))
+        Interval domain = source.Domain;
+        (double, double, double) PointAt(double distance)
         {
-            error = "The source curve is too short to drape.";
-            return false;
-        }
-
-        int segmentCount = Math.Max(1, (int)Math.Ceiling(length / effectiveSpacing));
-        var points = new List<Point3d>(segmentCount + 1);
-        for (int i = 0; i <= segmentCount; i++)
-        {
-            double distance = length * i / segmentCount;
             if (!source.LengthParameter(distance, out double parameter))
-                parameter = i == 0 ? source.Domain.T0 : source.Domain.T1;
-
-            Point3d sourcePoint = source.PointAt(parameter);
-            Point3d planPoint = new(sourcePoint.X, sourcePoint.Y, 0.0);
-            if (!TryProjectPointToHighestMesh(meshes, planPoint, tolerance, out Point3d hit))
-            {
-                error = $"No vertical terrain hit was found near sample {i + 1} of {segmentCount + 1}.";
-                return false;
-            }
-
-            if (points.Count == 0 || points[^1].DistanceTo(hit) > Math.Max(Math.Abs(tolerance), RhinoMath.ZeroTolerance))
-                points.Add(hit);
+                parameter = distance <= 0.0 ? domain.T0 : domain.T1;
+            Point3d point = source.PointAt(parameter);
+            return (point.X, point.Y, point.Z);
         }
 
-        if (points.Count < 2)
+        double? Probe(double x, double y) => targets.HeightAt(x, y, lowestHit);
+
+        return CurveDrape.Drape(length, PointAt, Probe, new CurveDrapeOptions
         {
-            error = "Drape produced fewer than two usable points.";
-            return false;
-        }
-
-        polyline = new Polyline(points);
-        return polyline.IsValid;
+            Spacing = options.Spacing,
+            Tolerance = options.Tolerance,
+            MissPolicy = options.MissPolicy,
+            TieInLength = options.TieInLength,
+            SmoothTieIn = options.SmoothTieIn,
+            ExtraStations = CornerStations(source),
+            EdgeRefinementSteps = options.EdgeRefinementSteps
+        });
     }
 
-    public static bool TryProjectPointToHighestMesh(
-        IReadOnlyList<Mesh> meshes,
-        Point3d point,
-        double tolerance,
-        out Point3d projectedPoint)
+    /// <summary>
+    /// Drapes the stretch between two curve parameters and joins it back between the untouched ends. The
+    /// draped stretch starts and ends on the curve's own points, which is what lets the three pieces join.
+    /// </summary>
+    public static Curve? TryBuildDrapedSection(
+        Curve source,
+        double low,
+        double high,
+        DrapeTargets targets,
+        bool lowest,
+        CurveDrapeOptions options,
+        out CurveDrapeResult? drape,
+        out string? error)
     {
-        projectedPoint = Point3d.Unset;
-        double bestZ = double.NegativeInfinity;
-        bool found = false;
-
-        foreach (Mesh mesh in meshes)
+        drape = null;
+        error = null;
+        using Curve? section = source.Trim(low, high);
+        if (section == null || !section.IsValid)
         {
-            BoundingBox bounds = mesh.GetBoundingBox(true);
-            if (!bounds.IsValid)
-                continue;
-
-            double height = Math.Max(bounds.Max.Z - bounds.Min.Z, Math.Abs(tolerance));
-            double padding = Math.Max(Math.Max(Math.Abs(tolerance), height) * 2.0, double.Epsilon);
-            var line = new Line(
-                new Point3d(point.X, point.Y, bounds.Min.Z - padding),
-                new Point3d(point.X, point.Y, bounds.Max.Z + padding));
-
-            Point3d[] hits = Intersection.MeshLineSorted(mesh, line, out _);
-            if (hits == null)
-                continue;
-
-            foreach (Point3d hit in hits)
-            {
-                if (!hit.IsValid || hit.Z <= bestZ)
-                    continue;
-
-                bestZ = hit.Z;
-                projectedPoint = new Point3d(point.X, point.Y, hit.Z);
-                found = true;
-            }
+            error = "The section could not be cut from the curve.";
+            return null;
         }
 
-        return found;
+        drape = DrapeCurve(section, targets, lowest, options);
+        if (!drape.Succeeded)
+        {
+            error = drape.Failure;
+            return null;
+        }
+
+        if (drape.Runs.Count != 1 || drape.DroppedStations > 0)
+        {
+            error = "The section runs off the terrain at an end; use Miss=KeepZ to hold the curve there.";
+            return null;
+        }
+
+        var pieces = new List<Curve>(3);
+        Interval domain = source.Domain;
+        if (!source.IsClosed && low > domain.T0 + RhinoMath.ZeroTolerance && source.Trim(domain.T0, low) is { } leading)
+            pieces.Add(leading);
+        pieces.Add(ToPolylineCurve(drape.Runs[0]));
+        if (!source.IsClosed && high < domain.T1 - RhinoMath.ZeroTolerance && source.Trim(high, domain.T1) is { } trailing)
+            pieces.Add(trailing);
+        if (source.IsClosed && source.Trim(high, low) is { } remainder)
+            pieces.Add(remainder);
+
+        Curve[] joined = Curve.JoinCurves(pieces, Math.Max(options.Tolerance, RhinoMath.ZeroTolerance) * 2.0, preserveDirection: true);
+        foreach (Curve piece in pieces)
+            piece.Dispose();
+        if (joined.Length != 1)
+        {
+            foreach (Curve curve in joined)
+                curve.Dispose();
+            error = "The draped section did not join back into the curve.";
+            return null;
+        }
+
+        return joined[0];
+    }
+
+    /// <summary>Distances along the curve of every corner (G1 discontinuity), ends excluded.</summary>
+    public static IReadOnlyList<double> CornerStations(Curve curve)
+    {
+        var stations = new List<double>();
+        Interval domain = curve.Domain;
+        double t0 = domain.T0;
+        while (curve.GetNextDiscontinuity(Continuity.G1_locus_continuous, t0, domain.T1, out double t))
+        {
+            if (t <= t0)
+                break;
+            stations.Add(curve.GetLength(new Interval(domain.T0, t)));
+            t0 = t;
+        }
+
+        return stations;
+    }
+
+    public static PolylineCurve ToPolylineCurve(double[] run)
+    {
+        var points = new Point3d[run.Length / 3];
+        for (int i = 0; i < points.Length; i++)
+            points[i] = new Point3d(run[i * 3], run[i * 3 + 1], run[i * 3 + 2]);
+        return new PolylineCurve(points);
     }
 
     public static bool TryCreateWallRails(

@@ -1,3 +1,4 @@
+using MoleHill.Core.Processing;
 using Rhino.DocObjects;
 using Rhino.Geometry;
 using MoleHill.Rhino.Services;
@@ -221,7 +222,7 @@ public sealed class TerrainInputCommandAlgorithmsTests
     }
 
     [RhinoNativeFact]
-    public void TryCreateDrapedPolyline_SamplesVerticalTerrainHits()
+    public void DrapeCurve_SamplesVerticalTerrainHits()
     {
         using var mesh = new Mesh();
         int a = mesh.Vertices.Add(0, 0, 10);
@@ -232,22 +233,17 @@ public sealed class TerrainInputCommandAlgorithmsTests
         mesh.Normals.ComputeNormals();
 
         using var source = new LineCurve(new Point3d(1, 5, 0), new Point3d(9, 5, 0));
-        bool succeeded = TerrainInputCommandAlgorithms.TryCreateDrapedPolyline(
-            source,
-            new[] { mesh },
-            2.0,
-            0.001,
-            out Polyline result,
-            out string? error);
+        CurveDrapeResult drape = Drape(source, mesh, 2.0);
 
-        Assert.True(succeeded, error);
-        Assert.Equal(5, result.Count);
-        Assert.Equal(15.0, result[0].Z, 6);
-        Assert.Equal(15.0, result[^1].Z, 6);
+        Assert.True(drape.Succeeded, drape.Failure);
+        double[] run = Assert.Single(drape.Runs);
+        Assert.Equal(5, run.Length / 3);
+        Assert.Equal(15.0, run[2], 6);
+        Assert.Equal(15.0, run[^1], 6);
     }
 
     [RhinoNativeFact]
-    public void TryCreateDrapedPolyline_DegreeThreeCurve_PreservesPlanEndpoints()
+    public void DrapeCurve_DegreeThreeCurve_PreservesPlanEndpoints()
     {
         using var mesh = new Mesh();
         int a = mesh.Vertices.Add(0, 0, 5);
@@ -267,17 +263,65 @@ public sealed class TerrainInputCommandAlgorithmsTests
                 new Point3d(9, 5, 100)
             });
 
-        bool succeeded = TerrainInputCommandAlgorithms.TryCreateDrapedPolyline(
-            source,
-            new[] { mesh },
-            2.0,
-            0.001,
-            out Polyline result,
-            out string? error);
+        CurveDrapeResult drape = Drape(source, mesh, 2.0);
 
-        Assert.True(succeeded, error);
-        Assert.True(result[0].EpsilonEquals(new Point3d(1, 5, 5), 1e-6));
-        Assert.True(result[^1].EpsilonEquals(new Point3d(9, 5, 5), 1e-6));
+        Assert.True(drape.Succeeded, drape.Failure);
+        double[] run = Assert.Single(drape.Runs);
+        Assert.True(new Point3d(run[0], run[1], run[2]).EpsilonEquals(new Point3d(1, 5, 5), 1e-6));
+        Assert.True(new Point3d(run[^3], run[^2], run[^1]).EpsilonEquals(new Point3d(9, 5, 5), 1e-6));
+    }
+
+    [RhinoNativeFact]
+    public void DrapeCurve_PolylineCorner_IsKeptAsAStation()
+    {
+        using var mesh = new Mesh();
+        int a = mesh.Vertices.Add(0, 0, 5);
+        int b = mesh.Vertices.Add(10, 0, 5);
+        int c = mesh.Vertices.Add(10, 10, 5);
+        int d = mesh.Vertices.Add(0, 10, 5);
+        mesh.Faces.AddFace(a, b, c, d);
+        using var source = new PolylineCurve(new[] { new Point3d(1, 1, 0), new Point3d(4.3, 1, 0), new Point3d(4.3, 8, 0) });
+
+        CurveDrapeResult drape = Drape(source, mesh, 3.0);
+
+        double[] run = Assert.Single(drape.Runs);
+        Assert.Contains(Enumerable.Range(0, run.Length / 3),
+            i => Math.Abs(run[i * 3] - 4.3) < 1e-6 && Math.Abs(run[i * 3 + 1] - 1.0) < 1e-6);
+    }
+
+    [RhinoNativeFact]
+    public void TryBuildDrapedSection_TiesTheSectionBackIntoTheCurve()
+    {
+        using var mesh = new Mesh();
+        int a = mesh.Vertices.Add(0, -5, 5);
+        int b = mesh.Vertices.Add(10, -5, 5);
+        int c = mesh.Vertices.Add(10, 5, 5);
+        int d = mesh.Vertices.Add(0, 5, 5);
+        mesh.Faces.AddFace(a, b, c, d);
+        using var source = new LineCurve(new Point3d(0, 0, 100), new Point3d(10, 0, 100));
+        DrapeTargets targets = DrapeTargets.Create(new[] { mesh }, 0.001, out _);
+
+        using Curve? result = TerrainInputCommandAlgorithms.TryBuildDrapedSection(
+            source, 3.0, 7.0, targets, lowest: false,
+            new CurveDrapeOptions { Spacing = 0.5, Tolerance = 0.001, MissPolicy = DrapeMissPolicy.KeepOriginal, TieInLength = 1.0 },
+            out CurveDrapeResult? drape, out string? error);
+
+        Assert.NotNull(result);
+        Assert.Null(error);
+        Assert.True(result!.PointAtStart.EpsilonEquals(new Point3d(0, 0, 100), 1e-6));
+        Assert.True(result.PointAtEnd.EpsilonEquals(new Point3d(10, 0, 100), 1e-6));
+        Assert.True(result.ClosestPoint(new Point3d(5, 0, 5), out double t));
+        Assert.Equal(5.0, result.PointAt(t).Z, 6);
+    }
+
+    private static CurveDrapeResult Drape(Curve source, Mesh mesh, double spacing)
+    {
+        DrapeTargets targets = DrapeTargets.Create(new[] { mesh }, 0.001, out _);
+        return TerrainInputCommandAlgorithms.DrapeCurve(source, targets, lowestHit: false, new CurveDrapeOptions
+        {
+            Spacing = spacing,
+            Tolerance = 0.001
+        });
     }
 
     [RhinoNativeFact]

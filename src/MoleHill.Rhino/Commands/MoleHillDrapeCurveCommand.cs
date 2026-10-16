@@ -11,6 +11,6 @@ public sealed class MoleHillDrapeCurveCommand : Command
 
     protected override Result RunCommand(RhinoDoc doc, RunMode mode)
     {
-        return TerrainInputCommandService.RunDrapeCurve(doc);
+        return DrapeCommandService.RunDrapeCurve(doc);
     }
 }

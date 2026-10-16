@@ -178,6 +178,36 @@ public sealed class MeshHeightProjector
         return true;
     }
 
+    /// <summary>
+    /// The lowest and highest surface over (<paramref name="x"/>, <paramref name="y"/>) among every
+    /// non-vertical face covering it. Unlike <see cref="TryProjectZ"/>, several distinct heights are an
+    /// answer here, not a failure: a caller choosing the top or bottom of stacked or overhanging geometry
+    /// (mhDrapeCurve's Hit option) wants exactly that spread.
+    /// </summary>
+    public bool TryGetHeightExtremes(double x, double y, double tolerance, out double lowest, out double highest)
+    {
+        lowest = double.PositiveInfinity;
+        highest = double.NegativeInfinity;
+        double insideTolerance = Engine.ScaleAwareTolerance.ResolveLength(tolerance, BoundsDiagonal);
+        foreach (int face in CellFaces((long)Math.Floor(x * _invCell), (long)Math.Floor(y * _invCell)))
+        {
+            if (!TryReadFace(face, out var triangle) || IsNearVerticalOrDegenerate(triangle))
+                continue;
+            if (!TryGetBarycentric(x, y, triangle, out double w0, out double w1, out double w2))
+                continue;
+
+            double barycentricTolerance = BarycentricTolerance(triangle, insideTolerance);
+            if (w0 < -barycentricTolerance || w1 < -barycentricTolerance || w2 < -barycentricTolerance)
+                continue;
+
+            double faceZ = (w0 * triangle.Z0) + (w1 * triangle.Z1) + (w2 * triangle.Z2);
+            lowest = Math.Min(lowest, faceZ);
+            highest = Math.Max(highest, faceZ);
+        }
+
+        return double.IsFinite(lowest);
+    }
+
     private bool TryGetFaceCellRange(int face, out long minCellX, out long maxCellX, out long minCellY, out long maxCellY)
     {
         minCellX = maxCellX = minCellY = maxCellY = 0;
