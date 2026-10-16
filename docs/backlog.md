@@ -701,7 +701,9 @@ a complexity measure ("grade breaks, total turning and control points as a numbe
 rejected as representation-dependent) in the readout and user text, and a `Simplicity` option (default 2)
 that widens the turn radius, the rounding radius and the profile tolerance. The user's road is a reference
 for the kind of curve wanted, not a target. Still open: ranking alternatives by anything but search cost,
-and building arcs as single spans so control points drop too.
+and building arcs as single spans so control points drop too. The number dots were still covered by the
+route lines (Rhino paints thick lines after dots within one display channel); lines now draw in DrawForeground
+and numbers in DrawOverlay, verified live over a MoleHill terrain preview.
 
 **Shipped 2026-10-16** as `mhSuggestRoute`: A* over a sampled height grid with a hard max grade, distance /
 steepness / earthworks weights, up to three distinct alternatives, a grade-limited profile, a minimum plan
