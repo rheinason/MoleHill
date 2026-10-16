@@ -1007,6 +1007,13 @@ ramp row, no range, a swatch key in the Legend) or a curvature value (the diverg
   of flat across one landform size (sagitta `|H| L2 / 8`) is Planar. A height reads on a card, which an
   inverse length does not, and it follows the landform size by itself, which a radius of curvature did
   not: measured curvature shrinks as the fit widens, so a fixed radius had to be retuned with every size.
+- **Landform Size defaults to Auto.** `FeatureSize = 0` resolves at build and preview time through Core
+  `LandformSize` (a tenth of the incoming mesh's shorter plan side, rounded to 1/2/2.5/5 × 10^n; typed
+  positive values override). Everything keyed on the size uses the resolved value: the `CurvaturePreviewKey`,
+  the fit, the planar threshold `8 tol / L2`, and `TerrainAnalysisSummary.LandformSize` (nullable, cloned in
+  `CloneAnalysis`), which the card's "Landform Size: Auto (20 m)" row and the report read. Zero is unit-free
+  under `TerrainUnitScaler`. `FlatnessTolerance` stays 50 mm: a height independent of site size. Unreleased,
+  so a stored explicit size just keeps its value and no migration step exists.
 - **Convex is positive**, in 1/model-unit, for mean, profile (along the fall line) and plan (tangential,
   across it). The colour range is therefore an inverse length: `[InverseModelLengthMembers]` promotes the
   inherited range, and `TerrainUnitScaler` scales a curvature card's summary range by the reciprocal.

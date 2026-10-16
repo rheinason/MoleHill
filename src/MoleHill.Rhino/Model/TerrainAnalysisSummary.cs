@@ -224,6 +224,13 @@ public sealed class TerrainAnalysisSummary
     public double? LandformMeasuredArea { get; set; }
 
     /// <summary>
+    /// The landform size the card measured at, in model units: the typed size, or what Auto resolved to.
+    /// Null when nothing was measured. Nullable, never NaN, so the document stays serializable.
+    /// </summary>
+    [ModelLength]
+    public double? LandformSize { get; set; }
+
+    /// <summary>
     /// Each landform class's share of <see cref="LandformMeasuredArea"/>, indexed by Core's
     /// <c>LandformClass</c> (Convex, Planar, Concave), or null when
     /// nothing was measured. Shares rather than areas so the array is unit-free: the unit scaler scales

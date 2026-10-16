@@ -21,7 +21,8 @@ internal sealed partial class TerrainBuildService
     {
         var summary = new TerrainAnalysisSummary { AnalysisId = analysis.Id, SurfaceArea = surfaceArea };
 
-        CurvatureField field = CurvatureAnalyzer.Measure(terrain, analysis.FeatureSize, shouldCancel);
+        double landformSize = LandformSize.Resolve(analysis.FeatureSize, terrain);
+        CurvatureField field = CurvatureAnalyzer.Measure(terrain, landformSize, shouldCancel);
         sbyte[] classes = LandformClassifier.Classify(field, analysis.FlatnessTolerance);
         double[] areas = LandformClassifier.SumPlanAreas(classes, field.PlanAreas, out double measured);
         if (!(measured > 0.0))
@@ -32,6 +33,7 @@ internal sealed partial class TerrainBuildService
             shares[i] = areas[i] / measured;
 
         summary.LandformMeasuredArea = measured;
+        summary.LandformSize = landformSize;
         summary.LandformClassShares = shares;
         return summary;
     }

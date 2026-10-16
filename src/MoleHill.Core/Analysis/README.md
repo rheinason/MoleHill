@@ -57,6 +57,12 @@ Terrain analysis math. Pure, unit-tested.
   tolerance means the same at every landform size. An eight-class set (ridge, shoulder, saddle and the
   rest) was tried and dropped as too many to read; the direction of a bend stays in the profile and plan
   measures. Fixed colours, warm convex, pale planar, cool concave; plan-area totals per class.
+- `LandformSize.cs` — the landform size a curvature card measures at. `FeatureSize = 0` is **Auto**: a tenth
+  of the shorter plan side of the incoming mesh (never from a side under a fiftieth of the longer one, so a
+  thin strip does not shrink to its width), rounded to the nearest 1, 2, 2.5 or 5 times a power of ten —
+  20 m on a 200 m site, where a fixed 5 m read an 8 m, 60 m wide mound as planar. A positive typed size is
+  used as typed. Callers resolve first and pass the resolved size to `CurvatureAnalyzer.Measure` and
+  `CurvatureThreshold`; the raw 0 never reaches them.
 - `AspectAnalyzer.cs` — aspect: the compass bearing each face drains towards, which is the other angle of
   the normal `SlopeAnalyzer` already takes. Shaped like it — same flat arrays, same plan-area weighting,
   same palette/band apparatus, a `Summarize` that allocates no colours. Two things it needs that slope

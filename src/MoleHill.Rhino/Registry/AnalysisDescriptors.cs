@@ -989,6 +989,16 @@ internal sealed class CurvatureAnalysisDescriptor : AnalysisTypeDescriptor
             };
         }
 
+        var rows = new List<ResultRow>();
+        if (summary.LandformSize is { } size && ((CurvatureAnalysisDefinition)analysis).FeatureSize <= 0.0)
+        {
+            rows.Add(ResultRow.Of(
+                "Landform Size",
+                $"Auto ({format.Length(size)})",
+                "Resolved from the terrain's plan extent: a tenth of the shorter side, rounded to 1, 2, 2.5 or 5. " +
+                "Type a size above to override it."));
+        }
+
         var lines = new List<string>();
         foreach (LandformClass landform in LandformClassifier.All)
         {
@@ -1000,14 +1010,12 @@ internal sealed class CurvatureAnalysisDescriptor : AnalysisTypeDescriptor
             lines.Add($"{LandformClassifier.NameOf(landform)}: {share:P0} ({format.Area(share * measured)})");
         }
 
-        return new[]
-        {
-            ResultRow.Summary(
-                "Landforms",
-                string.Join(Environment.NewLine, lines),
-                "Plan area of each landform on the last build, at this card's landform size and flatness tolerance. " +
-                "Click into the field to select and copy values.")
-        };
+        rows.Add(ResultRow.Summary(
+            "Landforms",
+            string.Join(Environment.NewLine, lines),
+            "Plan area of each landform on the last build, at this card's landform size and flatness tolerance. " +
+            "Click into the field to select and copy values."));
+        return rows;
     }
 
     private static CurvatureAnalysisDefinition Curvature(AnalysisDefinition analysis) => (CurvatureAnalysisDefinition)analysis;
@@ -1064,7 +1072,9 @@ internal sealed class CurvatureAnalysisDescriptor : AnalysisTypeDescriptor
             (a, v) => Curvature(a).FeatureSize = Math.Max(0.0, v),
             "The radius the surface is measured over. Landforms about this size and larger are what the map " +
             "shows; smaller surface detail averages away. A 0.3 m hump on a mound shows at a 0.5 m size and " +
-            "is gone at 10 m. Below the survey spacing it measures at the spacing.",
+            "is gone at 10 m. Below the survey spacing it measures at the spacing. 0 is Auto: a tenth of the " +
+            "shorter side of the terrain's plan, rounded to 1, 2, 2.5 or 5 (20 m on a 200 m site), shown " +
+            "under Landform Size after a build. Type a size to override it.",
             min: 0.0,
             unit: ParameterUnit.ModelLength),
         AnalysisParam.Number(
