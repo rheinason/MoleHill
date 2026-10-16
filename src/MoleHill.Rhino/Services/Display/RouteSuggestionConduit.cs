@@ -49,12 +49,13 @@ internal sealed class RouteSuggestionConduit : DisplayConduit
     }
 
     /// <summary>
-    /// <c>DrawOverlay</c> with depth testing and writing off, as <see cref="CurveReviewConduit"/> does: a
-    /// MoleHill terrain preview paints in its own conduit's channels, and depth flags alone cannot keep
-    /// a later painter in the same channel from covering the routes (docs/architecture.md, the
-    /// inspector overlay note).
+    /// The lines, in <c>DrawForeground</c> with depth testing and writing off. The terrain preview paints its
+    /// surface earlier, in <c>PostDrawObjects</c>, so a route lying on the ground is never hidden in it; and
+    /// the lines are kept out of <c>DrawOverlay</c>, where the numbers go, because within one channel Rhino
+    /// paints thick lines after dots whatever order they are drawn in — a number drawn after every line was
+    /// still covered by them (2026-10-16, live).
     /// </summary>
-    protected override void DrawOverlay(DrawEventArgs e)
+    protected override void DrawForeground(DrawEventArgs e)
     {
         e.Display.PushDepthTesting(false);
         e.Display.PushDepthWriting(false);
@@ -66,9 +67,24 @@ internal sealed class RouteSuggestionConduit : DisplayConduit
                 if (_routes[index].Count >= 2)
                     e.Display.DrawPolyline(_routes[index], RouteColor(index), RouteWidth);
             }
+        }
+        finally
+        {
+            e.Display.PopDepthWriting();
+            e.Display.PopDepthTesting();
+        }
+    }
 
-            // Every number after every line: drawn with its own route, a dot was painted over by the routes
-            // drawn after it, and the numbers were what told the routes apart.
+    /// <summary>
+    /// The numbers and the picked points, in <c>DrawOverlay</c>: the last channel, which neither the lines nor
+    /// the terrain preview paint in, so nothing covers them (docs/architecture.md, the inspector overlay note).
+    /// </summary>
+    protected override void DrawOverlay(DrawEventArgs e)
+    {
+        e.Display.PushDepthTesting(false);
+        e.Display.PushDepthWriting(false);
+        try
+        {
             for (int index = _routes.Count - 1; index >= 0; index--)
             {
                 Polyline route = _routes[index];
