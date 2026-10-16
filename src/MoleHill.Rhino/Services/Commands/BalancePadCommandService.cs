@@ -244,9 +244,10 @@ internal static class BalancePadCommandService
     private static GradePadModifierDefinition? FindOwningCard(RhinoDoc doc, TerrainDefinition terrain, RhinoObject curve)
     {
         string? layerPath = doc.Layers.FindIndex(curve.Attributes.LayerIndex)?.FullPath;
-        foreach (ModifierDefinition modifier in terrain.Modifiers)
+        // The command balances Grade Pad boundaries and nothing else, so it names that card type itself.
+        foreach (GradePadModifierDefinition pad in terrain.Modifiers.OfType<GradePadModifierDefinition>())
         {
-            if (modifier is not GradePadModifierDefinition pad || !pad.IsEnabled)
+            if (!pad.IsEnabled)
                 continue;
             if (pad.Boundaries.ObjectIds.Contains(curve.Id))
                 return pad;
