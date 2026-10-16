@@ -260,7 +260,8 @@ public class GeometryCommandAlgorithmsTests
             Assert.Equal(0.0, report.FirstElevation, 6);
             Assert.Equal(10.0, report.SecondElevation, 6);
             Assert.Equal(0.1, report.SlopeRatio, 6);
-            Assert.Equal(15.0, ElevationAtPlanX(result!, 50.0), 6);
+            // A straight grade from 0 to 10 over 100 m: half way is 5.
+            Assert.Equal(5.0, ElevationAtPlanX(result!, 50.0), 6);
         }
     }
 
@@ -292,7 +293,8 @@ public class GeometryCommandAlgorithmsTests
             Assert.Equal(100.0, ElevationAtPlanX(result!, 50.0), 3);
 
             // Half way up a 10-unit ramp from the pick at x=25.
-            Assert.Equal(50.0, ElevationAtPlanX(result!, 30.0), 1);
+            // The edited curve is resampled, so the ramp is read between samples.
+            Assert.InRange(ElevationAtPlanX(result!, 30.0), 49.5, 50.5);
             Assert.Equal(0.0, result!.PointAtStart.Z, 6);
             Assert.Equal(0.0, result.PointAtEnd.Z, 6);
             AssertNoVerticalStep(result);

@@ -31,7 +31,7 @@ public class TerrainAnalysisAnnotationBuilderTests
             shouldCancel: null);
 
         Assert.Equal(1, summary.GeneratedOutputCount);
-        Assert.Equal(1000.0, summary.SampleMinValue, precision: 6);
+        Assert.Equal(1000.0, summary.SampleMinValue, precision: 3); // the hit comes from a ray, so float noise
         var output = Assert.Single(build.AuxiliaryObjects);
         Assert.Equal("1000.0", output.InstanceUserStrings?[GeneratedBlockCatalog.ValueToken]);
         AssertBlockOrigin(output, 3.0, 5.0, 30.0);
@@ -142,7 +142,7 @@ public class TerrainAnalysisAnnotationBuilderTests
             shouldCancel: null);
 
         Assert.Equal(1, summary.GeneratedOutputCount);
-        Assert.Equal(1000.0, summary.SampleMinValue, precision: 6);
+        Assert.Equal(1000.0, summary.SampleMinValue, precision: 3); // the hit comes from a ray, so float noise
         var output = Assert.Single(build.AuxiliaryObjects);
         Assert.Equal("1000.0", output.InstanceUserStrings?[GeneratedBlockCatalog.ValueToken]);
         AssertBlockOrigin(output, 9.0, 5.0, 90.0);

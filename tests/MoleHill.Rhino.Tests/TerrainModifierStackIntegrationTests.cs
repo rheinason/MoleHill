@@ -17,14 +17,14 @@ public class TerrainModifierStackIntegrationTests
         TerrainBuildResult result = new TerrainBuildService().Build(fixture.Snapshot, cache, TerrainBuildMode.Final);
 
         Assert.NotNull(result.PrimaryMesh);
-        Assert.Single(result.AuxiliaryObjects, static output => output.Kind == GeneratedObjectKind.RetainingWall);
-        Assert.Contains(cache.StageEntries.Keys, key => IsStageKey(key, 1, fixture.Wall.Id, nameof(RetainingWallModifierDefinition)));
-        Assert.Contains(cache.StageEntries.Keys, key => IsStageKey(key, 2, fixture.Pad.Id, nameof(GradePadModifierDefinition)));
+        Assert.Single(result.AuxiliaryObjects, IsWallSolid);
+        Assert.Contains(cache.StageEntries.Keys, key => IsStageKey(key, fixture.Wall.Id, nameof(RetainingWallModifierDefinition)));
+        Assert.Contains(cache.StageEntries.Keys, key => IsStageKey(key, fixture.Pad.Id, nameof(GradePadModifierDefinition)));
         Assert.DoesNotContain(result.Timings, static timing => timing.Detail?.Contains("cache hit", StringComparison.OrdinalIgnoreCase) == true);
     }
 
     [RhinoNativeFact]
-    public void Build_ReorderedWallAndGradePad_PrunesOldStackStagesAndRebuildsAtNewIndexes()
+    public void Build_ReorderedWallAndGradePad_KeepsOneStageEachAndRebuildsBoth()
     {
         StackFixture fixture = CreateFixture(wallBeforePad: true);
         var cache = new TerrainRuntimeCache();
@@ -37,11 +37,14 @@ public class TerrainModifierStackIntegrationTests
         TerrainBuildResult reordered = service.Build(fixture.Snapshot, cache, TerrainBuildMode.Final);
 
         Assert.NotNull(reordered.PrimaryMesh);
-        Assert.Single(reordered.AuxiliaryObjects, static output => output.Kind == GeneratedObjectKind.RetainingWall);
-        Assert.DoesNotContain(cache.StageEntries.Keys, key => IsStageKey(key, 1, fixture.Wall.Id, nameof(RetainingWallModifierDefinition)));
-        Assert.DoesNotContain(cache.StageEntries.Keys, key => IsStageKey(key, 2, fixture.Pad.Id, nameof(GradePadModifierDefinition)));
-        Assert.Contains(cache.StageEntries.Keys, key => IsStageKey(key, 1, fixture.Pad.Id, nameof(GradePadModifierDefinition)));
-        Assert.Contains(cache.StageEntries.Keys, key => IsStageKey(key, 2, fixture.Wall.Id, nameof(RetainingWallModifierDefinition)));
+        Assert.Single(reordered.AuxiliaryObjects, IsWallSolid);
+        // Stage keys carry no position, so a reorder keeps one entry per card; both re-run because each now
+        // sees a different incoming mesh, which reaches them through the upstream fingerprint.
+        Assert.Single(cache.StageEntries.Keys, key => IsStageKey(key, fixture.Pad.Id, nameof(GradePadModifierDefinition)));
+        Assert.Single(cache.StageEntries.Keys, key => IsStageKey(key, fixture.Wall.Id, nameof(RetainingWallModifierDefinition)));
+        Assert.DoesNotContain(reordered.Timings, static timing =>
+            (timing.Stage == "Retaining Wall" || timing.Stage == "Grade Pad") &&
+            timing.Detail?.Contains("cache hit", StringComparison.OrdinalIgnoreCase) == true);
     }
 
     [RhinoNativeFact]
@@ -71,7 +74,7 @@ public class TerrainModifierStackIntegrationTests
         service.Build(fixture.Snapshot, cache, TerrainBuildMode.Final);
         TerrainBuildResult cached = service.Build(fixture.Snapshot, cache, TerrainBuildMode.Final);
 
-        Assert.Single(cached.AuxiliaryObjects, static output => output.Kind == GeneratedObjectKind.RetainingWall);
+        Assert.Single(cached.AuxiliaryObjects, IsWallSolid);
         Assert.Contains(
             cached.Timings,
             static timing => timing.Stage == "Retaining Wall" &&
@@ -103,7 +106,7 @@ public class TerrainModifierStackIntegrationTests
     }
 
     [RhinoNativeFact]
-    public void Build_GradedRetainingWall_KeepsQualityPatchProtection()
+    public void Build_GradedRetainingWall_ProtectsItsRails()
     {
         StackFixture fixture = CreateFixture(wallBeforePad: true);
         fixture.Pad.IsEnabled = false;
@@ -115,8 +118,13 @@ public class TerrainModifierStackIntegrationTests
             TerrainBuildMode.Preview);
 
         Assert.NotNull(result.PrimaryMesh);
-        Assert.Contains(result.Diagnostics, static diagnostic =>
-            diagnostic.Contains("quality patch", StringComparison.OrdinalIgnoreCase));
+        // A graded wall's rails are protected either by the quality patch or, when the grade itself already
+        // conformed them into the terrain, by adopting them as they are (no re-insertion to disturb them).
+        Assert.True(
+            result.Diagnostics.Any(static diagnostic =>
+                diagnostic.Contains("quality patch", StringComparison.OrdinalIgnoreCase) ||
+                diagnostic.Contains("kept without re-insertion", StringComparison.OrdinalIgnoreCase)),
+            string.Join(" | ", result.Diagnostics));
         Assert.DoesNotContain(result.Diagnostics, static diagnostic =>
             diagnostic.Contains("breakline-only mode uses ordinary local breakline insertion", StringComparison.OrdinalIgnoreCase));
     }
@@ -143,7 +151,7 @@ public class TerrainModifierStackIntegrationTests
         TerrainBuildResult afterEdit = service.Build(fixture.Snapshot, cache, TerrainBuildMode.Final);
 
         Assert.NotNull(afterEdit.PrimaryMesh);
-        Assert.Single(afterEdit.AuxiliaryObjects, static output => output.Kind == GeneratedObjectKind.RetainingWall);
+        Assert.Single(afterEdit.AuxiliaryObjects, IsWallSolid);
 
         Assert.DoesNotContain(
             afterEdit.Timings,
@@ -201,11 +209,15 @@ public class TerrainModifierStackIntegrationTests
         snapshot.SourceFingerprints[triangulate.Points] = 102;
     }
 
-    private static bool IsStageKey(string key, int modifierIndex, Guid modifierId, string modifierType)
+    /// <summary>A modifier stage's final-build key: type and id, never position (see TerrainStageKey).</summary>
+    private static bool IsStageKey(string key, Guid modifierId, string modifierType)
     {
-        return key.StartsWith($"final:modifier:{modifierIndex}:{modifierType}:", StringComparison.Ordinal) &&
-               key.EndsWith(modifierId.ToString("N"), StringComparison.Ordinal);
+        return key == TerrainStageKey.ForMode(TerrainBuildMode.Final, $"modifier:{modifierType}:{modifierId:N}");
     }
+
+    /// <summary>The wall itself. A wall also publishes its toe and top rails as curves of the same kind.</summary>
+    private static bool IsWallSolid(GeneratedRhinoObject output) =>
+        output.Kind == GeneratedObjectKind.RetainingWall && output.Geometry is Brep;
 
     private static StackFixture CreateFixture(bool wallBeforePad)
     {

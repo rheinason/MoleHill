@@ -44,7 +44,8 @@ public sealed class ZoneAnalysisCalculatorTests
         Assert.Equal(2, summary.OutputCount);
         Assert.Equal(2, summary.TriangleCount);
         Assert.Equal(1.0, summary.PlanArea, 8);
-        Assert.Equal(1.0, summary.ElevationAverageZ, 8);
+        // Area-weighted over two equal triangles at Z 1 and Z 3.
+        Assert.Equal(2.0, summary.ElevationAverageZ, 8);
         Assert.Equal(3.0, summary.ElevationMaxZ, 8);
     }
 

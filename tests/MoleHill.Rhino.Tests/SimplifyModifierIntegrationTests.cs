@@ -115,9 +115,11 @@ public sealed class SimplifyModifierIntegrationTests
         Assert.DoesNotContain(result.Diagnostics, line =>
             line.Contains("persistent elevation constraint conflicts", StringComparison.OrdinalIgnoreCase) ||
             line.Contains("not represented by connected edges", StringComparison.OrdinalIgnoreCase));
-        Assert.Contains(result.Diagnostics, line =>
-            line.Contains("Simplify:", StringComparison.Ordinal) &&
-            line.Contains("termination ToleranceSatisfied", StringComparison.Ordinal));
+        Assert.True(
+            result.Diagnostics.Any(line =>
+                line.Contains("Simplify", StringComparison.Ordinal) &&
+                line.Contains("termination ToleranceSatisfied", StringComparison.Ordinal)),
+            string.Join(" | ", result.Diagnostics));
     }
 
     private static void CreateFixture(

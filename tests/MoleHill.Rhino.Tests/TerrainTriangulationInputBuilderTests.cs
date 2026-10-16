@@ -20,8 +20,11 @@ public class TerrainTriangulationInputBuilderTests
             new Curve[] { curve },
             tolerance: 0.0125);
 
+        // The station count follows the contour's own spacing rather than the model tolerance (which once
+        // multiplied large contour sets many times over). Nearly straight runs are re-stationed by design,
+        // so the count moves a little: the same 5% band the Core preprocessor test allows.
         double[] output = Assert.Single(result);
-        Assert.Equal(pointCount, output.Length / 3);
+        Assert.InRange(output.Length / 3, pointCount, (int)(pointCount * 1.05));
     }
 
     [RhinoNativeFact]

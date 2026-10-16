@@ -40,8 +40,8 @@ public class GeneratedRhinoObjectTests
         Assert.NotNull(first);
         Assert.Same(first, second);
         Assert.NotSame(source, first);
-        Assert.Equal("12.30 m", first.RichText);
-        Assert.Equal("source", source.RichText);
+        Assert.Equal("12.30 m", first.PlainText);
+        Assert.Equal("source", source.PlainText);
     }
 
     [RhinoNativeFact]
@@ -56,8 +56,8 @@ public class GeneratedRhinoObjectTests
         Assert.NotNull(first);
         Assert.NotNull(second);
         Assert.NotSame(first, second);
-        Assert.Equal("12.30 m", first.RichText);
-        Assert.Equal("13.40 m", second.RichText);
+        Assert.Equal("12.30 m", first.PlainText);
+        Assert.Equal("13.40 m", second.PlainText);
     }
 
     [RhinoNativeFact]

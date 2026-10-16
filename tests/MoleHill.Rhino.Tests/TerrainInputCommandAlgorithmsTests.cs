@@ -217,7 +217,7 @@ public sealed class TerrainInputCommandAlgorithmsTests
 
         Assert.True(result.HasIntersection);
         Assert.Single(result.Parameters);
-        Assert.Equal(0.5, result.Parameters[0], 6);
+        Assert.Equal(horizontal.Domain.ParameterAt(0.5), result.Parameters[0], 6); // a LineCurve's domain is its length
     }
 
     [RhinoNativeFact]
