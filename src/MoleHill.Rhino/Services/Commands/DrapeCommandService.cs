@@ -387,7 +387,7 @@ internal static class DrapeCommandService
     /// Asks for the surfaces to drape onto: any number of meshes, surfaces and polysurfaces, or the active
     /// MoleHill terrain's final build. The curves being draped are refused as targets.
     /// </summary>
-    private static bool TrySelectTargets(RhinoDoc doc, HashSet<Guid> excluded, out DrapeTargets? targets, out Result result)
+    internal static bool TrySelectTargets(RhinoDoc doc, HashSet<Guid> excluded, out DrapeTargets? targets, out Result result)
     {
         targets = null;
         result = Result.Cancel;

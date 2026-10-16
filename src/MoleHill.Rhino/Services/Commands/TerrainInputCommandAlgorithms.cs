@@ -1,4 +1,5 @@
 // Reusable geometry algorithms for selected terrain-input preparation commands.
+using MoleHill.Core.Analysis;
 using MoleHill.Core.Processing;
 using Rhino;
 using Rhino.DocObjects;
@@ -352,6 +353,73 @@ internal static class TerrainInputCommandAlgorithms
             nurbs.Dispose();
             result = result with { Failure = "The curve's edit points could not be moved." };
             return null;
+        }
+
+        return nurbs;
+    }
+
+    /// <summary>
+    /// Applies a long-section profile to a smooth curve without turning it into a polyline: each edit
+    /// (Greville) point takes the profile's elevation at its plan station, and the curve keeps its type,
+    /// degree and point count. It then only interpolates the profile, so <paramref name="deviation"/> is
+    /// the worst vertical stray measured along it, for the command to report. An edit point beyond the
+    /// profile's ends keeps its elevation and is counted in <paramref name="uncovered"/>.
+    /// </summary>
+    public static Curve? ApplyProfileToEditPoints(
+        Curve source,
+        double[] stations,
+        double[] elevations,
+        double tolerance,
+        out int uncovered,
+        out double deviation)
+    {
+        uncovered = 0;
+        deviation = 0.0;
+        NurbsCurve nurbs = source.ToNurbsCurve();
+        using Curve? plan = GeometryCommandAlgorithms.CreatePlanCurve(nurbs);
+        if (plan == null)
+        {
+            nurbs.Dispose();
+            return null;
+        }
+
+        double[] greville = nurbs.GrevilleParameters();
+        var moved = new Point3d[greville.Length];
+        for (int i = 0; i < greville.Length; i++)
+        {
+            Point3d point = nurbs.PointAt(greville[i]);
+            double t = Math.Clamp(greville[i], plan.Domain.T0, plan.Domain.T1);
+            double station = t <= plan.Domain.T0 ? 0.0 : plan.GetLength(new Interval(plan.Domain.T0, t));
+            double z = LongSectionProfile.ElevationAt(stations, elevations, station, tolerance);
+            if (double.IsNaN(z))
+            {
+                z = point.Z;
+                uncovered++;
+            }
+
+            moved[i] = new Point3d(point.X, point.Y, z);
+        }
+
+        if (!nurbs.SetGrevillePoints(moved))
+        {
+            nurbs.Dispose();
+            return null;
+        }
+
+        using Curve? newPlan = GeometryCommandAlgorithms.CreatePlanCurve(nurbs);
+        if (newPlan != null)
+        {
+            double length = newPlan.GetLength();
+            const int samples = 256;
+            for (int k = 0; k <= samples; k++)
+            {
+                double station = length * k / samples;
+                if (!newPlan.LengthParameter(station, out double t))
+                    continue;
+                double target = LongSectionProfile.ElevationAt(stations, elevations, station, tolerance);
+                if (!double.IsNaN(target))
+                    deviation = Math.Max(deviation, Math.Abs(nurbs.PointAt(t).Z - target));
+            }
         }
 
         return nurbs;

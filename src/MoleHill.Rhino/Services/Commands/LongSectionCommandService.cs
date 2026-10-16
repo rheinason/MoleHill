@@ -35,6 +35,8 @@ internal static class LongSectionCommandService
     private const string ExaggerationKey = KeyPrefix + "Exaggeration";
     private const string PlanLengthKey = KeyPrefix + "PlanLength";
     private const string DesignRole = "Design";
+    private static readonly string[] GroundLabels = { "ActiveTerrain", "Objects", "None" };
+    private static readonly string[] FitLabels = { "EditPoints", "Exact" };
 
     public static Result RunExtract(RhinoDoc doc)
     {
@@ -71,21 +73,50 @@ internal static class LongSectionCommandService
         double exaggeration = CommandOptionCache.GetValue("MoleHill.ExtractProfile.Exaggeration", 5.0);
         const string tickKey = "MoleHill.ExtractProfile.TickInterval";
         double tickInterval = CommandOptionCache.GetLength(tickKey, unitContext, 20.0);
+        int groundIndex = CommandOptionCache.GetValue("MoleHill.ExtractProfile.Ground", 0);
 
-        var getBase = new GetPoint();
-        getBase.SetCommandPrompt("Place the long section (station 0 at the datum)");
-        var exaggerationOption = new OptionDouble(exaggeration, 0.01, 1000.0);
-        var tickOption = new OptionDouble(tickInterval, tolerance * 10.0, 1e9);
-        getBase.AddOptionDouble("Exaggeration", ref exaggerationOption);
-        getBase.AddOptionDouble("TickInterval", ref tickOption);
+        // A curve already drawn as a long section can be redrawn where it is, replacing the old drawing,
+        // so re-extracting after a plan edit does not leave a stale section beside the new one.
+        RhinoObject? existing = FindDrawing(doc, reference.ObjectId);
+        Point3d? existingOrigin = null;
+        if (existing != null && TryReadFrame(existing.Attributes, out LongSectionFrame oldFrame, out _, out _))
+        {
+            double z = existing.Geometry is Curve existingCurve ? existingCurve.PointAtStart.Z : 0.0;
+            existingOrigin = new Point3d(oldFrame.OriginX, oldFrame.OriginY, z);
+            exaggeration = oldFrame.Exaggeration;
+        }
+
         Point3d basePoint;
+        bool redrawInPlace = false;
         while (true)
         {
+            var getBase = new GetPoint();
+            getBase.SetCommandPrompt(existingOrigin != null
+                ? "Place the long section, or press Enter to redraw the existing one in place"
+                : "Place the long section (station 0 at the datum)");
+            getBase.AcceptNothing(existingOrigin != null);
+            var exaggerationOption = new OptionDouble(exaggeration, 0.01, 1000.0);
+            var tickOption = new OptionDouble(tickInterval, tolerance * 10.0, 1e9);
+            getBase.AddOptionDouble("Exaggeration", ref exaggerationOption);
+            getBase.AddOptionDouble("TickInterval", ref tickOption);
+            int groundOption = getBase.AddOptionList("Ground", GroundLabels, Math.Clamp(groundIndex, 0, GroundLabels.Length - 1));
             GetResult result = getBase.Get();
             exaggeration = exaggerationOption.CurrentValue;
             tickInterval = tickOption.CurrentValue;
             if (result == GetResult.Option)
+            {
+                if (getBase.OptionIndex() == groundOption)
+                    groundIndex = getBase.Option().CurrentListOptionIndex;
                 continue;
+            }
+
+            if (result == GetResult.Nothing && existingOrigin is { } origin)
+            {
+                basePoint = origin;
+                redrawInPlace = true;
+                break;
+            }
+
             if (result != GetResult.Point)
                 return getBase.CommandResult();
             basePoint = getBase.Point();
@@ -94,8 +125,28 @@ internal static class LongSectionCommandService
 
         CommandOptionCache.SetValue("MoleHill.ExtractProfile.Exaggeration", exaggeration);
         CommandOptionCache.SetLength(tickKey, unitContext, tickInterval);
+        CommandOptionCache.SetValue("MoleHill.ExtractProfile.Ground", groundIndex);
 
-        List<double[]> groundRuns = SampleGround(doc, path, pathStations, Math.Max(tolerance * 10.0, tickInterval / 10.0));
+        Func<double, double, double?>? groundProbe = null;
+        string? groundNote = null;
+        switch (groundIndex)
+        {
+            case 0:
+                groundProbe = ActiveTerrainProbe(doc);
+                if (groundProbe == null)
+                    groundNote = " (no ground line: build the active terrain, or use Ground=Objects)";
+                break;
+            case 1:
+                if (!DrapeCommandService.TrySelectTargets(doc, new HashSet<Guid> { reference.ObjectId },
+                        out DrapeTargets? targets, out Result targetResult))
+                    return targetResult;
+                groundProbe = (x, y) => targets!.HeightAt(x, y, lowest: false);
+                break;
+        }
+
+        List<double[]> groundRuns = groundProbe == null
+            ? new List<double[]>()
+            : SampleGround(groundProbe, path, pathStations, Math.Max(tolerance * 10.0, tickInterval / 10.0));
         double lowest = double.PositiveInfinity;
         for (int i = 0; i < path.Length / 3; i++)
             lowest = Math.Min(lowest, path[i * 3 + 2]);
@@ -117,6 +168,9 @@ internal static class LongSectionCommandService
         uint undoRecord = doc.BeginUndoRecord("Extract Profile");
         try
         {
+            if (redrawInPlace && existing != null)
+                DeleteDrawing(doc, existing);
+
             var designAttributes = new ObjectAttributes();
             designAttributes.SetUserString(SourceKey, reference.ObjectId.ToString());
             designAttributes.SetUserString(RoleKey, DesignRole);
@@ -138,6 +192,7 @@ internal static class LongSectionCommandService
                 }
 
                 var groundAttributes = new ObjectAttributes { Name = "Ground profile" };
+                groundAttributes.SetUserString(SourceKey, reference.ObjectId.ToString());
                 groundAttributes.SetUserString(RoleKey, "Ground");
                 objects.Add(doc.Objects.AddPolyline(groundPoints, groundAttributes));
             }
@@ -155,8 +210,9 @@ internal static class LongSectionCommandService
 
         RhinoApp.WriteLine(
             $"Long section drawn: {ModelUnits.FormatLength(planLength, doc.ModelUnitSystem)} long, datum " +
-            $"{datum.ToString("F2", CultureInfo.InvariantCulture)}, vertical x{exaggeration:G4}" +
-            (groundRuns.Count == 0 ? " (no ground line: build the active terrain to draw one)." : ".") +
+            $"{datum.ToString("F2", CultureInfo.InvariantCulture)}, vertical x{exaggeration.ToString("G4", CultureInfo.InvariantCulture)}" +
+            (redrawInPlace ? ", redrawn in place" : string.Empty) +
+            (groundNote ?? (groundIndex != 2 && groundRuns.Count == 0 ? " (the curve does not pass over the ground)" : string.Empty)) + "." +
             " Edit the design line, then run mhApplyProfile.");
         doc.Views.Redraw();
         return Result.Success;
@@ -223,11 +279,55 @@ internal static class LongSectionCommandService
                 $"({extractedLength:F3} then, {planLength:F3} now); stations are applied to its current length.");
         }
 
-        double[] applied = LongSectionProfile.Apply(path, stations, elevations, tolerance, out int uncovered);
-        var points = new Point3d[applied.Length / 3];
-        for (int i = 0; i < points.Length; i++)
-            points[i] = new Point3d(applied[i * 3], applied[i * 3 + 1], applied[i * 3 + 2]);
-        using var result = new PolylineCurve(points);
+        // A polyline takes the profile exactly: its own points plus the profile's breaks. A smooth curve keeps
+        // its type by default and only its edit points move, at the cost of straying between them.
+        bool exact = true;
+        if (!source.TryGetPolyline(out _))
+        {
+            int fitIndex = CommandOptionCache.GetValue("MoleHill.ApplyProfile.Fit", 0);
+            while (true)
+            {
+                var getFit = new GetOption();
+                getFit.SetCommandPrompt("The plan curve is smooth: Fit EditPoints keeps it smooth, Exact makes it a polyline. Press Enter to apply");
+                getFit.AcceptNothing(true);
+                int fitOption = getFit.AddOptionList("Fit", FitLabels, Math.Clamp(fitIndex, 0, 1));
+                GetResult fitResult = getFit.Get();
+                if (fitResult == GetResult.Option && getFit.OptionIndex() == fitOption)
+                {
+                    fitIndex = getFit.Option().CurrentListOptionIndex;
+                    continue;
+                }
+
+                if (fitResult != GetResult.Nothing)
+                    return getFit.CommandResult();
+                break;
+            }
+
+            CommandOptionCache.SetValue("MoleHill.ApplyProfile.Fit", fitIndex);
+            exact = fitIndex == 1;
+        }
+
+        int uncovered;
+        double deviation = 0.0;
+        Curve? result;
+        if (exact)
+        {
+            double[] applied = LongSectionProfile.Apply(path, stations, elevations, tolerance, out uncovered);
+            var points = new Point3d[applied.Length / 3];
+            for (int i = 0; i < points.Length; i++)
+                points[i] = new Point3d(applied[i * 3], applied[i * 3 + 1], applied[i * 3 + 2]);
+            result = new PolylineCurve(points);
+        }
+        else
+        {
+            result = TerrainInputCommandAlgorithms.ApplyProfileToEditPoints(
+                source, stations, elevations, tolerance, out uncovered, out deviation);
+            if (result == null)
+            {
+                RhinoApp.WriteLine("The curve's edit points could not be moved.");
+                return Result.Failure;
+            }
+        }
 
         uint undoRecord = doc.BeginUndoRecord("Apply Profile");
         try
@@ -240,12 +340,18 @@ internal static class LongSectionCommandService
         }
         finally
         {
+            result.Dispose();
             doc.EndUndoRecord(undoRecord);
         }
 
         RhinoApp.WriteLine(uncovered > 0
             ? $"Profile applied; {uncovered} point(s) beyond the profile's ends kept their elevation."
             : "Profile applied.");
+        if (deviation > tolerance)
+        {
+            RhinoApp.WriteLine(FormattableString.Invariant(
+                $"Between its edit points the curve strays up to {deviation:F3} from the profile; Fit=Exact follows it exactly as a polyline."));
+        }
         doc.Views.Redraw();
         return Result.Success;
     }
@@ -278,16 +384,9 @@ internal static class LongSectionCommandService
     /// The active terrain under the path, every <paramref name="spacing"/> and at every path point, as
     /// (station, elevation) runs; a stretch off the terrain ends one run and starts the next.
     /// </summary>
-    private static List<double[]> SampleGround(RhinoDoc doc, double[] path, double[] pathStations, double spacing)
+    private static List<double[]> SampleGround(Func<double, double, double?> probe, double[] path, double[] pathStations, double spacing)
     {
         var runs = new List<double[]>();
-        TerrainDefinition? terrain = TerrainController.Instance.GetSelectedTerrain(doc);
-        Mesh? mesh = terrain == null ? null : TerrainController.Instance.PeekFinalTerrainMesh(doc, terrain.TerrainId);
-        if (mesh == null || !RhinoGeometryConversions.TryExtractMesh(mesh, out IndexedTriMesh extracted, out _))
-            return runs;
-
-        (double[] vertices, int vertexCount, int[] faces, int faceCount) = extracted;
-        var projector = new MeshHeightProjector(vertices, vertexCount, faces, faceCount);
         var samples = new SortedSet<double>(pathStations);
         double length = pathStations[^1];
         for (double s = 0.0; s < length; s += spacing)
@@ -297,7 +396,7 @@ internal static class LongSectionCommandService
         foreach (double station in samples)
         {
             (double x, double y) = PlanPointAt(path, pathStations, station);
-            if (projector.TryGetHeightExtremes(x, y, doc.ModelAbsoluteTolerance, out _, out double z))
+            if (probe(x, y) is { } z)
             {
                 current.Add(station);
                 current.Add(z);
@@ -312,6 +411,35 @@ internal static class LongSectionCommandService
         if (current.Count >= 4)
             runs.Add(current.ToArray());
         return runs;
+    }
+
+    /// <summary>The active terrain's finished surface as a height probe; null when there is none built.</summary>
+    private static Func<double, double, double?>? ActiveTerrainProbe(RhinoDoc doc)
+    {
+        TerrainDefinition? terrain = TerrainController.Instance.GetSelectedTerrain(doc);
+        Mesh? mesh = terrain == null ? null : TerrainController.Instance.PeekFinalTerrainMesh(doc, terrain.TerrainId);
+        if (mesh == null)
+            return null;
+        DrapeTargets targets = DrapeTargets.Create(new[] { mesh }, doc.ModelAbsoluteTolerance, out _);
+        return targets.Count == 0 ? null : (x, y) => targets.HeightAt(x, y, lowest: false);
+    }
+
+    /// <summary>The design line drawn for this plan curve, if any.</summary>
+    private static RhinoObject? FindDrawing(RhinoDoc doc, Guid sourceId)
+    {
+        string id = sourceId.ToString();
+        return doc.Objects.FirstOrDefault(o =>
+            o.Attributes.GetUserString(RoleKey) == DesignRole && o.Attributes.GetUserString(SourceKey) == id);
+    }
+
+    /// <summary>Deletes a long-section drawing: every member of the design line's group, or the line alone.</summary>
+    private static void DeleteDrawing(RhinoDoc doc, RhinoObject design)
+    {
+        var ids = new HashSet<Guid> { design.Id };
+        foreach (int group in design.Attributes.GetGroupList() ?? Array.Empty<int>())
+            foreach (RhinoObject member in doc.Groups.GroupMembers(group) ?? Array.Empty<RhinoObject>())
+                ids.Add(member.Id);
+        RhinoDocumentHelpers.DeleteObjects(doc, ids.ToList());
     }
 
     private static (double X, double Y) PlanPointAt(double[] path, double[] pathStations, double station)

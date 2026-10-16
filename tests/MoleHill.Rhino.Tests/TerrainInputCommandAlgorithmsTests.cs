@@ -353,6 +353,29 @@ public sealed class TerrainInputCommandAlgorithmsTests
         }
     }
 
+    [RhinoNativeFact]
+    public void ApplyProfileToEditPoints_KeepsTheCurveSmoothAndFollowsTheProfile()
+    {
+        using var source = NurbsCurve.Create(false, 3, new[]
+        {
+            new Point3d(0, 0, 0), new Point3d(10, 2, 0), new Point3d(20, -2, 0), new Point3d(30, 1, 0), new Point3d(40, 0, 0)
+        });
+        double length = GeometryCommandAlgorithms.CreatePlanCurve(source)!.GetLength();
+        double[] stations = { 0.0, length };
+        double[] elevations = { 0.0, length * 0.1 };
+
+        using Curve? result = TerrainInputCommandAlgorithms.ApplyProfileToEditPoints(
+            source, stations, elevations, 0.001, out int uncovered, out double deviation);
+
+        var nurbs = Assert.IsType<NurbsCurve>(result);
+        Assert.Equal(3, nurbs.Degree);
+        Assert.Equal(5, nurbs.Points.Count);
+        Assert.Equal(0, uncovered);
+        Assert.Equal(0.0, nurbs.PointAtStart.Z, 6);
+        Assert.Equal(length * 0.1, nurbs.PointAtEnd.Z, 6);
+        Assert.True(deviation < 0.05, $"{deviation}");
+    }
+
     private static Mesh SlopedPlane()
     {
         var mesh = new Mesh();
