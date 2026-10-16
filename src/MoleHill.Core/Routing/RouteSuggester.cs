@@ -24,8 +24,9 @@ namespace MoleHill.Core.Routing;
 ///
 /// <para><b>Profile.</b> The plan path is straightened (string pulling: a chord replaces a stretch of grid
 /// path when it costs no more by the same pricing, so a grid route becomes the straight line it
-/// approximates, and a chord over a hole is never taken), its corners rounded to the minimum radius if
-/// one is asked for (<see cref="PlanFillet"/>), sampled along its length, and given the grade-limited profile of
+/// approximates, and a chord over a hole is never taken), and, if a minimum radius is asked for, edited
+/// so its corners have room for it (<see cref="PlanRadiusSimplifier"/>) and rounded
+/// (<see cref="PlanFillet"/>); then sampled along its length, and given the grade-limited profile of
 /// <see cref="GradeLimitedProfile"/>: the ground wherever the ground is within the limit, an even split
 /// of cut and fill where it is not, held to the ground at the picked points. The grade limit is
 /// therefore hard on the output — the centreline Grade Path will take as its design — and the
@@ -252,21 +253,36 @@ public static class RouteSuggester
         bool rounded = request.MinimumRadius > 0.0;
         for (int leg = 0; leg < legs.Count; leg++)
         {
-            // Straightening shortens a leg, and so can rounding its corners; if that is what tips it over
-            // the limit, the sharp-cornered line and then the raw grid path — the longest honest version
-            // of the same route — are tried before giving up.
+            // Straightening shortens a leg, and so can simplifying it for the radius and rounding its
+            // corners; if that is what tips it over the limit, the rounded unsimplified line, the
+            // sharp-cornered line and then the raw grid path — the longest honest version of the same
+            // route — are tried before giving up. A leg left sharp reports its corners as limited by grade.
             // Straightening is the expensive step, so each plan is made once and tried as many ways as needed.
+            var price = new RouteCost(request);
             List<(double X, double Y)> rawPlan = RouteLegBuilder.PlanFromNodes(grid, legs[leg], request.Points[leg], request.Points[leg + 1]);
-            List<(double X, double Y)> straightPlan = RouteLegBuilder.StraightenPlan(grid, new RouteCost(request), rawPlan);
-            if (!TryBuildLeg(straightPlan, rounded, out List<RouteSpan> legSpans, out RouteFilletSummary legFillet, out double required) &&
-                !(rounded && TryBuildLeg(straightPlan, false, out legSpans, out legFillet, out required)) &&
-                !TryBuildLeg(rawPlan, false, out legSpans, out legFillet, out required))
+            List<(double X, double Y)> straightPlan = RouteLegBuilder.StraightenPlan(grid, price, rawPlan);
+            List<(double X, double Y)> roomyPlan = rounded
+                ? PlanRadiusSimplifier.MakeRoom(grid, price, straightPlan, request.MinimumRadius)
+                : straightPlan;
+            List<(double X, double Y)>? sharpPlan = null;
+            if (!TryBuildLeg(roomyPlan, rounded, out List<RouteSpan> legSpans, out RouteFilletSummary legFillet, out double required) &&
+                !(rounded && !roomyPlan.SequenceEqual(straightPlan) &&
+                    TryBuildLeg(straightPlan, true, out legSpans, out legFillet, out required)))
             {
-                points = Array.Empty<double>();
-                failedLeg = leg;
-                requiredGrade = required;
-                return false;
+                sharpPlan = TryBuildLeg(straightPlan, false, out legSpans, out legFillet, out required) ? straightPlan
+                    : TryBuildLeg(rawPlan, false, out legSpans, out legFillet, out required) ? rawPlan
+                    : null;
+                if (sharpPlan == null)
+                {
+                    points = Array.Empty<double>();
+                    failedLeg = leg;
+                    requiredGrade = required;
+                    return false;
+                }
             }
+
+            if (rounded && sharpPlan != null && PlanFillet.CountCorners(sharpPlan) is int sharp and > 0)
+                legFillet = new RouteFilletSummary(0.0, sharp, 0, sharp);
 
             spans.AddRange(legSpans);
             fillet = fillet.Merge(legFillet);

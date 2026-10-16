@@ -22,8 +22,8 @@ internal static class RouteSuggestionReadout
 
     /// <summary>
     /// One command-line line per route: "Route 1: 523.40 m, max grade 4.9%, mean 2.1%, cut 12.0 m³,
-    /// fill 9.5 m³, min radius 10.00 m" — and, when segments were too short for the requested radius,
-    /// how many corners are tighter and why.
+    /// fill 9.5 m³, min radius 10.00 m" — and, when corners could not take the requested radius, how
+    /// many are tighter and why.
     /// </summary>
     public static string Describe(
         int rank,
@@ -44,13 +44,21 @@ internal static class RouteSuggestionReadout
             return string.Empty;
 
         string text = $", min radius {units.FormatLength(smallest)}";
-        if (fillet.ReducedCorners > 0)
-        {
-            string corners = fillet.ReducedCorners == 1 ? "1 corner" : $"{fillet.ReducedCorners} corners";
-            text += $" ({corners} under {units.FormatLength(requestedRadius)}: segments too short)";
-        }
+        if (fillet.ReducedCorners <= 0)
+            return text;
 
-        return text;
+        var reasons = new List<(int Count, string Why)>
+        {
+            (fillet.TerrainLimitedCorners, "where a wider curve costs more than allowed or leaves the terrain"),
+            (fillet.GradeLimitedCorners, "left sharp because rounding broke the grade"),
+            (fillet.ReversalCorners, "turning back on themselves"),
+        };
+        reasons.RemoveAll(reason => reason.Count <= 0);
+        string corners = fillet.ReducedCorners == 1 ? "1 corner" : $"{fillet.ReducedCorners} corners";
+        string under = $"{corners} under {units.FormatLength(requestedRadius)}";
+        return text + (reasons.Count == 1
+            ? $" ({under} {reasons[0].Why})"
+            : $" ({under}: {string.Join(", ", reasons.Select(reason => $"{reason.Count} {reason.Why}"))})");
     }
 
     /// <summary>The curve's object name — short enough for the Properties panel, enough to tell the routes apart.</summary>

@@ -16,13 +16,13 @@ internal static class RouteLegBuilder
     /// Share of a chord sample's bilinear weight that must be ground. Edges between two ground nodes
     /// read 1; at 0.75 a chord may not cut more than a sliver off a cell with an off-terrain corner.
     /// </summary>
-    private const double ChordGroundWeight = 0.75;
+    internal const double ChordGroundWeight = 0.75;
 
     /// <summary>How many rejected chords in a row end the search for a longer one.</summary>
     private const int MaxChordMisses = 16;
 
     /// <summary>Ground sample spacing along the leg, in cells.</summary>
-    private const double StationSpacingCells = 0.5;
+    internal const double StationSpacingCells = 0.5;
 
     /// <summary>
     /// A leg's grid path as plan points. The path runs between grid nodes; the leg itself starts and
@@ -49,6 +49,9 @@ internal static class RouteLegBuilder
     /// <summary>Angular step at which an arc span is sampled to measure its grade and draw its preview.</summary>
     private const double ArcSampleStep = Math.PI / 180.0;
 
+    /// <summary>How many times finer than <see cref="ArcSampleStep"/> an arc's grade is measured.</summary>
+    private const int ArcMeasureRefinement = 16;
+
     /// <summary>
     /// Builds one leg. <paramref name="fillet"/> rounds the plan corners to the request's minimum radius
     /// (a no-op at radius 0); the profile is then fitted along the rounded plan, so a fillet changes the
@@ -67,8 +70,8 @@ internal static class RouteLegBuilder
         out double requiredGrade)
     {
         List<PlanPiece> pieces = PlanFillet.Fillet(
-            plan, fillet ? request.MinimumRadius : 0.0, out double? smallest, out int reduced);
-        filletSummary = new RouteFilletSummary(smallest, reduced);
+            plan, fillet ? request.MinimumRadius : 0.0, out double? smallest, out int reduced, out int reversals);
+        filletSummary = new RouteFilletSummary(smallest, reduced, reversals);
         spans = new List<RouteSpan>();
         requiredGrade = 0.0;
         if (pieces.Count == 0)
@@ -157,17 +160,35 @@ internal static class RouteLegBuilder
         return false;
     }
 
-    /// <summary>The steepest grade along the spans as built, arcs sampled every degree.</summary>
+    /// <summary>
+    /// The steepest grade along the spans as built. A straight's grade is its own; an arc is measured
+    /// over chords of a sixteenth of a degree, fine enough that the steepest chord is the steepest the
+    /// curve gets to within a part in ten million (the drawn preview samples every degree, and a chord
+    /// that long can read a hair gentler than the curve inside it).
+    /// </summary>
     internal static double MeasureMaxGrade(IReadOnlyList<RouteSpan> spans)
     {
-        var dense = new List<double>();
-        AppendDense(spans, dense);
         double worst = 0.0;
-        for (int i = 3; i < dense.Count; i += 3)
+        foreach (RouteSpan span in spans)
         {
-            double plan = Math.Sqrt(Geometry2D.DistanceSquared(dense[i - 3], dense[i - 2], dense[i], dense[i + 1]));
-            if (plan > 0.0)
-                worst = Math.Max(worst, Math.Abs(dense[i + 2] - dense[i - 1]) / plan);
+            int samples = 1;
+            if (span.IsArc)
+            {
+                double sweep = 2.0 * Math.Acos(Math.Clamp(span.Weight, -1.0, 1.0));
+                samples = Math.Max(4, (int)Math.Ceiling(sweep / (ArcSampleStep / ArcMeasureRefinement)));
+            }
+
+            (double X, double Y, double Z) previous = (span.StartX, span.StartY, span.StartZ);
+            for (int k = 1; k <= samples; k++)
+            {
+                (double X, double Y, double Z) point = span.IsArc
+                    ? span.Evaluate((double)k / samples)
+                    : (span.EndX, span.EndY, span.EndZ);
+                double plan = Math.Sqrt(Geometry2D.DistanceSquared(previous.X, previous.Y, point.X, point.Y));
+                if (plan > 0.0)
+                    worst = Math.Max(worst, Math.Abs(point.Z - previous.Z) / plan);
+                previous = point;
+            }
         }
 
         return worst;
