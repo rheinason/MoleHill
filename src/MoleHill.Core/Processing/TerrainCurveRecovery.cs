@@ -16,10 +16,15 @@ namespace MoleHill.Core.Processing;
 /// shrinks to nothing — becomes a spot point instead. Stop once every terrain vertex is within
 /// <see cref="Options.VerticalTolerance"/>, or the curve budget is spent.</para>
 ///
+/// <para>Before any contour, landform lines are offered: valley lines where downhill flow gathers and ridge
+/// lines where uphill flow does (the same accumulation run on the inverted terrain). A crease costs many
+/// contours, each kinking across it, but one line along it; each candidate is kept only if it measurably
+/// reduces the miss, so a smooth valley that contours already describe adds nothing.</para>
+///
 /// <para>The deviation is measured at the terrain's vertices. Both surfaces are linear between their own
 /// vertices, so a miss between them is possible where the rebuild's edges cross the terrain's; the result
-/// says it is vertex-sampled. Landform lines (ridges and valleys from the Curvature analysis) are not
-/// seeded yet: contours stand in for them, which costs curves where a ridge line would have done.</para>
+/// says it is vertex-sampled. On a large terrain several contours are added per round, at worst-missed
+/// vertices far enough apart not to share one contour.</para>
 /// </summary>
 public static class TerrainCurveRecovery
 {
@@ -36,6 +41,12 @@ public static class TerrainCurveRecovery
 
         /// <summary>A peak or pit must be the highest (lowest) vertex this many rings out to seed a spot point.</summary>
         public int ExtremumRings { get; init; } = 3;
+
+        /// <summary>Offer ridge and valley lines before contours.</summary>
+        public bool LandformLines { get; init; } = true;
+
+        /// <summary>Contours added per rebuild; 0 picks by size (one below 5,000 vertices, then one more per 5,000, up to eight).</summary>
+        public int ContoursPerRound { get; init; }
 
         public Func<bool>? ShouldCancel { get; init; }
 
@@ -69,6 +80,9 @@ public static class TerrainCurveRecovery
         public required IReadOnlyList<double[]> Borders { get; init; }
 
         public required IReadOnlyList<RecoveredContour> Contours { get; init; }
+
+        /// <summary>Ridge and valley lines kept, as open flat XYZ polylines on the terrain.</summary>
+        public required IReadOnlyList<double[]> LandformLines { get; init; }
 
         /// <summary>Spot points as flat XYZ.</summary>
         public required double[] SpotPoints { get; init; }
@@ -112,9 +126,15 @@ public static class TerrainCurveRecovery
         if (borders.Count == 0)
             return Unsupported("The terrain's border collapsed when simplified.");
 
+        MeshVertexAdjacency adjacency = MeshVertexAdjacency.Build(new List<int>(faces[..(faceCount * 3)]), faceCount, vertexCount);
+        var onBorder = new bool[vertexCount];
+        foreach (int[] loop in loops)
+            foreach (int v in loop)
+                onBorder[v] = true;
+
         var spots = new List<double>();
         var spotted = new HashSet<int>();
-        foreach (int extremum in FindExtrema(vertices, vertexCount, faces, faceCount, Math.Max(1, options.ExtremumRings), loops))
+        foreach (int extremum in FindExtrema(vertices, vertexCount, adjacency, Math.Max(1, options.ExtremumRings), onBorder))
         {
             spotted.Add(extremum);
             spots.Add(vertices[extremum * 3]);
@@ -123,9 +143,23 @@ public static class TerrainCurveRecovery
         }
 
         var contours = new List<RecoveredContour>();
+        List<double[]> landformLines = options.LandformLines
+            ? SelectLandformLines(vertices, vertexCount, adjacency, onBorder, borders, spots, verticalTolerance, planTolerance)
+            : new List<double[]>();
+
+        // A contour simplified across steep ground drifts off its height there, and two can cross; judging
+        // each dropped point by the terrain under the chord keeps the contour within the vertical tolerance.
+        var referenceProjector = new MeshHeightProjector(vertices, vertexCount, faces, faceCount);
+        double? TerrainAt(double x, double y) =>
+            referenceProjector.TryGetHeightExtremes(x, y, verticalTolerance * 1e-3, out _, out double high) ? high : null;
+
+        int perRound = options.ContoursPerRound > 0
+            ? options.ContoursPerRound
+            : Math.Clamp(vertexCount / 5000 + 1, 1, 8);
+        double pickRadius = PlanDiagonal(vertices, vertexCount) * 0.1;
+        var attempted = new HashSet<int>();
         double worstDeviation = double.PositiveInfinity;
         int round = 0;
-        int lastWorstVertex = -1;
         Termination termination;
         string diagnostic;
         while (true)
@@ -137,7 +171,7 @@ public static class TerrainCurveRecovery
                 break;
             }
 
-            TinResult? rebuild = Rebuild(borders, contours, spots, planTolerance, out string? error);
+            TinResult? rebuild = Rebuild(borders, landformLines, contours, spots, planTolerance, out string? error);
             if (rebuild == null)
             {
                 termination = Termination.TriangulationFailed;
@@ -145,9 +179,16 @@ public static class TerrainCurveRecovery
                 break;
             }
 
-            (worstDeviation, int worstVertex) = WorstVertex(vertices, vertexCount, rebuild, verticalTolerance);
+            double[] deviations = Deviations(vertices, vertexCount, rebuild, verticalTolerance);
+            worstDeviation = 0.0;
+            foreach (double deviation in deviations)
+            {
+                if (deviation > worstDeviation)
+                    worstDeviation = deviation;
+            }
+
             options.ReportProgress?.Invoke(round, worstDeviation);
-            if (worstVertex < 0 || worstDeviation <= verticalTolerance)
+            if (worstDeviation <= verticalTolerance)
             {
                 termination = Termination.ToleranceSatisfied;
                 diagnostic = FormattableString.Invariant($"Within {verticalTolerance:G4} at every terrain vertex.");
@@ -162,63 +203,372 @@ public static class TerrainCurveRecovery
             }
 
             round++;
-            double level = vertices[worstVertex * 3 + 2];
-            RecoveredContour? contour = worstVertex == lastWorstVertex
-                ? null
-                : TraceContourThrough(terrain, worstVertex, level, planTolerance);
-            if (contour != null && !contours.Any(existing => Math.Abs(existing.Level - level) < 1e-12 &&
-                                                             SameStart(existing, contour)))
+            List<int> picks = PickWorst(deviations, vertices, verticalTolerance, perRound, pickRadius);
+            var fresh = picks.Where(v => !attempted.Contains(v)).ToList();
+            RecoveredContour?[] traced = TraceContours(terrain, fresh, planTolerance, verticalTolerance, TerrainAt);
+            int added = 0;
+            for (int i = 0; i < fresh.Count; i++)
             {
-                contours.Add(contour);
-            }
-            else if (spotted.Add(worstVertex))
-            {
-                spots.Add(vertices[worstVertex * 3]);
-                spots.Add(vertices[worstVertex * 3 + 1]);
-                spots.Add(level);
-            }
-            else
-            {
-                termination = Termination.NoProgress;
-                diagnostic = FormattableString.Invariant($"The worst vertex could not be captured; a {worstDeviation:G4} miss is left.");
-                break;
+                attempted.Add(fresh[i]);
+                RecoveredContour? contour = traced[i];
+                if (contour != null && contours.Count < options.MaximumCurves &&
+                    !contours.Any(existing => Math.Abs(existing.Level - contour.Level) < 1e-12 && SameStart(existing, contour)))
+                {
+                    contours.Add(contour);
+                    added++;
+                }
+                else if (AddSpot(fresh[i]))
+                {
+                    added++;
+                }
             }
 
-            lastWorstVertex = worstVertex;
+            // A vertex a contour was already traced through and still misses becomes a spot point.
+            foreach (int v in picks.Where(v => !fresh.Contains(v)))
+            {
+                if (AddSpot(v))
+                    added++;
+            }
+
+            if (added == 0)
+            {
+                termination = Termination.NoProgress;
+                diagnostic = FormattableString.Invariant($"The worst vertices could not be captured; a {worstDeviation:G4} miss is left.");
+                break;
+            }
         }
 
         return new Result
         {
             Borders = borders,
             Contours = contours,
+            LandformLines = landformLines,
             SpotPoints = spots.ToArray(),
             MaximumDeviation = double.IsFinite(worstDeviation) ? worstDeviation : double.NaN,
             Rounds = round,
             Termination = termination,
             Diagnostic = diagnostic
         };
+
+        bool AddSpot(int vertex)
+        {
+            if (!spotted.Add(vertex))
+                return false;
+            spots.Add(vertices[vertex * 3]);
+            spots.Add(vertices[vertex * 3 + 1]);
+            spots.Add(vertices[vertex * 3 + 2]);
+            return true;
+        }
+    }
+
+    /// <summary>
+    /// Up to <paramref name="count"/> vertices missing by more than the tolerance, worst first, each further than
+    /// <paramref name="radius"/> in plan from those already picked so they do not all land on one contour.
+    /// </summary>
+    private static List<int> PickWorst(double[] deviations, double[] vertices, double tolerance, int count, double radius)
+    {
+        var order = new List<int>();
+        for (int v = 0; v < deviations.Length; v++)
+        {
+            if (deviations[v] > tolerance)
+                order.Add(v);
+        }
+
+        order.Sort((a, b) => deviations[b].CompareTo(deviations[a]) != 0 ? deviations[b].CompareTo(deviations[a]) : a.CompareTo(b));
+        var picks = new List<int>(count);
+        double radiusSquared = radius * radius;
+        foreach (int v in order)
+        {
+            bool clear = picks.All(p =>
+                Sq(vertices[p * 3] - vertices[v * 3]) + Sq(vertices[p * 3 + 1] - vertices[v * 3 + 1]) > radiusSquared);
+            if (!clear)
+                continue;
+            picks.Add(v);
+            if (picks.Count >= count)
+                break;
+        }
+
+        return picks;
+    }
+
+    private static double PlanDiagonal(double[] vertices, int vertexCount)
+    {
+        double minX = double.PositiveInfinity, minY = double.PositiveInfinity;
+        double maxX = double.NegativeInfinity, maxY = double.NegativeInfinity;
+        for (int v = 0; v < vertexCount; v++)
+        {
+            minX = Math.Min(minX, vertices[v * 3]);
+            maxX = Math.Max(maxX, vertices[v * 3]);
+            minY = Math.Min(minY, vertices[v * 3 + 1]);
+            maxY = Math.Max(maxY, vertices[v * 3 + 1]);
+        }
+
+        return Math.Sqrt(Sq(maxX - minX) + Sq(maxY - minY));
+    }
+
+    /// <summary>
+    /// Offers each ridge and valley line, longest first, and keeps it only when it earns its length: the rebuild
+    /// with it must miss the terrain by less in total (summed excess over the tolerance) by at least one
+    /// tolerance (<see cref="LandformEarnFactor"/> of them) for each terrain vertex the line passes. A relative test (a share of the total) never passes
+    /// on a large rough terrain, where the border-only total is huge; this one asks the same of every line.
+    /// A line along a crease pays for itself many times; one along a smooth swale the contours will describe
+    /// anyway does not.
+    /// </summary>
+    private static List<double[]> SelectLandformLines(
+        double[] vertices,
+        int vertexCount,
+        MeshVertexAdjacency adjacency,
+        bool[] onBorder,
+        List<double[]> borders,
+        List<double> spots,
+        double verticalTolerance,
+        double planTolerance)
+    {
+        var accepted = new List<double[]>();
+        List<double[]> candidates = ExtractLandformLines(vertices, vertexCount, adjacency, onBorder)
+            .Select(line => SimplifyOpen(line, planTolerance, verticalTolerance))
+            .Where(line => line.Length >= 6 && PlanLength(line) > planTolerance * 10.0)
+            .OrderByDescending(PlanLength)
+            .Take(MaximumLandformCandidates)
+            .ToList();
+        if (candidates.Count == 0)
+            return accepted;
+
+        var noContours = new List<RecoveredContour>();
+        TinResult? baseline = Rebuild(borders, accepted, noContours, spots, planTolerance, out _);
+        if (baseline == null)
+            return accepted;
+        double excess = Excess(Deviations(vertices, vertexCount, baseline, verticalTolerance), verticalTolerance);
+        double cell = Math.Max(MeanSpacing(vertices, vertexCount), 1e-12);
+        foreach (double[] candidate in candidates)
+        {
+            if (excess <= 0.0)
+                break;
+            accepted.Add(candidate);
+            TinResult? trial = Rebuild(borders, accepted, noContours, spots, planTolerance, out _);
+            double trialExcess = trial == null
+                ? double.PositiveInfinity
+                : Excess(Deviations(vertices, vertexCount, trial, verticalTolerance), verticalTolerance);
+            double required = LandformEarnFactor * verticalTolerance * PlanLength(candidate) / cell;
+            if (excess - trialExcess >= required)
+                excess = trialExcess;
+            else
+                accepted.RemoveAt(accepted.Count - 1);
+        }
+
+        return accepted;
+    }
+
+    private const int MaximumLandformCandidates = 40;
+
+    /// <summary>
+    /// How many tolerances of summed miss a line must remove per terrain vertex along it. Measured on a
+    /// fractal 151 x 151 terrain: at 1 lines that saved nothing were kept; at 6 lines that saved contours on a
+    /// creased one began to be refused. Rough natural ground rarely pays for lines either way, which is why
+    /// mhTerrainToCurves can run both and keep the smaller result.
+    /// </summary>
+    private const double LandformEarnFactor = 3.0;
+
+    /// <summary>Typical plan spacing of the terrain's vertices: the side of the square each would own.</summary>
+    private static double MeanSpacing(double[] vertices, int vertexCount)
+    {
+        double minX = double.PositiveInfinity, minY = double.PositiveInfinity;
+        double maxX = double.NegativeInfinity, maxY = double.NegativeInfinity;
+        for (int v = 0; v < vertexCount; v++)
+        {
+            minX = Math.Min(minX, vertices[v * 3]);
+            maxX = Math.Max(maxX, vertices[v * 3]);
+            minY = Math.Min(minY, vertices[v * 3 + 1]);
+            maxY = Math.Max(maxY, vertices[v * 3 + 1]);
+        }
+
+        return Math.Sqrt((maxX - minX) * (maxY - minY) / Math.Max(vertexCount, 1));
+    }
+
+    private static double Excess(double[] deviations, double tolerance)
+    {
+        double sum = 0.0;
+        foreach (double deviation in deviations)
+        {
+            if (deviation > tolerance)
+                sum += deviation - tolerance;
+        }
+
+        return sum;
+    }
+
+    /// <summary>
+    /// Priority-flood depression filling of <paramref name="sign"/> x elevation, seeded from the border: each
+    /// vertex ends at least a hair above the neighbour it was reached from, so every interior vertex has a
+    /// strictly lower neighbour on the way out.
+    /// </summary>
+    private static void FillDepressions(double[] vertices, int vertexCount, MeshVertexAdjacency adjacency, bool[] onBorder, int sign, double[] filled)
+    {
+        var done = new bool[vertexCount];
+        var queue = new PriorityQueue<int, double>();
+        double scale = 0.0;
+        for (int v = 0; v < vertexCount; v++)
+            scale = Math.Max(scale, Math.Abs(vertices[v * 3 + 2]));
+        double epsilon = Math.Max(scale, 1.0) * 1e-9;
+        for (int v = 0; v < vertexCount; v++)
+        {
+            filled[v] = sign * vertices[v * 3 + 2];
+            if (onBorder[v])
+            {
+                done[v] = true;
+                queue.Enqueue(v, filled[v]);
+            }
+        }
+
+        while (queue.TryDequeue(out int current, out _))
+        {
+            foreach (int n in adjacency.NeighborsOf(current))
+            {
+                if (done[n])
+                    continue;
+                done[n] = true;
+                filled[n] = Math.Max(filled[n], filled[current] + epsilon);
+                queue.Enqueue(n, filled[n]);
+            }
+        }
+    }
+
+    private static double PlanLength(double[] line)
+    {
+        double length = 0.0;
+        for (int i = 3; i < line.Length; i += 3)
+            length += Math.Sqrt(Sq(line[i] - line[i - 3]) + Sq(line[i + 1] - line[i - 2]));
+        return length;
+    }
+
+    /// <summary>
+    /// Valley lines (where steepest-descent flow from enough vertices gathers) and ridge lines (the same on the
+    /// inverted terrain), as chains of terrain vertices in flat XYZ. Flow over a plain slope never gathers:
+    /// each vertex passes on only the column above it, a few times the square root of the vertex count at most,
+    /// so the threshold sits above that and only converging flow becomes a line. A line runs from its head down
+    /// to an outlet, the border, or the line it joins, so the network comes out as branches that share ends.
+    /// </summary>
+    internal static List<double[]> ExtractLandformLines(
+        double[] vertices,
+        int vertexCount,
+        MeshVertexAdjacency adjacency,
+        bool[] onBorder)
+    {
+        var lines = new List<double[]>();
+        double threshold = Math.Max(4.0 * Math.Sqrt(vertexCount), 16.0);
+        var receiver = new int[vertexCount];
+        var accumulation = new double[vertexCount];
+        var order = Enumerable.Range(0, vertexCount).ToArray();
+        var filled = new double[vertexCount];
+        foreach (int sign in new[] { 1, -1 })
+        {
+            // Priority-flood from the border: a sampled crease is not monotone along its length, and plain
+            // steepest descent stops in every false pit that leaves, breaking one line into short pieces.
+            // Filling raises each pit to just above its spill height, so flow always reaches the border.
+            FillDepressions(vertices, vertexCount, adjacency, onBorder, sign, filled);
+            for (int v = 0; v < vertexCount; v++)
+            {
+                receiver[v] = -1;
+                accumulation[v] = 1.0;
+                if (onBorder[v])
+                    continue;
+                double z = filled[v];
+                double steepest = 0.0;
+                foreach (int n in adjacency.NeighborsOf(v))
+                {
+                    double run = Math.Sqrt(Sq(vertices[n * 3] - vertices[v * 3]) + Sq(vertices[n * 3 + 1] - vertices[v * 3 + 1]));
+                    if (run <= 0.0)
+                        continue;
+                    double fall = (z - filled[n]) / run;
+                    if (fall > steepest)
+                    {
+                        steepest = fall;
+                        receiver[v] = n;
+                    }
+                }
+            }
+
+            Array.Sort(order, (a, b) => filled[b].CompareTo(filled[a]));
+            foreach (int v in order)
+            {
+                if (receiver[v] >= 0)
+                    accumulation[receiver[v]] += accumulation[v];
+            }
+
+            var upstream = new int[vertexCount];
+            for (int v = 0; v < vertexCount; v++)
+            {
+                if (accumulation[v] >= threshold && receiver[v] >= 0 && accumulation[receiver[v]] >= threshold)
+                    upstream[receiver[v]]++;
+            }
+
+            var visited = new bool[vertexCount];
+            foreach (int head in order)
+            {
+                if (accumulation[head] < threshold || upstream[head] != 0 || visited[head])
+                    continue;
+                var chain = new List<int> { head };
+                visited[head] = true;
+                int current = head;
+                while (receiver[current] >= 0)
+                {
+                    int next = receiver[current];
+                    if (accumulation[next] < threshold && !onBorder[next])
+                        break;
+                    chain.Add(next);
+                    if (visited[next] || onBorder[next])
+                        break;
+                    visited[next] = true;
+                    current = next;
+                }
+
+                if (chain.Count < 2)
+                    continue;
+                var xyz = new double[chain.Count * 3];
+                for (int i = 0; i < chain.Count; i++)
+                    Array.Copy(vertices, chain[i] * 3, xyz, i * 3, 3);
+                lines.Add(xyz);
+            }
+        }
+
+        return lines;
     }
 
     private static bool SameStart(RecoveredContour a, RecoveredContour b) =>
         Math.Abs(a.PointsXyz[0] - b.PointsXyz[0]) < 1e-9 && Math.Abs(a.PointsXyz[1] - b.PointsXyz[1]) < 1e-9;
 
     /// <summary>
-    /// The traced contour at <paramref name="level"/> passing nearest the vertex, simplified in plan. Null when
-    /// it is too small to keep (a peak's or pit's contour shrinks to a point), so the vertex becomes a spot.
+    /// For each vertex, the contour at its height passing nearest it, simplified in plan; every level is traced
+    /// in one pass over the terrain. Null where it is too small to keep (a peak's or pit's contour shrinks to a
+    /// point), so the vertex becomes a spot.
     /// </summary>
-    private static RecoveredContour? TraceContourThrough(IndexedTriMesh terrain, int vertex, double level, double planTolerance)
+    private static RecoveredContour?[] TraceContours(
+        IndexedTriMesh terrain,
+        List<int> picks,
+        double planTolerance,
+        double verticalTolerance,
+        Func<double, double, double?> terrainAt)
     {
+        var results = new RecoveredContour?[picks.Count];
+        if (picks.Count == 0)
+            return results;
         double[] vertices = terrain.Vertices;
-        double x = vertices[vertex * 3], y = vertices[vertex * 3 + 1];
 
         // A level exactly at a vertex makes every face meeting it a tie; nudge it off.
-        double nudge = Math.Max(Math.Abs(level), 1.0) * 1e-9;
-        List<ContourLevel> traced = ContourGenerator.Generate(terrain, new[] { level - nudge }, planTolerance * 1e-3);
-        ContourPolyline? nearest = null;
-        double nearestDistance = double.PositiveInfinity;
-        foreach (ContourLevel contourLevel in traced)
+        double[] levels = picks.Select(v => vertices[v * 3 + 2] - Math.Max(Math.Abs(vertices[v * 3 + 2]), 1.0) * 1e-9).ToArray();
+        List<ContourLevel> traced = ContourGenerator.Generate(terrain, levels, planTolerance * 1e-3);
+        for (int i = 0; i < picks.Count; i++)
         {
-            foreach (ContourPolyline polyline in contourLevel.Polylines)
+            int vertex = picks[i];
+            double level = vertices[vertex * 3 + 2];
+            double x = vertices[vertex * 3], y = vertices[vertex * 3 + 1];
+            ContourLevel? match = traced.FirstOrDefault(candidate => candidate.Z == levels[i]);
+            if (match == null)
+                continue;
+
+            ContourPolyline? nearest = null;
+            double nearestDistance = double.PositiveInfinity;
+            foreach (ContourPolyline polyline in match.Polylines)
             {
                 double distance = PlanDistanceToPolyline(polyline.PointsXyz, polyline.IsClosed, x, y);
                 if (distance < nearestDistance)
@@ -227,29 +577,31 @@ public static class TerrainCurveRecovery
                     nearest = polyline;
                 }
             }
+
+            if (nearest == null || nearestDistance > planTolerance * 4.0)
+                continue;
+
+            double[] points = nearest.PointsXyz;
+            if (nearest.IsClosed && points.Length >= 6 &&
+                Math.Abs(points[0] - points[^3]) < 1e-12 && Math.Abs(points[1] - points[^2]) < 1e-12)
+                points = points[..^3];
+
+            double[] simplified = nearest.IsClosed
+                ? SimplifyClosed(points, planTolerance, verticalTolerance, terrainAt)
+                : SimplifyOpen(points, planTolerance, verticalTolerance, terrainAt);
+            if (simplified.Length / 3 < (nearest.IsClosed ? 3 : 2))
+                continue;
+            for (int k = 2; k < simplified.Length; k += 3)
+                simplified[k] = level;
+            results[i] = new RecoveredContour { Level = level, PointsXyz = simplified, IsClosed = nearest.IsClosed };
         }
 
-        if (nearest == null || nearestDistance > planTolerance * 4.0)
-            return null;
-
-        double[] points = nearest.PointsXyz;
-        if (nearest.IsClosed && points.Length >= 6 &&
-            Math.Abs(points[0] - points[^3]) < 1e-12 && Math.Abs(points[1] - points[^2]) < 1e-12)
-            points = points[..^3];
-
-        double[] simplified = nearest.IsClosed
-            ? SimplifyClosed(points, planTolerance, double.PositiveInfinity)
-            : SimplifyOpen(points, planTolerance, double.PositiveInfinity);
-        int minimum = nearest.IsClosed ? 3 : 2;
-        if (simplified.Length / 3 < minimum)
-            return null;
-        for (int i = 2; i < simplified.Length; i += 3)
-            simplified[i] = level;
-        return new RecoveredContour { Level = level, PointsXyz = simplified, IsClosed = nearest.IsClosed };
+        return results;
     }
 
     private static TinResult? Rebuild(
         List<double[]> borders,
+        List<double[]> landformLines,
         List<RecoveredContour> contours,
         List<double> spots,
         double planTolerance,
@@ -301,6 +653,8 @@ public static class TerrainCurveRecovery
 
         foreach (double[] border in borders)
             AddChain(border, closed: true);
+        foreach (double[] line in landformLines)
+            AddChain(line, closed: false);
         foreach (RecoveredContour contour in contours)
             AddChain(contour.PointsXyz, contour.IsClosed);
         for (int i = 0; i < spots.Count; i += 3)
@@ -311,38 +665,26 @@ public static class TerrainCurveRecovery
             useConvexHull: false, includeEdgeTopology: false);
     }
 
-    private static (double Deviation, int Vertex) WorstVertex(double[] vertices, int vertexCount, TinResult rebuild, double tolerance)
+    /// <summary>The rebuild's vertical miss at every terrain vertex; 0 where the simplified border left it outside.</summary>
+    private static double[] Deviations(double[] vertices, int vertexCount, TinResult rebuild, double tolerance)
     {
         var projector = new MeshHeightProjector(rebuild.Vertices, rebuild.VertexCount, rebuild.Faces, rebuild.FaceCount);
-        double worst = 0.0;
-        int worstVertex = -1;
+        var deviations = new double[vertexCount];
         double lookup = tolerance * 1e-3;
         for (int v = 0; v < vertexCount; v++)
         {
             double x = vertices[v * 3], y = vertices[v * 3 + 1], zRef = vertices[v * 3 + 2];
             // A vertex the simplified border left outside is the border's plan tolerance at work, not a miss.
-            if (!projector.TryGetHeightExtremes(x, y, lookup, out double low, out double high))
-                continue;
-            double deviation = Math.Max(Math.Abs(zRef - low), Math.Abs(zRef - high));
-            if (deviation > worst)
-            {
-                worst = deviation;
-                worstVertex = v;
-            }
+            if (projector.TryGetHeightExtremes(x, y, lookup, out double low, out double high))
+                deviations[v] = Math.Max(Math.Abs(zRef - low), Math.Abs(zRef - high));
         }
 
-        return (worst, worstVertex);
+        return deviations;
     }
 
     /// <summary>Interior vertices higher (or lower) than every vertex within <paramref name="rings"/> rings.</summary>
-    private static List<int> FindExtrema(double[] vertices, int vertexCount, int[] faces, int faceCount, int rings, List<int[]> borderLoops)
+    private static List<int> FindExtrema(double[] vertices, int vertexCount, MeshVertexAdjacency adjacency, int rings, bool[] onBorder)
     {
-        var onBorder = new bool[vertexCount];
-        foreach (int[] loop in borderLoops)
-            foreach (int v in loop)
-                onBorder[v] = true;
-
-        MeshVertexAdjacency adjacency = MeshVertexAdjacency.Build(new List<int>(faces[..(faceCount * 3)]), faceCount, vertexCount);
         var extrema = new List<int>();
         var visited = new Dictionary<int, int>();
         var frontier = new List<int>();
@@ -424,9 +766,12 @@ public static class TerrainCurveRecovery
     /// Douglas–Peucker on a closed loop (first point not repeated): split at the point farthest from the
     /// first, simplify both halves, rejoin. A point is kept when it lies further than
     /// <paramref name="planTolerance"/> from the chord in plan or further than
-    /// <paramref name="verticalTolerance"/> from the chord's height at that point.
+    /// <paramref name="verticalTolerance"/> from the chord's height at that point — or, given
+    /// <paramref name="terrainAt"/>, when the terrain under the chord there is further than that from the
+    /// chord's height, which is what a contour simplified across steep ground gets wrong.
     /// </summary>
-    internal static double[] SimplifyClosed(double[] loop, double planTolerance, double verticalTolerance)
+    internal static double[] SimplifyClosed(double[] loop, double planTolerance, double verticalTolerance,
+        Func<double, double, double?>? terrainAt = null)
     {
         int count = loop.Length / 3;
         if (count <= 3)
@@ -448,8 +793,8 @@ public static class TerrainCurveRecovery
         double[] wrapped = new double[(count + 1) * 3];
         Array.Copy(loop, wrapped, loop.Length);
         Array.Copy(loop, 0, wrapped, count * 3, 3);
-        Mark(wrapped, 0, far, planTolerance, verticalTolerance, keep);
-        Mark(wrapped, far, count, planTolerance, verticalTolerance, keep);
+        Mark(wrapped, 0, far, planTolerance, verticalTolerance, terrainAt, keep);
+        Mark(wrapped, far, count, planTolerance, verticalTolerance, terrainAt, keep);
         var output = new List<double>();
         for (int i = 0; i < count; i++)
         {
@@ -463,14 +808,15 @@ public static class TerrainCurveRecovery
         return output.ToArray();
     }
 
-    internal static double[] SimplifyOpen(double[] points, double planTolerance, double verticalTolerance)
+    internal static double[] SimplifyOpen(double[] points, double planTolerance, double verticalTolerance,
+        Func<double, double, double?>? terrainAt = null)
     {
         int count = points.Length / 3;
         if (count <= 2)
             return (double[])points.Clone();
         var keep = new bool[count];
         keep[0] = keep[count - 1] = true;
-        Mark(points, 0, count - 1, planTolerance, verticalTolerance, keep);
+        Mark(points, 0, count - 1, planTolerance, verticalTolerance, terrainAt, keep);
         var output = new List<double>();
         for (int i = 0; i < count; i++)
         {
@@ -484,7 +830,8 @@ public static class TerrainCurveRecovery
         return output.ToArray();
     }
 
-    private static void Mark(double[] points, int first, int last, double planTolerance, double verticalTolerance, bool[] keep)
+    private static void Mark(double[] points, int first, int last, double planTolerance, double verticalTolerance,
+        Func<double, double, double?>? terrainAt, bool[] keep)
     {
         var stack = new Stack<(int First, int Last)>();
         stack.Push((first, last));
@@ -501,6 +848,10 @@ public static class TerrainCurveRecovery
             {
                 double plan = PlanDistanceToSegment(points[i * 3], points[i * 3 + 1], ax, ay, bx, by, out double t);
                 double vertical = Math.Abs(points[i * 3 + 2] - (az + (bz - az) * t));
+                double chordZ = az + (bz - az) * t;
+                if (terrainAt != null &&
+                    terrainAt(ax + (bx - ax) * t, ay + (by - ay) * t) is { } ground)
+                    vertical = Math.Max(vertical, Math.Abs(ground - chordZ));
                 double score = Math.Max(plan / planTolerance,
                     double.IsPositiveInfinity(verticalTolerance) ? 0.0 : vertical / verticalTolerance);
                 if (score > worstScore)
@@ -522,6 +873,7 @@ public static class TerrainCurveRecovery
     {
         Borders = Array.Empty<double[]>(),
         Contours = Array.Empty<RecoveredContour>(),
+        LandformLines = Array.Empty<double[]>(),
         SpotPoints = Array.Empty<double>(),
         MaximumDeviation = double.NaN,
         Rounds = 0,

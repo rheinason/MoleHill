@@ -104,4 +104,67 @@ public sealed class TerrainCurveRecoveryTests
 
         Assert.Equal(5, simplified.Length / 3);
     }
+
+    private static double Crease(double y) => 20.0 + 6.0 * Math.Sin(y * 0.15);
+
+    [Fact]
+    public void Recover_CreaseOnMeshEdges_ValleyLineSavesContours()
+    {
+        // A valley floor along the x = 20 grid column whose height undulates, as a breakline-built TIN would
+        // have it: the border cannot describe it, and every contour would kink across it.
+        IndexedTriMesh valley = Grid(40, (x, y) => 2.0 * Math.Sin(y * 0.2) + 0.3 * Math.Abs(x - 20));
+
+        TerrainCurveRecovery.Result withLines = TerrainCurveRecovery.Recover(
+            valley, new TerrainCurveRecovery.Options { VerticalTolerance = 0.05, PlanTolerance = 0.1 });
+        TerrainCurveRecovery.Result withoutLines = TerrainCurveRecovery.Recover(
+            valley, new TerrainCurveRecovery.Options { VerticalTolerance = 0.05, PlanTolerance = 0.1, LandformLines = false });
+
+        Assert.Equal(TerrainCurveRecovery.Termination.ToleranceSatisfied, withLines.Termination);
+        Assert.Contains(withLines.LandformLines, line =>
+            Enumerable.Range(0, line.Length / 3).All(i => Math.Abs(line[i * 3] - 20.0) < 1e-9));
+        Assert.True(withLines.Contours.Count + withLines.LandformLines.Count < withoutLines.Contours.Count,
+            $"{withLines.LandformLines.Count} lines + {withLines.Contours.Count} contours vs {withoutLines.Contours.Count} contours");
+    }
+
+    [Fact]
+    public void ExtractLandformLines_MeanderingRidge_FollowsTheCrest()
+    {
+        IndexedTriMesh ridge = Grid(40, (x, y) => 10.0 - 0.2 * Math.Abs(x - Crease(y)) + 0.05 * y);
+        (double[] vertices, int vertexCount, int[] faces, int faceCount) = ridge;
+        var adjacency = MeshVertexAdjacency.Build(new List<int>(faces), faceCount, vertexCount);
+        var onBorder = new bool[vertexCount];
+        for (int v = 0; v < vertexCount; v++)
+            onBorder[v] = vertices[v * 3] == 0 || vertices[v * 3] == 40 || vertices[v * 3 + 1] == 0 || vertices[v * 3 + 1] == 40;
+
+        List<double[]> lines = TerrainCurveRecovery.ExtractLandformLines(vertices, vertexCount, adjacency, onBorder);
+
+        double[] longest = lines.OrderByDescending(line => line.Length).First();
+        Assert.True(longest.Length / 3 >= 20, $"{longest.Length / 3} points");
+        for (int i = 0; i < longest.Length; i += 3)
+            Assert.True(Math.Abs(longest[i] - Crease(longest[i + 1])) <= 1.5, $"({longest[i]}, {longest[i + 1]}) is off the crest");
+    }
+
+    [Fact]
+    public void Recover_PlainSlope_OffersNoLandformLines()
+    {
+        TerrainCurveRecovery.Result result = TerrainCurveRecovery.Recover(
+            Grid(40, (x, y) => 0.1 * x + 0.03 * y), new TerrainCurveRecovery.Options { VerticalTolerance = 0.01 });
+
+        Assert.Empty(result.LandformLines);
+    }
+
+    [Fact]
+    public void Recover_SeveralContoursPerRound_StillMeetsTolerance()
+    {
+        IndexedTriMesh hills = Grid(60, (x, y) => 4.0 * Math.Sin(x * 0.15) * Math.Cos(y * 0.11) + 0.05 * x);
+
+        TerrainCurveRecovery.Result single = TerrainCurveRecovery.Recover(
+            hills, new TerrainCurveRecovery.Options { VerticalTolerance = 0.1, PlanTolerance = 0.2, ContoursPerRound = 1 });
+        TerrainCurveRecovery.Result batched = TerrainCurveRecovery.Recover(
+            hills, new TerrainCurveRecovery.Options { VerticalTolerance = 0.1, PlanTolerance = 0.2, ContoursPerRound = 4 });
+
+        Assert.Equal(TerrainCurveRecovery.Termination.ToleranceSatisfied, batched.Termination);
+        Assert.True(batched.MaximumDeviation <= 0.1);
+        Assert.True(batched.Rounds < single.Rounds, $"{batched.Rounds} batched rounds vs {single.Rounds}");
+    }
 }

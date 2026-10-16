@@ -59,6 +59,7 @@ internal static class TerrainToCurvesCommandService
             double tolerance = CommandOptionCache.GetLength(toleranceKey, unitContext, 0.1);
             double planTolerance = CommandOptionCache.GetLength(planKey, unitContext, 0.25);
             int maxCurves = CommandOptionCache.GetValue("MoleHill.TerrainToCurves.MaxCurves", 200);
+            int linesIndex = CommandOptionCache.GetValue("MoleHill.TerrainToCurves.RidgesValleys", 0);
             while (true)
             {
                 var options = new GetOption();
@@ -70,12 +71,17 @@ internal static class TerrainToCurvesCommandService
                 options.AddOptionDouble("Tolerance", ref toleranceOption);
                 options.AddOptionDouble("PlanTolerance", ref planOption);
                 options.AddOptionInteger("MaxContours", ref budgetOption);
+                int linesOption = options.AddOptionList("RidgesValleys", LandformLabels, Math.Clamp(linesIndex, 0, 2));
                 GetResult result = options.Get();
                 tolerance = toleranceOption.CurrentValue;
                 planTolerance = planOption.CurrentValue;
                 maxCurves = budgetOption.CurrentValue;
                 if (result == GetResult.Option)
+                {
+                    if (options.OptionIndex() == linesOption)
+                        linesIndex = options.Option().CurrentListOptionIndex;
                     continue;
+                }
                 if (result != GetResult.Nothing)
                     return options.CommandResult();
                 break;
@@ -84,6 +90,7 @@ internal static class TerrainToCurvesCommandService
             CommandOptionCache.SetLength(toleranceKey, unitContext, tolerance);
             CommandOptionCache.SetLength(planKey, unitContext, planTolerance);
             CommandOptionCache.SetValue("MoleHill.TerrainToCurves.MaxCurves", maxCurves);
+            CommandOptionCache.SetValue("MoleHill.TerrainToCurves.RidgesValleys", linesIndex);
 
             if (!RhinoGeometryConversions.TryExtractMesh(mesh, out IndexedTriMesh terrainMesh, out string? meshError))
             {
@@ -97,19 +104,40 @@ internal static class TerrainToCurvesCommandService
             TerrainCurveRecovery.Result recovery;
             try
             {
-                recovery = TerrainCurveRecovery.Recover(terrainMesh, new TerrainCurveRecovery.Options
-                {
-                    VerticalTolerance = tolerance,
-                    PlanTolerance = planTolerance,
-                    MaximumCurves = maxCurves,
-                    ShouldCancel = () => cancelled,
-                    ReportProgress = (round, worst) =>
+                TerrainCurveRecovery.Result Run(bool landformLines, string pass) =>
+                    TerrainCurveRecovery.Recover(terrainMesh, new TerrainCurveRecovery.Options
                     {
-                        RhinoApp.SetCommandPrompt(
-                            $"Round {round}: worst miss {worst.ToString("G4", CultureInfo.InvariantCulture)} (Esc stops and keeps the curves so far)");
-                        RhinoApp.Wait();
+                        VerticalTolerance = tolerance,
+                        PlanTolerance = planTolerance,
+                        MaximumCurves = maxCurves,
+                        LandformLines = landformLines,
+                        ShouldCancel = () => cancelled,
+                        ReportProgress = (round, worst) =>
+                        {
+                            RhinoApp.SetCommandPrompt(
+                                $"{pass}round {round}: worst miss {worst.ToString("G4", CultureInfo.InvariantCulture)} (Esc stops and keeps the curves so far)");
+                            RhinoApp.Wait();
+                        }
+                    });
+
+                // Auto runs with and without ridge and valley lines and keeps whichever needs fewer curves:
+                // lines save contours on creased ground and rarely on rough natural ground.
+                if (linesIndex == 0)
+                {
+                    TerrainCurveRecovery.Result withLines = Run(true, "With ridges and valleys, ");
+                    TerrainCurveRecovery.Result withoutLines = cancelled ? withLines : Run(false, "Contours only, ");
+                    recovery = Better(withLines, withoutLines);
+                    if (!cancelled)
+                    {
+                        RhinoApp.WriteLine(
+                            $"Ridges and valleys: {CurveCount(withLines)} curves with them, {CurveCount(withoutLines)} without; " +
+                            (ReferenceEquals(recovery, withLines) ? "kept them." : "left them out."));
                     }
-                });
+                }
+                else
+                {
+                    recovery = Run(linesIndex == 1, string.Empty);
+                }
             }
             finally
             {
@@ -124,13 +152,30 @@ internal static class TerrainToCurvesCommandService
 
             int added = AddOutput(doc, recovery);
             RhinoApp.WriteLine(
-                $"Terrain to curves: {recovery.Borders.Count} border(s), {recovery.Contours.Count} contour(s), " +
+                $"Terrain to curves: {recovery.Borders.Count} border(s), {recovery.LandformLines.Count} ridge/valley line(s), {recovery.Contours.Count} contour(s), " +
                 $"{recovery.SpotPointCount} spot point(s) from {terrainMesh.VertexCount:N0} vertices; worst miss " +
                 $"{recovery.MaximumDeviation.ToString("G4", CultureInfo.InvariantCulture)} at a terrain vertex. " +
                 recovery.Diagnostic);
             doc.Views.Redraw();
             return added > 0 ? Result.Success : Result.Failure;
         }
+    }
+
+    private static readonly string[] LandformLabels = { "Auto", "Yes", "No" };
+
+    private static int CurveCount(TerrainCurveRecovery.Result result) =>
+        result.Contours.Count + result.LandformLines.Count;
+
+    /// <summary>The result within tolerance over one that is not; then fewer curves; then fewer spot points.</summary>
+    private static TerrainCurveRecovery.Result Better(TerrainCurveRecovery.Result a, TerrainCurveRecovery.Result b)
+    {
+        bool aMet = a.Termination == TerrainCurveRecovery.Termination.ToleranceSatisfied;
+        bool bMet = b.Termination == TerrainCurveRecovery.Termination.ToleranceSatisfied;
+        if (aMet != bMet)
+            return aMet ? a : b;
+        if (CurveCount(a) != CurveCount(b))
+            return CurveCount(a) < CurveCount(b) ? a : b;
+        return a.SpotPointCount <= b.SpotPointCount ? a : b;
     }
 
     /// <summary>Adds the curves and points to the current layer, named by role, grouped, in one undo step.</summary>
@@ -142,6 +187,9 @@ internal static class TerrainToCurvesCommandService
         {
             foreach (double[] border in recovery.Borders)
                 ids.Add(doc.Objects.AddPolyline(ToPoints(border, close: true), new ObjectAttributes { Name = "Border" }));
+
+            foreach (double[] line in recovery.LandformLines)
+                ids.Add(doc.Objects.AddPolyline(ToPoints(line, close: false), new ObjectAttributes { Name = "Ridge or valley" }));
 
             foreach (TerrainCurveRecovery.RecoveredContour contour in recovery.Contours)
             {
