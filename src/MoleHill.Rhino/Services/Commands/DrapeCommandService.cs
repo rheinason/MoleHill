@@ -258,7 +258,7 @@ internal static class DrapeCommandService
             {
                 e.Display.DrawPoint(firstPoint, TrackingColor);
                 e.Display.DrawPoint(secondPoint, TrackingColor);
-                Curve? candidate = Build(out _, out _);
+                Curve? candidate = Build(out string? _, out CurveDrapeResult? _);
                 if (candidate == null)
                     return;
                 e.Display.DrawCurve(candidate, TrackingColor, 2);
