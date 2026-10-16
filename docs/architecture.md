@@ -165,8 +165,14 @@ TriangleNet (vendored)  ←  MoleHill.Core  ←  MoleHill.Grasshopper (GH host)
   `Layer`) is offered both while picking and while reviewing, and changing a search input during review
   searches again. `MinRadius` (default 10 m; 0 keeps a polyline) rounds the corners with tangent arcs,
   and the kept curve is then one degree-2 NURBS of straights and exact plan arcs, which Grade Path and
-  the curve commands discretise like any other curve; a corner whose segments are too short takes the
-  largest radius that fits and the readout says how many. `Layer` is the current layer or one picked in
+  the curve commands discretise like any other curve. The radius is a requirement: the plan is first
+  consolidated (corners dropped or merged within 5% of the search's cost), then every corner is given
+  room whatever the earthwork costs; only a corner no edit can give room on the terrain (a waypoint on a
+  hillside, a reversal) stays tight, and the readout says how many. The profile is thinned to 0.1 m
+  (`RouteSuggestionSettings.ProfileToleranceMeters`), not to millimetres, and the automatic cell is a
+  two-hundredth of the routed distance, so a route reads as straights and bends rather than sub-metre
+  staircases. The review overlay draws every route before any number, and spreads the numbers along
+  their routes, so a dot is never under another route. `Layer` is the current layer or one picked in
   Rhino's layer dialog, remembered by layer id per document for the session and dropped back to Current
   when that layer is deleted. Each kept curve carries its readout (length, max/mean grade in the user's
   slope unit, cut/fill over the corridor width, smallest radius) in its name and `MoleHill.Route.*`

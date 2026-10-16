@@ -404,10 +404,10 @@ internal sealed class CurveReviewForm : Form
             ("3D length", Number(a.Length3d, unit), string.Empty),
             ("Start elevation", Number(a.StartElevation, unit), Station(0.0)),
             ("End elevation", Number(a.EndElevation, unit), Station(a.PlanLength)),
-            ("Minimum grade", Percent(a.MinimumGrade), string.Empty),
-            ("Maximum grade", Percent(a.MaximumGrade), string.Empty),
-            ("Average grade", Percent(a.AverageGrade), "weighted"),
-            ("Steepest grade", Percent(a.SteepestGrade), Station(a.SteepestGradeStation)),
+            ("Minimum grade", CurveReviewGradeText.Signed(a.MinimumGrade), string.Empty),
+            ("Maximum grade", CurveReviewGradeText.Signed(a.MaximumGrade), string.Empty),
+            ("Average grade", CurveReviewGradeText.Signed(a.AverageGrade), "weighted"),
+            ("Steepest grade", CurveReviewGradeText.Signed(a.SteepestGrade), Station(a.SteepestGradeStation)),
             ("Reversals", a.ReversalCount.ToString(CultureInfo.CurrentCulture), "crest / sag"),
             ("Kinks (G1)", a.KinkCount.ToString(CultureInfo.CurrentCulture), string.Empty),
             ("Min plan radius", a.PlanCornerCount > 0
@@ -744,8 +744,6 @@ internal sealed class CurveReviewForm : Form
 
     private static string Number(double value, string unit) =>
         double.IsFinite(value) ? Invariant($"{value:F2} {unit}").TrimEnd() : "n/a";
-
-    private static string Percent(double value) => double.IsFinite(value) ? Invariant($"{value:+0.00;-0.00;0.00}%") : "n/a";
 
     private static string Station(double station) => double.IsFinite(station) ? Invariant($"Sta {station:F0}") : string.Empty;
 

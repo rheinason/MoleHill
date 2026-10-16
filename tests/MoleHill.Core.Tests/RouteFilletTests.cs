@@ -148,7 +148,9 @@ public sealed class RouteFilletTests
         AssertContiguousAndTangent(pieces);
         double drawn = pieces.Sum(piece => piece.Length);
         double sharp = PlanFillet.Fillet(plan, 0.0, out _, out _).Sum(piece => piece.Length);
-        Assert.True(drawn <= sharp * (1 + PlanRadiusSimplifier.CostTolerance), "On level ground cost is length: the curve may not run longer than allowed.");
+        // On level ground cost is length, and the cheapest way to give the bend room is the merged curve:
+        // no longer than a 16-connected grid path's own slack (2.7%) over the line it was drawn from.
+        Assert.True(drawn <= sharp * 1.027, "On level ground the merged curve may not run longer than the search's resolution.");
     }
 
     [Fact]

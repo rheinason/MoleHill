@@ -213,7 +213,7 @@ internal static class RouteSuggestionCommandService
 
                         resultGradeLimit = Math.Abs(options.MaxGrade.Ratio);
                         RouteRequest request = settings.ToRequest(
-                            plan, resultGradeLimit, Math.Max(doc.ModelAbsoluteTolerance, 0.01 * cell));
+                            plan, resultGradeLimit, Math.Max(doc.ModelAbsoluteTolerance, units.FromMeters(RouteSuggestionSettings.ProfileToleranceMeters)));
                         var watch = Stopwatch.StartNew();
                         result = Solve(mesh, (minX, minY, maxX, maxY), cell, ref grid, request);
                         if (result == null)

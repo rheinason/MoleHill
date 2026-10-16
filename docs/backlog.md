@@ -679,6 +679,14 @@ Blender's sharpening/detail filters and terrain-processing workflows.
 
 ### B21 — Suggested routes between picked points — **shipped**
 
+**Follow-up 2026-10-16** (user report): on rolling ground the defaults gave sub-metre segments and corners
+of 0.1–2 m under a 10 m minimum radius, the number dots sat under other routes, and a route read 17.6% in
+Inspect. Fixed: radius is a requirement (consolidate within 5%, then give every corner room at any cost),
+profile thinned to 0.1 m, automatic cell = span/200, numbers drawn last and spread along the routes, and
+Inspect writes grades in the slope unit (the 17.6% is tan 10°: a degree limit read as percent — the likely
+cause, unconfirmed against the user's file). `RouteHillySiteTests` holds the case. Not yet live-tested in
+Rhino: the user's Rhino held the build output.
+
 **Shipped 2026-10-16** as `mhSuggestRoute`: A* over a sampled height grid with a hard max grade, distance /
 steepness / earthworks weights, up to three distinct alternatives, a grade-limited profile, a minimum plan
 radius and a Layer option. Short straightened segments left 9–11 corners under the

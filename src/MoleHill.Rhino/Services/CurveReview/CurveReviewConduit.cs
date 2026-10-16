@@ -246,7 +246,7 @@ internal sealed class CurveReviewConduit : DisplayConduit
         e.Display.DrawPoint(sample.Point, PointStyle.RoundControlPoint, Scale(10), LabelTextColor);
         e.Display.DrawDot(
             labelPoint,
-            Format($"Sta {sample.Station:F1}  Z {sample.Point.Z:F2}  grade {GradeAt(analysis, index):+0.00;-0.00;0.00}%"),
+            Format($"Sta {sample.Station:F1}  Z {sample.Point.Z:F2}  grade {CurveReviewGradeText.Signed(GradeAt(analysis, index))}"),
             GradeDotColor,
             LabelTextColor);
     }

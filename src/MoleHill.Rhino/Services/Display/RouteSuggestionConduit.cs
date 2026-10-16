@@ -8,7 +8,7 @@ namespace MoleHill.Rhino.Services;
 
 /// <summary>
 /// The review overlay for suggested routes: each alternative in its own categorical colour, labelled with
-/// its number at mid-length. Drawn as an overlay rather than in the scene because a route lies on the
+/// its number part-way along. Drawn as an overlay rather than in the scene because a route lies on the
 /// ground by design, and depth-tested it would flicker in and out of the terrain mesh.
 /// </summary>
 internal sealed class RouteSuggestionConduit : DisplayConduit
@@ -60,14 +60,21 @@ internal sealed class RouteSuggestionConduit : DisplayConduit
             // Back to front, so route 1 — the best — is drawn last and stays on top where routes share ground.
             for (int index = _routes.Count - 1; index >= 0; index--)
             {
+                if (_routes[index].Count >= 2)
+                    e.Display.DrawPolyline(_routes[index], RouteColor(index), RouteWidth);
+            }
+
+            // Every number after every line: drawn with its own route, a dot was painted over by the routes
+            // drawn after it, and the numbers were what told the routes apart.
+            for (int index = _routes.Count - 1; index >= 0; index--)
+            {
                 Polyline route = _routes[index];
                 if (route.Count < 2)
                     continue;
 
                 Color color = RouteColor(index);
-                e.Display.DrawPolyline(route, color, RouteWidth);
-                Point3d label = MidLengthPoint(route);
-                e.Display.DrawDot(label, (index + 1).ToString(System.Globalization.CultureInfo.InvariantCulture), color, LabelTextColor);
+                double along = (index + 1.0) / (_routes.Count + 1.0);
+                e.Display.DrawDot(PointAlong(route, along), (index + 1).ToString(System.Globalization.CultureInfo.InvariantCulture), color, LabelTextColor);
             }
 
             foreach (Point3d point in _picked)
@@ -80,15 +87,20 @@ internal sealed class RouteSuggestionConduit : DisplayConduit
         }
     }
 
-    private static Point3d MidLengthPoint(Polyline route)
+    /// <summary>
+    /// The point a share of the way along the route. Each route's number sits at a different share
+    /// (a quarter, a half, three quarters for three), so routes that run together do not stack their
+    /// numbers on one spot.
+    /// </summary>
+    private static Point3d PointAlong(Polyline route, double share)
     {
-        double half = route.Length * 0.5;
+        double target = route.Length * share;
         double walked = 0.0;
         for (int i = 1; i < route.Count; i++)
         {
             double segment = route[i - 1].DistanceTo(route[i]);
-            if (walked + segment >= half && segment > 0.0)
-                return route[i - 1] + ((route[i] - route[i - 1]) * ((half - walked) / segment));
+            if (walked + segment >= target && segment > 0.0)
+                return route[i - 1] + ((route[i] - route[i - 1]) * ((target - walked) / segment));
             walked += segment;
         }
 

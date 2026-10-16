@@ -11,14 +11,15 @@ namespace MoleHill.Core.Routing;
 /// apart until it has room.
 /// </summary>
 /// <remarks>
-/// <para>Every segment without room is priced at its cheapest edit, and the cheapest of those is made
-/// first, so the budget goes as far as it can and a spot no affordable edit can fix does not spend it.
+/// <para>Two passes. First the plan is consolidated: corners are dropped or merged, cheapest first, while
+/// the rounded leg stays within <see cref="ConsolidateTolerance"/> of the cost the search settled on. Then
+/// every segment without room for its corners is edited, cheapest first, whatever it costs: the minimum
+/// radius is a requirement, like the maximum grade, and a radius quietly given up for a cost of a few
+/// percent read as the option not working (2026-10-16). Only an edit that leaves the terrain is refused.
 /// An edit is priced as the leg will be drawn — rounded, exactly as <see cref="PlanFillet"/> rounds it —
 /// by the same <see cref="RouteCost"/> the straightening used, and is never taken where the rounded leg
-/// would leave the terrain (at the straightening's ground weight). Edits stop when the cheapest one left
-/// would make the leg more than <see cref="CostTolerance"/> dearer than the dearer of the sharp polyline
-/// the straightening settled on and its plain rounding. A segment still without room keeps its corners
-/// at the largest radius that fits — a tight corner the caller reports.</para>
+/// would leave the terrain (at the straightening's ground weight). A segment no edit can give room keeps
+/// its corners at the largest radius that fits — a tight corner the caller reports.</para>
 /// <para>Pricing is local. A corner's fillet depends on the vertices two either side of it, so an edit
 /// changes only the corners and segments within a few vertices of it, and only those are priced; a
 /// segment is sampled once into running totals (<see cref="Chord"/>) and an arc once per shape, so
@@ -29,12 +30,12 @@ namespace MoleHill.Core.Routing;
 internal static class PlanRadiusSimplifier
 {
     /// <summary>
-    /// How much dearer than the route the search settled on the simplified, rounded leg may be: 2.7%,
-    /// the most a 16-connected grid path can run longer than the straight line it stands for (a bearing
-    /// halfway between a straight and a knight move). Costs closer than that are within the search's own
-    /// resolution, so the search could as well have drawn either.
+    /// How much dearer than the route the search settled on dropping and merging corners may make the leg
+    /// before the radius is given room. A line the search drew to follow every fold of the ground turns
+    /// often at small angles; 5% buys most of the bends a designer would not draw without straying from
+    /// the ground the search chose (measured: 20% removed only a few more on a hilly 300 m route).
     /// </summary>
-    internal const double CostTolerance = 0.027;
+    internal const double ConsolidateTolerance = 0.05;
 
     private const double StraightTolerance = 1e-6;
     private const double ReversalTolerance = 1e-3;
@@ -75,54 +76,63 @@ internal static class PlanRadiusSimplifier
 
         var points = new List<(double X, double Y)>(plan);
         Rounding current = pricer.Round(points);
-        double allowance = Math.Max(sharp, current.Total) * (1.0 + CostTolerance);
+        // First consolidate: drop or merge corners while the rounded leg stays within ConsolidateTolerance
+        // of the cost the search settled on, so a line that wiggles to follow every fold of the ground
+        // becomes a few bends. Then make room: the radius is a requirement, like the grade, so corners are
+        // given room whatever it costs, short of leaving the terrain.
+        RunEdits(consolidate: true, Math.Max(sharp, current.Total) * (1.0 + ConsolidateTolerance));
+        RunEdits(consolidate: false, double.PositiveInfinity);
 
-        // The cheapest edit found for each segment, by the segment's first vertex; null until priced.
-        var cheapest = new List<Priced?>(new Priced?[points.Count]);
-        var slid = new List<bool>(new bool[points.Count]);
-        var candidate = new List<(double X, double Y)>(points.Count);
-        for (int round = 0; round < MaxEditsPerVertex * plan.Count; round++)
+        void RunEdits(bool consolidate, double allowance)
         {
-            double headroom = allowance - current.Total;
-            int chosen = -1;
-            for (int j = 0; j < points.Count - 1; j++)
+            // The cheapest edit found for each segment, by the segment's first vertex; null until priced.
+            var cheapest = new List<Priced?>(new Priced?[points.Count]);
+            var slid = new List<bool>(new bool[points.Count]);
+            var candidate = new List<(double X, double Y)>(points.Count);
+            for (int round = 0; round < MaxEditsPerVertex * plan.Count; round++)
             {
-                if (!Overfilled(points, j, radius))
-                    continue;
+                double headroom = allowance - current.Total;
+                int chosen = -1;
+                for (int j = 0; j < points.Count - 1; j++)
+                {
+                    if (!Overfilled(points, j, radius))
+                        continue;
 
-                // A segment found unaffordable is priced again only if an edit has since made room.
-                if (cheapest[j] is not Priced known || (double.IsPositiveInfinity(known.Delta) && known.Headroom < headroom))
-                    cheapest[j] = Cheapest(pricer, points, current, slid, j, headroom, candidate);
-                if (cheapest[j]!.Value.Delta < (chosen < 0 ? double.PositiveInfinity : cheapest[chosen]!.Value.Delta))
-                    chosen = j;
+                    // A segment found unaffordable is priced again only if an edit has since made room.
+                    if (cheapest[j] is not Priced known || (double.IsPositiveInfinity(known.Delta) && known.Headroom < headroom))
+                        cheapest[j] = Cheapest(pricer, points, current, slid, j, headroom, candidate, consolidate);
+                    if (cheapest[j]!.Value.Delta < (chosen < 0 ? double.PositiveInfinity : cheapest[chosen]!.Value.Delta))
+                        chosen = j;
+                }
+
+                if (chosen < 0 || !(cheapest[chosen]!.Value.Delta <= headroom))
+                    break;
+
+                Edit edit = cheapest[chosen]!.Value.Edit;
+                Apply(points, edit, candidate);
+                points.Clear();
+                points.AddRange(candidate);
+                current = pricer.Round(points);
+
+                cheapest.RemoveRange(edit.First, edit.Remove);
+                cheapest.InsertRange(edit.First, new Priced?[edit.Count]);
+                bool slide = edit.Count == edit.Remove;
+                slid.RemoveRange(edit.First, edit.Remove);
+                slid.InsertRange(edit.First, Enumerable.Repeat(slide, edit.Count));
+                int from = Math.Max(0, edit.First - PriceReach);
+                int to = Math.Min(cheapest.Count - 1, edit.First + edit.Count + PriceReach);
+                for (int j = from; j <= to; j++)
+                    cheapest[j] = null;
+
+                // Prices further on still hold, but their edits name vertices that have moved along.
+                int shift = edit.Count - edit.Remove;
+                for (int j = to + 1; j < cheapest.Count && shift != 0; j++)
+                {
+                    if (cheapest[j] is Priced kept)
+                        cheapest[j] = kept with { Edit = kept.Edit with { First = kept.Edit.First + shift } };
+                }
             }
 
-            if (chosen < 0 || !(cheapest[chosen]!.Value.Delta <= headroom))
-                break;
-
-            Edit edit = cheapest[chosen]!.Value.Edit;
-            Apply(points, edit, candidate);
-            points.Clear();
-            points.AddRange(candidate);
-            current = pricer.Round(points);
-
-            cheapest.RemoveRange(edit.First, edit.Remove);
-            cheapest.InsertRange(edit.First, new Priced?[edit.Count]);
-            bool slide = edit.Count == edit.Remove;
-            slid.RemoveRange(edit.First, edit.Remove);
-            slid.InsertRange(edit.First, Enumerable.Repeat(slide, edit.Count));
-            int from = Math.Max(0, edit.First - PriceReach);
-            int to = Math.Min(cheapest.Count - 1, edit.First + edit.Count + PriceReach);
-            for (int j = from; j <= to; j++)
-                cheapest[j] = null;
-
-            // Prices further on still hold, but their edits name vertices that have moved along.
-            int shift = edit.Count - edit.Remove;
-            for (int j = to + 1; j < cheapest.Count && shift != 0; j++)
-            {
-                if (cheapest[j] is Priced kept)
-                    cheapest[j] = kept with { Edit = kept.Edit with { First = kept.Edit.First + shift } };
-            }
         }
 
         // A slide or merge can leave a vertex with no turn at it between two corners that fill the
@@ -148,11 +158,16 @@ internal static class PlanRadiusSimplifier
         List<bool> slid,
         int segment,
         double headroom,
-        List<(double X, double Y)> candidate)
+        List<(double X, double Y)> candidate,
+        bool consolidate)
     {
         var best = new Priced(double.PositiveInfinity, default, headroom);
         foreach (Edit edit in Edits(points, segment, pricer.Radius))
         {
+            // Consolidating only takes corners away; a slide keeps them all.
+            if (consolidate && edit.Count >= edit.Remove)
+                continue;
+
             // A vertex slides once: two neighbouring slides could otherwise trade room back and forth.
             if (edit.Count == edit.Remove && (slid[edit.First] || slid[edit.First + 1]))
                 continue;
@@ -177,6 +192,11 @@ internal static class PlanRadiusSimplifier
 
         return best;
     }
+
+    /// <summary>True when either end of segment <paramref name="j"/> is an interior corner that turns.</summary>
+    private static bool HasCorner(List<(double X, double Y)> points, int j) =>
+        (j >= 1 && Math.Abs(PlanFillet.Deflection(points[j - 1], points[j], points[j + 1])) >= StraightTolerance) ||
+        (j + 2 < points.Count && Math.Abs(PlanFillet.Deflection(points[j], points[j + 1], points[j + 2])) >= StraightTolerance);
 
     /// <summary>True when segment <paramref name="j"/>'s two corners want more of it than it has.</summary>
     private static bool Overfilled(List<(double X, double Y)> points, int j, double radius)

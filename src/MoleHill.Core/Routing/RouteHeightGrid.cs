@@ -18,6 +18,9 @@ public sealed class RouteHeightGrid
     /// <summary>Above this many nodes the automatic cell size coarsens rather than refines.</summary>
     public const int TargetNodeCount = 1_000_000;
 
+    /// <summary>Cells across the routed distance at the automatic size.</summary>
+    public const double SpanCells = 200.0;
+
     /// <summary>Hard ceiling, applied to an explicit cell size as well, so a typo cannot exhaust memory.</summary>
     public const int MaximumNodeCount = 6_000_000;
 
@@ -55,15 +58,17 @@ public sealed class RouteHeightGrid
     internal double NodeY(int row) => OriginY + (row * CellSize);
 
     /// <summary>
-    /// The cell size the search uses when the user has not chosen one: as fine as
-    /// <see cref="TargetNodeCount"/> nodes allow over the domain, but never finer than a thousandth of the
-    /// distance being routed — a 60 m route has nothing to gain from 3 cm cells.
+    /// The cell size the search uses when the user has not chosen one: <see cref="SpanCells"/> cells across
+    /// the distance being routed (1.3 m for a 250 m route), or coarser where <see cref="TargetNodeCount"/>
+    /// nodes would not cover the domain. It used to be a thousandth of the distance, as fine as a million
+    /// nodes allowed: a 250 m route searched at 0.43 m came out as staircases of sub-metre segments that
+    /// no plan simplification could make into a line a designer would draw (2026-10-16).
     /// </summary>
     public static double AutomaticCellSize(double domainWidth, double domainHeight, double routeSpan)
     {
         double area = Math.Max(domainWidth, 0.0) * Math.Max(domainHeight, 0.0);
         double byCount = area > 0.0 ? Math.Sqrt(area / TargetNodeCount) : 0.0;
-        double bySpan = routeSpan > 0.0 ? routeSpan / 1000.0 : 0.0;
+        double bySpan = routeSpan > 0.0 ? routeSpan / SpanCells : 0.0;
         double cell = Math.Max(byCount, bySpan);
         return cell > 0.0 && double.IsFinite(cell) ? cell : 1.0;
     }

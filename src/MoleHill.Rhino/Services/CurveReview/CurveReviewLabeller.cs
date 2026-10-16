@@ -120,7 +120,7 @@ internal static class CurveReviewLabeller
 
         if (content.HasFlag(CurveLabelContent.Grade) &&
             CurveReviewAnalysis.SpanGradeAtStation(analysis.Spans, station) is double grade)
-            parts.Add(grade.ToString("+0.00;-0.00;0.00", CultureInfo.CurrentCulture) + "%");
+            parts.Add(CurveReviewGradeText.Signed(grade));
 
         if (content.HasFlag(CurveLabelContent.CutFill) && reader.TryTerrainZAt(point, out double terrainZ))
         {

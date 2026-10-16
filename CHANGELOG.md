@@ -15,6 +15,16 @@ beta prereleases. Earlier versions are recorded only in the git history.
   - Coarse triangles beside a crease are split first, so no Remesh is needed.
 
 **Input commands**
+- **Suggest Route** gives routes a designer would draw. On rolling ground the defaults used to return
+  sub-metre segments, and corners far under the minimum radius:
+  - The minimum radius is now a requirement, like the maximum grade. Every corner gets it unless a picked
+    point or the terrain's edge leaves no room, and the extra earthwork shows in the cut and fill.
+  - Bends that only followed small folds of the ground are merged, and the profile has grade breaks a
+    few metres apart instead of a vertex every half metre.
+  - The search grid is scaled to the route (about 1.3 m for a 250 m route, and faster).
+  - Route numbers are drawn on top of every route and spread along them, so each one stays readable.
+- **Inspect Curve** shows grades in your slope unit everywhere: the summary, the labels on the curve, the
+  hover readout and grade breaks. They were always percent, so a route built to 10° read 17.6%.
 - **Drape Curve** drapes onto several meshes and surfaces at once and takes the top or the lowest
   surface (`Hit`). Stretches with nothing under them are split, bridged with a straight grade, or kept
   at the curve's own height (`Miss`); a split ends exactly on the terrain's edge. Each curve is reported

@@ -622,7 +622,7 @@ internal static class CurveReviewAnalyzer
                     CurveReviewEventKind.VerticalBreak,
                     samples[sampleIndex].Station,
                     samples[sampleIndex].Point,
-                    FormattableString.Invariant($"break {before:F1}% to {after:F1}%")));
+                    $"break {CurveReviewGradeText.Signed(before, 1)} to {CurveReviewGradeText.Signed(after, 1)}"));
                 runStart = -1;
             }
         }

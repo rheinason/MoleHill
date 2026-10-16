@@ -7,9 +7,10 @@ a polyline the user edits and then assigns to a Grade Path.
 
 - `RouteHeightGrid.cs` — the terrain as the search sees it: ground heights on a regular plan grid, NaN
   where there is no ground. Built by rasterising triangles straight onto the nodes in their bounding box
-  (one pass over faces), taking the **top** surface where faces overlap. `AutomaticCellSize` targets
-  about a million nodes over the search domain but never goes finer than a thousandth of the routed
-  distance; `MaximumNodeCount` caps an explicit size. `TrySample` is bilinear over the on-ground corners,
+  (one pass over faces), taking the **top** surface where faces overlap. `AutomaticCellSize` is a design
+  scale: `SpanCells` (200) cells across the routed distance, coarser only where a million nodes would not
+  cover the domain (it was a thousandth of the distance, and a 250 m route searched at 0.43 m came out as
+  sub-metre staircases); `MaximumNodeCount` caps an explicit size. `TrySample` is bilinear over the on-ground corners,
   with a minimum-weight overload that decides "is this point on the terrain".
 - `RouteSuggester.cs` — the search and the alternatives. 16-connected A* (eight neighbours plus knight
   moves); the heuristic is `wDistance * straight distance`, admissible because every move costs at
@@ -29,7 +30,10 @@ a polyline the user edits and then assigns to a Grade Path.
   cell of the straight line, so a tolerance cannot remove them. Then the leg is sampled every half cell,
   given its profile, and thinned per straight stretch (vertical Douglas-Peucker) keeping every corner.
   If straightening shortens a leg past what its height difference allows, the raw grid path is tried.
-- `PlanRadiusSimplifier.cs` — makes room for the minimum radius before rounding. A straightened plan
+- `PlanRadiusSimplifier.cs` — consolidates the plan, then makes room for the minimum radius before
+  rounding. **Consolidating** drops or merges corners, cheapest first, while the rounded leg stays within
+  **5%** (`ConsolidateTolerance`) of the cost the search settled on, so a line drawn to follow every fold
+  of the ground becomes a few bends. A straightened plan
   keeps short segments with small turns between them (grid staircases round a hill, oblique crossings
   of a step), and a corner deflecting by θ needs `R tan(θ/2)` of both its segments, so rounded as drawn
   most of them came out at a metre or two. Where a segment is too short for its two corners, the plan
@@ -38,10 +42,11 @@ a polyline the user edits and then assigns to a Grade Path.
   segment's corners **slid** apart along the segments either side or along its own line (which keeps
   the bearing it crosses the ground at). Every edit is priced as the leg will be drawn — rounded — by the
   same `RouteCost`, and none that leaves the terrain at the straightening's ground weight is taken. The
-  cheapest edit over all segments without room goes first, until the next would make the leg more than
-  **2.7%** (`CostTolerance`) dearer than the dearer of the straightened polyline and its plain rounding:
-  the most a 16-connected grid path runs longer than the line it stands for, so a difference the
-  search itself cannot resolve. Pricing is local (a corner's fillet depends on the vertices two either
+  cheapest edit over all segments without room goes first, **whatever it costs**: the minimum radius is a
+  requirement, like the maximum grade. It used to stop once the leg was 2.7% dearer, and on rolling ground
+  that left corners of 0.1–2 m under a 10 m minimum, which read as the option not working (2026-10-16);
+  the extra earthwork now shows in the readout's cut and fill instead. `RouteHillySiteTests` holds it.
+  Pricing is local (a corner's fillet depends on the vertices two either
   side), segments are sampled once into running totals and arcs once per shape, so trying an edit is a
   handful of lookups. Waypoints are leg ends and never move.
 - `PlanFillet.cs` / `PlanPiece.cs` — horizontal curves. With a minimum radius, every corner of the
@@ -95,7 +100,8 @@ makes along y = 30. The test asserts that every tight corner lies at one of thos
 readout counts exactly the corners the curve shows tight, the grade along the curve sampled finely,
 and determinism.
 
-**Speed.** A 1.5 km square at 1.5 m (1M nodes), rough ground, two legs, three alternatives: 3.6–4.8 s
+**Speed.** (Measured before the automatic cell became span/200; at the default a 1.5 km route now
+searches at 7.5 m and is much faster.) A 1.5 km square at 1.5 m (1M nodes), rough ground, two legs, three alternatives: 3.6–4.8 s
 on the maintainer's machine, about 6.2 s with a 10 m minimum radius (`Suggest_KilometreSite_IsInteractive`,
 performance lane, Debug build). Nearly all of it is the A* search. Building a leg takes a few
 milliseconds; simplifying it for the radius 3–8 ms per leg on the 200 m live site and 30–65 ms per

@@ -259,12 +259,15 @@ public sealed class RouteSuggesterTests
     }
 
     [Fact]
-    public void AutomaticCellSize_KeepsNodeCountBounded()
+    public void AutomaticCellSize_IsADesignScaleAndKeepsNodeCountBounded()
     {
+        // 200 cells across the routed distance: a 1.5 km route at 7.5 m, not a million sub-metre nodes
+        // whose staircases the plan then has to be cleaned of.
         double cell = RouteHeightGrid.AutomaticCellSize(2000, 2000, 1500);
-        Assert.InRange(cell, 1.5, 2.5);
+        Assert.Equal(7.5, cell, 9);
         Assert.InRange((2000 / cell) * (2000 / cell), 0, RouteHeightGrid.TargetNodeCount * 1.01);
-        Assert.Equal(0.06, RouteHeightGrid.AutomaticCellSize(60, 60, 60), 9);
+        Assert.Equal(2.0, RouteHeightGrid.AutomaticCellSize(2000, 2000, 100), 9);
+        Assert.Equal(0.3, RouteHeightGrid.AutomaticCellSize(60, 60, 60), 9);
     }
 
     [Fact]

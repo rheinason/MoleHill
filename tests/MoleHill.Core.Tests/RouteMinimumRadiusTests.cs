@@ -126,7 +126,7 @@ public sealed class RouteMinimumRadiusTests
         Assert.All(tight, corner => Assert.True(
             Math.Min(DistanceToStep(corner.X, corner.Y), Distance((corner.X, corner.Y), (100.0, 100.0))) <= MinimumRadius + SurveySpacing,
             $"A {corner.Radius:F2} m corner at ({corner.X:F1}, {corner.Y:F1}) is near neither a step nor the waypoint."));
-        AssertContiguousAndTangentAtArcs(route.Spans);
+        AssertContiguousAndTangentAtArcs(route.Spans, request.Points);
         Assert.True(FineMaxGrade(route.Spans) <= MaxGrade * (1 + 1e-6));
     }
 
@@ -266,7 +266,9 @@ public sealed class RouteMinimumRadiusTests
         return worst;
     }
 
-    private static void AssertContiguousAndTangentAtArcs(IReadOnlyList<RouteSpan> spans)
+    /// <param name="sharpAt">Picked points: legs are rounded separately, so the turn at a waypoint stays sharp
+    /// even where an arc begins or ends exactly there.</param>
+    private static void AssertContiguousAndTangentAtArcs(IReadOnlyList<RouteSpan> spans, IReadOnlyList<(double X, double Y)>? sharpAt = null)
     {
         for (int i = 1; i < spans.Count; i++)
         {
@@ -276,10 +278,12 @@ public sealed class RouteMinimumRadiusTests
             Assert.Equal(a.EndZ, b.StartZ, 9);
             if (!a.IsArc && !b.IsArc)
                 continue;
+            if (sharpAt != null && sharpAt.Any(point => point.X == a.EndX && point.Y == a.EndY))
+                continue;
 
             (double ox, double oy) = Unit(a.EndX - a.ControlX, a.EndY - a.ControlY);
             (double ix, double iy) = Unit(b.ControlX - b.StartX, b.ControlY - b.StartY);
-            Assert.True((ox * ix) + (oy * iy) > 1 - 1e-6, $"Spans {i} and {i + 1} meet with a kink in plan.");
+            Assert.True((ox * ix) + (oy * iy) > 1 - 1e-6, $"Spans {i} and {i + 1} meet with a kink in plan at ({a.EndX:F2}, {a.EndY:F2}).");
         }
     }
 

@@ -22,6 +22,14 @@ internal sealed class RouteSuggestionSettings
     /// </summary>
     public const double DefaultMinimumRadiusMeters = 10.0;
 
+    /// <summary>
+    /// How far the route's profile may leave the grade-limited fit to the ground when it is thinned, in
+    /// metres. It used to be 1% of the search cell — millimetres — so the profile kept a vertex at every
+    /// ripple of the ground, half a metre apart. A tenth of a metre of extra cut or fill gives grade breaks
+    /// a designer would draw, and the thinned profile still obeys the grade (its chords average the fit).
+    /// </summary>
+    public const double ProfileToleranceMeters = 0.1;
+
     public const double MaxWeight = 100.0;
 
     public const string MaxGradeCacheKey = "MoleHill.SuggestRoute.MaxGrade";
