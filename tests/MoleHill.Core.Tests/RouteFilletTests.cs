@@ -86,6 +86,107 @@ public sealed class RouteFilletTests
     }
 
     [Fact]
+    public void Suggest_RoundingBreaksTheGrade_KeepsTheCornerSharpAndSaysWhy()
+    {
+        // An L-shaped strip of ground climbing 4.8% along its length: just inside 5% as drawn, but a
+        // 10 m curve at the bend cuts 4.3 m off the 100 m leg, which would need over 5%.
+        RouteHeightGrid grid = RouteHeightGrid.FromFunction(0, 0, 0.5, 121, 121, (x, y) =>
+            (Math.Abs(y - 5.0) <= 1.5 && x <= 57.0) || (Math.Abs(x - 55.0) <= 1.5 && y <= 57.0)
+                ? 0.048 * ((x - 5.0) + (y - 5.0))
+                : double.NaN);
+        var request = new RouteRequest
+        {
+            Points = new[] { (5.0, 5.0), (55.0, 55.0) },
+            MaxGrade = 0.05,
+            CorridorWidth = 2.0,
+            MinimumRadius = 10.0,
+            AlternativeCount = 1,
+        };
+
+        RouteSuggestionResult result = RouteSuggester.Suggest(grid, request);
+
+        Assert.True(result.Succeeded, result.Failure.ToString());
+        RouteAlternative route = Assert.Single(result.Alternatives);
+        Assert.False(route.HasArcs);
+        Assert.True(route.Fillet.GradeLimitedCorners > 0);
+        Assert.Equal(route.Fillet.GradeLimitedCorners, route.Fillet.ReducedCorners);
+        Assert.Equal(0, route.Fillet.TerrainLimitedCorners);
+        Assert.Equal(0.0, route.Fillet.SmallestRadius);
+        Assert.True(route.Metrics.MaxGrade <= 0.05 * (1 + 1e-9));
+    }
+
+    [Fact]
+    public void MakeRoom_BendOfShortSegments_BecomesOneCornerThatTakesTheRadius()
+    {
+        // A right-angle bend round the corner of a hole, drawn as six 15-degree turns 2 apart: each
+        // corner wants 1.3 of a 2 segment at radius 10, so as drawn they round to under 8. Merged, the
+        // bend is one 10 m curve, which still clears the hole.
+        var plan = new List<(double X, double Y)> { (0, 0) };
+        (double x, double y, double heading) = (60.0, 0.0, 0.0);
+        plan.Add((x, y));
+        for (int k = 0; k < 6; k++)
+        {
+            heading += Math.PI / 12;
+            x += 2.0 * Math.Cos(heading);
+            y += 2.0 * Math.Sin(heading);
+            plan.Add((x, y));
+        }
+
+        plan.Add((x, y + 60.0));
+        RouteHeightGrid grid = RouteHeightGrid.FromFunction(-10, -10, 1.0, 101, 101, (px, py) => px < 55.0 && py > 5.0 ? double.NaN : 0.0);
+        var price = new RouteCost(new RouteRequest { Points = new[] { plan[0], plan[^1] }, MaxGrade = 0.05, CorridorWidth = 2.0 });
+        PlanFillet.Fillet(plan, 10.0, out _, out int before);
+
+        List<(double X, double Y)> roomy = PlanRadiusSimplifier.MakeRoom(grid, price, plan, 10.0);
+        List<PlanPiece> pieces = PlanFillet.Fillet(roomy, 10.0, out double? smallest, out int after);
+
+        Assert.True(before > 0);
+        Assert.Equal(0, after);
+        Assert.Equal(10.0, smallest!.Value, 9);
+        Assert.Equal(plan[0], roomy[0]);
+        Assert.Equal(plan[^1], roomy[^1]);
+        AssertContiguousAndTangent(pieces);
+        double drawn = pieces.Sum(piece => piece.Length);
+        double sharp = PlanFillet.Fillet(plan, 0.0, out _, out _).Sum(piece => piece.Length);
+        Assert.True(drawn <= sharp * (1 + PlanRadiusSimplifier.CostTolerance), "On level ground cost is length: the curve may not run longer than allowed.");
+    }
+
+    [Fact]
+    public void MakeRoom_ChordOverAHole_IsNotTaken()
+    {
+        // A zig-zag round the corner of a hole: every way of giving it room cuts across the hole, so it
+        // stays as drawn and its corners stay tight.
+        var plan = new List<(double X, double Y)> { (0, 0), (50, 0), (50.5, 0.5), (51, 0.5), (51, 50) };
+        RouteHeightGrid grid = RouteHeightGrid.FromFunction(-10, -10, 0.5, 141, 141, (px, py) =>
+            px > 30.0 && px < 50.0 && py > 1.0 ? double.NaN : px > 52.0 || (py < -1.0 && px > 30.0) ? double.NaN : 0.0);
+        var price = new RouteCost(new RouteRequest { Points = new[] { plan[0], plan[^1] }, MaxGrade = 0.05, CorridorWidth = 2.0 });
+
+        List<(double X, double Y)> roomy = PlanRadiusSimplifier.MakeRoom(grid, price, plan, 10.0);
+
+        foreach (PlanPiece piece in PlanFillet.Fillet(roomy, 10.0, out _, out _))
+        {
+            for (int k = 0; k <= 20; k++)
+            {
+                (double px, double py) = piece.PointAt(k / 20.0);
+                Assert.True(grid.TrySample(px, py, 0.75, out _), $"The rounded plan leaves the ground at ({px:F2}, {py:F2}).");
+            }
+        }
+    }
+
+    [Fact]
+    public void Fillet_TwoCornersOnOneCircle_CountAsOneTightCorner()
+    {
+        // Two 45-degree left turns 2 apart: at radius 20 they share the segment and meet on one circle.
+        var plan = new List<(double X, double Y)> { (0, 0), (100, 0), (100 + Math.Sqrt(2), Math.Sqrt(2)), (100 + Math.Sqrt(2), 100) };
+
+        List<PlanPiece> pieces = PlanFillet.Fillet(plan, 20.0, out double? smallest, out int reduced);
+
+        Assert.Equal(1, reduced);
+        Assert.True(smallest < 20.0);
+        AssertContiguousAndTangent(pieces);
+    }
+
+    [Fact]
     public void Suggest_NoMinimumRadius_IsStraightSpansOnly()
     {
         RouteHeightGrid grid = RouteHeightGrid.FromFunction(0, 0, 1.0, 121, 121, Hill);
