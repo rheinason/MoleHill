@@ -908,7 +908,8 @@ internal sealed partial class TerrainController
                 terrain,
                 GetZoneAnalysisResults(doc, terrain.TerrainId),
                 diagnostics,
-                warnings);
+                warnings,
+                terrain.Modifiers.Select(modifier => (modifier.Id, GetModifierStageReport(doc, terrain.TerrainId, modifier.Id))));
         }
         catch (Exception)
         {

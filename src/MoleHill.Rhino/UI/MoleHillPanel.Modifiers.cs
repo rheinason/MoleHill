@@ -113,6 +113,13 @@ public sealed partial class MoleHillPanel
         if (meshQualityWarning != null)
             layout.AddRow(meshQualityWarning);
 
+        // What the stage measured last run, for any modifier that reports (Displace's sampling check).
+        ModifierStageReport? stageReport = RhinoDoc.ActiveDoc is { } reportDoc
+            ? _controller.GetModifierStageReport(reportDoc, terrain.TerrainId, modifier.Id)
+            : null;
+        if (stageReport?.Warning is { } stageWarning)
+            layout.AddRow(CreateCardWarning(stageWarning));
+
         if (modifier is GradePathModifierDefinition gradePath)
             layout.AddRow(CreateGradePathGeometryGroup(terrain, gradePath));
 
@@ -121,6 +128,8 @@ public sealed partial class MoleHillPanel
 
         if (TryBuildSchemaModifierBody(layout, terrain, modifier))
             AppendBespokeModifierRows(layout, terrain, modifier);
+
+        AddResultRows(layout, stageReport?.Rows);
 
         Control? diagnosticsRow = CreateRuntimeDiagnosticsRow(
             terrain,
@@ -142,9 +151,12 @@ public sealed partial class MoleHillPanel
             return null;
 
         string? warning = _controller.GetModifierMeshQualityWarning(doc, terrain.TerrainId, modifier.Id);
-        if (string.IsNullOrWhiteSpace(warning))
-            return null;
+        return string.IsNullOrWhiteSpace(warning) ? null : CreateCardWarning(warning);
+    }
 
+    /// <summary>A card's warning surface: one wrapped line on the warning background.</summary>
+    private static Control CreateCardWarning(string warning)
+    {
         return new Panel
         {
             BackgroundColor = UiTheme.WarningBackground,
@@ -546,6 +558,7 @@ public sealed partial class MoleHillPanel
         "grade-pad"      => Color.FromArgb(245, 124, 0),
         "grade-path"     => Color.FromArgb(93, 64, 55),
         "in-situ-stair"  => Color.FromArgb(0, 121, 107),
+        "displace"       => Color.FromArgb(57, 73, 171),
         _                => Color.FromArgb(120, 120, 120)
     };
 

@@ -62,7 +62,7 @@ The Grasshopper project builds two output dirs (`bin/Debug/net7.0/` and `bin/Deb
 Six source projects (plus the `MoleHill.Shared` source folder), three test projects:
 
 - **TriangleNet** (`src/TriangleNet/`, net7.0) — Triangle.NET constrained Delaunay library, nullable disabled, included as source and merged into the .gha
-- **MoleHill.Core** (`src/MoleHill.Core/`, net7.0) — Pure terrain logic (no Rhino/GH dependency). Sub-namespaces: `Engine/`, `Processing/`, `Grading/`, `Analysis/`, `Scattering/`, `Sculpting/` (each has a `README.md`)
+- **MoleHill.Core** (`src/MoleHill.Core/`, net7.0) — Pure terrain logic (no Rhino/GH dependency). Sub-namespaces: `Engine/`, `Processing/`, `Grading/`, `Analysis/`, `Scattering/`, `Sculpting/`, `Displacement/` (each has a `README.md`)
 - **MoleHill.Grasshopper** (`src/MoleHill.Grasshopper/`, net7.0-windows + net7.0) — GH components, plugin metadata (`MoleHillInfo.cs`), icon resources, `RhinoConverter.cs`. No terrain logic here.
 - **MoleHill.Interop** (`src/MoleHill.Interop/`, net7.0) — RhinoCommon-only contracts shared across separately loaded assemblies: the Rhino→GH terrain snapshot bridge and the `IToposolidPreparation` package. Shipped once, never merged.
 - **MoleHill.Revit** (`src/MoleHill.Revit/`, net8.0-windows) — `MoleHill.Revit.gha`, the Rhino.Inside.Revit components (Write/Inspect Toposolids). The only assembly referencing `RevitAPI` (reference-only at build); its `GH_AssemblyPriority` aborts the load outside Revit. Only its Revit-free `Planning/` is tested.

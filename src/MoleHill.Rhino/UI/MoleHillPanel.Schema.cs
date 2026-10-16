@@ -156,6 +156,15 @@ public sealed partial class MoleHillPanel
                     parameter.Help ?? string.Empty,
                     parameter.TrimText);
 
+            case ParameterKind.FilePath:
+                return CreateFilePathEditor(
+                    label,
+                    parameter.GetText!(definition) ?? string.Empty,
+                    value => commit(item => parameter.SetText!(item, value)),
+                    parameter.Help ?? string.Empty,
+                    parameter.FileFilterName ?? "Files",
+                    parameter.FileExtensions ?? Array.Empty<string>());
+
             case ParameterKind.BlockPicker:
                 return CreateAnnotationBlockEditor(
                     label,

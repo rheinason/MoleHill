@@ -78,7 +78,8 @@ using AnnotationParam = MoleHill.Rhino.Registry.ParameterDescriptor<MoleHill.Rhi
 ```
 
 - **`Kind`** (`ParameterKind`) — Sources / Number / OptionalNumber / Slider / Bool / ReadOnly / Choice /
-  Color / ColorRamp / Text / BlockMix. Use the static factories (`Number`, `Slider`, `Sources`, …) rather
+  Color / ColorRamp / Text / FilePath / BlockMix. `FilePath` is a text row with a Browse button
+  (`FileFilterName`/`FileExtensions` narrow the dialog); Displace's image is the first. Use the static factories (`Number`, `Slider`, `Sources`, …) rather
   than the object initializer; they set the accessor pair each kind needs.
 - **`Unit`** (`ParameterUnit`) — what the number means: `None`, `ModelLength` (labelled with the
   document's unit abbreviation), `Degrees` (a *true* angle — a dihedral crease or a rotation, never
@@ -167,6 +168,16 @@ Other pieces in this folder:
 `SimplifyModifierDescriptor` is the mode-dependent example: its ordinary Choice row reveals either a
 model-length deviation, unitless integer vertex cap, or percentage row, dispatches through
 `SimplifyStage.Run`, and relies on the generic card and JSON paths without bespoke UI.
+
+## Stage reports
+
+A modifier stage may tell its card what its last run measured: it builds a `ModifierStageReport`
+(`ResultRow`s plus an optional warning) and stores it on its own `StageCacheEntry.StageReport` after
+`ExecuteCachedMeshStage`, so a cache hit keeps the cached run's report. The panel reads it through
+`TerrainController.GetModifierStageReport` and draws the warning on the card's warning surface and the rows
+with the same `AddResultRows` the analyses use — no type switch, so any modifier can report.
+`TerrainCardResultSignature` includes it. Displace is the first user (`DisplaceModifierDescriptor.DescribeResult`:
+sampling against the noise or pixel size, the offset range, held vertices).
 
 ## Serialization
 `Services/Persistence/TerrainJsonTypeResolver` builds `ModifierDefinition` JSON polymorphism from this registry

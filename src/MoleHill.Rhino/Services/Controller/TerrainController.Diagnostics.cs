@@ -1,5 +1,6 @@
 using MoleHill.Core.Analysis;
 using MoleHill.Rhino.Model;
+using MoleHill.Rhino.Registry;
 using MoleHill.Shared;
 using Rhino;
 using Rhino.Geometry;
@@ -147,6 +148,32 @@ internal sealed partial class TerrainController
             reasons.Add($"{summary.SkinnyFraction:P0} very skinny sampled triangles");
 
         return $"Incoming mesh has {string.Join(" and ", reasons)}. Add an enabled Remesh modifier below this card for a more even surface before applying {terrain.Modifiers[modifierIndex].Label}.";
+    }
+
+    /// <summary>
+    /// What the modifier's stage measured on its last run (<see cref="ModifierStageReport"/>), from the stage
+    /// cache of the build on screen, falling back to the other mode's; null when it reports nothing.
+    /// </summary>
+    public ModifierStageReport? GetModifierStageReport(RhinoDoc doc, Guid terrainId, Guid modifierId)
+    {
+        ModifierDefinition? modifier = GetState(doc).Terrains
+            .FirstOrDefault(item => item.TerrainId == terrainId)?
+            .Modifiers.FirstOrDefault(item => item.Id == modifierId);
+        if (modifier == null || !modifier.IsEnabled)
+            return null;
+
+        TerrainRuntimeCache runtimeCache = GetRuntimeCache(doc.RuntimeSerialNumber, terrainId);
+        TerrainBuildMode preferredMode = runtimeCache.DisplayState?.IsPreview == true
+            ? TerrainBuildMode.Preview
+            : TerrainBuildMode.Final;
+        foreach (TerrainBuildMode mode in new[] { preferredMode, preferredMode == TerrainBuildMode.Final ? TerrainBuildMode.Preview : TerrainBuildMode.Final })
+        {
+            string stageKey = TerrainStageKey.ForMode(mode, TerrainStageKey.CreateModifier(modifier));
+            if (runtimeCache.StageEntries.TryGetValue(stageKey, out StageCacheEntry? entry) && entry.StageReport != null)
+                return entry.StageReport;
+        }
+
+        return null;
     }
 
     private static Mesh? FindIncomingModifierMesh(
