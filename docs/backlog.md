@@ -632,8 +632,9 @@ Inspiration: personal asset libraries and Rhino's embedded/linked block workflow
 **Shipped 2026-10-16** as the Curvature analysis: Landforms (Convex / Planar / Concave from mean
 curvature; an eight-class set was dropped in review as too many) or a continuous Curvature value (mean,
 profile, plan) on the ramp, with a Landform Size and a Flatness Tolerance (height off flat across one
-landform size, so the threshold scales with the size). **Open:** the 5 m default reads a broad 8 m mound
-as Planar (live, 2026-10-16) — consider defaulting the size from the terrain extent.
+landform size, so the threshold scales with the size). The 5 m default read a broad 8 m mound as Planar,
+so Landform Size now defaults to Auto (a tenth of the plan's shorter side, shown greyed in the box) — resolved
+2026-10-16.
 
 **Selected 2026-10-15.** Colour convex shoulders, concave hollows, ridges and valleys,
 with a feature-size control that distinguishes broad landforms from small surface detail. Add this
@@ -646,9 +647,9 @@ Houdini terrain-feature analysis.
 
 **Shipped 2026-10-16** as the Displace modifier: world-XY Perlin noise or a heightmap image, an optional
 drawn Mapping rectangle (start point = image bottom-left) placing the image, boundaries with feather,
-hard constraints and walls held, contours not held (they are initial input). **Open:** the undersampling
-warning compares the mesh with half an image pixel, so nearly every image warns and the suggested Remesh
-edge (0.078 m for a 256 px image on 60 m) is unusable — base it on a practical sampling density instead.
+hard constraints and walls held, contours not held (they are initial input). The undersampling warning
+now asks for 16 samples across the tile, not half a pixel, and keeps its Remesh advice within a 2M-face budget —
+resolved 2026-10-16.
 
 **Selected 2026-10-15.** Add controlled vertical offsets to the incoming terrain from
 an image or procedural noise. Start with real-world texture size, displacement height, rotation and a
@@ -680,9 +681,9 @@ Blender's sharpening/detail filters and terrain-processing workflows.
 
 **Shipped 2026-10-16** as `mhSuggestRoute`: A* over a sampled height grid with a hard max grade, distance /
 steepness / earthworks weights, up to three distinct alternatives, a grade-limited profile, a minimum plan
-radius and a Layer option. **Open:** on a live site two of three routes left 9–11 corners under the 10 m
-radius (down to 0.43 m) because the straightened path keeps short segments — merge short segments before
-filleting.
+radius and a Layer option. Short straightened segments left 9–11 corners under the
+10 m radius; the plan is now simplified to make room first (1, 0 and 0 left on the live site, each explained) —
+resolved 2026-10-16.
 
 **Selected 2026-10-15.** Suggest alternative paths between picked points, trading off
 distance, steepness and estimated earthworks. Output ordinary editable Rhino curves for inspection
