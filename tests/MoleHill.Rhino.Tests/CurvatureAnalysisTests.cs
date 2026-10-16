@@ -79,7 +79,7 @@ public class CurvatureAnalysisTests
         Assert.Equal("cool-warm", analysis.PalettePreset);
         Assert.True(analysis.AutoColorRange);
         Assert.Equal(5.0, analysis.FeatureSize);
-        Assert.Equal(100.0, analysis.PlanarRadius);
+        Assert.Equal(0.05, analysis.FlatnessTolerance);
         Assert.Equal(RangeShape.SymmetricAboutZero, TerrainAnalysisPreviewBuilder.GetRangeShape(analysis));
         Assert.True(TerrainAnalysisPreviewBuilder.SupportsTerrainPreview(analysis));
     }
@@ -92,7 +92,7 @@ public class CurvatureAnalysisTests
             Display = CurvatureDisplay.Curvature,
             Measure = CurvatureMeasure.Plan,
             FeatureSize = 12.5,
-            PlanarRadius = 40.0,
+            FlatnessTolerance = 0.02,
             AutoColorRange = false,
             RangeLow = -0.05,
             RangeHigh = 0.05,
@@ -103,7 +103,7 @@ public class CurvatureAnalysisTests
         Assert.Equal(CurvatureDisplay.Curvature, restored.Display);
         Assert.Equal(CurvatureMeasure.Plan, restored.Measure);
         Assert.Equal(12.5, restored.FeatureSize);
-        Assert.Equal(40.0, restored.PlanarRadius);
+        Assert.Equal(0.02, restored.FlatnessTolerance);
         Assert.False(restored.AutoColorRange);
         Assert.Equal(-0.05, restored.RangeLow);
         Assert.Equal(0.05, restored.RangeHigh);
@@ -129,7 +129,7 @@ public class CurvatureAnalysisTests
         var analysis = new CurvatureAnalysisDefinition
         {
             FeatureSize = 5.0,
-            PlanarRadius = 100.0,
+            FlatnessTolerance = 0.05,
             RangeLow = -0.04,
             RangeHigh = 0.04,
             ColorInterval = 0.01,
@@ -138,7 +138,7 @@ public class CurvatureAnalysisTests
         TerrainUnitScaler.Scale(analysis, 1000.0);
 
         Assert.Equal(5000.0, analysis.FeatureSize, 9);
-        Assert.Equal(100000.0, analysis.PlanarRadius, 9);
+        Assert.Equal(50.0, analysis.FlatnessTolerance, 9);
         Assert.Equal(-0.00004, analysis.RangeLow, 12);
         Assert.Equal(0.00004, analysis.RangeHigh, 12);
         Assert.Equal(0.00001, analysis.ColorInterval, 12);
@@ -151,7 +151,28 @@ public class CurvatureAnalysisTests
             "curvature", ModelUnitContext.FromUnitSystem(UnitSystem.Millimeters))!;
 
         Assert.Equal(5000.0, analysis.FeatureSize, 9);
-        Assert.Equal(100000.0, analysis.PlanarRadius, 9);
+        Assert.Equal(50.0, analysis.FlatnessTolerance, 9);
+    }
+
+    /// <summary>
+    /// The tolerance replaced an unreleased PlanarRadius. A document that still stores one loads without
+    /// error, ignores it, and takes the default tolerance.
+    /// </summary>
+    [Fact]
+    public void Load_LegacyPlanarRadius_IsDropped_AndTheDefaultToleranceApplies()
+    {
+        var analysis = new CurvatureAnalysisDefinition { FeatureSize = 7.0 };
+        var terrain = new TerrainDefinition();
+        terrain.Analyses.Add(analysis);
+        string json = TerrainSerializer.Serialize(new[] { terrain });
+        string withLegacy = Regex.Replace(json, "\"[Ff]latnessTolerance\":\\s*0\\.05", "\"planarRadius\": 40");
+        Assert.NotEqual(json, withLegacy);
+
+        var restored = Assert.IsType<CurvatureAnalysisDefinition>(
+            Assert.Single(Assert.Single(TerrainSerializer.Deserialize(withLegacy)).Analyses));
+
+        Assert.Equal(7.0, restored.FeatureSize);
+        Assert.Equal(0.05, restored.FlatnessTolerance);
     }
 
     [Fact]
@@ -166,7 +187,7 @@ public class CurvatureAnalysisTests
             DisplayRangeLow = -0.02,
             DisplayRangeHigh = 0.02,
             LandformMeasuredArea = 3.0,
-            LandformClassShares = new[] { 0.25, 0.75, 0, 0, 0, 0, 0, 0 },
+            LandformClassShares = new[] { 0.25, 0.75, 0.0 },
         };
         terrain.LastAnalysisResults.Add(summary);
 
@@ -175,20 +196,20 @@ public class CurvatureAnalysisTests
         Assert.Equal(-0.002, summary.DisplayRangeLow!.Value, 12);
         Assert.Equal(0.002, summary.DisplayRangeHigh!.Value, 12);
         Assert.Equal(300.0, summary.LandformMeasuredArea!.Value, 9);
-        Assert.Equal(new[] { 0.25, 0.75, 0, 0, 0, 0, 0, 0 }, summary.LandformClassShares);
+        Assert.Equal(new[] { 0.25, 0.75, 0.0 }, summary.LandformClassShares);
     }
 
     [Fact]
-    public void BuildSummary_Dome_SharesCoverTheMeasuredArea_AndPeakDominates()
+    public void BuildSummary_Dome_SharesCoverTheMeasuredArea_AndConvexDominates()
     {
-        var analysis = new CurvatureAnalysisDefinition { FeatureSize = 3.0, PlanarRadius = 200.0 };
+        var analysis = new CurvatureAnalysisDefinition { FeatureSize = 3.0, FlatnessTolerance = 0.005 };
 
         TerrainAnalysisSummary summary = TerrainBuildService.BuildCurvatureSummary(Dome(10.0, 0.5, 50.0), analysis, 400.0, null);
 
         Assert.Equal(analysis.Id, summary.AnalysisId);
         Assert.Equal(400.0, summary.LandformMeasuredArea!.Value, 6);
         Assert.Equal(1.0, summary.LandformClassShares!.Sum(), 9);
-        Assert.True(summary.LandformClassShares![(int)LandformClass.Peak] > 0.95);
+        Assert.True(summary.LandformClassShares![(int)LandformClass.Convex] > 0.95);
     }
 
     /// <summary>Nothing measurable leaves the landform fields null: "too sparse" must not read as "all planar".</summary>
@@ -212,7 +233,7 @@ public class CurvatureAnalysisTests
         terrain.Analyses.Add(measured);
         terrain.Analyses.Add(unmeasured);
         var shares = new double[LandformClassifier.ClassCount];
-        shares[(int)LandformClass.Ridge] = 0.25;
+        shares[(int)LandformClass.Convex] = 0.25;
         shares[(int)LandformClass.Planar] = 0.75;
         var summaries = new[]
         {
@@ -232,7 +253,7 @@ public class CurvatureAnalysisTests
 
         Assert.Equal(LandformClassifier.ClassCount, table.Rows.Count);
         Assert.All(table.Rows, row => Assert.Equal("Landforms", row[0]));
-        IReadOnlyList<string> ridge = table.Rows.Single(row => row[2] == "Ridge");
+        IReadOnlyList<string> ridge = table.Rows.Single(row => row[2] == "Convex");
         Assert.Equal(CsvWriter.Number(5.0), ridge[1]);
         Assert.Equal(CsvWriter.Number(50.0), ridge[3]);
         Assert.Equal(CsvWriter.Number(25.0), ridge[4]);
@@ -261,7 +282,7 @@ public class CurvatureAnalysisTests
         Assert.NotNull(content);
         Assert.Equal(AnalysisLegendStyle.Swatches, content!.Legend.Style);
         Assert.Equal(
-            new[] { "Peak", "Ridge", "Shoulder", "Planar", "Saddle", "Toe", "Valley", "Hollow", "Not measured" },
+            new[] { "Convex", "Planar", "Concave", "Not measured" },
             content.Legend.Entries.Select(entry => entry.Label));
     }
 

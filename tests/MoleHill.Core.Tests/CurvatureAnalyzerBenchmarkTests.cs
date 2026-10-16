@@ -37,7 +37,7 @@ public class CurvatureAnalyzerBenchmarkTests(ITestOutputHelper output)
             double measureMs = timer.Elapsed.TotalMilliseconds;
 
             timer.Restart();
-            sbyte[] classes = LandformClassifier.Classify(field, 100.0);
+            sbyte[] classes = LandformClassifier.Classify(field, 0.05);
             double classifyMs = timer.Elapsed.TotalMilliseconds;
 
             int measured = classes.Count(c => c >= 0);

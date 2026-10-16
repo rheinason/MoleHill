@@ -871,7 +871,8 @@ keeping:
 
 **Curvature is measured at a landform size, and colours either way.** The curvature analysis
 (`Model/CurvatureAnalysisDefinition`, Core `CurvatureAnalyzer` / `LandformClassifier`, backlog B17) has one
-measurement and two colourings, switched by `Display`: landform classes (categorical, like compliance: no
+measurement and two colourings, switched by `Display`: landform classes, convex / planar / concave from the
+mean curvature (categorical, like compliance: no
 ramp row, no range, a swatch key in the Legend) or a curvature value (the diverging `cool-warm` ramp,
 `RangeShape.SymmetricAboutZero`, so straight ground is the middle colour). Three decisions are worth keeping:
 
@@ -879,16 +880,17 @@ ramp row, no range, a swatch key in the Legend) or a curvature value (the diverg
   fitted with a weighted quadric over everything within the landform size (`FeatureSize`, labelled
   "Landform Size" because "feature" is a retired word), plan-area weighted so dense survey does not
   out-vote the ground it covers. The size is the scale control: a 0.3 m hump on a 40 m mound dominates at
-  0.5 m and is gone at 10 m. The class threshold is a **radius** (`PlanarRadius`, "bending more gently
-  than this is straight"), because a length reads on a card and an inverse length does not.
+  0.5 m and is gone at 10 m. The class threshold is a **height**, `FlatnessTolerance`: ground within it
+  of flat across one landform size (sagitta `|H| L2 / 8`) is Planar. A height reads on a card, which an
+  inverse length does not, and it follows the landform size by itself, which a radius of curvature did
+  not: measured curvature shrinks as the fit widens, so a fixed radius had to be retuned with every size.
 - **Convex is positive**, in 1/model-unit, for mean, profile (along the fall line) and plan (tangential,
   across it). The colour range is therefore an inverse length: `[InverseModelLengthMembers]` promotes the
   inherited range, and `TerrainUnitScaler` scales a curvature card's summary range by the reciprocal.
-- **Eight classes: shape from the principal curvatures, orientation from plan vs profile.** Peak, Ridge,
-  Shoulder, Planar, Saddle, Toe, Valley, Hollow (Wood 1996 plus the plan-by-profile hillslope units). The
-  principal curvatures decide the shape because profile and plan both vanish along a saddle's diagonals;
-  plan vs profile then splits one-way convexity into ridge (across the fall line) and shoulder (along it).
-  The fit depends only on the mesh and the size, so the preview caches it in the drainage cards' preview
+- **Three classes, not eight.** A Wood-style set (peak, ridge, shoulder, saddle, toe, valley, hollow,
+  planar) was built and dropped in review as too many to read on a plan. The direction of a bend is still
+  there, in the profile and plan measures of Curvature value mode. A saddle has no mean bend, so it reads
+  Planar. The fit depends only on the mesh and the size, so the preview caches it in the drainage cards' preview
   slot (`DrainagePreviewCache`, keyed by `CurvaturePreviewKey`) and the threshold, measure, display and
   colours apply per refresh; `Display` and `Measure` are `[NotBuildInput]`. The build stage totals the
   class areas as unit-free shares (`LandformClassShares`) of a nullable measured area, which the card and

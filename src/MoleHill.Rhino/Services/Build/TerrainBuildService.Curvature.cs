@@ -22,7 +22,7 @@ internal sealed partial class TerrainBuildService
         var summary = new TerrainAnalysisSummary { AnalysisId = analysis.Id, SurfaceArea = surfaceArea };
 
         CurvatureField field = CurvatureAnalyzer.Measure(terrain, analysis.FeatureSize, shouldCancel);
-        sbyte[] classes = LandformClassifier.Classify(field, analysis.PlanarRadius);
+        sbyte[] classes = LandformClassifier.Classify(field, analysis.FlatnessTolerance);
         double[] areas = LandformClassifier.SumPlanAreas(classes, field.PlanAreas, out double measured);
         if (!(measured > 0.0))
             return summary;

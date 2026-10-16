@@ -225,7 +225,7 @@ public sealed class TerrainAnalysisSummary
 
     /// <summary>
     /// Each landform class's share of <see cref="LandformMeasuredArea"/>, indexed by Core's
-    /// <c>LandformClass</c> (Peak, Ridge, Shoulder, Planar, Saddle, Toe, Valley, Hollow), or null when
+    /// <c>LandformClass</c> (Convex, Planar, Concave), or null when
     /// nothing was measured. Shares rather than areas so the array is unit-free: the unit scaler scales
     /// declared double properties, and an area array would silently keep its old units.
     /// </summary>

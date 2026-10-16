@@ -1,37 +1,29 @@
 namespace MoleHill.Core.Analysis;
 
 /// <summary>
-/// Sorts each face of a <see cref="CurvatureField"/> into a <see cref="LandformClass"/>, colours the classes
-/// and totals their plan area.
+/// Sorts each face of a <see cref="CurvatureField"/> into a <see cref="LandformClass"/> (convex, planar or
+/// concave), colours the classes and totals their plan area.
 /// </summary>
 /// <remarks>
-/// <para><b>Shape first, from the principal curvatures.</b> Each is compared with the planar threshold
-/// <c>k0 = 1 / planarRadius</c>: ground bending more gently than a circle of that radius, in a direction,
-/// is straight in that direction. Both convex is <see cref="LandformClass.Peak"/>, both concave
-/// <see cref="LandformClass.Hollow"/>, one of each <see cref="LandformClass.Saddle"/>, neither
-/// <see cref="LandformClass.Planar"/>. The principal curvatures are used rather than profile and plan for
-/// this step because they do not depend on the fall line: a saddle is a saddle along its diagonals too,
-/// where profile and plan are both zero.</para>
-/// <para><b>Then orientation, for ground curved one way only.</b> Convex one way is a
-/// <see cref="LandformClass.Ridge"/> when the bend runs across the fall line (plan curvature at least the
-/// profile curvature), and a <see cref="LandformClass.Shoulder"/> when it runs along it. Concave one way is
-/// a <see cref="LandformClass.Valley"/> or a <see cref="LandformClass.Toe"/> the same way. One more rule
-/// keeps a level crest a ridge: where the crest line itself (the point the fitted slope would level out)
-/// lies within half a landform size, the face is on the ridge, not its shoulder; a valley floor likewise.
-/// Without it a horizontal berm reads as two shoulders with no ridge between them, because along a level
-/// crest the fall line runs straight off the side.</para>
+/// <para>The class comes from the <b>mean curvature</b> <c>H</c> (convex positive) against a
+/// <b>flatness tolerance</b> stated as a height: how far the ground may depart from a plane across one
+/// landform size. A surface of curvature <c>H</c> rises <c>|H| L2 / 8</c> above the chord over a length
+/// <c>L</c> (the sagitta), so a face is <see cref="LandformClass.Planar"/> when
+/// <c>|H| L2 / 8 &lt;= tolerance</c>, and otherwise convex or concave by the sign of <c>H</c>.</para>
+/// <para>Stating it as a height ties the threshold to the landform size: the same 50 mm reads as "flat" at
+/// any size, while a curvature threshold had to be retuned every time the size changed, because measured
+/// curvature shrinks as the fit widens.</para>
 /// </remarks>
 public static class LandformClassifier
 {
     /// <summary>Class index of a face that could not be measured. Drawn neutral grey.</summary>
     public const sbyte Unmeasured = -1;
 
-    public static int ClassCount => 8;
+    public static int ClassCount => 3;
 
     private static readonly LandformClass[] InLegendOrder =
     {
-        LandformClass.Peak, LandformClass.Ridge, LandformClass.Shoulder, LandformClass.Planar,
-        LandformClass.Saddle, LandformClass.Toe, LandformClass.Valley, LandformClass.Hollow
+        LandformClass.Convex, LandformClass.Planar, LandformClass.Concave
     };
 
     /// <summary>Every class, convex to concave.</summary>
@@ -40,94 +32,68 @@ public static class LandformClassifier
     /// <summary>Neutral grey for unmeasured ground, the same grey every analysis preview uses.</summary>
     public static readonly (byte R, byte G, byte B) UnmeasuredColor = (130, 130, 130);
 
-    /// <summary>
-    /// Warm for convex, cool for concave, a pale neutral for planar and violet for the mixed form, so the
-    /// map reads as relief at a glance: the same reading as the diverging curvature ramp.
-    /// </summary>
+    /// <summary>Warm for convex, a pale neutral for planar, cool for concave: the same reading as the
+    /// diverging curvature ramp.</summary>
     public static (byte R, byte G, byte B) ColorOf(LandformClass landform) => landform switch
     {
-        LandformClass.Peak => (183, 28, 28),
-        LandformClass.Ridge => (239, 108, 0),
-        LandformClass.Shoulder => (251, 192, 45),
+        LandformClass.Convex => (214, 96, 39),
         LandformClass.Planar => (232, 228, 214),
-        LandformClass.Saddle => (142, 100, 180),
-        LandformClass.Toe => (128, 203, 196),
-        LandformClass.Valley => (30, 136, 229),
-        LandformClass.Hollow => (26, 35, 126),
+        LandformClass.Concave => (41, 121, 198),
         _ => UnmeasuredColor
     };
 
     public static string NameOf(LandformClass landform) => landform switch
     {
-        LandformClass.Peak => "Peak",
-        LandformClass.Ridge => "Ridge",
-        LandformClass.Shoulder => "Shoulder",
+        LandformClass.Convex => "Convex",
         LandformClass.Planar => "Planar",
-        LandformClass.Saddle => "Saddle",
-        LandformClass.Toe => "Toe",
-        LandformClass.Valley => "Valley",
-        LandformClass.Hollow => "Hollow",
+        LandformClass.Concave => "Concave",
         _ => "Unmeasured"
     };
 
     /// <summary>
     /// The class of every face, or <see cref="Unmeasured"/>.
     /// </summary>
-    /// <param name="planarRadius">Radius of curvature, in model units, beyond which ground counts as straight.
-    /// Zero or less makes any measurable bend count.</param>
-    public static sbyte[] Classify(CurvatureField field, double planarRadius)
+    /// <param name="flatnessTolerance">Height, in model units, the ground may depart from a plane across one
+    /// landform size and still count as planar. Zero or less makes any measurable bend count.</param>
+    public static sbyte[] Classify(CurvatureField field, double flatnessTolerance)
     {
         ArgumentNullException.ThrowIfNull(field);
-        double threshold = double.IsFinite(planarRadius) && planarRadius > 0.0 ? 1.0 / planarRadius : 0.0;
-        double crestReach = field.LandformSize * 0.5;
+        double threshold = CurvatureThreshold(flatnessTolerance, field.LandformSize);
         var classes = new sbyte[field.FaceCount];
         for (int face = 0; face < field.FaceCount; face++)
         {
-            if (!field.IsMeasured(face))
-            {
-                classes[face] = Unmeasured;
-                continue;
-            }
-
-            field.GetDerivatives(face, out double p, out double q, out double r, out double s, out double t);
-            classes[face] = (sbyte)Classify(p, q, r, s, t, threshold, crestReach);
+            classes[face] = field.IsMeasured(face)
+                ? (sbyte)Classify(field.Value(face, CurvatureMeasure.Mean), threshold)
+                : Unmeasured;
         }
 
         return classes;
     }
 
-    /// <summary>The class of one fitted point. See the type remarks for the rules.</summary>
-    /// <param name="threshold">Planar curvature threshold, 1/model-unit.</param>
-    /// <param name="crestReach">Distance within which a level crest or floor still counts as the ridge or
-    /// valley itself.</param>
-    public static LandformClass Classify(double p, double q, double r, double s, double t, double threshold, double crestReach)
+    /// <summary>
+    /// The mean curvature at which the sagitta across <paramref name="landformSize"/> reaches
+    /// <paramref name="flatnessTolerance"/>: <c>8 tolerance / L2</c>. Zero when either is not positive, so
+    /// any bend counts; a landform size of zero has no length to measure flatness across.
+    /// </summary>
+    public static double CurvatureThreshold(double flatnessTolerance, double landformSize)
     {
-        CurvatureField.PrincipalCurvatures(p, q, r, s, t, out double max, out double min);
-        bool convex = max > threshold;
-        bool concave = min < -threshold;
-
-        if (convex && concave)
-            return LandformClass.Saddle;
-        if (convex && min > threshold)
-            return LandformClass.Peak;
-        if (concave && max < -threshold)
-            return LandformClass.Hollow;
-        if (!convex && !concave)
-            return LandformClass.Planar;
-
-        double gradient = Math.Sqrt((p * p) + (q * q));
-        double profile = CurvatureField.ProfileCurvature(p, q, r, s, t);
-        double plan = CurvatureField.PlanCurvature(p, q, r, s, t);
-        if (convex)
+        if (!(double.IsFinite(flatnessTolerance) && flatnessTolerance > 0.0) ||
+            !(double.IsFinite(landformSize) && landformSize > 0.0))
         {
-            return plan >= profile || gradient <= max * crestReach
-                ? LandformClass.Ridge
-                : LandformClass.Shoulder;
+            return 0.0;
         }
 
-        return plan <= profile || gradient <= -min * crestReach
-            ? LandformClass.Valley
-            : LandformClass.Toe;
+        return 8.0 * flatnessTolerance / (landformSize * landformSize);
+    }
+
+    /// <summary>The class of one mean curvature against a curvature threshold.</summary>
+    public static LandformClass Classify(double meanCurvature, double threshold)
+    {
+        if (meanCurvature > threshold)
+            return LandformClass.Convex;
+        if (meanCurvature < -threshold)
+            return LandformClass.Concave;
+        return LandformClass.Planar;
     }
 
     /// <summary>Per-face RGB, flat: [r0,g0,b0, r1,g1,b1, ...].</summary>

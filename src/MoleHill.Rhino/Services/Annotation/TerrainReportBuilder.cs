@@ -334,8 +334,8 @@ internal static class TerrainReportBuilder
             new ReportColumn("Share", "%", ReportAlignment.Right));
 
         // One row per class, every class listed (a zero is a measured answer here: the card measured the
-        // ground and found no hollow), in the legend's order. A card that measured nothing writes no rows,
-        // rather than eight zeros that would read as "all of it is nothing".
+        // ground and found nothing concave), in the legend's order. A card that measured nothing writes no rows,
+        // rather than three zeros that would read as "all of it is nothing".
         foreach (CurvatureAnalysisDefinition analysis in terrain.Analyses.OfType<CurvatureAnalysisDefinition>())
         {
             TerrainAnalysisSummary? summary = Find(analysisSummaries, analysis.Id);

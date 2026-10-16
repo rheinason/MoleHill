@@ -27,8 +27,10 @@ A definition normalizes its own fields after load in a `virtual NormalizeAfterLo
   card, two colourings of one measurement: `Display` picks landform classes or a curvature value on the
   ramp, and `Measure` picks mean, profile or plan; both are `[NotBuildInput]`, so switching recolours
   without re-measuring. `FeatureSize` (labelled "Landform Size" on the card, because "feature" is a
-  retired word) is the fit radius and `PlanarRadius` the flatness threshold, both `[ModelLength]`; the
-  colour range is promoted to an inverse length. Defaults: 5 m, 100 m, `cool-warm`, auto range.
+  retired word) is the fit radius and `FlatnessTolerance` the height the ground may depart from flat
+  across one landform size and still be Planar, both `[ModelLength]`; the colour range is promoted to an
+  inverse length. Defaults: 5 m, 50 mm, `cool-warm`, auto range. The unreleased `PlanarRadius` it replaced
+  is ignored on load (unknown JSON members are skipped), so such a card takes the default tolerance.
 - `ReportTableAnnotationDefinition.cs` — the quantity summary drawn into the model. Which sections to
   include, the rules, spacing as multiples of the text height, and an insertion origin (unset places it
   beside the terrain). It carries its own slope `Unit` because that unit is part of the drawing; the CSV
