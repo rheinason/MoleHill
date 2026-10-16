@@ -8,6 +8,9 @@ Derived from a 2026-09-12 comparison against Civil 3D, Bentley OpenSite, Vectorw
 Trimble Business Center. The framing question was *what do those tools have that MoleHill does not* —
 so every entry below names both the reference feature and the MoleHill family it would join.
 
+Expanded 2026-10-15 with selected artist-workflow ideas inspired by Blender, Gaea, VFX and architectural
+visualisation, especially direct control, readable results and reuse between files.
+
 ## The test every entry has to pass
 
 **This input obviously makes that output.** What this rules out is narrower than it first looks, and the
@@ -598,6 +601,77 @@ applies; grab-and-pull terrain shaping already belongs to Sculpt. Start with one
 prove that its mask remains attached to the intended region through terrain edits and remeshing before
 extending support. Compatibility with other modifiers needs an explicit decision per operation.
 
+**2026-10-15 follow-up:** still of interest, but mask visibility and the tool's WYSIWYG focus are the
+main concerns. The affected region and feather must remain easy to inspect; drawn boundaries should
+remain a clear alternative. Resolve that interaction before expanding the painting workflow.
+
+---
+
+### B15 — Reusable terrain recipes between files
+
+**Selected 2026-10-15; not scheduled.** Save and reapply a useful modifier setup as a named preset,
+with a few meaningful controls and access to the underlying stack. Rebind document-specific geometry
+when applying it in another file, preserve real-world sizes across document units, and identify any
+external dependencies. Inspiration: Blender asset libraries and reusable VFX setups.
+
+---
+
+### B16 — Scatter presets using the user's own blocks
+
+**Selected 2026-10-15; not scheduled.** Save block mixes, weights, spacing, filters and variation for
+reuse between files. Prefer this simpler scope to a habitat simulation; MoleHill supplies no blocks.
+Explore settings-only presets with assignable asset slots and portable presets carrying the user's
+selected block definitions and dependencies. Import or explicitly remap assets in the receiving file
+so a moved source file or an unrelated block with the same name cannot silently change the result.
+Inspiration: personal asset libraries and Rhino's embedded/linked block workflows.
+
+---
+
+### B17 — Curvature and landform analysis
+
+**Selected 2026-10-15; not scheduled.** Colour convex shoulders, concave hollows, ridges and valleys,
+with a feature-size control that distinguishes broad landforms from small surface detail. Add this
+to the analysis family using its existing colour-ramp and legend workflow. Inspiration: Gaea and
+Houdini terrain-feature analysis.
+
+---
+
+### B18 — Image and noise displacement
+
+**Selected 2026-10-15; not scheduled.** Add controlled vertical offsets to the incoming terrain from
+an image or procedural noise. Start with real-world texture size, displacement height, rotation and a
+neutral image value, with visible mapping geometry and drawn application regions plus feathering.
+Painted masks remain an option subject to B14's visibility concerns. This modifies existing ground;
+the GeoTIFF DEM input supplies absolute source elevations. Inspiration: Blender's Displace modifier.
+
+---
+
+### B19 — Shape-preserving smoothing
+
+**Selected 2026-10-15; not scheduled.** A Smooth mode that removes small bumps while retaining the
+broad mound, ridge or valley. A feature-size control defines unwanted roughness, with shape retention
+keeping the larger landform readable. Inspiration: Blender's Surface Smooth and shape-preservation
+controls. Distinct from B12's targeted crest/toe rounding.
+
+---
+
+### B20 — Landform sharpening
+
+**Selected 2026-10-15; not scheduled.** Strengthen shoulders, ridges and valley bottoms that have become
+soft through interpolation or repeated editing. Explore curvature-based sharpening as a counterpart to
+Smooth, with a readable feature scale and bounded effect that preserves valid 2.5D ground. Inspiration:
+Blender's sharpening/detail filters and terrain-processing workflows.
+
+---
+
+### B21 — Suggested routes between picked points
+
+**Selected 2026-10-15; not scheduled.** Suggest alternative paths between picked points, trading off
+distance, steepness and estimated earthworks. Output ordinary editable Rhino curves for inspection
+and refinement before assignment to Grade Path. This is an upstream curve-generation workflow: the
+grading modifier continues to follow its authored geometry. Inspiration: least-cost terrain routing
+and civil alignment exploration.
+
 ---
 
 ## Explicitly declined
@@ -651,7 +725,9 @@ already own the problem.
 - **Landform stamp brush for Sculpt.** Raised 2026-10-02 as a potentially useful brush: apply a
   mound, hollow, berm or custom height patch with adjustable size, orientation and strength. Explore
   this within the existing Sculpt interaction and saved edits, rather than a separate stamp-object
-  workflow. Still a candidate, not an accepted implementation scope.
+  workflow. Revisited 2026-10-15: appealing, but limited by Sculpt's 2.5D height-only representation;
+  keep that limitation explicit when evaluating useful stamps. Still a candidate, not an accepted
+  implementation scope.
 - **Cage editing of input geometry.** The preference expressed 2026-10-02 is to manipulate the source
   inputs directly with a cage, using Rhino's editing model. A separate terrain lattice would be harder
   to control and adjust; do not treat it as a requested new modifier. Grab-and-pull sculpting and
@@ -679,15 +755,11 @@ already own the problem.
   presentation blocks, and for renders where an infinitely thin sheet reads wrong. Probably a **bake**
   option rather than a modifier, since the result is terminal geometry and nothing downstream should
   grade it.
-- **Global noise / detail field.** The Sculpt Noise brush is local and manual; there is no way to add
-  fractal detail across a region. Useful for breaking up the over-smooth interpolation between sparse
-  survey points and for visualisation. Cheap, because the durable data is the sparse world-XY
-  displacement field that `Core/Sculpting` already owns — a noise modifier writes into the same kind of
-  field instead of a new one, and inherits its stackability and constraint masking for free.
-- **Displace — considered and skipped.** The texture, mapping and sizing apparatus is a large amount of
-  work Rhino already does, and the two things a terrain would actually use are both present: a height
-  image is the GeoTIFF DEM path, and a free-form vertical offset field is Sculpt. Revisit only if the
-  noise item above turns out to want a general driver.
+- **Global noise / detail field** — promoted to **B18** on 2026-10-15, alongside image displacement.
+- **Displace** — previously considered and skipped because Rhino already provides texture mapping,
+  GeoTIFF supplies height inputs and Sculpt stores offsets. Reopened and promoted to **B18** on
+  2026-10-15 for the explicitly selected image/noise offset workflow on existing terrain, with simple
+  scale controls and visible application regions.
 - **Mask, Decimate, Remesh, Smooth** map onto Boundary roles, B6, the Remesh modifier and the Smooth
   modifier respectively — recorded here so the mapping is not re-derived. **Lattice, Array, Mirror,
   Boolean** do not survive the move to 2.5D in a form worth having.
