@@ -242,6 +242,10 @@ mesh's creases, which do not depend on the length, and is cached. `CreaseRounder
 superposition of crest and toe, and the pad corner on a symmetric triangulation.
 
 ## Shared building blocks
+- `HeldLines` - what a height-only edit holds and how it fades out of it: plan segments in a spatial index,
+  `IsOn` (a vertex on the line within tolerance), `Weight` (smoothstep from 0 on the line to 1 at the reach),
+  plus `InsideBoundaries` and `HoldWallFaces`. Round Creases and Displace both use it, so the two fade the same
+  way; a third height edit should too, not write its own.
 - `BreaklineHeightConflicts` - where two sets of breaklines cross in plan at different heights (a breakline-mode
   wall rail over a constrained contour). No 2.5D terrain can honour both lines, so the Retaining Wall stage
   reports these crossings instead of attempting a rebuild.

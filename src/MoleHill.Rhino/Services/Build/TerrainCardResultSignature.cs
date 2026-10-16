@@ -15,7 +15,7 @@ namespace MoleHill.Rhino.Services;
 /// in front of the next edit's result. Nothing on any card had changed; only the status line had.
 ///
 /// The parts are what the cards read from a build: the terrain's analysis summaries, the computed fields
-/// a modifier stores on itself (In-situ Stair), the zone summaries, the diagnostic counts each card badges,
+/// a modifier stores on itself (In-situ Stair), the stage reports a modifier keeps on its cache entry (Displace), the zone summaries, the diagnostic counts each card badges,
 /// and the mesh quality warnings. Whether a final mesh exists is left out: it flips off for every mid-edit
 /// frame and back on with the next final build, so the caller instead refreshes in full on the first final
 /// build, which is when cards comparing against this terrain become available. Anything new a card reads
@@ -33,7 +33,8 @@ internal static class TerrainCardResultSignature
         TerrainDefinition terrain,
         IReadOnlyList<ZoneAnalysisSummary> zoneResults,
         IEnumerable<(RuntimeOverlayOwner Owner, RuntimeOverlaySeverity Severity)> diagnostics,
-        IEnumerable<(Guid ModifierId, string? Warning)> meshQualityWarnings)
+        IEnumerable<(Guid ModifierId, string? Warning)> meshQualityWarnings,
+        IEnumerable<(Guid ModifierId, MoleHill.Rhino.Registry.ModifierStageReport? Report)>? stageReports = null)
     {
         var text = new StringBuilder();
         text.Append(JsonSerializer.Serialize(terrain.LastAnalysisResults, Options)).Append(';');
@@ -58,6 +59,12 @@ internal static class TerrainCardResultSignature
 
         foreach ((Guid modifierId, string? warning) in meshQualityWarnings)
             text.Append(modifierId).Append('=').Append(warning).Append(';');
+
+        foreach ((Guid modifierId, MoleHill.Rhino.Registry.ModifierStageReport? report) in stageReports ?? Enumerable.Empty<(Guid, MoleHill.Rhino.Registry.ModifierStageReport?)>())
+        {
+            if (report != null)
+                text.Append(modifierId).Append(':').Append(report.Signature).Append(';');
+        }
 
         return text.ToString();
     }

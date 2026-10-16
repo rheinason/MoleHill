@@ -34,6 +34,13 @@ internal enum ParameterKind
     /// built-in block to copy comes from <see cref="ParameterDescriptor{TDefinition}.BlockTemplate"/>.
     /// </summary>
     BlockPicker,
+
+    /// <summary>
+    /// A file on disk: its full path in a text box beside a Browse button. The path lives in the text
+    /// accessors; <see cref="ParameterDescriptor{TDefinition}.FileFilterName"/> and
+    /// <see cref="ParameterDescriptor{TDefinition}.FileExtensions"/> narrow the browse dialog.
+    /// </summary>
+    FilePath,
 }
 
 /// <summary>
@@ -139,6 +146,14 @@ internal sealed class ParameterDescriptor<TDefinition>
     // ---- Text ----
 
     public bool TrimText { get; init; } = true;
+
+    // ---- FilePath ----
+
+    /// <summary>The browse dialog's filter name ("Images").</summary>
+    public string? FileFilterName { get; init; }
+
+    /// <summary>The extensions the browse dialog offers, with their dots (".png").</summary>
+    public IReadOnlyList<string>? FileExtensions { get; init; }
 
     // ---- BlockPicker ----
 
@@ -443,7 +458,7 @@ internal sealed class ParameterDescriptor<TDefinition>
     /// Always a refresh-only commit: colour is a display concern, and re-running the analysis to change a
     /// swatch would make dragging a stop unusable.
     /// </summary>
-    public static ParameterDescriptor<TDefinition> ColorRamp(string? help = null) =>
+    public static ParameterDescriptor<TDefinition> ColorRamp(string? help = null, Func<TDefinition, bool>? visibleWhen = null) =>
         new()
         {
             Kind = ParameterKind.ColorRamp,
@@ -451,6 +466,7 @@ internal sealed class ParameterDescriptor<TDefinition>
             Label = "Colour",
             Help = help,
             RefreshOnly = true,
+            VisibleWhen = visibleWhen,
         };
 
     public static ParameterDescriptor<TDefinition> Text(
@@ -472,6 +488,29 @@ internal sealed class ParameterDescriptor<TDefinition>
             TrimText = trim,
             Help = help,
             RefreshOnly = refreshOnly,
+            VisibleWhen = visibleWhen,
+        };
+
+    /// <summary>A file path typed or browsed to. Stored as the full path in the text accessors.</summary>
+    public static ParameterDescriptor<TDefinition> FilePath(
+        string key,
+        string label,
+        Func<TDefinition, string?> get,
+        Action<TDefinition, string?> set,
+        string filterName,
+        IReadOnlyList<string> extensions,
+        string? help = null,
+        Func<TDefinition, bool>? visibleWhen = null) =>
+        new()
+        {
+            Kind = ParameterKind.FilePath,
+            Key = key,
+            Label = label,
+            GetText = get,
+            SetText = set,
+            FileFilterName = filterName,
+            FileExtensions = extensions,
+            Help = help,
             VisibleWhen = visibleWhen,
         };
 

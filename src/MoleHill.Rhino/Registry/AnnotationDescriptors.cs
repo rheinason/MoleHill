@@ -967,6 +967,12 @@ internal sealed class ReportTableAnnotationDescriptor : AnnotationTypeDescriptor
             (a, v) => ((ReportTableAnnotationDefinition)a).IncludeGradientCompliance = v,
             "Level area checked, the area over the limit and the steepest slope from each Gradient " +
             "Compliance analysis, with the standard it was checked against."),
+        AnnotationParam.Bool(
+            "IncludeLandforms", "Landforms",
+            a => ((ReportTableAnnotationDefinition)a).IncludeLandforms,
+            (a, v) => ((ReportTableAnnotationDefinition)a).IncludeLandforms = v,
+            "Plan area and share of each landform (ridge, valley, shoulder and the rest) from each " +
+            "Curvature analysis, with the landform size it was measured at."),
         AnnotationParameterCatalog.SlopeUnitChoice(
             "Unit the drawn slope columns are written in. This one belongs to the drawing, so it is " +
             "stored with the terrain — unlike the slope unit you type in, which is a per-user preference."),
@@ -1000,7 +1006,7 @@ internal sealed class ReportTableAnnotationDescriptor : AnnotationTypeDescriptor
         var table = (ReportTableAnnotationDefinition)annotation;
         bool anythingSelected = table.IncludeOverview || table.IncludeZones ||
             table.IncludeEarthworks || table.IncludePonding || table.IncludeCatchments ||
-            table.IncludeGradientCompliance;
+            table.IncludeGradientCompliance || table.IncludeLandforms;
         if (!anythingSelected)
             return "Nothing is selected to report — switch on at least one section below.";
 

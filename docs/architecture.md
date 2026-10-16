@@ -16,8 +16,9 @@ TriangleNet (vendored)  ←  MoleHill.Core  ←  MoleHill.Grasshopper (GH host)
 - **`src/TriangleNet/`** — vendored Triangle.NET CDT engine. Do not refactor; treat as a library.
 - **`src/MoleHill.Core/`** — all reusable terrain logic, **no Rhino/GH dependency**, unit-tested.
   Sub-namespaces: `Engine/` (triangulation), `Processing/` (input prep), `Grading/` (pad/path),
-  `Analysis/` (contours, slope, waterflow), `Scattering/` (object scatter sampling), `Sculpting/` (brush engine +
-  displacement field).
+  `Analysis/` (contours, slope, waterflow), `Routing/` (route suggestion: height grid, grade-limited
+  profile, A* with alternatives), `Scattering/` (object scatter sampling), `Sculpting/` (brush engine +
+  displacement field), `Displacement/` (Displace's noise and heightmap offsets).
 - **`src/MoleHill.Interop/`** — separately shipped, versioned RhinoCommon-only snapshot bridge contract,
   plus `IToposolidPreparation`, the package `MoleHill.gha` hands to `MoleHill.Revit.gha`.
   Rhino and Grasshopper reference the same assembly; the GHA discovers the Rhino bridge instance by
@@ -44,8 +45,8 @@ TriangleNet (vendored)  ←  MoleHill.Core  ←  MoleHill.Grasshopper (GH host)
   bespoke. Compact action buttons use
   `UI/PanelButtonIcons.cs`, a theme-aware vector icon set rendered to Eto images.
 - Rhino command names use the compact `mh...` prefix. The installed toolbar exposes Geometry, Blocks,
-  and Document utilities — including the curve preparation that feeds a terrain (drape, split at
-  intersections, wall rails, input validation). Terrain *definition* work — creating a terrain, editing
+  and Document utilities — including the curve preparation that feeds a terrain (drape, route
+  suggestion, split at intersections, wall rails, input validation). Terrain *definition* work — creating a terrain, editing
   its modifier stack, bake/convert — stays in the dock panel and deliberately has no toolbar button.
   Diagnostics (`mhBenchmarkLargeTin`, `mhDebugAnnotationBlock`) are command-line only. A command that
   is a variant of another rides its sibling's right-click (`mhSlopeCurve` → `mhSlopeCurveSection`,
@@ -126,6 +127,28 @@ TriangleNet (vendored)  ←  MoleHill.Core  ←  MoleHill.Grasshopper (GH host)
   Rhino geometry for later assignment as points, breaklines, contours, or boundaries; they do not mutate
   managed terrain definitions. Validation replaces surviving objects in place to preserve ids and complete
   Rhino attributes; joining is layer-scoped, with one original object surviving each many-to-one join.
+- **`mhSuggestRoute` drafts the curve; Grade Path still follows it.** Modifiers follow drawn geometry
+  exactly, so help with *where* a path should go belongs upstream, in a command that draws the curve.
+  The user picks a terrain (any mesh/surface, or Enter for the active MoleHill terrain, as
+  `mhDrapeCurve`), a start, optional waypoints and an end; the command returns up to three distinct
+  alternatives as ordinary editable polylines, previewed by `RouteSuggestionConduit` (categorical
+  colours, numbered dots, `DrawOverlay` with depth off — the inspector rule above) and kept with
+  `KeepAll` / `Keep1..3` / Enter. Every option (`MaxGrade` through the shared `SlopeCommandOption`,
+  `Distance`/`Steepness`/`Earthworks` weights, `CorridorWidth`, `CellSize`, `Alternatives`) is offered
+  both while picking and while reviewing, and changing one during review searches again. Each kept
+  curve carries its readout (length, max/mean grade in the user's slope unit, cut/fill over the
+  corridor width) in its name and `MoleHill.Route.*` user text, on the current layer like other drawing
+  aids. The search is Core's `Routing/`: a top-surface height grid rasterised from the mesh (NaN for
+  holes and outside), 16-connected A* whose move cost is
+  `L * (wDistance + wSteepness * min(r,1)^2 + wEarthworks * E(r))` with `r` the move's ground grade over
+  the limit, cost-aware string pulling to turn the grid path back into the straight lines it
+  approximates, and a **grade-limited profile** (`GradeLimitedProfile`: the ground wherever the ground is
+  within the limit, an even cut/fill split where not, held to the ground at the picked points). The grade
+  limit is therefore hard on the output — the centreline Z is what Grade Path treats as the design —
+  while ground steeper than the limit is a priced choice (cut through or go round) rather than a wall.
+  Alternatives come from penalising each kept route's corridor and searching again; a candidate whose
+  drawn line still shares 70% of its length with an earlier corridor is dropped. See
+  `src/MoleHill.Core/Routing/README.md`.
 - Project-local ↔ real-world coordinates use the validated horizontal `MoleHill_ProjectBase` plane as a
   reversible local-to-real-world rigid transform; object replacement ids are reconciled across terrain
   source/output tracking. Legacy Python `FOTM` planes (the inverse convention) and legacy C# `Georef`
@@ -326,7 +349,7 @@ The modifier cards share one set of words, because the same idea used to carry t
 | **Border** | The mesh's own outer edge (Peel Border, Simplify, Retopo) | "TIN boundary" |
 | **Crease** | A fold detected from the mesh (Remesh/Retopo Crease Angle keep them; Smooth's Round Creases rounds them); never saved as a breakline | "feature edge" |
 | **Incoming mesh** | The stage's input — what Simplify measures against and what a failed stage keeps | "upstream mesh", "original mesh" |
-| **Protect** | Sculpt and Smooth: curves that shield terrain from the edit and add no mesh edge (Sculpt: closed = interior, open = the line; Smooth: the line's own vertices, and in Round Creases the creases along it stay sharp) | breakline |
+| **Protect** | Sculpt, Smooth and Displace: curves that shield terrain from the edit and add no mesh edge (Sculpt: closed = interior, open = the line; Smooth and Displace: the line's own vertices, and in Round Creases the creases along it stay sharp) | breakline |
 | **Protect Hold** | Smooth only: how firmly protected curves keep their height (`BreaklineFixity` on disk) | "fixity" |
 | **Batter** | The graded slope surface between a rail/edge and daylight; a *slope* is the angle that shapes it | "shoulder" |
 
@@ -558,6 +581,73 @@ precedes them. A sampled Core regularity check warns when the mesh is very spars
 meaningful proportion of triangles below an 8-degree minimum angle, recommending Remesh below the
 modifier before vertex-based editing.
 
+## Core + Rhino: displacement (Displace)
+
+The **Displace** modifier adds controlled vertical offsets to the incoming ground, after Blender's
+Displace modifier. It modifies existing ground; the GeoTIFF DEM input is the way to bring in *absolute*
+source elevations. Two sources (`Core/Displacement/`):
+
+- **Noise** — `GradientNoise`: 2D Perlin gradient noise and its fractal sum, lattice-hashed with integer
+  arithmetic over a fixed gradient table, so a seed gives the same ground on every machine and runtime
+  (`DisplacementSourceTests` pins golden values). Noise Size is the plan width of the coarsest octave's
+  bump; each further octave is half the size and Roughness times the weight.
+- **Image** — `HeightmapImage` (0–1 luminance, decoded Rhino-side by `Services/Import/HeightmapImageLoader`
+  through System.Drawing to 8-bit) laid on the ground as a tile of a stated real-world width and height,
+  bilinear between pixel centres, Repeat / Clamp / Once beyond the tile. The **Neutral** value is the
+  brightness that means no offset.
+
+**Height is the full range of the offset in both modes**: noise stays within ±Height/2 (most bumps are
+smaller), an image moves black-to-white by Height with Neutral at zero. Both patterns are pure functions of
+world XY through a `DisplacementPlacement` (origin = the image's lower-left corner, and the point the
+pattern rotates about; rotation is a true angle, never converted) — never vertex indices or UVs — so a
+Displace stacks and survives a Remesh or Retopo below it, exactly as Sculpt's field does.
+
+`TerrainDisplacer` moves Z only, so the stage reuses the incoming topology
+(`BuildMeshWithNewHeights`). **Boundaries** scope the edit: nothing outside moves, and the offset rises
+from zero at the drawn line to full strength at the **Feather** distance inside it, so the drawn line is
+where the edit stops. Everything hard keeps its height and the offset fades in over the same Feather from
+it: every line in `PersistentHardConstraints` (breaklines, wall rails, graded edges), faces at or above
+70° (walls are never buried), the **Protect** curves and, unless Hold Border is off, the mesh border.
+The hold and fade are `Core/Grading/HeldLines`, shared with Round Creases, not a copy.
+
+**The image is an external dependency.** The definition stores only its path; the stage fingerprint adds
+the file's length and last-write time, so saving over the image rebuilds although the document did not
+change. A missing, relative or unreadable path makes the card inert with the reason
+(`InertReason` decodes through the loader's small cache, so a build that finds the file unchanged never
+decodes it twice) — never a silent zero offset.
+
+**Mapping rectangle.** An image may instead be placed by one drawn rectangle (the `Mapping` source set,
+read by `Core/Displacement/MappingRectangle`). Convention: the curve's **start point is the image's
+bottom-left corner**, and the image's bottom edge runs from it **counter-clockwise** around the rectangle,
+so the rest of the rectangle lies above the bottom and the image is never mirrored. The drawing direction
+therefore does not matter; the start corner does (start at another corner for a quarter turn). The two
+side lengths are the tile's width and height and the bottom edge's bearing is the rotation. While set it
+overrides the typed Origin, Tile Width/Height and Rotation; those rows hide and the card's report shows
+the derived placement. It must be one closed, level, square-cornered polyline within tolerance (points
+along a side are ignored, the start must be a corner); anything else, or a deleted curve, makes the card
+inert with the reason. Being a source set, its geometry is fingerprinted, so moving, rotating or scaling
+it in Rhino rebuilds the stage. Noise ignores it: noise has no frame, and its typed origin and rotation
+are rarely worth a curve.
+
+**Mapping preview** is a Guide-channel runtime overlay owned by the card (`displace.mapping`): the frame of
+every image tile over the edited ground (or, past 400, the one under its centre), the image's top edge
+(heavy, labelled "image top") and its bottom-left corner, drawn at the top of the terrain. With a mapping
+rectangle the labels sit on the rectangle's own tile and that tile's frame is not drawn again. A guide, not a `GeneratedRhinoObject`, because it is
+construction information about the card rather than drawing output: it is never baked, so it has no
+`LayerRole`. **Show Mapping** is deliberately a build input — the stage emits the guide, and toggling it
+re-runs only this cheap stage (its output mesh is unchanged, so nothing below re-runs). Noise draws no
+guide; its region is the user's own boundary curves.
+
+**Resolution honesty.** Displacing existing vertices undersamples when the mesh is coarser than the
+pattern. The stage reports the median plan edge length of the edges it reaches against the Noise Size or
+the image's pixel size, and warns — on the card's warning surface and in the diagnostics — when the median
+exceeds half of it, naming the Remesh Edge Length that would carry it. The readout reaches the card
+through a generic **modifier stage report** (`Registry/ModifierStageReport`): a stage stores its
+`ResultRow`s and warning on its own stage cache entry (so a cache hit keeps showing what the cached run
+measured), `TerrainController.GetModifierStageReport` reads it, and the panel draws it for any modifier
+with no type switch; `TerrainCardResultSignature` includes it. Densifying the region in place
+(`LocalMeshRefiner`, as Round Creases' `DensifyBand` does) is the natural next step; it is not built.
+
 ## Core: grading (the watertight invariant)
 
 Grade Path is a constant-width corridor unless its `UseVariableWidth` toggle is switched on. Only then
@@ -768,7 +858,7 @@ fingerprint cache (`runtimeCache.StageEntries`); decomposed into `TerrainBuildSe
 holding the shared helpers (`.Tin`, `.MeshConstraints`, `.Grading`, `.Cache`, `.Fingerprints`, `.Types`) and the
 non-modifier stages (`.Zones`, `.Analysis`, `.Objects`, `.Scatter`, `.Report`). Each modifier's build step is its
 own `Services/Build/Stages/XxxStage` static class (`Run(ModifierBuildContext)`, called from the descriptor's
-`RunBuildStage`); stages call shared helpers as `TerrainBuildService.X`. Order: TIN → modifiers (smooth/remesh/sculpt/grade
+`RunBuildStage`); stages call shared helpers as `TerrainBuildService.X`. Order: TIN → modifiers (smooth/remesh/sculpt/displace/grade
 pad/grade path/grade line/project-to/simplify) → analyses → annotations → zones → markers → object placements → scatter → report tables. **The generated-output
 stages run only in `TerrainBuildMode.Final` and are fingerprint-cached**. Analyses and annotations are each
 cached independently by id; zones, markers, objects, and scatter retain stage-level entries. Both families
@@ -802,7 +892,7 @@ Remesh card from 37 s to 0.5 s.
 which family a type belongs to:
 
 - **Analysis** (`Model/AnalysisDefinition`, `Registry/AnalysisTypeRegistry`) — slope, aspect, elevation,
-  cut/fill, earthworks, waterflow, catchments, ponding, gradient compliance. The result is a measurement: a number, or a colour mapped
+  cut/fill, earthworks, waterflow, catchments, ponding, gradient compliance, curvature. The result is a measurement: a number, or a colour mapped
   onto the mesh. Only these carry the colour-ramp apparatus (`PalettePreset`, `PaletteStops`, `ColorMode`,
   `ResolveRamp()`) — though carrying it is not the same as using it, see catchments below.
 - **Annotation** (`Model/AnnotationDefinition`, `Registry/AnnotationTypeRegistry`) — contours, spot heights,
@@ -896,6 +986,33 @@ keeping:
 - **Presets ship only when checked against the published text**, and each cites its clause. A wrong
   built-in compliance preset looks authoritative and is the one value nobody re-checks. Standards whose
   text was not available (DIN 18040, AS 1428.1 so far) are not presets; their users start from Custom.
+
+**Curvature is measured at a landform size, and colours either way.** The curvature analysis
+(`Model/CurvatureAnalysisDefinition`, Core `CurvatureAnalyzer` / `LandformClassifier`, backlog B17) has one
+measurement and two colourings, switched by `Display`: landform classes, convex / planar / concave from the
+mean curvature (categorical, like compliance: no
+ramp row, no range, a swatch key in the Legend) or a curvature value (the diverging `cool-warm` ramp,
+`RangeShape.SymmetricAboutZero`, so straight ground is the middle colour). Three decisions are worth keeping:
+
+- **Never per triangle.** A triangle is flat, so per-face curvature maps the triangulation. Each vertex is
+  fitted with a weighted quadric over everything within the landform size (`FeatureSize`, labelled
+  "Landform Size" because "feature" is a retired word), plan-area weighted so dense survey does not
+  out-vote the ground it covers. The size is the scale control: a 0.3 m hump on a 40 m mound dominates at
+  0.5 m and is gone at 10 m. The class threshold is a **height**, `FlatnessTolerance`: ground within it
+  of flat across one landform size (sagitta `|H| L2 / 8`) is Planar. A height reads on a card, which an
+  inverse length does not, and it follows the landform size by itself, which a radius of curvature did
+  not: measured curvature shrinks as the fit widens, so a fixed radius had to be retuned with every size.
+- **Convex is positive**, in 1/model-unit, for mean, profile (along the fall line) and plan (tangential,
+  across it). The colour range is therefore an inverse length: `[InverseModelLengthMembers]` promotes the
+  inherited range, and `TerrainUnitScaler` scales a curvature card's summary range by the reciprocal.
+- **Three classes, not eight.** A Wood-style set (peak, ridge, shoulder, saddle, toe, valley, hollow,
+  planar) was built and dropped in review as too many to read on a plan. The direction of a bend is still
+  there, in the profile and plan measures of Curvature value mode. A saddle has no mean bend, so it reads
+  Planar. The fit depends only on the mesh and the size, so the preview caches it in the drainage cards' preview
+  slot (`DrainagePreviewCache`, keyed by `CurvaturePreviewKey`) and the threshold, measure, display and
+  colours apply per refresh; `Display` and `Measure` are `[NotBuildInput]`. The build stage totals the
+  class areas as unit-free shares (`LandformClassShares`) of a nullable measured area, which the card and
+  the report's Landforms section read.
 
 The two are **peer families, not a base and a subclass** — the same shape as `ModifierDefinition`,
 `MarkerDefinition`, and `TerrainObjectDefinition`, each with its own definition root, type registry,

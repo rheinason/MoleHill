@@ -39,7 +39,10 @@ Escape closes the popup from either the search box or the grid.
   and rename in one field. Bake is grouped with the visibility/lock output actions. One
   "Output Layers" row names the layer template the terrain routes through, opens the editor, and creates
   its layers; there are no per-terrain or per-card layer pickers. Expanded Smooth/Sculpt cards show a sampled mesh-quality
-  warning when an uneven incoming TIN has no earlier Remesh modifier. Triangulate keeps its source rows
+  warning when an uneven incoming TIN has no earlier Remesh modifier. Any modifier card draws the
+  `ModifierStageReport` its stage left (Displace's sampling readout): the warning on the warning surface,
+  the rows through `AddResultRows`. A `FilePath` schema row is a text box with a Browse button
+  (`CreateFilePathEditor`). Triangulate keeps its source rows
   together, then shows a Boundaries group with standard Outer/Hide/Show/Data Clip object-and-layer rows,
   a Rectangle shortcut on Data Clip, Contour Mode, and a titled Peel Border settings group.
   Project To starts with a Target group: choosing a MoleHill terrain clears its Rhino mesh source and

@@ -61,6 +61,7 @@ internal static class TerrainLegendBuilder
         AnalysisLegend? content = coloring switch
         {
             GradientComplianceAnalysisDefinition compliance => ComplianceKey(compliance.Rules),
+            CurvatureAnalysisDefinition { Display: CurvatureDisplay.Landforms } => LandformKey(),
             _ when displayState.ActiveAnalysisRange is { } range => AnalysisLegendBuilder.ForRamp(
                 range,
                 coloring.ColorMode,
@@ -90,8 +91,8 @@ internal static class TerrainLegendBuilder
     {
         AnalysisDefinition? coloring = TerrainAnalysisPreviewBuilder.FindColoringAnalysis(terrain);
         if (coloring == null)
-            return "Nothing colours the terrain — enable a Slope, Elevation, Cut/Fill, Aspect, Ponding or " +
-                "Gradient Compliance analysis for the legend to key.";
+            return "Nothing colours the terrain — enable a Slope, Elevation, Cut/Fill, Aspect, Ponding, " +
+                "Gradient Compliance or Curvature analysis for the legend to key.";
 
         if (!terrain.ShowAnalysisOutputs)
             return "Analysis colours are hidden (the Analysis tab's eye), so there is nothing on the terrain to key.";
@@ -111,9 +112,29 @@ internal static class TerrainLegendBuilder
             ElevationAnalysisDefinition or CutFillAnalysisDefinition or PondingAnalysisDefinition =>
                 $"{label} ({ModelUnits.Abbreviation(unitSystem)})",
             AspectAnalysisDefinition => $"{label} (°)",
+            CurvatureAnalysisDefinition { Display: CurvatureDisplay.Curvature } =>
+                $"{label} (1/{ModelUnits.Abbreviation(unitSystem)})",
             // Slope values carry their unit in every label, so the heading does not repeat it.
             _ => label
         };
+    }
+
+    /// <summary>
+    /// Every landform class, convex to concave, plus the grey of ground too sparse to measure. All three
+    /// are keyed whether or not this terrain shows them, so two legends on one sheet always read alike.
+    /// </summary>
+    private static AnalysisLegend LandformKey()
+    {
+        var entries = new List<AnalysisLegendEntry>(LandformClassifier.ClassCount + 1);
+        foreach (LandformClass landform in LandformClassifier.All)
+        {
+            (byte r, byte g, byte b) = LandformClassifier.ColorOf(landform);
+            entries.Add(new(new SlopeAnalyzer.ColorStop(0.0, r, g, b), LandformClassifier.NameOf(landform)));
+        }
+
+        (byte ur, byte ug, byte ub) = LandformClassifier.UnmeasuredColor;
+        entries.Add(new(new SlopeAnalyzer.ColorStop(0.0, ur, ug, ub), "Not measured"));
+        return AnalysisLegendBuilder.ForCategories(entries);
     }
 
     /// <summary>

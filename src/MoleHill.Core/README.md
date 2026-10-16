@@ -1,6 +1,6 @@
 # MoleHill.Core
 
-Pure terrain logic: triangulation, grading, analysis, scattering, sculpting, remeshing. **No Rhino or
+Pure terrain logic: triangulation, grading, analysis, scattering, sculpting, displacement, remeshing. **No Rhino or
 Grasshopper dependency** — anything here is testable without a host, and everything reusable belongs
 here rather than in a host project.
 
@@ -21,10 +21,12 @@ Two things about this project are not obvious from its file list:
 | [`Processing/`](Processing/README.md) | Input cleaning, simplification, constraint resolution |
 | [`Grading/`](Grading/README.md) | Pads, paths, walls, zone/area splitting — the watertight 2.5D invariant |
 | [`Analysis/`](Analysis/README.md) | Slope, aspect, elevation, cut/fill, contours, waterflow, drainage |
+| [`Routing/`](Routing/README.md) | Route suggestion between picked points: height grid, A*, grade-limited profile |
 | [`IO/`](IO/README.md) | Host-free file readers: classic TIFF / GeoTIFF tags and raster georeferencing |
 | [`Reporting/`](Reporting/README.md) | Quantity tables and CSV export |
 | [`Scattering/`](Scattering/README.md) | Deterministic weighted block scatter |
 | [`Sculpting/`](Sculpting/README.md) | The sparse world-XY displacement field and brush engine |
+| [`Displacement/`](Displacement/README.md) | Displace's deterministic noise, heightmap sampling and the Z-only terrain displacer |
 | [`Retopo/`](Retopo/README.md) | Cross-field solve and quad retopology |
 | [`Interop/`](Interop/README.md) | The versioned host-exchange contract |
 

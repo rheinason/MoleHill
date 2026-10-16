@@ -62,6 +62,7 @@ internal static class TerrainAnalysisPreviewBuilder
             CatchmentAnalysisDefinition catchment => BuildCatchmentPreviewMesh(state.TerrainMesh, state.DrainagePreview, catchment, alpha),
             PondingAnalysisDefinition ponding => BuildPondingPreviewMesh(state.TerrainMesh, state.DrainagePreview, ponding, alpha, out resolvedRange, out distribution),
             GradientComplianceAnalysisDefinition compliance => BuildGradientCompliancePreviewMesh(doc, state.TerrainMesh, compliance, alpha),
+            CurvatureAnalysisDefinition curvature => BuildCurvaturePreviewMesh(state.TerrainMesh, state.DrainagePreview, curvature, alpha, out resolvedRange, out distribution),
             _ => state.TerrainMesh
         };
 
@@ -82,6 +83,7 @@ internal static class TerrainAnalysisPreviewBuilder
         SlopeAnalysisDefinition => RangeShape.FromZero,
         AspectAnalysisDefinition => RangeShape.Cyclic,
         CutFillAnalysisDefinition => RangeShape.SymmetricAboutZero,
+        CurvatureAnalysisDefinition => RangeShape.SymmetricAboutZero,
         PondingAnalysisDefinition => RangeShape.FromZero,
         _ => RangeShape.MinMax
     };
@@ -355,6 +357,85 @@ internal static class TerrainAnalysisPreviewBuilder
     }
 
     /// <summary>
+    /// Curvature colours each face by its landform class, or by a curvature measure through the ramp.
+    /// </summary>
+    /// <remarks>
+    /// The surface fit is the expensive part and depends only on the mesh and the landform size, so it is
+    /// cached in the preview slot the drainage cards use; the planar threshold, the measure shown, the
+    /// display mode and the colours are applied on every refresh. Landforms write no range or distribution
+    /// (they are classes, like Gradient Compliance's verdicts); the value ramp fits a range symmetric
+    /// about zero over the measured faces only, so unmeasured ground is grey and never pulls the fit.
+    /// </remarks>
+    private static RhinoMesh? BuildCurvaturePreviewMesh(
+        RhinoMesh mesh,
+        DrainagePreviewCache cache,
+        CurvatureAnalysisDefinition analysis,
+        byte alpha,
+        out AnalysisRange? range,
+        out double[]? distribution)
+    {
+        range = null;
+        distribution = null;
+        CurvaturePreviewSolve solved = cache.GetOrCompute(
+            mesh,
+            new CurvaturePreviewKey(analysis.FeatureSize),
+            () => SolveCurvaturePreview(mesh, analysis.FeatureSize));
+        if (!solved.IsValid)
+            return null;
+
+        CurvatureField field = solved.Field;
+        if (analysis.Display == CurvatureDisplay.Landforms)
+        {
+            byte[] classColors = LandformClassifier.BuildFaceColors(LandformClassifier.Classify(field, analysis.FlatnessTolerance));
+            return BuildFaceColorMesh(solved.Vertices, solved.Faces, solved.FaceCount, classColors, alpha);
+        }
+
+        double[] values = field.Values(analysis.Measure);
+        var measured = new bool[values.Length];
+        for (int face = 0; face < values.Length; face++)
+            measured[face] = double.IsFinite(values[face]);
+
+        AnalysisRange resolved = ResolveMaskedRange(
+            values, field.PlanAreas, measured, analysis.AutoColorRange, analysis.RangeLow, analysis.RangeHigh,
+            RangeShape.SymmetricAboutZero);
+        range = resolved;
+        distribution = BuildMaskedDistribution(values, field.PlanAreas, measured, resolved);
+
+        var palette = analysis.ResolveRamp().Stops;
+        var bands = AnalysisColorMapper.ResolveBandsFor(resolved, analysis.ColorMode, analysis.ColorInterval, palette);
+        var colors = new byte[solved.FaceCount * 3];
+        for (int face = 0; face < solved.FaceCount; face++)
+        {
+            SlopeAnalyzer.ColorStop color = measured[face]
+                ? AnalysisColorMapper.SampleResolved(values[face], resolved, analysis.ColorMode, bands, palette)
+                : UnmappedColor;
+            WriteColor(colors, face, color.R, color.G, color.B);
+        }
+
+        return BuildFaceColorMesh(solved.Vertices, solved.Faces, solved.FaceCount, colors, alpha);
+    }
+
+    private static CurvaturePreviewSolve SolveCurvaturePreview(RhinoMesh mesh, double landformSize)
+    {
+        if (!RhinoGeometryConversions.TryExtractMesh(mesh, out IndexedTriMesh extracted, out _))
+            return CurvaturePreviewSolve.Invalid;
+
+        return new CurvaturePreviewSolve(
+            extracted.Vertices,
+            extracted.Faces,
+            extracted.FaceCount,
+            CurvatureAnalyzer.Measure(extracted, landformSize));
+    }
+
+    private sealed record CurvaturePreviewSolve(double[] Vertices, int[] Faces, int FaceCount, CurvatureField Field)
+    {
+        public static readonly CurvaturePreviewSolve Invalid = new(
+            Array.Empty<double>(), Array.Empty<int>(), 0, CurvatureAnalyzer.Measure(IndexedTriMesh.Empty, 0.0));
+
+        public bool IsValid => FaceCount > 0;
+    }
+
+    /// <summary>
     /// The analysis the terrain is coloured by: the first enabled one that colours the mesh. The preview
     /// shows one colouring at a time, and the Legend annotation keys whichever this returns, so the two
     /// resolve it in one place.
@@ -366,7 +447,7 @@ internal static class TerrainAnalysisPreviewBuilder
     {
         return analysis is SlopeAnalysisDefinition or AspectAnalysisDefinition or ElevationAnalysisDefinition
             or CutFillAnalysisDefinition or CatchmentAnalysisDefinition or PondingAnalysisDefinition
-            or GradientComplianceAnalysisDefinition;
+            or GradientComplianceAnalysisDefinition or CurvatureAnalysisDefinition;
     }
 
     /// <summary>

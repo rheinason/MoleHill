@@ -62,7 +62,7 @@ The Grasshopper project builds two output dirs (`bin/Debug/net7.0/` and `bin/Deb
 Six source projects (plus the `MoleHill.Shared` source folder), three test projects:
 
 - **TriangleNet** (`src/TriangleNet/`, net7.0) — Triangle.NET constrained Delaunay library, nullable disabled, included as source and merged into the .gha
-- **MoleHill.Core** (`src/MoleHill.Core/`, net7.0) — Pure terrain logic (no Rhino/GH dependency). Sub-namespaces: `Engine/`, `Processing/`, `Grading/`, `Analysis/`, `Scattering/`, `Sculpting/` (each has a `README.md`)
+- **MoleHill.Core** (`src/MoleHill.Core/`, net7.0) — Pure terrain logic (no Rhino/GH dependency). Sub-namespaces: `Engine/`, `Processing/`, `Grading/`, `Analysis/`, `Scattering/`, `Sculpting/`, `Displacement/` (each has a `README.md`)
 - **MoleHill.Grasshopper** (`src/MoleHill.Grasshopper/`, net7.0-windows + net7.0) — GH components, plugin metadata (`MoleHillInfo.cs`), icon resources, `RhinoConverter.cs`. No terrain logic here.
 - **MoleHill.Interop** (`src/MoleHill.Interop/`, net7.0) — RhinoCommon-only contracts shared across separately loaded assemblies: the Rhino→GH terrain snapshot bridge and the `IToposolidPreparation` package. Shipped once, never merged.
 - **MoleHill.Revit** (`src/MoleHill.Revit/`, net8.0-windows) — `MoleHill.Revit.gha`, the Rhino.Inside.Revit components (Write/Inspect Toposolids). The only assembly referencing `RevitAPI` (reference-only at build); its `GH_AssemblyPriority` aborts the load outside Revit. Only its Revit-free `Planning/` is tested.
@@ -193,9 +193,10 @@ When Triangle.NET inserts Steiner points, their Z must be interpolated. Check in
   `case`/`is` over a concrete definition type outside `Registry/` and `Model/`; their exemption lists only
   shrink.
 - **Every `double` on a definition declares its unit.** `TerrainUnitScaler` scales by attribute:
-  `[ModelLength]`, `[ModelArea]`, `[ModelVolume]`, `[InverseModelArea]`, or `[UnitFree("why")]`.
-  `ModelUnitAttributeGuardTests` fails on an undeclared one, so a new length field cannot silently miss a
-  model-unit change.
+  `[ModelLength]`, `[ModelArea]`, `[ModelVolume]`, `[InverseModelArea]`, `[InverseModelLength]`, or
+  `[UnitFree("why")]`. `ModelUnitAttributeGuardTests` fails on an undeclared one, so a new length field
+  cannot silently miss a model-unit change. An inherited unit-free colour range is promoted per type with
+  `[ModelLengthMembers]` (elevation, cut/fill) or `[InverseModelLengthMembers]` (curvature, in 1/model-unit).
 - **Schema migrations are ordered steps.** A document-shape change adds a step to `TerrainSchemaMigrations`
   (runs when the document's version is below the step's), with a characterization test; per-type load
   clean-up is `NormalizeAfterLoad` on the definition.

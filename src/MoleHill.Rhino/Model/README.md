@@ -23,6 +23,14 @@ A definition normalizes its own fields after load in a `virtual NormalizeAfterLo
   and the ramp card hides the bounds. Defaults to the cyclic `aspect-wheel` preset in `Constant` mode,
   which reads as eight sectors. `FlatSlopeThresholdDegrees` is a slope like every other in the model —
   stored in degrees, typed in whatever unit the user works in.
+- `CurvatureAnalysisDefinition.cs` / `CurvatureDisplay.cs` — curvature and landform (backlog B17). One
+  card, two colourings of one measurement: `Display` picks landform classes or a curvature value on the
+  ramp, and `Measure` picks mean, profile or plan; both are `[NotBuildInput]`, so switching recolours
+  without re-measuring. `FeatureSize` (labelled "Landform Size" on the card, because "feature" is a
+  retired word) is the fit radius and `FlatnessTolerance` the height the ground may depart from flat
+  across one landform size and still be Planar, both `[ModelLength]`; the colour range is promoted to an
+  inverse length. Defaults: 5 m, 50 mm, `cool-warm`, auto range. The unreleased `PlanarRadius` it replaced
+  is ignored on load (unknown JSON members are skipped), so such a card takes the default tolerance.
 - `ReportTableAnnotationDefinition.cs` — the quantity summary drawn into the model. Which sections to
   include, the rules, spacing as multiples of the text height, and an insertion origin (unset places it
   beside the terrain). It carries its own slope `Unit` because that unit is part of the drawing; the CSV
@@ -79,6 +87,12 @@ A definition normalizes its own fields after load in a `virtual NormalizeAfterLo
   written before grading existed carries no `mode` key and still reads back breaklines-only.
   Sculpt persists both its raw displacement tiles and a constraint source set; selected closed curves
   protect their interiors, while earlier Grade Path sources resolve to their configured road width.
+  `DisplaceModifierDefinition` stores a `Source` (`noise` or `image`, `DisplaceSources`), Boundaries and
+  Protect source sets, Feather, Hold Border, the shared Height / Rotation / Origin, the noise's size,
+  octaves, roughness and seed, and the image's **path** (never its pixels), tile width and height, neutral
+  value and wrap (`repeat` / `clamp` / `once`), and an optional `Mapping` rectangle reference that, when set,
+  overrides the typed origin, tile size and rotation (kept for when it is cleared). `ShowMapping` is a build input on purpose: the mapping
+  guide is emitted by the stage.
 - **Analyses** — `AnalysisDefinition` → `Slope`, `Elevation`, `CutFill`, `Earthwork`,
   `WaterflowAnalysisDefinition`. Content that **evaluates** the terrain: the result is a measurement, a
   number or a colour on the mesh. Waterflow stores point sources and traces generated downhill curves on
@@ -116,7 +130,9 @@ the descriptor; objects/markers/analyses/annotations still have bespoke card bod
 annotations keep their `TerrainBuildService.Analysis.cs` build stage).
 
 **Unit scaling is declared on the property.** Every `double`/`double?` on a definition type carries
-`[ModelLength]`, `[ModelArea]`, `[ModelVolume]`, `[InverseModelArea]` or `[UnitFree(reason)]`
-(`ModelUnitAttributes.cs`); `Services/Persistence/TerrainUnitScaler` multiplies by reflection, and
+`[ModelLength]`, `[ModelArea]`, `[ModelVolume]`, `[InverseModelArea]`, `[InverseModelLength]` or
+`[UnitFree(reason)]` (`ModelUnitAttributes.cs`); `Services/Persistence/TerrainUnitScaler` multiplies by reflection, and
 `ModelUnitAttributeGuardTests` fails on an undeclared one. A concrete type may promote an inherited unit-free
-property with `[ModelLengthMembers]` (Elevation and Cut/Fill promote the colour range).
+property with `[ModelLengthMembers]` (Elevation and Cut/Fill promote the colour range), or with
+`[InverseModelLengthMembers]` (Curvature: its colour range is a curvature in 1/model-unit, so it shrinks as
+lengths grow; a summary owned by a curvature card scales its owner-dependent range the same way).

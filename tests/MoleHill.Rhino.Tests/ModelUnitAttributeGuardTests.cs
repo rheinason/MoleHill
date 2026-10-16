@@ -40,6 +40,8 @@ public sealed class ModelUnitAttributeGuardTests
         {
             HashSet<string> promoted = type.GetCustomAttribute<ModelLengthMembersAttribute>(inherit: true)
                 ?.PropertyNames.ToHashSet(StringComparer.Ordinal) ?? new HashSet<string>();
+            promoted.UnionWith(type.GetCustomAttribute<InverseModelLengthMembersAttribute>(inherit: true)
+                ?.PropertyNames ?? Array.Empty<string>());
 
             foreach (PropertyInfo property in StoredDoubles(type))
             {
@@ -52,7 +54,7 @@ public sealed class ModelUnitAttributeGuardTests
         }
 
         Assert.True(undeclared.Count == 0,
-            "Declare a unit ([ModelLength], [ModelArea], [ModelVolume], [InverseModelArea]) or [UnitFree(reason)] on: "
+            "Declare a unit ([ModelLength], [ModelArea], [ModelVolume], [InverseModelArea], [InverseModelLength]) or [UnitFree(reason)] on: "
             + string.Join(", ", undeclared));
     }
 
@@ -102,6 +104,26 @@ public sealed class ModelUnitAttributeGuardTests
             HashSet<string> stored = StoredDoubles(type).Select(property => property.Name).ToHashSet(StringComparer.Ordinal);
             foreach (string name in attribute.PropertyNames)
                 Assert.True(stored.Contains(name), $"{type.Name} promotes '{name}', which is not a writable double property.");
+        }
+    }
+
+    [Fact]
+    public void InverseModelLengthMembers_NameRealStoredDoubles_AndAreNotAlsoLengths()
+    {
+        foreach (Type type in DefinitionTypes())
+        {
+            var attribute = type.GetCustomAttribute<InverseModelLengthMembersAttribute>(inherit: true);
+            if (attribute == null)
+                continue;
+
+            HashSet<string> stored = StoredDoubles(type).Select(property => property.Name).ToHashSet(StringComparer.Ordinal);
+            HashSet<string> lengths = type.GetCustomAttribute<ModelLengthMembersAttribute>(inherit: true)
+                ?.PropertyNames.ToHashSet(StringComparer.Ordinal) ?? new HashSet<string>();
+            foreach (string name in attribute.PropertyNames)
+            {
+                Assert.True(stored.Contains(name), $"{type.Name} promotes '{name}', which is not a writable double property.");
+                Assert.False(lengths.Contains(name), $"{type.Name} declares '{name}' as both a length and an inverse length.");
+            }
         }
     }
 

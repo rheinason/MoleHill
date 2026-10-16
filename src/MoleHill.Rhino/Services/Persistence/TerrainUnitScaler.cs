@@ -5,7 +5,7 @@ using MoleHill.Rhino.Model;
 namespace MoleHill.Rhino.Services;
 
 /// <summary>
-/// Scales every persisted value expressed in model length, area, volume, or inverse area when Rhino
+/// Scales every persisted value expressed in model length, area, volume, inverse area or inverse length when Rhino
 /// scales a document while changing its model units. Angles, percentages, counts, ratios, normalized
 /// vectors, block scale factors, and paper-space plot weights are intentionally unchanged.
 ///
@@ -91,6 +91,10 @@ internal static class TerrainUnitScaler
             type.GetCustomAttribute<ModelLengthMembersAttribute>(inherit: true)?.PropertyNames
             ?? Array.Empty<string>(),
             StringComparer.Ordinal);
+        HashSet<string> promotedInverse = new(
+            type.GetCustomAttribute<InverseModelLengthMembersAttribute>(inherit: true)?.PropertyNames
+            ?? Array.Empty<string>(),
+            StringComparer.Ordinal);
 
         var members = new List<Member>();
         foreach (PropertyInfo property in type.GetProperties(BindingFlags.Public | BindingFlags.Instance))
@@ -103,6 +107,12 @@ internal static class TerrainUnitScaler
             if (promoted.Contains(property.Name))
             {
                 members.Add(new Member(property, ModelUnitKind.Length, OnlyWhenPositive: false, OwnerDependent: false));
+                continue;
+            }
+
+            if (promotedInverse.Contains(property.Name))
+            {
+                members.Add(new Member(property, ModelUnitKind.InverseLength, OnlyWhenPositive: false, OwnerDependent: false));
                 continue;
             }
 
@@ -123,6 +133,7 @@ internal static class TerrainUnitScaler
             ModelUnitKind.Area => areaScale,
             ModelUnitKind.Volume => areaScale * lengthScale,
             ModelUnitKind.InverseArea => 1.0 / areaScale,
+            ModelUnitKind.InverseLength => 1.0 / lengthScale,
             _ => throw new ArgumentOutOfRangeException(nameof(kind))
         };
     }
@@ -131,9 +142,13 @@ internal static class TerrainUnitScaler
     /// <param name="lengthScale">The model-length factor; area, volume and density factors derive from it.</param>
     /// <param name="ownerQualifies">
     /// Whether members marked <see cref="ModelUnitAttribute.OwnerDependent"/> scale too. Only a summary
-    /// whose owning analysis measures lengths passes true.
+    /// whose owning analysis measures lengths (or inverse lengths) passes true.
     /// </param>
-    private static void ScaleMembers(object target, double lengthScale, bool ownerQualifies)
+    /// <param name="ownerKind">
+    /// What the owner-dependent members measure when they do scale: the declared kind (a length) unless the
+    /// owner says otherwise, as a curvature analysis does with its 1/model-unit range.
+    /// </param>
+    private static void ScaleMembers(object target, double lengthScale, bool ownerQualifies, ModelUnitKind? ownerKind = null)
     {
         foreach (Member member in PlanFor(target.GetType()))
         {
@@ -146,7 +161,8 @@ internal static class TerrainUnitScaler
             if (member.OnlyWhenPositive && !(value > 0.0))
                 continue;
 
-            member.Property.SetValue(target, value * FactorFor(member.Kind, lengthScale));
+            ModelUnitKind kind = member.OwnerDependent && ownerKind.HasValue ? ownerKind.Value : member.Kind;
+            member.Property.SetValue(target, value * FactorFor(kind, lengthScale));
         }
     }
 
@@ -186,6 +202,13 @@ internal static class TerrainUnitScaler
         // unitless and must not scale.
         bool ownerMeasuresLengths = owner is ElevationAnalysisDefinition or CutFillAnalysisDefinition or
             ProjectedElevationLabelAnnotationDefinition or CurveElevationLabelAnnotationDefinition;
+
+        // A curvature card's mapped range is in 1/model-unit: it shrinks as lengths grow.
+        if (owner is CurvatureAnalysisDefinition)
+        {
+            ScaleMembers(summary, lengthScale, ownerQualifies: true, ModelUnitKind.InverseLength);
+            return;
+        }
 
         ScaleMembers(summary, lengthScale, ownerMeasuresLengths);
     }

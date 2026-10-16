@@ -534,6 +534,9 @@ internal sealed class StageCacheEntry
     public string? StairTreadDepthSummary { get; set; }
 
     public string? StairStepCountSummary { get; set; }
+
+    /// <summary>What the modifier stage measured for its card (<see cref="MoleHill.Rhino.Registry.ModifierStageReport"/>); null when it reports nothing.</summary>
+    public MoleHill.Rhino.Registry.ModifierStageReport? StageReport { get; set; }
 }
 
 /// <summary>
@@ -715,6 +718,10 @@ internal static class TerrainRuntimeCacheCloner
             RouteFailedRunCount = analysis.RouteFailedRunCount,
             RouteLandingCount = analysis.RouteLandingCount,
             RouteLargestRunRise = analysis.RouteLargestRunRise,
+            LandformMeasuredArea = analysis.LandformMeasuredArea,
+            LandformClassShares = analysis.LandformClassShares == null
+                ? null
+                : (double[])analysis.LandformClassShares.Clone(),
             ContourCurveCount = analysis.ContourCurveCount,
             ContourLevelCount = analysis.ContourLevelCount,
             ContourFirstLevel = analysis.ContourFirstLevel,
@@ -875,7 +882,8 @@ internal static class TerrainRuntimeCacheCloner
             RuntimeOverlays = CloneRuntimeOverlays(entry.RuntimeOverlays),
             StairSurfaceCount = entry.StairSurfaceCount,
             StairTreadDepthSummary = entry.StairTreadDepthSummary,
-            StairStepCountSummary = entry.StairStepCountSummary
+            StairStepCountSummary = entry.StairStepCountSummary,
+            StageReport = entry.StageReport
         };
     }
 

@@ -774,6 +774,34 @@ New-Icon "$rhinoDir\ModSculpt.png" {
     $ringPen.Dispose()
 } -size 16
 
+# ModDisplace - indigo bumpy ground with an up and a down arrow
+$drawModDisplace = {
+    param($g)
+    $path = New-Object System.Drawing.Drawing2D.GraphicsPath
+    $path.AddBezier(1.0, 11.0, 3.0, 7.0, 5.0, 7.0, 7.0, 10.0)
+    $path.AddBezier(7.0, 10.0, 9.0, 13.0, 11.0, 6.0, 15.0, 9.0)
+    $path.AddLine(15, 9, 15, 15)
+    $path.AddLine(15, 15, 1, 15)
+    $path.CloseFigure()
+    $brush = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(57, 73, 171))
+    $g.FillPath($brush, $path)
+    $brush.Dispose()
+    $pen = New-Object System.Drawing.Pen([System.Drawing.Color]::FromArgb(26, 35, 126), 1.5)
+    $g.DrawPath($pen, $path)
+    $pen.Dispose()
+    $path.Dispose()
+    # Up arrow over the bump, down arrow over the dip
+    $arrowPen = New-Object System.Drawing.Pen([System.Drawing.Color]::FromArgb(40, 40, 40), 1.3)
+    $g.DrawLine($arrowPen, 4, 5.5, 4, 1.5)
+    $g.DrawLine($arrowPen, 4, 1.5, 2.5, 3)
+    $g.DrawLine($arrowPen, 4, 1.5, 5.5, 3)
+    $g.DrawLine($arrowPen, 10, 1.5, 10, 5.5)
+    $g.DrawLine($arrowPen, 10, 5.5, 8.5, 4)
+    $g.DrawLine($arrowPen, 10, 5.5, 11.5, 4)
+    $arrowPen.Dispose()
+}
+New-Icon "$rhinoDir\ModDisplace.png" $drawModDisplace -size 16
+
 # ModRetainingWall - block wall, bolder outlines
 New-Icon "$rhinoDir\ModRetainingWall.png" {
     param($g)

@@ -12,5 +12,6 @@ internal enum TerrainReportSections
     Ponding = 8,
     Catchments = 16,
     GradientCompliance = 32,
-    All = Overview | Zones | Earthworks | Ponding | Catchments | GradientCompliance
+    Landforms = 64,
+    All = Overview | Zones | Earthworks | Ponding | Catchments | GradientCompliance | Landforms
 }

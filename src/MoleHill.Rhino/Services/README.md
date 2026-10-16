@@ -13,14 +13,14 @@ file that needs Rhino's runtime must be added to that `Exclude` at its new path.
 |---|---|
 | `Build/` | `TerrainBuildService.*` shared-helper partials, `Stages/` (one static class per modifier build stage), build snapshots and fingerprints, stage keys, tolerance/heuristics, the runtime cache, case recorders/exporters and `LargeTinDiagnostic` |
 | `Controller/` | `TerrainController.*` partials and the policies around it (debounce, superseded builds, interim publish, slow-build warning), undo snapshots, latency tracing, the Grasshopper bridge, reference-terrain resolution |
-| `Display/` | The display conduit, presentation/render meshes, colours, preview view, runtime overlay, scatter block preview, analysis preview builder, drainage preview cache |
+| `Display/` | The display conduit, presentation/render meshes, colours, preview view, runtime overlay, scatter block preview, analysis preview builder, drainage preview cache, the route-suggestion review overlay |
 | `Output/` | Layer roles/templates/creation/routing, annotation styles, hatch patterns, generated-object model, block catalog and templates, `AnnotationBlockLibrary` (copy the built-in annotation block, field inspection and preview field resolution) and `AnnotationBlockEditor` (open a block in Rhino's block editor by name), per-terrain layer rename/cleanup, content visibility |
 | `Annotation/` | Annotation, legend, report and section builders, section layout/profile comparison, zone analysis and gradient-compliance evaluation |
 | `Persistence/` | Terrain JSON serializer, document store/identity/ownership, unit scaling, colour-ramp and field-code stores |
-| `Import/` | GeoTIFF and raster georeferencing, DEM sampling, LandXML, survey import geometry/placement/naming, project-base plane, document north |
+| `Import/` | GeoTIFF and raster georeferencing, DEM sampling, LandXML, survey import geometry/placement/naming, project-base plane, document north, Displace's heightmap image loader (`HeightmapImageLoader`: System.Drawing to 8-bit luminance, file stamp, small decode cache) |
 | `CurveReview/` | The curve-review conduit, form, rules, labeller and analysis |
 | `Sculpt/` | The sculpt session controller and its field codec, mask builder, live contours, normal patcher, colouriser and zone follower |
-| `Commands/` | `*CommandService` / `*CommandAlgorithms` backing the `mh*` commands, script runner, option cache, toolbar installer |
+| `Commands/` | `*CommandService` / `*CommandAlgorithms` backing the `mh*` commands, the shared slope option, route-suggestion options/readout, script runner, option cache, toolbar installer |
 | (root) | Shared utilities: `RhinoSourceResolver`, `TerrainMeshProjection`, `ModelUnits`, `ModelUnitGuard`, `SlopeUnitPreference`, `ReferenceEqualityComparer`, `ResolvedSourceObject`, `TerrainRegionState` |
 
 `GeometryCommandService.ControlPointSlope.cs` owns `mhSlopeControlPoints` selection, reference/slope
@@ -51,14 +51,20 @@ out of the document; all accepted replacements form one command Undo, with rollb
 - `TerrainBuildService.cs` + `TerrainBuildService.*.cs` partials - the staged build orchestrator and the
   helpers every stage shares. The partials are the shared surface (`.Tin`, `.MeshConstraints`, `.Grading`,
   `.GradingWindows`, `.Boundaries`, `.Cache`, `.Fingerprints`, `.Types`) plus the non-modifier content
-  stages (`.Zones`, `.Analysis`, `.Objects`, `.Scatter`, `.Report`, `.Waterflow`, `.GradientCompliance`).
+  stages (`.Zones`, `.Analysis`, `.Objects`, `.Scatter`, `.Report`, `.Waterflow`, `.GradientCompliance`,
+  `.Curvature`). `.Curvature` measures the curvature field and stores the landform class shares; the preview
+  re-measures through `Display/DrainagePreviewCache` under a `CurvaturePreviewKey`, so a display, measure or
+  colour edit only recolours.
 - `Stages/` - one `internal static class XxxStage` per modifier, each with a `Run(ModifierBuildContext)`
   that its descriptor's `RunBuildStage` calls, plus the helpers only that modifier uses: `SculptStage`
   (replays the sculpt displacement field as displacement-only), `ProjectToStage` (Z-only conform to one
   mesh or terrain, with nested boundary feathering), `SimplifyStage` (certified deviation/count/percentage
   2.5D reduction with persistent constraint-edge preservation), `TriangulateStage`, `AddGeometryStage`,
   `RemeshStage`, `RetopoStage`, `SmoothStage`, `GradePadStage`, `GradePathStage`, `GradeLineStage`,
-  `InSituStairStage`, `RetainingWallStage` (+ `.Grading`). A stage reaches shared helpers only through
+  `InSituStairStage`, `RetainingWallStage` (+ `.Grading`), `DisplaceStage` (noise or image Z offsets through
+  `Core/Displacement/TerrainDisplacer`, holding every persisted hard line; fingerprints the image file's stamp;
+  emits the image mapping as a Guide overlay and its sampling readout as a `ModifierStageReport` on its own
+  stage cache entry). A stage reaches shared helpers only through
   `TerrainBuildService.X`, so a stage's dependencies read off its file: `ExecuteCachedMeshStage`,
   `ComputeModifierStageFingerprint`, `GetToleranceProfile`, `WarnMissingMesh`, `DescribeModifierMeshResult`
   on the cache/fingerprint side; `CombineConstraints`, `CreateConstraintPolylines`, `RebuildMeshWithConstraints`,
@@ -254,7 +260,8 @@ layer table, dimension styles, and layouts can act on. See `docs/architecture.md
   meshes until retired worker tasks have drained. Grade Pad topology entries retain reusable flat
   geometry, while Grade Path entries retain summary metadata and patch bounds without duplicating full
   vertex/face arrays. The controller also inspects the cached incoming stage for Smooth/Sculpt
-  mesh-regularity warnings when no earlier Remesh is enabled. Per-owner diagnostic visibility is
+  mesh-regularity warnings when no earlier Remesh is enabled, and reads a modifier's
+  `ModifierStageReport` off its stage cache entry (`GetModifierStageReport`) for the card. Per-owner diagnostic visibility is
   session-only on the main cache, intentionally excluded from worker copies and build-cache merges.
 - Grade Pad persists its actual graded `OutputPolylines` as hard constraints. Its temporary pad,
   shoulder, and stitch-apron topology loops are never republished as elevation constraints because
@@ -315,7 +322,8 @@ layer table, dimension styles, and layouts can act on. See `docs/architecture.md
 - `TerrainReportBuilder.cs` - assembles the last build's summaries into a `Core.Reporting.ReportDocument`,
   in model units, with the slope unit the caller asks for. The single place a figure is rounded and
   labelled, so the CSV export and the drawn table cannot disagree. A quantity nothing measured is blank,
-  never zero: in a quantity report a zero is a claim.
+  never zero: in a quantity report a zero is a claim. The Landforms section lists every class per
+  measured Curvature card (area and share), and nothing for a card that measured nothing.
 - `TerrainReportTableBuilder.cs` - lays that document out as text and rules on the `ReportTable` role.
   Column widths are estimated from the longest cell (`CharacterWidthRatio`) because measuring glyphs needs
   a font and a device, and the build has no document thread; everything is sized in multiples of the text
@@ -416,6 +424,22 @@ layer table, dimension styles, and layouts can act on. See `docs/architecture.md
   the exact case stays silent instead of printing a zero users learn to skip. The measurement is opt-in
   per call (`measureDeviation`) and the live preview opts out: under blend-to-terrain every sample is a
   mesh ray, and the preview redraws on each mouse move.
+- `Commands/SlopeCommandOption.cs` - the `Slope` + `Units` option pair every slope-taking command shares
+  (`mhSlopeCurve`, `mhGradientInterpolation`, `mhOffsetFeature`, `mhSuggestRoute`'s `MaxGrade`). It was
+  a private class inside `GeometryCommandService`; it has its own file so commands in other services
+  can take a slope the same way. The label is a constructor argument; everything else is unchanged.
+- `Commands/RouteSuggestionCommandService.cs` / `RouteOptionSet.cs` / `RouteSuggestionSettings.cs` /
+  `RouteSuggestionReadout.cs` + `Display/RouteSuggestionConduit.cs` - `mhSuggestRoute`. The service is
+  the picking (terrain as in `mhDrapeCurve`, via the now-internal
+  `TerrainInputCommandService.CreateProjectionMeshes`; points constrained to the terrain, `Undo`), the
+  review loop and the commit (one undo record, current layer, name + `MoleHill.Route.*` user text). The
+  search runs on a worker while the command pumps `RhinoApp.Wait()`, so the viewport stays live and Esc
+  cancels; the height grid is reused while only the weights change. `RouteOptionSet` offers the same
+  options at both stages and says whether a change needs a new search. `RouteSuggestionSettings`
+  (cached in metres, so a millimetre model reads the same corridor) and `RouteSuggestionReadout` (every
+  word printed or stored, slopes through `SlopeInput`) are managed and tested in
+  `RouteSuggestionCommandTests`; the service is excluded from the test project because it reaches
+  `TerrainController`. The math is Core's `Routing/`.
 - `CurveReviewService.cs` / `CurveReviewForm.cs` / `CurveReviewAnalysis.cs` / `CurveReviewConduit.cs` /
   `CurveReviewPalette.cs` - the `mhInspectCurve` plan-station inspector. **It reports; it never edits** -
   see `docs/architecture.md` for why the profile-editing stack was removed rather than restyled. The
