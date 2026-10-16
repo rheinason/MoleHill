@@ -280,18 +280,73 @@ public class DisplaceModifierTests : IDisposable
         Assert.NotEqual(coarse.Signature, fine.Signature);
     }
 
-    [Fact]
-    public void DescribeResult_JudgesAnImageByItsPixelSize()
+    private static string MetreLength(double value) => value.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture) + " m";
+
+    private static ModifierStageReport DescribeImage(int pixels, double tile, double median, double extent)
     {
-        var image = new ImageDisplacementSource(new HeightmapImage(10, 10, new float[100]), 5.0, 5.0, 1.0, 0.5, DisplacementWrap.Repeat, default);
-        static string Length(double value) => value.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture) + " m";
+        var image = new ImageDisplacementSource(new HeightmapImage(pixels, pixels, new float[pixels * pixels]), tile, tile, 1.0, 0.5, DisplacementWrap.Repeat, default);
+        return DisplaceModifierDescriptor.DescribeResult(
+            new TerrainDisplacer.Result(Array.Empty<double>(), 10, 0, 0, 0.5, median, 0, 0, extent, extent), image, MetreLength);
+    }
 
-        ModifierStageReport report = DisplaceModifierDescriptor.DescribeResult(
-            new TerrainDisplacer.Result(Array.Empty<double>(), 10, 0, 0, 0.5, 1.0, 0, 0, 1, 1), image, Length);
+    [Fact]
+    public void DescribeResult_ImageOnALargeTile_DoesNotWarnAtOrdinaryMeshDensity()
+    {
+        // 256 px on 60 m is a 0.234 m pixel; 60/16 = 3.75 m is the coarsest edge that still reads it.
+        ModifierStageReport report = DescribeImage(256, 60.0, 2.5, 60.0);
 
-        Assert.Contains("pixels 0.5 m", report.Rows[0].Value);
+        Assert.Null(report.Warning);
+        Assert.Contains("pixels 0.234 m", report.Rows[0].Value);
+        Assert.Contains("resolves detail down to about 5 m", report.Rows[0].Value);
+    }
+
+    [Fact]
+    public void DescribeResult_ImageOnAnOrdinaryTileAndMesh_DoesNotWarn()
+    {
+        Assert.Null(DescribeImage(256, 60.0, 3.5, 60.0).Warning);
+    }
+
+    [Fact]
+    public void DescribeResult_ImageOnASmallTile_WarnsWithAPracticalEdge()
+    {
+        // 6 m tile: needs edges of 6/16 = 0.375 m or finer; 2.5 m is far too coarse. Suggest 6/64 = 0.094 -> 0.05 m,
+        // floored at the 256 px pixel (0.023 m) so 0.05 m.
+        ModifierStageReport report = DescribeImage(256, 6.0, 2.5, 6.0);
+
         Assert.NotNull(report.Warning);
-        Assert.Contains("0.25 m or less", report.Warning);
+        Assert.Contains("Remesh", report.Warning);
+        Assert.Contains("0.05 m or less", report.Warning);
+        Assert.DoesNotContain("million", report.Warning);
+    }
+
+    [Fact]
+    public void DescribeResult_ImageNeedingTooManyFaces_AdvisesALargerTileOrSmallerImage()
+    {
+        // 2 m tile repeated over a 1 km region: 0.02 m edges would be 5 billion faces.
+        ModifierStageReport report = DescribeImage(256, 2.0, 2.5, 1000.0);
+
+        Assert.NotNull(report.Warning);
+        Assert.Contains("larger Tile Size or a smaller image", report.Warning);
+        Assert.DoesNotContain("Add a Remesh", report.Warning);
+    }
+
+    [Fact]
+    public void DescribeResult_ImageSmallerThanTheThreshold_IsJudgedByThePixel()
+    {
+        // 8 px on 8 m: a 1 m pixel. A 0.9 m mesh reads every pixel; 1.5 m does not.
+        Assert.Null(DescribeImage(8, 8.0, 0.9, 8.0).Warning);
+        Assert.Contains("1 m or less", DescribeImage(8, 8.0, 1.5, 8.0).Warning);
+    }
+
+    [Theory]
+    [InlineData(0.094, 0.05)]
+    [InlineData(0.3, 0.2)]
+    [InlineData(0.99, 0.5)]
+    [InlineData(1.0, 1.0)]
+    [InlineData(7.0, 5.0)]
+    public void RoundDownReadable_StepsToOneTwoOrFive(double value, double expected)
+    {
+        Assert.Equal(expected, DisplaceModifierDescriptor.RoundDownReadable(value), 9);
     }
 
     [Fact]
