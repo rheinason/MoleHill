@@ -348,7 +348,7 @@ internal static class TerrainReportBuilder
                 double share = index < shares.Length ? shares[index] : 0.0;
                 table.AddRow(
                     analysis.Label,
-                    CsvWriter.Number(analysis.FeatureSize),
+                    CsvWriter.Number(summary.LandformSize ?? analysis.FeatureSize),
                     LandformClassifier.NameOf(landform),
                     CsvWriter.Number(share * measured),
                     CsvWriter.Number(share * 100.0));

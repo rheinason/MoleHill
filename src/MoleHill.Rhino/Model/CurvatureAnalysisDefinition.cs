@@ -31,14 +31,18 @@ public sealed class CurvatureAnalysisDefinition : AnalysisDefinition
     /// what the map shows, and detail much smaller averages away. Storage name kept as the design calls it;
     /// the card labels it "Landform Size".
     /// </summary>
+    /// <remarks>Zero means Auto: the size is resolved at build and preview time from the incoming mesh's
+    /// plan extent (<c>LandformSize.Resolve</c>), so a 200 m site reads at about 20 m and a small garden at
+    /// about 1 m. A positive value is used as typed. Always read the resolved value, never this raw one.
+    /// Zero is unit-free under <c>TerrainUnitScaler</c>. A stored explicit value is kept as it is.</remarks>
     [ModelLength]
-    public double FeatureSize { get; set; } = 5.0;
+    public double FeatureSize { get; set; }
 
     /// <summary>
     /// How far, in model units, the ground may depart from a plane across one landform size and still count
     /// as planar: the sagitta <c>|mean curvature| * L^2 / 8</c> with <c>L</c> = <see cref="FeatureSize"/>. A
     /// height rather than a curvature so it reads on the card and follows the landform size by itself.
-    /// The default, 50 mm at the 5 m default size, is a curvature radius of 62.5 m.
+    /// The default is 50 mm: a curvature radius of 1 km at the 20 m Auto size on a 200 m site, and a survey-scale height that does not depend on the site.
     /// </summary>
     /// <remarks>Replaced the unreleased <c>PlanarRadius</c> (a radius of curvature). A stored
     /// <c>PlanarRadius</c> is ignored on load, which falls back to this default.</remarks>

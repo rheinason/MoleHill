@@ -78,7 +78,7 @@ public class CurvatureAnalysisTests
         Assert.Equal(CurvatureMeasure.Mean, analysis.Measure);
         Assert.Equal("cool-warm", analysis.PalettePreset);
         Assert.True(analysis.AutoColorRange);
-        Assert.Equal(5.0, analysis.FeatureSize);
+        Assert.Equal(0.0, analysis.FeatureSize);
         Assert.Equal(0.05, analysis.FlatnessTolerance);
         Assert.Equal(RangeShape.SymmetricAboutZero, TerrainAnalysisPreviewBuilder.GetRangeShape(analysis));
         Assert.True(TerrainAnalysisPreviewBuilder.SupportsTerrainPreview(analysis));
@@ -150,8 +150,138 @@ public class CurvatureAnalysisTests
         var analysis = (CurvatureAnalysisDefinition)AnalysisTypeRegistry.Create(
             "curvature", ModelUnitContext.FromUnitSystem(UnitSystem.Millimeters))!;
 
-        Assert.Equal(5000.0, analysis.FeatureSize, 9);
+        Assert.Equal(0.0, analysis.FeatureSize);
         Assert.Equal(50.0, analysis.FlatnessTolerance, 9);
+    }
+
+    [Fact]
+    public void Scale_AutoSize_StaysZero()
+    {
+        var analysis = new CurvatureAnalysisDefinition();
+
+        TerrainUnitScaler.Scale(analysis, 1000.0);
+
+        Assert.Equal(0.0, analysis.FeatureSize);
+    }
+
+    /// <summary>A 200 m site with an 8 m, 60 m wide mound at its centre.</summary>
+    private static IndexedTriMesh Mound()
+    {
+        const double half = 100.0, spacing = 2.5;
+        int cells = (int)Math.Round(2.0 * half / spacing);
+        int side = cells + 1;
+        var vertices = new double[side * side * 3];
+        for (int j = 0; j < side; j++)
+        {
+            for (int i = 0; i < side; i++)
+            {
+                double x = -half + (i * spacing);
+                double y = -half + (j * spacing);
+                double u = Math.Max(0.0, 1.0 - (((x * x) + (y * y)) / (30.0 * 30.0)));
+                int v = (j * side) + i;
+                vertices[v * 3] = x;
+                vertices[(v * 3) + 1] = y;
+                vertices[(v * 3) + 2] = 8.0 * u * u;
+            }
+        }
+
+        var faces = new List<int>();
+        for (int j = 0; j < cells; j++)
+        {
+            for (int i = 0; i < cells; i++)
+            {
+                int a = (j * side) + i;
+                faces.AddRange(new[] { a, a + 1, a + side + 1, a, a + side + 1, a + side });
+            }
+        }
+
+        return IndexedTriMesh.FromArrays(vertices, faces.ToArray());
+    }
+
+    private static LandformClass PeakClass(IndexedTriMesh mesh, double landformSize, double tolerance)
+    {
+        CurvatureField field = CurvatureAnalyzer.Measure(mesh, landformSize);
+        sbyte[] classes = LandformClassifier.Classify(field, tolerance);
+        int best = -1;
+        double bestDistance = double.MaxValue;
+        for (int f = 0; f < field.FaceCount; f++)
+        {
+            int a = mesh.Faces[f * 3], b = mesh.Faces[(f * 3) + 1], c = mesh.Faces[(f * 3) + 2];
+            double cx = (mesh.Vertices[a * 3] + mesh.Vertices[b * 3] + mesh.Vertices[c * 3]) / 3.0;
+            double cy = (mesh.Vertices[(a * 3) + 1] + mesh.Vertices[(b * 3) + 1] + mesh.Vertices[(c * 3) + 1]) / 3.0;
+            double d = (cx * cx) + (cy * cy);
+            if (d < bestDistance)
+            {
+                bestDistance = d;
+                best = f;
+            }
+        }
+
+        return (LandformClass)classes[best];
+    }
+
+    [Fact]
+    public void BuildSummary_Auto_ResolvesFromTheExtent_AndTheMoundPeakReadsConvex()
+    {
+        IndexedTriMesh mound = Mound();
+        var analysis = new CurvatureAnalysisDefinition();
+
+        TerrainAnalysisSummary summary = TerrainBuildService.BuildCurvatureSummary(mound, analysis, 40000.0, null);
+
+        Assert.Equal(20.0, summary.LandformSize!.Value, 9);
+        Assert.Equal(0.0, analysis.FeatureSize);
+        Assert.Equal(LandformClass.Convex, PeakClass(mound, summary.LandformSize.Value, analysis.FlatnessTolerance));
+    }
+
+    [Fact]
+    public void BuildSummary_TypedSize_OverridesAuto()
+    {
+        var analysis = new CurvatureAnalysisDefinition { FeatureSize = 5.0 };
+
+        TerrainAnalysisSummary summary = TerrainBuildService.BuildCurvatureSummary(Mound(), analysis, 40000.0, null);
+
+        Assert.Equal(5.0, summary.LandformSize!.Value, 9);
+    }
+
+    [Fact]
+    public void Threshold_UsesTheResolvedSize_NotTheRawZero()
+    {
+        double resolved = LandformSize.FromExtent(200.0, 200.0);
+
+        Assert.Equal(0.001, LandformClassifier.CurvatureThreshold(0.05, resolved), 12);
+        Assert.Equal(0.0, LandformClassifier.CurvatureThreshold(0.05, new CurvatureAnalysisDefinition().FeatureSize));
+    }
+
+    [Fact]
+    public void LandformSize_IsCarriedThroughTheRuntimeCacheClone_AndScalesAsALength()
+    {
+        var curvature = new CurvatureAnalysisDefinition();
+        var terrain = new TerrainDefinition();
+        terrain.Analyses.Add(curvature);
+        var summary = new TerrainAnalysisSummary { AnalysisId = curvature.Id, LandformSize = 20.0 };
+        terrain.LastAnalysisResults.Add(summary);
+
+        TerrainUnitScaler.Scale(new[] { terrain }, 10.0);
+
+        Assert.Equal(200.0, summary.LandformSize!.Value, 9);
+    }
+
+    [Fact]
+    public void DescribeResult_Auto_ShowsTheResolvedSize_AndATypedSizeShowsNone()
+    {
+        AnalysisTypeDescriptor descriptor = AnalysisTypeRegistry.ForKind("curvature")!;
+        var format = new ResultFormatter(a => a.ToString("0"), a => a.ToString("0"), l => $"{l:0} m", a => a.ToString("0"));
+        var shares = new[] { 0.5, 0.5, 0.0 };
+        var summary = new TerrainAnalysisSummary
+        {
+            LandformMeasuredArea = 100.0, LandformClassShares = shares, LandformSize = 20.0,
+        };
+
+        var auto = descriptor.DescribeResult(new CurvatureAnalysisDefinition(), summary, format);
+        var typed = descriptor.DescribeResult(new CurvatureAnalysisDefinition { FeatureSize = 20.0 }, summary, format);
+
+        Assert.Contains(auto, row => row.Label == "Landform Size" && row.Value == "Auto (20 m)");
+        Assert.DoesNotContain(typed, row => row.Label == "Landform Size");
     }
 
     /// <summary>

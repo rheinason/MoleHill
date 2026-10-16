@@ -376,10 +376,14 @@ internal static class TerrainAnalysisPreviewBuilder
     {
         range = null;
         distribution = null;
+        // Auto (0) resolves from the mesh's plan extent first: the key and the fit use the resolved size.
+        BoundingBox box = mesh.GetBoundingBox(false);
+        double landformSize = LandformSize.Resolve(
+            analysis.FeatureSize, box.IsValid ? box.Max.X - box.Min.X : 0.0, box.IsValid ? box.Max.Y - box.Min.Y : 0.0);
         CurvaturePreviewSolve solved = cache.GetOrCompute(
             mesh,
-            new CurvaturePreviewKey(analysis.FeatureSize),
-            () => SolveCurvaturePreview(mesh, analysis.FeatureSize));
+            new CurvaturePreviewKey(landformSize),
+            () => SolveCurvaturePreview(mesh, landformSize));
         if (!solved.IsValid)
             return null;
 
