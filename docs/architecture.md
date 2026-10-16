@@ -17,7 +17,7 @@ TriangleNet (vendored)  ←  MoleHill.Core  ←  MoleHill.Grasshopper (GH host)
 - **`src/MoleHill.Core/`** — all reusable terrain logic, **no Rhino/GH dependency**, unit-tested.
   Sub-namespaces: `Engine/` (triangulation), `Processing/` (input prep), `Grading/` (pad/path),
   `Analysis/` (contours, slope, waterflow), `Scattering/` (object scatter sampling), `Sculpting/` (brush engine +
-  displacement field).
+  displacement field), `Displacement/` (Displace's noise and heightmap offsets).
 - **`src/MoleHill.Interop/`** — separately shipped, versioned RhinoCommon-only snapshot bridge contract,
   plus `IToposolidPreparation`, the package `MoleHill.gha` hands to `MoleHill.Revit.gha`.
   Rhino and Grasshopper reference the same assembly; the GHA discovers the Rhino bridge instance by
@@ -298,7 +298,7 @@ The modifier cards share one set of words, because the same idea used to carry t
 | **Border** | The mesh's own outer edge (Peel Border, Simplify, Retopo) | "TIN boundary" |
 | **Crease** | A fold detected from the mesh (Remesh/Retopo Crease Angle keep them; Smooth's Round Creases rounds them); never saved as a breakline | "feature edge" |
 | **Incoming mesh** | The stage's input — what Simplify measures against and what a failed stage keeps | "upstream mesh", "original mesh" |
-| **Protect** | Sculpt and Smooth: curves that shield terrain from the edit and add no mesh edge (Sculpt: closed = interior, open = the line; Smooth: the line's own vertices, and in Round Creases the creases along it stay sharp) | breakline |
+| **Protect** | Sculpt, Smooth and Displace: curves that shield terrain from the edit and add no mesh edge (Sculpt: closed = interior, open = the line; Smooth and Displace: the line's own vertices, and in Round Creases the creases along it stay sharp) | breakline |
 | **Protect Hold** | Smooth only: how firmly protected curves keep their height (`BreaklineFixity` on disk) | "fixity" |
 | **Batter** | The graded slope surface between a rail/edge and daylight; a *slope* is the angle that shapes it | "shoulder" |
 
@@ -530,6 +530,59 @@ precedes them. A sampled Core regularity check warns when the mesh is very spars
 meaningful proportion of triangles below an 8-degree minimum angle, recommending Remesh below the
 modifier before vertex-based editing.
 
+## Core + Rhino: displacement (Displace)
+
+The **Displace** modifier adds controlled vertical offsets to the incoming ground, after Blender's
+Displace modifier. It modifies existing ground; the GeoTIFF DEM input is the way to bring in *absolute*
+source elevations. Two sources (`Core/Displacement/`):
+
+- **Noise** — `GradientNoise`: 2D Perlin gradient noise and its fractal sum, lattice-hashed with integer
+  arithmetic over a fixed gradient table, so a seed gives the same ground on every machine and runtime
+  (`DisplacementSourceTests` pins golden values). Noise Size is the plan width of the coarsest octave's
+  bump; each further octave is half the size and Roughness times the weight.
+- **Image** — `HeightmapImage` (0–1 luminance, decoded Rhino-side by `Services/Import/HeightmapImageLoader`
+  through System.Drawing to 8-bit) laid on the ground as a tile of a stated real-world width and height,
+  bilinear between pixel centres, Repeat / Clamp / Once beyond the tile. The **Neutral** value is the
+  brightness that means no offset.
+
+**Height is the full range of the offset in both modes**: noise stays within ±Height/2 (most bumps are
+smaller), an image moves black-to-white by Height with Neutral at zero. Both patterns are pure functions of
+world XY through a `DisplacementPlacement` (origin = the image's lower-left corner, and the point the
+pattern rotates about; rotation is a true angle, never converted) — never vertex indices or UVs — so a
+Displace stacks and survives a Remesh or Retopo below it, exactly as Sculpt's field does.
+
+`TerrainDisplacer` moves Z only, so the stage reuses the incoming topology
+(`BuildMeshWithNewHeights`). **Boundaries** scope the edit: nothing outside moves, and the offset rises
+from zero at the drawn line to full strength at the **Feather** distance inside it, so the drawn line is
+where the edit stops. Everything hard keeps its height and the offset fades in over the same Feather from
+it: every line in `PersistentHardConstraints` (breaklines, wall rails, graded edges), faces at or above
+70° (walls are never buried), the **Protect** curves and, unless Hold Border is off, the mesh border.
+The hold and fade are `Core/Grading/HeldLines`, shared with Round Creases, not a copy.
+
+**The image is an external dependency.** The definition stores only its path; the stage fingerprint adds
+the file's length and last-write time, so saving over the image rebuilds although the document did not
+change. A missing, relative or unreadable path makes the card inert with the reason
+(`InertReason` decodes through the loader's small cache, so a build that finds the file unchanged never
+decodes it twice) — never a silent zero offset.
+
+**Mapping preview** is a Guide-channel runtime overlay owned by the card (`displace.mapping`): the frame of
+every image tile over the edited ground (or, past 400, the one under its centre), the image's top edge
+and the origin, drawn at the top of the terrain. A guide, not a `GeneratedRhinoObject`, because it is
+construction information about the card rather than drawing output: it is never baked, so it has no
+`LayerRole`. **Show Mapping** is deliberately a build input — the stage emits the guide, and toggling it
+re-runs only this cheap stage (its output mesh is unchanged, so nothing below re-runs). Noise draws no
+guide; its region is the user's own boundary curves.
+
+**Resolution honesty.** Displacing existing vertices undersamples when the mesh is coarser than the
+pattern. The stage reports the median plan edge length of the edges it reaches against the Noise Size or
+the image's pixel size, and warns — on the card's warning surface and in the diagnostics — when the median
+exceeds half of it, naming the Remesh Edge Length that would carry it. The readout reaches the card
+through a generic **modifier stage report** (`Registry/ModifierStageReport`): a stage stores its
+`ResultRow`s and warning on its own stage cache entry (so a cache hit keeps showing what the cached run
+measured), `TerrainController.GetModifierStageReport` reads it, and the panel draws it for any modifier
+with no type switch; `TerrainCardResultSignature` includes it. Densifying the region in place
+(`LocalMeshRefiner`, as Round Creases' `DensifyBand` does) is the natural next step; it is not built.
+
 ## Core: grading (the watertight invariant)
 
 Grade Path is a constant-width corridor unless its `UseVariableWidth` toggle is switched on. Only then
@@ -740,7 +793,7 @@ fingerprint cache (`runtimeCache.StageEntries`); decomposed into `TerrainBuildSe
 holding the shared helpers (`.Tin`, `.MeshConstraints`, `.Grading`, `.Cache`, `.Fingerprints`, `.Types`) and the
 non-modifier stages (`.Zones`, `.Analysis`, `.Objects`, `.Scatter`, `.Report`). Each modifier's build step is its
 own `Services/Build/Stages/XxxStage` static class (`Run(ModifierBuildContext)`, called from the descriptor's
-`RunBuildStage`); stages call shared helpers as `TerrainBuildService.X`. Order: TIN → modifiers (smooth/remesh/sculpt/grade
+`RunBuildStage`); stages call shared helpers as `TerrainBuildService.X`. Order: TIN → modifiers (smooth/remesh/sculpt/displace/grade
 pad/grade path/grade line/project-to/simplify) → analyses → annotations → zones → markers → object placements → scatter → report tables. **The generated-output
 stages run only in `TerrainBuildMode.Final` and are fingerprint-cached**. Analyses and annotations are each
 cached independently by id; zones, markers, objects, and scatter retain stage-level entries. Both families

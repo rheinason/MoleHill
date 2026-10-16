@@ -1,6 +1,6 @@
 # MoleHill.Core
 
-Pure terrain logic: triangulation, grading, analysis, scattering, sculpting, remeshing. **No Rhino or
+Pure terrain logic: triangulation, grading, analysis, scattering, sculpting, displacement, remeshing. **No Rhino or
 Grasshopper dependency** — anything here is testable without a host, and everything reusable belongs
 here rather than in a host project.
 
@@ -25,6 +25,7 @@ Two things about this project are not obvious from its file list:
 | [`Reporting/`](Reporting/README.md) | Quantity tables and CSV export |
 | [`Scattering/`](Scattering/README.md) | Deterministic weighted block scatter |
 | [`Sculpting/`](Sculpting/README.md) | The sparse world-XY displacement field and brush engine |
+| [`Displacement/`](Displacement/README.md) | Displace's deterministic noise, heightmap sampling and the Z-only terrain displacer |
 | [`Retopo/`](Retopo/README.md) | Cross-field solve and quad retopology |
 | [`Interop/`](Interop/README.md) | The versioned host-exchange contract |
 

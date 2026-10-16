@@ -79,6 +79,11 @@ A definition normalizes its own fields after load in a `virtual NormalizeAfterLo
   written before grading existed carries no `mode` key and still reads back breaklines-only.
   Sculpt persists both its raw displacement tiles and a constraint source set; selected closed curves
   protect their interiors, while earlier Grade Path sources resolve to their configured road width.
+  `DisplaceModifierDefinition` stores a `Source` (`noise` or `image`, `DisplaceSources`), Boundaries and
+  Protect source sets, Feather, Hold Border, the shared Height / Rotation / Origin, the noise's size,
+  octaves, roughness and seed, and the image's **path** (never its pixels), tile width and height, neutral
+  value and wrap (`repeat` / `clamp` / `once`). `ShowMapping` is a build input on purpose: the mapping
+  guide is emitted by the stage.
 - **Analyses** — `AnalysisDefinition` → `Slope`, `Elevation`, `CutFill`, `Earthwork`,
   `WaterflowAnalysisDefinition`. Content that **evaluates** the terrain: the result is a measurement, a
   number or a colour on the mesh. Waterflow stores point sources and traces generated downhill curves on

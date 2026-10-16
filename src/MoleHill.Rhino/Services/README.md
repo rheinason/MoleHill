@@ -17,7 +17,7 @@ file that needs Rhino's runtime must be added to that `Exclude` at its new path.
 | `Output/` | Layer roles/templates/creation/routing, annotation styles, hatch patterns, generated-object model, block catalog and templates, `AnnotationBlockLibrary` (copy the built-in annotation block, field inspection and preview field resolution) and `AnnotationBlockEditor` (open a block in Rhino's block editor by name), per-terrain layer rename/cleanup, content visibility |
 | `Annotation/` | Annotation, legend, report and section builders, section layout/profile comparison, zone analysis and gradient-compliance evaluation |
 | `Persistence/` | Terrain JSON serializer, document store/identity/ownership, unit scaling, colour-ramp and field-code stores |
-| `Import/` | GeoTIFF and raster georeferencing, DEM sampling, LandXML, survey import geometry/placement/naming, project-base plane, document north |
+| `Import/` | GeoTIFF and raster georeferencing, DEM sampling, LandXML, survey import geometry/placement/naming, project-base plane, document north, Displace's heightmap image loader (`HeightmapImageLoader`: System.Drawing to 8-bit luminance, file stamp, small decode cache) |
 | `CurveReview/` | The curve-review conduit, form, rules, labeller and analysis |
 | `Sculpt/` | The sculpt session controller and its field codec, mask builder, live contours, normal patcher, colouriser and zone follower |
 | `Commands/` | `*CommandService` / `*CommandAlgorithms` backing the `mh*` commands, script runner, option cache, toolbar installer |
@@ -46,7 +46,10 @@ file that needs Rhino's runtime must be added to that `Exclude` at its new path.
   mesh or terrain, with nested boundary feathering), `SimplifyStage` (certified deviation/count/percentage
   2.5D reduction with persistent constraint-edge preservation), `TriangulateStage`, `AddGeometryStage`,
   `RemeshStage`, `RetopoStage`, `SmoothStage`, `GradePadStage`, `GradePathStage`, `GradeLineStage`,
-  `InSituStairStage`, `RetainingWallStage` (+ `.Grading`). A stage reaches shared helpers only through
+  `InSituStairStage`, `RetainingWallStage` (+ `.Grading`), `DisplaceStage` (noise or image Z offsets through
+  `Core/Displacement/TerrainDisplacer`, holding every persisted hard line; fingerprints the image file's stamp;
+  emits the image mapping as a Guide overlay and its sampling readout as a `ModifierStageReport` on its own
+  stage cache entry). A stage reaches shared helpers only through
   `TerrainBuildService.X`, so a stage's dependencies read off its file: `ExecuteCachedMeshStage`,
   `ComputeModifierStageFingerprint`, `GetToleranceProfile`, `WarnMissingMesh`, `DescribeModifierMeshResult`
   on the cache/fingerprint side; `CombineConstraints`, `CreateConstraintPolylines`, `RebuildMeshWithConstraints`,
@@ -242,7 +245,8 @@ layer table, dimension styles, and layouts can act on. See `docs/architecture.md
   meshes until retired worker tasks have drained. Grade Pad topology entries retain reusable flat
   geometry, while Grade Path entries retain summary metadata and patch bounds without duplicating full
   vertex/face arrays. The controller also inspects the cached incoming stage for Smooth/Sculpt
-  mesh-regularity warnings when no earlier Remesh is enabled. Per-owner diagnostic visibility is
+  mesh-regularity warnings when no earlier Remesh is enabled, and reads a modifier's
+  `ModifierStageReport` off its stage cache entry (`GetModifierStageReport`) for the card. Per-owner diagnostic visibility is
   session-only on the main cache, intentionally excluded from worker copies and build-cache merges.
 - Grade Pad persists its actual graded `OutputPolylines` as hard constraints. Its temporary pad,
   shoulder, and stitch-apron topology loops are never republished as elevation constraints because
