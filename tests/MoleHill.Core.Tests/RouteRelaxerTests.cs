@@ -114,6 +114,41 @@ public sealed class RouteRelaxerTests
     }
 
     [Fact]
+    public void MovePin_DraggedFarAside_BulgesInsteadOfSpiking()
+    {
+        // Dragged 60 m off a straight sketch in small steps, as a mouse does. Before the guide moved with the
+        // pin, the band hugged the sketch to the pin and reached it by a narrow out-and-back spike (live).
+        RouteHeightGrid grid = RouteHeightGrid.FromFunction(0, 0, 2.0, 151, 151, (x, y) => 0.01 * x);
+        RouteRelaxer relaxer = Create(grid, new[] { (30.0, 150.0), (270.0, 150.0) }, Settings(fidelity: 1.0));
+        relaxer.Step(200);
+        int pin = relaxer.AddPin(150.0, 150.0);
+        for (int step = 1; step <= 30; step++)
+        {
+            Assert.True(relaxer.MovePin(pin, 150.0, 150.0 - (2.0 * step)));
+            relaxer.Step(4);
+        }
+
+        relaxer.Step(2000);
+
+        double[] plan = relaxer.PlanXy();
+        double sharpest = 0.0;
+        for (int i = 1; i < (plan.Length / 2) - 1; i++)
+        {
+            double ux = plan[i * 2] - plan[(i - 1) * 2], uy = plan[(i * 2) + 1] - plan[((i - 1) * 2) + 1];
+            double vx = plan[(i + 1) * 2] - plan[i * 2], vy = plan[((i + 1) * 2) + 1] - plan[(i * 2) + 1];
+            double turn = Math.Atan2(Math.Abs((ux * vy) - (uy * vx)), (ux * vx) + (uy * vy)) * 180.0 / Math.PI;
+            sharpest = Math.Max(sharpest, turn);
+        }
+
+        RouteRelaxEvaluation evaluation = relaxer.Evaluate(fitCurve: true);
+        _output.WriteLine($"sharpest turn {sharpest:F1} deg, length {evaluation.Metrics.PlanLength:F0} m, tightest bend {evaluation.Curve!.SmallestRadius:F1} m");
+        Assert.True(relaxer.DistanceToBand(150.0, 90.0) < 1e-9);
+        // A spike turns nearly back on itself at the pin; a bulge turns gently everywhere.
+        Assert.True(sharpest < 10.0, $"A {sharpest:F0} degree turn: the band spiked (it turned 22 degrees before the guide moved with the pin).");
+        Assert.True(evaluation.Curve.SmallestRadius > 20.0, $"Tightest bend {evaluation.Curve.SmallestRadius:F1} m.");
+    }
+
+    [Fact]
     public void TryCreate_SketchOffTheTerrain_FailsWithWhere()
     {
         RouteHeightGrid grid = RouteHeightGrid.FromFunction(0, 0, 2.0, 101, 101, (x, y) => x > 120 && x < 140 ? double.NaN : 0.0);

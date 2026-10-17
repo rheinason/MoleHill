@@ -270,10 +270,129 @@ public sealed class RouteRelaxer
         if (index < 0 || !_grid.TrySample(x, y, RouteLegBuilder.ChordGroundWeight, out _))
             return false;
 
+        double dx = x - _x[index], dy = y - _y[index];
+        double oldX = _x[index], oldY = _y[index];
         _x[index] = x;
         _y[index] = y;
+
+        // A drag is new intent, so the line the band is held to moves with it, and the band near the pin
+        // follows at once, both with a smooth falloff that ends at the neighbouring pins. Moving the pin alone
+        // left the guide behind: fidelity held the band on the sketch right up to the pin, which it reached
+        // by a narrow out-and-back spike (live, 2026-10-18). Pulled like this, it bulges like a rope.
+        double strayed = Math.Sqrt(GuideDistanceSquared(NearestGuideSegment(x, y, _guideSegment[index], _guide.Count), x, y));
+        double reach = Math.Max(Math.Max(3.0 * _settings.BendRadius, 3.0 * strayed), 4.0 * Spacing);
+        DragStations(index, dx, dy, reach);
+        DragGuide(index, oldX, oldY, dx, dy, reach);
         Wake();
         return true;
+    }
+
+    /// <summary>The soft-selection falloff: 1 at the dragged point, 0 at the reach, smooth at both.</summary>
+    private static double Falloff(double distance, double reach)
+    {
+        if (!(reach > 0.0) || distance >= reach)
+            return 0.0;
+        double t = 1.0 - ((distance / reach) * (distance / reach));
+        return t * t;
+    }
+
+    /// <summary>Moves the free stations either side of a dragged pin by the falloff of their distance along the band.</summary>
+    private void DragStations(int index, double dx, double dy, double reach)
+    {
+        foreach (int step in new[] { -1, 1 })
+        {
+            // The stretch to the next pin; the falloff reaches zero there however long the reach.
+            double limit = 0.0;
+            int end = index + step;
+            while (end > 0 && end < _x.Count - 1 && _pin[end] < 0)
+            {
+                limit += StationGap(end - step, end);
+                end += step;
+            }
+
+            if (end >= 0 && end < _x.Count)
+                limit += StationGap(end - step, end);
+            double side = Math.Min(reach, limit);
+
+            double along = 0.0;
+            for (int j = index + step; j > 0 && j < _x.Count - 1 && _pin[j] < 0; j += step)
+            {
+                along += StationGap(j - step, j);
+                double weight = Falloff(along, side);
+                if (weight <= 0.0)
+                    break;
+
+                double nx = _x[j] + (weight * dx), ny = _y[j] + (weight * dy);
+                if (_grid.TrySample(nx, ny, RouteLegBuilder.ChordGroundWeight, out _))
+                {
+                    _x[j] = nx;
+                    _y[j] = ny;
+                }
+            }
+        }
+    }
+
+    private double StationGap(int a, int b) => Math.Sqrt(Geometry2D.DistanceSquared(_x[a], _y[a], _x[b], _y[b]));
+
+    /// <summary>
+    /// Moves the guide line near where the pin was by the falloff of distance along the guide, stopping at
+    /// the guide's points nearest the neighbouring pins.
+    /// </summary>
+    private void DragGuide(int index, double oldX, double oldY, double dx, double dy, double reach)
+    {
+        int count = _guide.Count;
+        var along = new double[count];
+        for (int g = 1; g < count; g++)
+            along[g] = along[g - 1] + Math.Sqrt(Geometry2D.DistanceSquared(_guide[g - 1].X, _guide[g - 1].Y, _guide[g].X, _guide[g].Y));
+
+        double at = AlongGuide(oldX, oldY, along);
+        double low = 0.0, high = along[^1];
+        for (int j = index - 1; j >= 0; j--)
+        {
+            if (_pin[j] >= 0)
+            {
+                low = AlongGuide(_x[j], _y[j], along);
+                break;
+            }
+        }
+
+        for (int j = index + 1; j < _x.Count; j++)
+        {
+            if (_pin[j] >= 0)
+            {
+                high = AlongGuide(_x[j], _y[j], along);
+                break;
+            }
+        }
+
+        for (int g = 0; g < count; g++)
+        {
+            double distance = along[g] - at;
+            double side = distance < 0.0 ? Math.Min(reach, at - low) : Math.Min(reach, high - at);
+            double weight = Falloff(Math.Abs(distance), side);
+            if (weight > 0.0)
+                _guide[g] = (_guide[g].X + (weight * dx), _guide[g].Y + (weight * dy));
+        }
+    }
+
+    /// <summary>The distance along the guide of its point nearest (x, y).</summary>
+    private double AlongGuide(double x, double y, double[] along)
+    {
+        double best = double.MaxValue, at = 0.0;
+        for (int g = 1; g < _guide.Count; g++)
+        {
+            (double ax, double ay) = _guide[g - 1];
+            (double bx, double by) = _guide[g];
+            double t = Geometry2D.ParameterOnSegmentClamped(ax, ay, bx, by, x, y);
+            double d = Geometry2D.DistanceSquared(Geometry2D.Lerp(ax, bx, t), Geometry2D.Lerp(ay, by, t), x, y);
+            if (d < best)
+            {
+                best = d;
+                at = along[g - 1] + ((along[g] - along[g - 1]) * t);
+            }
+        }
+
+        return at;
     }
 
     /// <summary>Releases a pin; the ends stay pinned.</summary>

@@ -120,7 +120,10 @@ a polyline the user edits and then assigns to a Grade Path.
   of stations whose energy is the search's own cost (`RouteCost` through `ChordCost`, so it minimises
   exactly the score it is judged by), bending `R^2 theta^2 / l`, a penalty under the minimum radius,
   fidelity `Fidelity * l * (d/D)^2` to the guide line, and once Help me has seeded it a length shortfall
-  per pin stretch (5% spare; applied to a plain sketch it snaked into 0.2 m bends). Descent is a
+  per pin stretch (5% spare; applied to a plain sketch it snaked into 0.2 m bends). Moving a pin also moves
+  the guide and the band near it with a soft-selection falloff `(1 - (s/r)^2)^2` along the line, ending at
+  the neighbouring pins: moved alone, the pin was reached by a narrow spike from a band fidelity held on the
+  sketch. Descent is a
   **Sobolev gradient**: finite-difference partials smoothed along the band at a scale cycling from a
   quarter of it to one station, step caps per scale and a line search, so the energy never rises.
   One-station-at-a-time descent crawled (a sketch over a hill moved a few metres in 2000 sweeps and came out
