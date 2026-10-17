@@ -98,6 +98,39 @@ a polyline the user edits and then assigns to a Grade Path.
   route, and one planned to climb at exactly the limit kept its hairpins tight. On the reporting file:
   s = 0 gave complexity 15–17, s = 2 a spread of 3–18 (the plainest 7,500 m³ of earthwork against ~2,000
   for the closest to the ground), s = 4 4–11. `RouteComplexityTests` holds the direction.
+- `RouteCurveFitter.cs` / `RouteSplineCurve.cs` / `FittedRouteCurve.cs` — the editable curve: the fewest
+  cubic control points within a plan tolerance (`RouteRequest.CurveTolerance`, default 5% of the corridor
+  width) and the profile tolerance, both widened by Simplicity. Legs are cut at waypoints and at corners
+  over 20 degrees and fitted separately, ends held. Each piece is a **smoothing spline**: least squares
+  plus a bending penalty, weighted as far as the tolerance allows by bisection, separately for plan and
+  heights, with parameters corrected to each sample's nearest point. Plain least squares rang where
+  curvature jumps (a 20 m arc read 4 m). Bending is measured against plan length (the plan weighted by the
+  inverse cube of its speed, the heights by an arc-length Gram), because per-parameter bending let slow
+  stretches kink (5 m in a 10 m hairpin) and steepened grades in bends. Knots are added where tolerance or
+  the radius (10% slack, the overshoot where an arc meets a straight) is missed, then each is dropped if the
+  curve still meets them. The **grade** is held by re-laying the profile along the curve's own plan with
+  `GradeLimitedProfile` at a share of the limit shrunk by the measured overshoot (rounding grade breaks
+  steepens what lies between), with up to three rounds of exactly inserted knots where that cannot reach.
+  Moving control-point heights directly was rejected (a metre of height error). At Simplicity 2 the test
+  sites give 15-36 control points against 45-105 exact, within the grade limit. `RouteCurveFitterTests`.
+- `RouteRelaxer.cs` (with `RouteRelaxSettings`, `RouteRelaxEvaluation`, `RouteRelaxIssue`,
+  `RouteRelaxFailure`) — a sketched route relaxed over the ground, behind `mhRelaxRoute`. An elastic band
+  of stations whose energy is the search's own cost (`RouteCost` through `ChordCost`, so it minimises
+  exactly the score it is judged by), bending `R^2 theta^2 / l`, a penalty under the minimum radius,
+  fidelity `Fidelity * l * (d/D)^2` to the guide line, and once Help me has seeded it a length shortfall
+  per pin stretch (5% spare; applied to a plain sketch it snaked into 0.2 m bends). Descent is a
+  **Sobolev gradient**: finite-difference partials smoothed along the band at a scale cycling from a
+  quarter of it to one station, step caps per scale and a line search, so the energy never rises.
+  One-station-at-a-time descent crawled (a sketch over a hill moved a few metres in 2000 sweeps and came out
+  wiggly). The band resamples between pins every eight sweeps. `Evaluate` gives the profile, metrics, the
+  score against the sketch, and issues (cut, fill, climbs only more route can make, a route too short for
+  its ends); `FitCurve` fits the editable curve from an evaluation without touching the band, so a host can
+  fit while it steps. `HelpMe` runs the grid search through the pins with `RouteRequest.Guide` (a per-node
+  penalty `((d - w)/w)^2` beyond the guide width; distances by a two-pass nearest-seed sweep), widening
+  twice and then searching freely if the route comes out short, and reseeds the band. A sketch over a 12 m
+  hill settles in about 200 sweeps (0.3 s), 76% cheaper with a tenth of the earthwork. Known limit, of the
+  search rather than the band: 16 move directions give fixed grades on a uniform slope (the knight move on
+  18% is 8.05%), so Help me can fail by a hair at a limit just under one of them. `RouteRelaxerTests`.
 - `RouteMetrics.cs` — the readout: plan length, max and mean (rise over length) grade from the output
   segments, and cut/fill as profile-minus-ground over the corridor width (a flat prism, no side
   slopes), integrated every half cell.

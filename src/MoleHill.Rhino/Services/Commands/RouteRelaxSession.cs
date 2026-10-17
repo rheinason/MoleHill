@@ -439,6 +439,9 @@ internal sealed class RouteRelaxSession : IDisposable
             OnUiThread(() =>
             {
                 ShowScore(score);
+                // The band may have settled between throttled progress updates; show where it is now.
+                if (_snapshot is { } latest)
+                    ShowProgress(latest);
                 _doc.Views.Redraw();
             });
         }

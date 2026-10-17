@@ -152,6 +152,8 @@ public sealed class RouteRelaxerTests
         foreach (RouteRelaxIssue issue in stuck.Issues)
             _output.WriteLine($"{issue.Kind} {issue.StartStation:F0}-{issue.EndStation:F0} m, depth {issue.Depth:F1}, ground {issue.GroundGrade:P0}, extra {issue.ExtraLength:F0} m");
         Assert.Contains(stuck.Issues, issue => issue.Kind is RouteRelaxIssueKind.Climb or RouteRelaxIssueKind.TooShort);
+        // Left alone, a sketch is never pushed to the length its climb needs: that snaked into 0.2 m bends live.
+        Assert.True(stuck.Metrics.PlanLength < 1.1 * 250.0, $"The sketch snaked to {stuck.Metrics.PlanLength:F0} m.");
 
         var watch = System.Diagnostics.Stopwatch.StartNew();
         RouteSuggestionResult help = relaxer.HelpMe();

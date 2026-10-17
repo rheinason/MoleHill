@@ -89,6 +89,7 @@
       </tool_bar_item>
       <tool_bar_item guid="3e07c634-6e4b-444b-ade8-82ea1e4bf609">
         <left_macro_id>56ba7d2f-1c06-49e5-b8cb-32e2c4ec8875</left_macro_id>
+        <right_macro_id>fe48988d-0ef6-456d-8894-13549f42b2c0</right_macro_id>
       </tool_bar_item>
       <tool_bar_item guid="14c6a8b1-865b-43c8-8d63-5a4006259ce8">
         <left_macro_id>e56bad32-d9d7-41ad-b016-1471cfce3967</left_macro_id>
@@ -561,6 +562,15 @@ _CurveType=_Interpolated</script>
         <locale_1033>Suggest Route</locale_1033>
       </tooltip>
       <script>mhSuggestRoute</script>
+    </macro_item>
+    <macro_item guid="fe48988d-0ef6-456d-8894-13549f42b2c0" bitmap_id="cb6e0acd-ec18-4606-9380-7a3457e9b032">
+      <text>
+        <locale_1033>mhRelaxRoute</locale_1033>
+      </text>
+      <tooltip>
+        <locale_1033>Relax Route (sketch a route; it relaxes over the terrain)</locale_1033>
+      </tooltip>
+      <script>mhRelaxRoute</script>
     </macro_item>
   </macros>
   <bitmaps>

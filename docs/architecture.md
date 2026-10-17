@@ -196,6 +196,25 @@ TriangleNet (vendored)  ←  MoleHill.Core  ←  MoleHill.Grasshopper (GH host)
   Alternatives come from penalising each kept route's corridor and searching again; a candidate whose
   drawn line still shares 70% of its length with an earlier corridor is dropped. See
   `src/MoleHill.Core/Routing/README.md`.
+- **Routes are kept as the fewest control points that describe them.** The exact route (straights, arcs,
+  a vertex at every grade break) has about a hundred control points; `RouteCurveFitter` fits it as cubic
+  pieces (cut at waypoints and sharp corners) within a plan tolerance (5% of the corridor width) and the
+  profile tolerance, both widened by Simplicity, so at the defaults a route keeps 10-40. Both route
+  commands add that curve (`RouteCurveBuilder.FromFitted`); `mhSuggestRoute`'s `Curve=Exact` keeps the
+  exact form. The grade limit is held on the fitted curve too; its radius may read up to 10% under the
+  minimum where an arc meets a straight, and the readout reports the radius as drawn.
+- **`mhRelaxRoute` relaxes a sketch live.** The user draws a rough line; `RouteRelaxer` (Core) turns it
+  into an elastic band that slides over the terrain, minimising the route search's own cost plus bending,
+  fidelity to the sketch and (after Help me) a length shortfall, by a Sobolev gradient with a line search,
+  so the band never gets worse. `RouteRelaxSession` steps it on a worker and scores it on another while
+  the get loop turns drags into pins (`RelaxGetPoint`: a press on a pin or on the band grabs it, a click
+  releases a pin) and the floating `RouteRelaxForm` turns its compromise triangle (`RouteWeightTriangle`:
+  short / gentle / little earthwork), fidelity and plainness sliders into settings; the panel shows the
+  score against the sketch climbing (`ScoreSparkline`), the figures and the stretches the route does not
+  fit, which `RouteRelaxConduit` also marks on the ground. A band can only slide, so a sketch straight up a
+  slope too steep for the limit is reported as needing more route; **Help me** runs the grid search through
+  the band's pins kept near the band (`RouteRequest.Guide`) and reseeds the band with what it finds. Keep
+  adds the fitted curve. All access to the relaxer is under one lock held a few milliseconds at a time.
 - Project-local ↔ real-world coordinates use the validated horizontal `MoleHill_ProjectBase` plane as a
   reversible local-to-real-world rigid transform; object replacement ids are reconciled across terrain
   source/output tracking. Legacy Python `FOTM` planes (the inverse convention) and legacy C# `Georef`

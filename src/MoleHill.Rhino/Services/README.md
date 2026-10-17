@@ -454,8 +454,10 @@ layer table, dimension styles, and layouts can act on. See `docs/architecture.md
   can take a slope the same way. The label is a constructor argument; everything else is unchanged.
 - `Commands/RouteSuggestionCommandService.cs` / `RouteOptionSet.cs` / `RouteSuggestionSettings.cs` /
   `RouteSuggestionReadout.cs` / `RouteOutputLayer.cs` + `Display/RouteSuggestionConduit.cs` -
-  `mhSuggestRoute`. A route with rounded corners is committed as one degree-2 NURBS built from Core's
-  `RouteSpan`s (a polyline otherwise). `RouteOutputLayer` remembers a chosen output layer by id per
+  `mhSuggestRoute`. A route is committed as Core's fitted curve, one cubic NURBS with only the control points
+  it needs (`RouteCurveBuilder.FromFitted`), or with `Curve=Exact` as one degree-2 NURBS built from Core's
+  `RouteSpan`s (a polyline when its corners are sharp). The terrain prompt is `RouteTerrainPicker`, shared
+  with `mhRelaxRoute`. `RouteOutputLayer` remembers a chosen output layer by id per
   document and falls back to the current layer when it is gone. The service is
   the picking (terrain as in `mhDrapeCurve`, via the now-internal
   `TerrainInputCommandService.CreateProjectionMeshes`; points constrained to the terrain, `Undo`), the
@@ -467,6 +469,20 @@ layer table, dimension styles, and layouts can act on. See `docs/architecture.md
   word printed or stored, slopes through `SlopeInput`) are managed and tested in
   `RouteSuggestionCommandTests`; the service is excluded from the test project because it reaches
   `TerrainController`. The math is Core's `Routing/`.
+- `Commands/RouteRelaxCommandService.cs` / `RouteRelaxSession.cs` / `RouteRelaxSnapshot.cs` /
+  `RouteRelaxScore.cs` / `RouteRelaxReadout.cs` + `Display/RouteRelaxConduit.cs` + `UI/RouteRelaxForm.cs`,
+  `UI/RouteWeightTriangle.cs`, `UI/ScoreSparkline.cs` - `mhRelaxRoute`. The service picks the sketch (other
+  preselected objects stay selected, so a terrain picked with it answers the terrain prompt), samples the
+  height grid on a worker and creates Core's `RouteRelaxer`. The session owns it under one lock: a relax
+  worker steps it two sweeps at a time and publishes a `RouteRelaxSnapshot` (the band draped, the pins,
+  the score) for the conduit; a score worker evaluates it every quarter second and, once it settles, fits
+  the curve Keep will add (`RouteRelaxScore`), outside the lock. Redraws are queued one at a time, so the UI
+  thread paces them. The get loop (`RelaxGetPoint`, returns on mouse-up) grabs a pin or the band on press,
+  moves the pin while dragging and releases a pin on a click; the floating panel's controls change the
+  shared `RouteSuggestionSettings` (weights, Fidelity, Simplicity) and its buttons end the getter through
+  `GetBaseClass.PostCustomMessage`. Help me and Keep run on a worker while the loop pumps `RhinoApp.Wait()`.
+  The session and service are excluded from the test project (they reach `TerrainController` and `UI/`);
+  the wording in `RouteRelaxReadout` and the math in Core are what is tested.
 - `CurveReviewService.cs` / `CurveReviewForm.cs` / `CurveReviewAnalysis.cs` / `CurveReviewConduit.cs` /
   `CurveReviewPalette.cs` - the `mhInspectCurve` plan-station inspector. **It reports; it never edits** -
   see `docs/architecture.md` for why the profile-editing stack was removed rather than restyled. The

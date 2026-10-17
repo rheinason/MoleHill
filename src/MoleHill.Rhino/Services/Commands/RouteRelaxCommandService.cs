@@ -110,9 +110,11 @@ internal static class RouteRelaxCommandService
             return null;
         }
 
-        Curve? curve = getCurve.Object(0).Curve();
+        // Only the sketch is released: a terrain selected with it is still selected for the terrain prompt.
+        ObjRef picked = getCurve.Object(0);
+        Curve? curve = picked.Curve();
         result = curve == null ? Result.Failure : Result.Success;
-        doc.Objects.UnselectAll();
+        doc.Objects.Select(picked, false);
         return curve;
     }
 

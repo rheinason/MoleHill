@@ -22,8 +22,9 @@ namespace MoleHill.Core.Routing;
 /// <item>fidelity, <c>Fidelity * l * (d / D)^2</c>, with d the distance to the guide line (the sketch,
 /// or the line Help me found) and D twice the corridor width or the minimum radius: at Fidelity 1,
 /// straying D from the sketch costs as much as the route's own length there;</item>
-/// <item>a shortfall penalty on any stretch between pins shorter than its height difference over the
-/// limit (with 2% to spare), without which a band seeded with switchbacks unwound them.</item>
+/// <item>once Help me has seeded the band, a shortfall penalty on any stretch between pins shorter than
+/// its height difference over the limit (with 5% to spare: the editable curve, smoothed, cuts every hairpin a little short), without which the band unwound the switchbacks
+/// it was given.</item>
 /// </list>
 /// <para><b>Descent.</b> A Sobolev gradient: each station's partial derivative by finite differences,
 /// smoothed along the band at a scale that cycles from a quarter of it down to one station, then a line
@@ -79,6 +80,13 @@ public sealed class RouteRelaxer
     private int _nextPin = 2;
     private int _sweeps;
     private int _quietSweeps;
+
+    /// <summary>
+    /// True once the band was seeded with a found route, whose length the shortfall penalty then holds. A
+    /// user's sketch is never lengthened by it: a straight line up a hillside, pushed to the length its
+    /// climb needs, snaked into 0.2 m bends (live, 2026-10-17); finding switchbacks is Help me's job.
+    /// </summary>
+    private bool _holdLength;
 
     private RouteRelaxer(RouteHeightGrid grid, List<(double X, double Y)> sketch, RouteRelaxSettings settings, double spacing)
     {
@@ -327,6 +335,7 @@ public sealed class RouteRelaxer
     /// <summary>Back to the sketch as drawn, held by its ends only.</summary>
     public void Reset()
     {
+        _holdLength = false;
         _guide = Resampled(_sketch, 0.5 * Spacing);
         LoadBand(_sketch, keepPins: false);
     }
@@ -340,6 +349,7 @@ public sealed class RouteRelaxer
         if (plan.Count < 2 || !(Length(plan) > 0.0))
             return;
 
+        _holdLength = true;
         _guide = Resampled(plan, 0.5 * Spacing);
         LoadBand(plan, keepPins: true);
     }
@@ -419,7 +429,7 @@ public sealed class RouteRelaxer
         {
             double length = stations[^1];
             issues.Insert(0, new RouteRelaxIssue(
-                RouteRelaxIssueKind.TooShort, 0.0, length, xs[^1], ys[^1], 0.0, required,
+                RouteRelaxIssueKind.TooShort, 0.0, length, xs[xs.Count / 2], ys[ys.Count / 2], 0.0, required,
                 (Math.Abs(endZ - startZ) / _settings.MaxGrade) - length));
         }
 
@@ -463,12 +473,23 @@ public sealed class RouteRelaxer
 
         List<(double X, double Y)> band = Stations();
         double length = Length(band);
-        RouteRequest request = _settings.ToRequest(
-            points,
-            band,
-            Math.Max(Math.Max(2.0 * _settings.BendRadius, 2.0 * _settings.CorridorWidth), 0.08 * length));
 
-        RouteSuggestionResult result = RouteSuggester.Suggest(_grid, request, cancellationToken);
+        // Room to wander: a few bends, a share of the band, and a quarter of the length the climb needs, so a
+        // straight sketch up a hillside has room for its switchbacks. Too tight a corridor came out a hair too
+        // short to climb (8.13% on 8%, live); so it widens, and at the last searches freely.
+        double climb = 0.0;
+        if (_grid.TrySample(points[0].X, points[0].Y, out double startZ) && _grid.TrySample(points[^1].X, points[^1].Y, out double endZ))
+            climb = Math.Abs(endZ - startZ) / _settings.MaxGrade;
+        double width = Math.Max(Math.Max(2.0 * _settings.BendRadius, 2.0 * _settings.CorridorWidth), Math.Max(0.08 * length, 0.25 * climb));
+        RouteSuggestionResult result = RouteSuggestionResult.Fail(RouteFailure.NotConnected);
+        foreach (double guideWidth in new[] { width, 2.0 * width, 0.0 })
+        {
+            RouteRequest request = guideWidth > 0.0 ? _settings.ToRequest(points, band, guideWidth) : _settings.ToRequest(points);
+            result = RouteSuggester.Suggest(_grid, request, cancellationToken);
+            if (result.Succeeded || result.Failure is not (RouteFailure.ExceedsMaxGrade or RouteFailure.NotConnected))
+                break;
+        }
+
         if (result.Succeeded)
         {
             double[] found = result.Alternatives[0].PointsXyz;
@@ -684,7 +705,7 @@ public sealed class RouteRelaxer
 
     private const double ShortfallWeight = 20.0;
 
-    private const double LengthMargin = 0.02;
+    private const double LengthMargin = 0.05;
 
     /// <summary>The stretch (between successive pins) of each station's following segment, and each stretch's length and need.</summary>
     private void MeasureStretches()
@@ -702,7 +723,7 @@ public sealed class RouteRelaxer
                 double z = _grid.TrySample(_x[i], _y[i], out double ground) ? ground : startZ;
                 // A little over the bare need: the penalty settles a hair short of its target, and the editable
                 // curve, smoothed, is a little shorter than the band.
-                if (stretch >= 0)
+                if (stretch >= 0 && _holdLength)
                     _stretchNeed[stretch] = Math.Abs(z - startZ) / _settings.MaxGrade * (1.0 + LengthMargin);
                 if (i < count - 1)
                 {

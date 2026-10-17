@@ -15,6 +15,20 @@ beta prereleases. Earlier versions are recorded only in the git history.
   - Coarse triangles beside a crease are split first, so no Remesh is needed.
 
 **Input commands**
+- New **Relax Route** (`mhRelaxRoute`, and the Suggest Route button's right-click): draw a rough route and
+  watch it relax over the terrain towards a gentler, cheaper line, live.
+  - Drag the route or its pins to steer it; click a pin to release it.
+  - A floating panel shows how much better than your sketch the route has become, climbing as it relaxes,
+    and the compromise as one triangle to drag between **Short**, **Gentle** and **Little earthwork**,
+    with sliders for how firmly to **keep to the sketch** and how plain the route should be.
+  - Stretches the route does not fit are marked on the ground and listed: cut, fill, and climbs that need
+    more route than the sketch has. **Help me** then searches near your sketch and through your pins, and
+    finds the switchbacks.
+  - **Keep** adds the route as a light curve, ready to edit and assign to a Grade Path.
+- **Suggest Route** keeps each route as a light curve with only the control points it needs (typically
+  10-40, where the exact arcs needed about a hundred), so it edits like a hand-drawn one. The grade limit
+  still holds; the readout gives the control points and the tightest bend as drawn. `Curve=Exact` keeps
+  the exact arcs.
 - **Suggest Route** gives routes a designer would draw. On rolling ground the defaults used to return
   sub-metre segments, and corners far under the minimum radius:
   - The minimum radius is now a requirement, like the maximum grade. Every corner gets it unless a picked
