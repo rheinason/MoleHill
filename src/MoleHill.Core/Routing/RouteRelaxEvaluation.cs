@@ -15,8 +15,10 @@ public sealed class RouteRelaxEvaluation
         IReadOnlyList<RouteRelaxIssue> issues,
         FittedRouteCurve? curve,
         RouteMetrics? curveMetrics,
-        double requiredGrade)
+        double requiredGrade,
+        RouteRelaxSettings settings)
     {
+        Settings = settings;
         PointsXyz = pointsXyz;
         GroundZ = groundZ;
         Metrics = metrics;
@@ -52,6 +54,13 @@ public sealed class RouteRelaxEvaluation
 
     /// <summary><see cref="Metrics"/> measured on <see cref="Curve"/>.</summary>
     public RouteMetrics? CurveMetrics { get; }
+
+    /// <summary>The settings the band was evaluated with, which its curve is fitted to.</summary>
+    public RouteRelaxSettings Settings { get; }
+
+    /// <summary>This evaluation with its editable curve.</summary>
+    public RouteRelaxEvaluation WithCurve(FittedRouteCurve curve, RouteMetrics curveMetrics) =>
+        new(PointsXyz, GroundZ, Metrics, Cost, SketchCost, Issues, curve, curveMetrics, RequiredGrade, Settings);
 
     /// <summary>The grade the route's ends need over its length: over the limit, the route is too short to climb between them.</summary>
     public double RequiredGrade { get; }

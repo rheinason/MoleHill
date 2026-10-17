@@ -423,18 +423,28 @@ public sealed class RouteRelaxer
                 (Math.Abs(endZ - startZ) / _settings.MaxGrade) - length));
         }
 
-        FittedRouteCurve? curve = null;
-        RouteMetrics? curveMetrics = null;
-        if (fitCurve)
-        {
-            double profileTolerance = (_settings.ProfileTolerance > 0.0 ? _settings.ProfileTolerance : 0.01 * cell) * _settings.SimplicityScale;
-            curve = RouteCurveFitter.Fit(
-                new[] { points }, request.EffectiveCurveTolerance, profileTolerance, _settings.MaxGrade,
-                _settings.MinimumRadius, request.ReferenceRadius);
-            curveMetrics = RouteSuggester.MeasureOnGrid(_grid, request, curve.PointsXyz);
-        }
+        var evaluation = new RouteRelaxEvaluation(points, ground, metrics, cost, _sketchCost, issues, null, null, required, _settings);
+        if (!fitCurve)
+            return evaluation;
 
-        return new RouteRelaxEvaluation(points, ground, metrics, cost, _sketchCost, issues, curve, curveMetrics, required);
+        (FittedRouteCurve curve, RouteMetrics curveMetrics) = FitCurve(evaluation);
+        return evaluation.WithCurve(curve, curveMetrics);
+    }
+
+    /// <summary>
+    /// The editable curve for an evaluation, fitted to the settings it was made with, and its figures. It
+    /// reads only the evaluation and the height grid, never the band, so a host can fit on another thread
+    /// while the band keeps stepping (a fit takes a fifth of a second to a second and a half).
+    /// </summary>
+    public (FittedRouteCurve Curve, RouteMetrics Metrics) FitCurve(RouteRelaxEvaluation evaluation)
+    {
+        RouteRelaxSettings settings = evaluation.Settings;
+        RouteRequest request = settings.ToRequest(new[] { (evaluation.PointsXyz[0], evaluation.PointsXyz[1]) });
+        double profileTolerance = (settings.ProfileTolerance > 0.0 ? settings.ProfileTolerance : 0.01 * _grid.CellSize) * settings.SimplicityScale;
+        FittedRouteCurve curve = RouteCurveFitter.Fit(
+            new[] { evaluation.PointsXyz }, request.EffectiveCurveTolerance, profileTolerance, settings.MaxGrade,
+            settings.MinimumRadius, request.ReferenceRadius);
+        return (curve, RouteSuggester.MeasureOnGrid(_grid, request, curve.PointsXyz));
     }
 
     /// <summary>

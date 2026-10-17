@@ -39,6 +39,27 @@ internal static class RouteSuggestionReadout
         (complexity is { } score ? $", complexity {Complexity(score)}" : string.Empty) +
         DescribeRadius(fillet, requestedRadius, units);
 
+    /// <summary>
+    /// The readout of a route kept as its fitted curve: the figures measured on the curve, its tightest bend
+    /// and how many control points it has, the number a designer editing it cares about.
+    /// </summary>
+    public static string DescribeCurve(
+        int rank,
+        RouteMetrics metrics,
+        FittedRouteCurve curve,
+        double requestedRadius,
+        ModelUnitContext units,
+        SlopeAnalyzer.SlopeUnit unit) =>
+        $"Route {rank}: {units.FormatLength(metrics.PlanLength)}, " +
+        $"max grade {Slope(metrics.MaxGrade, unit)}, mean {Slope(metrics.MeanGrade, unit)}, " +
+        $"cut {units.FormatVolume(metrics.CutVolume, "F1")}, fill {units.FormatVolume(metrics.FillVolume, "F1")}, " +
+        $"complexity {Complexity(curve.Complexity)}" +
+        (requestedRadius > 0.0 && curve.SmallestRadius is double tightest ? $", tightest bend {units.FormatLength(tightest)}" : string.Empty) +
+        $", {curve.ControlPointCount} control points";
+
+    /// <summary>A fitted curve's radius as a fillet summary, for the user text it shares with the exact route.</summary>
+    public static RouteFilletSummary CurveFillet(FittedRouteCurve curve) => new(curve.SmallestRadius, 0);
+
     /// <summary>"5.6 (plan 4.3, profile 1.3)": the total first, since it is what routes are compared by.</summary>
     public static string Complexity(RouteComplexity complexity) => FormattableString.Invariant(
         $"{complexity.Total:F1} (plan {complexity.Plan:F1}, profile {complexity.Profile:F1})");

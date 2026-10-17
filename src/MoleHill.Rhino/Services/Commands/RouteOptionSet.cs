@@ -7,9 +7,10 @@ using Rhino.Input.Custom;
 namespace MoleHill.Rhino.Services;
 
 /// <summary>
-/// mhSuggestRoute's command-line options, offered identically while points are picked and while the
-/// alternatives are reviewed, so a setting can be changed at either stage and the routes searched again:
-/// <c>MaxGrade Units MinRadius Simplicity Distance Steepness Earthworks CorridorWidth CellSize Alternatives Layer</c>.
+/// The route commands' command-line options, offered identically at every prompt so a setting can be changed
+/// at any stage. mhSuggestRoute: <c>MaxGrade Units MinRadius Simplicity Distance Steepness Earthworks
+/// CorridorWidth CellSize Alternatives Curve Layer</c>; mhRelaxRoute swaps Alternatives and Curve for
+/// Fidelity (its curve is always the fitted one).
 /// </summary>
 internal sealed class RouteOptionSet
 {
@@ -22,12 +23,16 @@ internal sealed class RouteOptionSet
     private OptionDouble _corridorWidth = new(1.0);
     private OptionDouble _cellSize = new(0.0);
     private OptionInteger _alternatives = new(RouteSuggester.MaxAlternatives);
+    private OptionToggle _smoothCurve = new(true, "Exact", "Smooth");
+    private OptionDouble _fidelity = new(RouteSuggestionSettings.DefaultFidelity);
+    private readonly bool _relax;
     private int _layerOption = -1;
     private int _currentLayerOption = -1;
 
-    public RouteOptionSet(RhinoDoc doc, RouteSuggestionSettings settings, SlopeCommandOption maxGrade)
+    public RouteOptionSet(RhinoDoc doc, RouteSuggestionSettings settings, SlopeCommandOption maxGrade, bool relax = false)
     {
         _doc = doc;
+        _relax = relax;
         Settings = settings;
         MaxGrade = maxGrade;
         LayerId = RouteOutputLayer.Resolve(RouteOutputLayer.Remembered(doc.RuntimeSerialNumber), LayerExists, out bool fellBack);
@@ -62,16 +67,30 @@ internal sealed class RouteOptionSet
         get.AddOptionDouble("Distance", ref _distance, "Weight on route length");
         get.AddOptionDouble("Steepness", ref _steepness, "Weight on grade, up to MaxGrade");
         get.AddOptionDouble("Earthworks", ref _earthworks, "Weight on ground the route cannot follow");
+        if (_relax)
+        {
+            _fidelity = new OptionDouble(Math.Clamp(Settings.Fidelity, 0.0, RouteSuggestionSettings.MaxFidelity), 0.0, RouteSuggestionSettings.MaxFidelity);
+            get.AddOptionDouble("Fidelity", ref _fidelity, "How firmly the route keeps to the sketch; 0 lets it go");
+        }
+
         get.AddOptionDouble("CorridorWidth", ref _corridorWidth);
         get.AddOptionDouble("CellSize", ref _cellSize, "Ground sample spacing; 0 is automatic");
-        get.AddOptionInteger("Alternatives", ref _alternatives);
+        if (!_relax)
+        {
+            get.AddOptionInteger("Alternatives", ref _alternatives);
+            _smoothCurve = new OptionToggle(Settings.SmoothCurve, "Exact", "Smooth");
+            get.AddOptionToggle("Curve", ref _smoothCurve);
+        }
 
         Layer? layer = LayerId == Guid.Empty ? null : _doc.Layers.FindId(LayerId);
         _layerOption = get.AddOption("Layer", RouteOutputLayer.OptionValue(layer?.Name));
         _currentLayerOption = layer != null ? get.AddOption("UseCurrentLayer") : -1;
     }
 
-    /// <summary>Reads the options back. True when anything the search depends on changed.</summary>
+    /// <summary>
+    /// Reads the options back. True when anything the search depends on changed; a change of
+    /// <see cref="RouteSuggestionSettings.SmoothCurve"/> only changes which curve is shown and kept.
+    /// </summary>
     public bool Commit(GetBaseClass get, GetResult result)
     {
         if (result == GetResult.Option)
@@ -94,7 +113,7 @@ internal sealed class RouteOptionSet
         MaxGrade.Commit(get, result);
 
         var before = (Settings.DistanceWeight, Settings.SteepnessWeight, Settings.EarthworksWeight,
-            Settings.CorridorWidth, Settings.CellSize, Settings.AlternativeCount, Settings.MinimumRadius, Settings.Simplicity);
+            Settings.CorridorWidth, Settings.CellSize, Settings.AlternativeCount, Settings.MinimumRadius, Settings.Simplicity, Settings.Fidelity);
         Settings.MinimumRadius = _minimumRadius.CurrentValue;
         Settings.Simplicity = _simplicity.CurrentValue;
         Settings.DistanceWeight = _distance.CurrentValue;
@@ -102,9 +121,18 @@ internal sealed class RouteOptionSet
         Settings.EarthworksWeight = _earthworks.CurrentValue;
         Settings.CorridorWidth = _corridorWidth.CurrentValue;
         Settings.CellSize = _cellSize.CurrentValue;
-        Settings.AlternativeCount = _alternatives.CurrentValue;
+        if (_relax)
+        {
+            Settings.Fidelity = _fidelity.CurrentValue;
+        }
+        else
+        {
+            Settings.AlternativeCount = _alternatives.CurrentValue;
+            Settings.SmoothCurve = _smoothCurve.CurrentValue;
+        }
+
         var after = (Settings.DistanceWeight, Settings.SteepnessWeight, Settings.EarthworksWeight,
-            Settings.CorridorWidth, Settings.CellSize, Settings.AlternativeCount, Settings.MinimumRadius, Settings.Simplicity);
+            Settings.CorridorWidth, Settings.CellSize, Settings.AlternativeCount, Settings.MinimumRadius, Settings.Simplicity, Settings.Fidelity);
 
         return before != after || gradeBefore != MaxGrade.Ratio;
     }

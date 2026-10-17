@@ -28,7 +28,7 @@ internal static class RouteSuggestionCommandService
         if (!ModelUnitGuard.TryGet(doc, out ModelUnitContext units))
             return Result.Failure;
 
-        Mesh? terrain = PickTerrain(doc, out Result pickResult);
+        Mesh? terrain = RouteTerrainPicker.Pick(doc, "suggesting routes", out Result pickResult);
         if (terrain == null)
             return pickResult;
 
@@ -54,70 +54,6 @@ internal static class RouteSuggestionCommandService
 
             return Review(doc, mesh, picked, options, units);
         }
-    }
-
-    private static Mesh? PickTerrain(RhinoDoc doc, out Result result)
-    {
-        result = Result.Cancel;
-        var getTarget = new GetObject();
-        getTarget.SetCommandPrompt("Select the terrain mesh or surface. Press Enter for the active MoleHill terrain");
-        getTarget.GeometryFilter = ObjectType.Mesh | ObjectType.Surface | ObjectType.Brep | ObjectType.Extrusion;
-        getTarget.EnablePreSelect(true, true);
-        getTarget.AcceptNothing(true);
-        int activeTerrainOption = getTarget.AddOption("ActiveMoleHillTerrain");
-
-        GetResult targetResult = getTarget.Get();
-        if (targetResult == GetResult.Nothing ||
-            (targetResult == GetResult.Option && getTarget.OptionIndex() == activeTerrainOption))
-        {
-            TerrainDefinition? definition = TerrainController.Instance.GetSelectedTerrain(doc);
-            if (definition == null)
-            {
-                RhinoApp.WriteLine("Select an active MoleHill terrain, or pick a mesh or surface, before suggesting routes.");
-                result = Result.Nothing;
-                return null;
-            }
-
-            Mesh? finalMesh = TerrainController.Instance.DuplicateFinalTerrainMesh(doc, definition.TerrainId);
-            if (finalMesh == null)
-            {
-                RhinoApp.WriteLine($"Active terrain '{definition.Name}' has no current final build. Rebuild it before suggesting routes.");
-                result = Result.Nothing;
-            }
-
-            return finalMesh;
-        }
-
-        if (targetResult != GetResult.Object)
-        {
-            result = getTarget.CommandResult();
-            return null;
-        }
-
-        RhinoObject? targetObject = getTarget.Object(0).Object();
-        if (targetObject == null)
-        {
-            result = Result.Failure;
-            return null;
-        }
-
-        List<Mesh> parts = TerrainInputCommandService.CreateProjectionMeshes(targetObject.Geometry);
-        if (parts.Count == 0)
-        {
-            RhinoApp.WriteLine("The selected object could not be converted into a usable mesh.");
-            result = Result.Failure;
-            return null;
-        }
-
-        var combined = new Mesh();
-        foreach (Mesh part in parts)
-        {
-            combined.Append(part);
-            part.Dispose();
-        }
-
-        doc.Objects.UnselectAll();
-        return combined;
     }
 
     /// <summary>Start, waypoints, end. Enter after the second point finishes; the last point picked is the end.</summary>
@@ -223,8 +159,8 @@ internal static class RouteSuggestionCommandService
                         }
 
                         resultRadius = request.MinimumRadius;
-                        Report(result, grid, cell, coarsened, settings.IsAutomaticCellSize, watch.Elapsed, resultGradeLimit, resultRadius, units);
-                        routes.AddRange(result.Alternatives.Select(ToPolyline));
+                        Report(result, grid, cell, coarsened, settings.IsAutomaticCellSize, watch.Elapsed, resultGradeLimit, resultRadius, units, settings.SmoothCurve);
+                        routes.AddRange(Previews(result, settings));
                     }
 
                     conduit.SetRoutes(routes.ToList(), picked);
@@ -248,24 +184,35 @@ internal static class RouteSuggestionCommandService
 
                 GetResult choice = getOption.Get();
                 if (choice == GetResult.Nothing && routes.Count > 0)
-                    return Commit(doc, result!, Enumerable.Range(0, routes.Count), resultGradeLimit, resultRadius, settings.CorridorWidth, options, units);
+                    return Commit(doc, result!, Enumerable.Range(0, routes.Count), resultGradeLimit, resultRadius, options, units);
 
                 if (choice != GetResult.Option)
                     return getOption.CommandResult();
 
                 int chosen = getOption.OptionIndex();
                 if (chosen == keepAll)
-                    return Commit(doc, result!, Enumerable.Range(0, routes.Count), resultGradeLimit, resultRadius, settings.CorridorWidth, options, units);
+                    return Commit(doc, result!, Enumerable.Range(0, routes.Count), resultGradeLimit, resultRadius, options, units);
 
                 int single = Array.IndexOf(keepOne, chosen);
                 if (single >= 0)
-                    return Commit(doc, result!, new[] { single }, resultGradeLimit, resultRadius, settings.CorridorWidth, options, units);
+                    return Commit(doc, result!, new[] { single }, resultGradeLimit, resultRadius, options, units);
 
+                bool wasSmooth = settings.SmoothCurve;
                 solve = options.Commit(getOption, choice);
                 settings.Save(units);
-                // Nothing the search reads changed (a new slope unit, say): reprint, don't re-search.
+                // Nothing the search reads changed (a new slope unit, the curve style): reprint, don't re-search.
                 if (!solve && result is { Succeeded: true })
-                    PrintRoutes(result, resultGradeLimit, resultRadius, units);
+                {
+                    if (wasSmooth != settings.SmoothCurve)
+                    {
+                        routes.Clear();
+                        routes.AddRange(Previews(result, settings));
+                        conduit.SetRoutes(routes.ToList(), picked);
+                        doc.Views.Redraw();
+                    }
+
+                    PrintRoutes(result, resultGradeLimit, resultRadius, units, settings.SmoothCurve);
+                }
             }
         }
         finally
@@ -326,7 +273,8 @@ internal static class RouteSuggestionCommandService
         TimeSpan elapsed,
         double gradeLimit,
         double radius,
-        ModelUnitContext units)
+        ModelUnitContext units,
+        bool smooth)
     {
         string cellNote = coarsened ? " (coarsened: the requested CellSize was too fine for this area)" : automatic ? " (automatic)" : string.Empty;
         if (grid != null)
@@ -342,21 +290,27 @@ internal static class RouteSuggestionCommandService
             return;
         }
 
-        PrintRoutes(result, gradeLimit, radius, units);
+        PrintRoutes(result, gradeLimit, radius, units, smooth);
         if (result.Alternatives.Count == 1 && result.DroppedNearDuplicates > 0)
             RhinoApp.WriteLine("Every other route found ran along the same corridor, so only one is shown.");
     }
 
-    private static void PrintRoutes(RouteSuggestionResult result, double gradeLimit, double radius, ModelUnitContext units)
+    private static void PrintRoutes(RouteSuggestionResult result, double gradeLimit, double radius, ModelUnitContext units, bool smooth)
     {
-        RhinoApp.WriteLine($"Suggested routes within {RouteSuggestionReadout.Slope(gradeLimit, SlopeUnitPreference.Current)}:");
+        RhinoApp.WriteLine($"Suggested routes within {RouteSuggestionReadout.Slope(gradeLimit, SlopeUnitPreference.Current)}" +
+            (smooth ? " (smooth curves; Curve=Exact keeps the exact arcs):" : " (exact arcs):"));
         for (int i = 0; i < result.Alternatives.Count; i++)
         {
             RouteAlternative route = result.Alternatives[i];
-            RhinoApp.WriteLine("  " + RouteSuggestionReadout.Describe(
-                i + 1, route.Metrics, route.Fillet, radius, units, SlopeUnitPreference.Current, route.Complexity));
+            RhinoApp.WriteLine("  " + (smooth
+                ? RouteSuggestionReadout.DescribeCurve(i + 1, route.CurveMetrics, route.Curve, radius, units, SlopeUnitPreference.Current)
+                : RouteSuggestionReadout.Describe(i + 1, route.Metrics, route.Fillet, radius, units, SlopeUnitPreference.Current, route.Complexity)));
         }
     }
+
+    /// <summary>What the review draws for each route: the curve that will be kept.</summary>
+    private static IEnumerable<Polyline> Previews(RouteSuggestionResult result, RouteSuggestionSettings settings) =>
+        result.Alternatives.Select(route => RouteCurveBuilder.ToPolyline(settings.SmoothCurve ? route.Curve.PointsXyz : route.PointsXyz));
 
     private static Result Commit(
         RhinoDoc doc,
@@ -364,10 +318,11 @@ internal static class RouteSuggestionCommandService
         IEnumerable<int> keep,
         double gradeLimit,
         double radius,
-        double corridorWidth,
         RouteOptionSet options,
         ModelUnitContext units)
     {
+        bool smooth = options.Settings.SmoothCurve;
+        double corridorWidth = options.Settings.CorridorWidth;
         int layerIndex = options.ResolveLayerIndex();
         uint undoRecord = doc.BeginUndoRecord("Suggest Route");
         var added = new List<Guid>();
@@ -376,17 +331,19 @@ internal static class RouteSuggestionCommandService
             foreach (int index in keep)
             {
                 RouteAlternative route = result.Alternatives[index];
-                RouteMetrics metrics = route.Metrics;
+                RouteMetrics metrics = smooth ? route.CurveMetrics : route.Metrics;
+                RouteFilletSummary fillet = smooth ? RouteSuggestionReadout.CurveFillet(route.Curve) : route.Fillet;
+                RouteComplexity complexity = smooth ? route.Curve.Complexity : route.Complexity;
                 ObjectAttributes attributes = doc.CreateDefaultAttributes();
                 attributes.LayerIndex = layerIndex;
                 attributes.Name = RouteSuggestionReadout.ObjectName(index + 1, metrics, units, SlopeUnitPreference.Current);
                 foreach ((string key, string value) in RouteSuggestionReadout.UserText(
-                             index + 1, metrics, gradeLimit, corridorWidth, route.Fillet, radius, units, SlopeUnitPreference.Current, route.Complexity))
+                             index + 1, metrics, gradeLimit, corridorWidth, fillet, radius, units, SlopeUnitPreference.Current, complexity))
                 {
                     attributes.SetUserString(key, value);
                 }
 
-                using Curve curve = ToCurve(route);
+                using Curve curve = smooth ? RouteCurveBuilder.FromFitted(route.Curve) : RouteCurveBuilder.FromSpans(route);
                 Guid id = doc.Objects.AddCurve(curve, attributes);
                 if (id == Guid.Empty)
                 {
@@ -411,54 +368,5 @@ internal static class RouteSuggestionCommandService
         {
             doc.EndUndoRecord(undoRecord);
         }
-    }
-
-    /// <summary>
-    /// The route as an ordinary curve: a polyline when its corners are sharp, otherwise one degree-2
-    /// NURBS — its straights and exact plan arcs joined end to end, tangent at every rounded corner — so
-    /// it edits by control points like any drawn curve, and Grade Path and the curve commands read it as
-    /// they read any other.
-    /// </summary>
-    private static Curve ToCurve(RouteAlternative route)
-    {
-        if (!route.HasArcs)
-            return new PolylineCurve(ToPolyline(route));
-
-        var joined = new PolyCurve();
-        foreach (RouteSpan span in route.Spans)
-        {
-            var start = new Point3d(span.StartX, span.StartY, span.StartZ);
-            var end = new Point3d(span.EndX, span.EndY, span.EndZ);
-            if (!span.IsArc)
-            {
-                joined.Append(new LineCurve(start, end));
-                continue;
-            }
-
-            var arc = new NurbsCurve(3, true, 3, 3);
-            arc.Points.SetPoint(0, start, 1.0);
-            arc.Points.SetPoint(1, new Point3d(span.ControlX, span.ControlY, span.ControlZ), span.Weight);
-            arc.Points.SetPoint(2, end, 1.0);
-            arc.Knots[0] = 0.0;
-            arc.Knots[1] = 0.0;
-            arc.Knots[2] = 1.0;
-            arc.Knots[3] = 1.0;
-            joined.Append(arc);
-        }
-
-        NurbsCurve? nurbs = joined.ToNurbsCurve();
-        if (nurbs == null)
-            return joined;
-
-        joined.Dispose();
-        return nurbs;
-    }
-
-    private static Polyline ToPolyline(RouteAlternative route)
-    {
-        var polyline = new Polyline(route.PointCount);
-        for (int i = 0; i < route.PointCount; i++)
-            polyline.Add(route.PointsXyz[i * 3], route.PointsXyz[(i * 3) + 1], route.PointsXyz[(i * 3) + 2]);
-        return polyline;
     }
 }

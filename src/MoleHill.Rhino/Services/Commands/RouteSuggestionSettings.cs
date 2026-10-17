@@ -51,6 +51,19 @@ internal sealed class RouteSuggestionSettings
     private const string AlternativesKey = "MoleHill.SuggestRoute.Alternatives";
     private const string RadiusKey = "MoleHill.SuggestRoute.MinRadius";
     private const string SimplicityKey = "MoleHill.SuggestRoute.Simplicity";
+    private const string SmoothCurveKey = "MoleHill.SuggestRoute.SmoothCurve";
+    private const string FidelityKey = "MoleHill.RelaxRoute.Fidelity";
+
+    /// <summary>How firmly mhRelaxRoute keeps to the sketch by default (<see cref="RouteRelaxSettings.Fidelity"/>).</summary>
+    public const double DefaultFidelity = 1.0;
+
+    public const double MaxFidelity = 100.0;
+
+    /// <summary>
+    /// Cut or fill deeper than this is marked on a relaxed route, in metres: a metre is where a road stops
+    /// sitting on the ground and starts needing a retaining structure or a real embankment.
+    /// </summary>
+    public const double DeepCutFillMeters = 1.0;
 
     public double DistanceWeight { get; set; } = 1.0;
 
@@ -72,6 +85,15 @@ internal sealed class RouteSuggestionSettings
     /// <summary>How much plainer a route may be for more earthwork (<see cref="RouteRequest.Simplicity"/>).</summary>
     public double Simplicity { get; set; } = DefaultSimplicity;
 
+    /// <summary>
+    /// True (the default) adds each route as the fitted curve, a few cubic control points within tolerance;
+    /// false as the exact straights and arcs, a vertex at every grade break.
+    /// </summary>
+    public bool SmoothCurve { get; set; } = true;
+
+    /// <summary>How firmly a relaxed route keeps to its sketch (<see cref="RouteRelaxSettings.Fidelity"/>).</summary>
+    public double Fidelity { get; set; } = DefaultFidelity;
+
     public bool IsAutomaticCellSize => !(CellSize > 0.0);
 
     public static RouteSuggestionSettings Load(ModelUnitContext units) => new()
@@ -84,6 +106,8 @@ internal sealed class RouteSuggestionSettings
         AlternativeCount = CommandOptionCache.GetValue(AlternativesKey, RouteSuggester.MaxAlternatives),
         MinimumRadius = CommandOptionCache.GetLength(RadiusKey, units, DefaultMinimumRadiusMeters),
         Simplicity = CommandOptionCache.GetValue(SimplicityKey, DefaultSimplicity),
+        SmoothCurve = CommandOptionCache.GetValue(SmoothCurveKey, true),
+        Fidelity = CommandOptionCache.GetValue(FidelityKey, DefaultFidelity),
     };
 
     public void Save(ModelUnitContext units)
@@ -96,6 +120,8 @@ internal sealed class RouteSuggestionSettings
         CommandOptionCache.SetValue(AlternativesKey, AlternativeCount);
         CommandOptionCache.SetLength(RadiusKey, units, Math.Max(0.0, MinimumRadius));
         CommandOptionCache.SetValue(SimplicityKey, Math.Clamp(Simplicity, 0.0, MaxSimplicity));
+        CommandOptionCache.SetValue(SmoothCurveKey, SmoothCurve);
+        CommandOptionCache.SetValue(FidelityKey, Math.Clamp(Fidelity, 0.0, MaxFidelity));
     }
 
     /// <summary>Why these settings cannot be searched with, or null when they can.</summary>
@@ -122,6 +148,21 @@ internal sealed class RouteSuggestionSettings
         MinimumRadius = Math.Max(0.0, MinimumRadius),
         ProfileTolerance = tolerance,
         Simplicity = Math.Clamp(Simplicity, 0.0, MaxSimplicity),
+    };
+
+    /// <summary>The same weights for relaxing a sketch, with depths and tolerances in model units.</summary>
+    public RouteRelaxSettings ToRelaxSettings(double maxGrade, double tolerance, ModelUnitContext units) => new()
+    {
+        MaxGrade = maxGrade,
+        DistanceWeight = DistanceWeight,
+        SteepnessWeight = SteepnessWeight,
+        EarthworksWeight = EarthworksWeight,
+        Fidelity = Math.Clamp(Fidelity, 0.0, MaxFidelity),
+        CorridorWidth = CorridorWidth,
+        MinimumRadius = Math.Max(0.0, MinimumRadius),
+        Simplicity = Math.Clamp(Simplicity, 0.0, MaxSimplicity),
+        ProfileTolerance = tolerance,
+        DeepCutFillDepth = units.FromMeters(DeepCutFillMeters),
     };
 
     /// <summary>
