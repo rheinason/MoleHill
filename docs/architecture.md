@@ -143,8 +143,8 @@ TriangleNet (vendored)  ←  MoleHill.Core  ←  MoleHill.Grasshopper (GH host)
   (`TerrainController.DuplicateIncomingModifierMesh`, not the final terrain, which already carries the pads),
   the breaklines it received as lock barriers and hard constraints (`CopyIncomingModifierBreaklines`, unless
   it grades through them), its tolerance and detail size, `GradeWindowed`, and the card's other pads held in
-  place. A balance measured on any other grade misses once built (found: 504 m3 with a contour crossing a
-  pad). Curves split between cards are refused. Otherwise the slopes are options. Auto-balance as a modifier
+  place. A balance measured on any other grade misses once built (found: a contour locked beside a pad
+  stopped its batter in the build but not in the search). Curves split between cards are refused. Otherwise the slopes are options. Auto-balance as a modifier
   stays declined: the drawn boundary still says what the pad does.
 - **The long section is drawn geometry with its frame attached (prototype).** `mhExtractProfile` draws a
   plan curve's elevations (design line), the active terrain under it (ground line), a datum and station
@@ -1906,7 +1906,9 @@ output exact.
   that does not keep every edge it shares with unowned faces sends the stage to the whole mesh. Windows
   are keyed by their canonical faces, items, locks, constraints and settings
   (`TerrainRuntimeCache.GradingWindowMemos`), and cold and incremental runs use the same windowed
-  computation, so reuse is exact. `GradingWindows.Stitch` welds by coordinates only near the windows.
+  computation, so reuse is exact. The locks and constraints a window receives are chosen by a box covering
+  its faces (`CoveringBox`), not its reach box: reached faces are taken whole and stick out past it, and a
+  breakline left off a face the grader builds on is a batter cut through a breakline (953 m3 on one pad). `GradingWindows.Stitch` welds by coordinates only near the windows.
 - **Retaining Wall rail insertion** runs per rail window (eight local face sizes around the faces a rail
   crosses; `TryInsertWallConstraintsWindowed`). A window that declines or would not weld back sends the
   stage to the whole-mesh insertion, so the windowed path stands in for it exactly. When one reach covers

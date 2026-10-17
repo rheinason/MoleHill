@@ -144,12 +144,14 @@ public static class GradingWindows
         var keys = new UInt128[windows.Count];
         var parts = new (UInt128 Faces, UInt128 Context)[windows.Count];
         var locals = new (double[] V, int[] F)[windows.Count];
+        var boxes = new (double MinX, double MinY, double MaxX, double MaxY)[windows.Count];
         Parallel.For(0, windows.Count, w =>
         {
             if (memberFaces[w].Count == 0)
                 return;
             locals[w] = ExtractCanonical(vertices, faces, memberFaces[w]);
-            parts[w] = WindowKey(locals[w].V, locals[w].F, windows[w], context);
+            boxes[w] = CoveringBox(windows[w], locals[w].V);
+            parts[w] = WindowKey(locals[w].V, locals[w].F, boxes[w], windows[w].Items, context);
             keys[w] = Combine(parts[w]);
         });
         Phase("extract+key");
@@ -177,7 +179,7 @@ public static class GradingWindows
                 }
 
                 (double[] v, int[] f) = locals[w];
-                var box = (windows[w].MinX, windows[w].MinY, windows[w].MaxX, windows[w].MaxY);
+                var box = boxes[w];
                 long start = clock.ElapsedMilliseconds;
                 GradingResult? result = grade(v, v.Length / 3, f, f.Length / 3, windows[w].Items, box, out string? error, out var failurePolylines, out var failureDiagnostics);
                 long graderDone = clock.ElapsedMilliseconds;
@@ -1021,7 +1023,28 @@ public static class GradingWindows
     }
 
     /// <summary>The window's key in two halves: its faces, and everything else its result depends on.</summary>
-    private static (UInt128 Faces, UInt128 Context) WindowKey(double[] v, int[] f, (double MinX, double MinY, double MaxX, double MaxY, int[] Items) window, WindowContext context)
+    /// <summary>
+    /// The window's reach box grown to cover every vertex of its faces. A window takes each face its items
+    /// reach whole (and the pockets they enclose), so its faces stick out past the reach box, and the
+    /// grader can build on all of them. The box selects the locks and breaklines the grader is given, so it
+    /// must cover what the grader builds on: a reach box let a batter run across a breakline lying on a
+    /// window face just beyond it (953 m3 of cut on a pad whose batter crossed a locked contour; `GradingWindowsBreaklineCoverageTests`).
+    /// </summary>
+    private static (double MinX, double MinY, double MaxX, double MaxY) CoveringBox(
+        (double MinX, double MinY, double MaxX, double MaxY, int[] Items) window, double[] v)
+    {
+        double minX = window.MinX, minY = window.MinY, maxX = window.MaxX, maxY = window.MaxY;
+        for (int i = 0; i + 2 < v.Length; i += 3)
+        {
+            minX = Math.Min(minX, v[i]); maxX = Math.Max(maxX, v[i]);
+            minY = Math.Min(minY, v[i + 1]); maxY = Math.Max(maxY, v[i + 1]);
+        }
+
+        return (minX, minY, maxX, maxY);
+    }
+
+    private static (UInt128 Faces, UInt128 Context) WindowKey(
+        double[] v, int[] f, (double MinX, double MinY, double MaxX, double MaxY) window, int[] items, WindowContext context)
     {
         var low = new XxHash64Builder(0x6a770001UL);
         var high = new XxHash64Builder(0x6a770002UL);
@@ -1039,7 +1062,7 @@ public static class GradingWindows
             high.Add(d);
         }
 
-        context(window.Items, window.MinX, window.MinY, window.MaxX, window.MaxY, low, high);
+        context(items, window.MinX, window.MinY, window.MaxX, window.MaxY, low, high);
         return (faces, new UInt128(high.ToUInt64(), low.ToUInt64()));
     }
 

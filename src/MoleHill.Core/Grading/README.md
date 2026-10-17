@@ -47,7 +47,9 @@ centimetres (`PadGraderCornerFanTests`).
 of pads or paths on the faces within their reach (a pad's filled outline, a path's centreline, grown by how
 far it can change the terrain) and stitch the patches back, memoizing each window by a key of its canonical
 input. Small enclosed pockets join their window, and a patch must keep the edges it shares with the rest of the terrain,
-or the call grades the whole mesh instead. See `docs/architecture.md` -> "Grading windows".
+or the call grades the whole mesh instead. A window takes the faces its items reach whole, so they stick out past the
+reach box; the box that picks the window's locks and breaklines is grown to cover them (`CoveringBox`), or a batter
+runs across a breakline lying on a window face just past the reach (`GradingWindowsBreaklineCoverageTests`). See `docs/architecture.md` -> "Grading windows".
 
 ## Tier cascade (Pad - `PadGrader.Grade`, takes the first watertight result)
 1. **explicit batter** - `PadGrader.Explicit.cs` (exact ruled side-slopes; crispest).

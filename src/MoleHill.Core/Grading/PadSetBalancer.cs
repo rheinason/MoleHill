@@ -105,9 +105,8 @@ public static class PadSetBalancer
                 pads[k] = offsets[k] == 0.0 ? movingPads[k] : PadElevationBalancer.Translate(movingPads[k], offsets[k]);
             Array.Copy(held, 0, pads, count, held.Length);
 
-            // The windowed entry point is the one the Grade Pad card builds with. Whole-mesh grading can
-            // build different geometry where a breakline crosses a pad (found: 504 m3 apart on one pad), and
-            // a balance measured on geometry the card does not build is not a balance.
+            // The windowed entry point is the one the Grade Pad card builds with. A balance measured on
+            // geometry the card does not build is not a balance, so measure what it builds.
             GradeOutcome outcome = PadGrader.GradeWindowed(new PadGradeRequest
             {
                 Terrain = terrain,
