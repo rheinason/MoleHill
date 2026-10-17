@@ -131,7 +131,7 @@ public sealed class RouteMinimumRadiusTests
     }
 
     /// <summary>The live site: a 200 m square surveyed at 2.5 m, searched at the command's automatic cell size.</summary>
-    private static (RouteHeightGrid Grid, RouteRequest Request) LiveCase(Func<RouteRequest, RouteRequest> adjust)
+    internal static (RouteHeightGrid Grid, RouteRequest Request) LiveCase(Func<RouteRequest, RouteRequest> adjust)
     {
         const int side = 81;
         var vertices = new double[side * side * 3];

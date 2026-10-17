@@ -151,7 +151,7 @@ public static class RouteSuggester
 
             List<int> raw = Concatenate(legs);
             if (!TryBuildRoute(grid, request, legs, pins, profileTolerance,
-                    out List<RouteSpan> spans, out double[] points, out RouteFilletSummary fillet, out int failedLeg, out double required))
+                    out List<RouteSpan> spans, out double[] points, out List<double[]> legPoints, out RouteFilletSummary fillet, out int failedLeg, out double required))
             {
                 if (accepted.Count == 0)
                     return RouteSuggestionResult.Fail(RouteFailure.ExceedsMaxGrade, leg: failedLeg, requiredGrade: required);
@@ -172,14 +172,12 @@ public static class RouteSuggester
                 continue;
             }
 
-            RouteMetrics metrics = RouteMetrics.Measure(
-                points,
-                (x, y) => grid.TrySample(x, y, out double z) ? z : null,
-                request.CorridorWidth,
-                0.5 * cell);
+            RouteMetrics metrics = MeasureOnGrid(grid, request, points);
+            FittedRouteCurve curve = FitCurve(request, legPoints, profileTolerance);
             accepted.Add(new RouteAlternative(
                 spans, points, metrics, fillet, RouteLegBuilder.PolylineCost(grid, new RouteCost(request), points),
-                RouteComplexity.Measure(spans, request.ReferenceRadius, request.MaxGrade)));
+                RouteComplexity.Measure(spans, request.ReferenceRadius, request.MaxGrade),
+                curve, MeasureOnGrid(grid, request, curve.PointsXyz)));
             search.Stamp(drawn, bandCells, bands, (byte)(1 << (accepted.Count - 1)));
             search.Penalise(drawn, bandCells, DiversityPenaltyStep);
         }
@@ -187,6 +185,26 @@ public static class RouteSuggester
         List<RouteAlternative> ordered = accepted.OrderBy(route => route.SearchCost).ToList();
         return new RouteSuggestionResult(RouteFailure.None, ordered, -1, -1, null, dropped);
     }
+
+    internal static RouteMetrics MeasureOnGrid(RouteHeightGrid grid, RouteRequest request, double[] points) =>
+        RouteMetrics.Measure(
+            points,
+            (x, y) => grid.TrySample(x, y, out double z) ? z : null,
+            request.CorridorWidth,
+            0.5 * grid.CellSize);
+
+    /// <summary>
+    /// The route as the fewest cubic control points within the plan tolerance (<see cref="RouteRequest.CurveTolerance"/>,
+    /// widened by Simplicity like the profile's) and the profile's own thinning tolerance.
+    /// </summary>
+    internal static FittedRouteCurve FitCurve(RouteRequest request, IReadOnlyList<double[]> legPoints, double profileTolerance) =>
+        RouteCurveFitter.Fit(
+            legPoints,
+            request.EffectiveCurveTolerance,
+            profileTolerance,
+            request.MaxGrade,
+            request.MinimumRadius,
+            request.ReferenceRadius);
 
     private static bool IsValid(RouteRequest request)
     {
@@ -251,11 +269,13 @@ public static class RouteSuggester
         double profileTolerance,
         out List<RouteSpan> spans,
         out double[] points,
+        out List<double[]> legPoints,
         out RouteFilletSummary fillet,
         out int failedLeg,
         out double requiredGrade)
     {
         spans = new List<RouteSpan>();
+        legPoints = new List<double[]>();
         fillet = RouteFilletSummary.None;
         failedLeg = -1;
         requiredGrade = 0.0;
@@ -296,6 +316,10 @@ public static class RouteSuggester
 
             spans.AddRange(legSpans);
             fillet = fillet.Merge(legFillet);
+            var legDense = new List<double>();
+            RouteLegBuilder.AppendDense(legSpans, legDense);
+            if (legDense.Count >= 6)
+                legPoints.Add(legDense.ToArray());
 
             // Straightened too short for its climb: straighten again, held to the length the climb needs plus
             // room for rounding to shorten it, before falling back to sharp corners and the grid staircase.

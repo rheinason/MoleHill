@@ -52,7 +52,7 @@ public sealed class RouteHillySiteTests
         }
     }
 
-    private static (RouteHeightGrid Grid, RouteRequest Request) Site()
+    internal static (RouteHeightGrid Grid, RouteRequest Request) Site()
     {
         const int side = 121;
         const double spacing = 2.0;

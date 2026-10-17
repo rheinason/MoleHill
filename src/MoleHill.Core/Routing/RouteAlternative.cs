@@ -13,8 +13,12 @@ public sealed class RouteAlternative
         RouteMetrics metrics,
         RouteFilletSummary fillet,
         double searchCost,
-        RouteComplexity complexity)
+        RouteComplexity complexity,
+        FittedRouteCurve curve,
+        RouteMetrics curveMetrics)
     {
+        Curve = curve;
+        CurveMetrics = curveMetrics;
         Spans = spans;
         PointsXyz = pointsXyz;
         Metrics = metrics;
@@ -51,4 +55,13 @@ public sealed class RouteAlternative
     /// what the alternatives are ranked by. Comparable only within one result.
     /// </summary>
     public double SearchCost { get; }
+
+    /// <summary>
+    /// The route as an editable curve: cubic pieces with only the control points needed to stay within the
+    /// request's tolerances of <see cref="Spans"/> (<see cref="RouteCurveFitter"/>).
+    /// </summary>
+    public FittedRouteCurve Curve { get; }
+
+    /// <summary><see cref="Metrics"/> measured on <see cref="Curve"/> rather than on the exact spans.</summary>
+    public RouteMetrics CurveMetrics { get; }
 }

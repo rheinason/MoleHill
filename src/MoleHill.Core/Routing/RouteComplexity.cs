@@ -61,6 +61,73 @@ public readonly record struct RouteComplexity(double Plan, double Profile)
         return new RouteComplexity(curvatureChange * referenceRadius, gradeChange / maxGrade);
     }
 
+    /// <summary>
+    /// Scores a smooth curve from points sampled densely along it (a fitted route, a relaxed sketch): plan
+    /// curvature from the circle through each sample and its neighbours, grade from each step. A sample
+    /// deflecting more than <see cref="RouteCurveFitter.KinkAngleDegrees"/> is a corner and counts 2, as a
+    /// sharp corner does between spans; the curvature either side of it is taken as it comes.
+    /// </summary>
+    public static RouteComplexity MeasureSampled(IReadOnlyList<double> pointsXyz, double referenceRadius, double maxGrade)
+    {
+        int count = pointsXyz.Count / 3;
+        if (count < 2 || !(referenceRadius > 0.0) || !(maxGrade > 0.0))
+            return default;
+
+        // Distinct plan points only: a repeated sample has no direction.
+        var xs = new List<double>(count);
+        var ys = new List<double>(count);
+        var zs = new List<double>(count);
+        for (int i = 0; i < count; i++)
+        {
+            double x = pointsXyz[i * 3], y = pointsXyz[(i * 3) + 1];
+            if (xs.Count > 0 && Square(x - xs[^1]) + Square(y - ys[^1]) <= 1e-24)
+                continue;
+            xs.Add(x);
+            ys.Add(y);
+            zs.Add(pointsXyz[(i * 3) + 2]);
+        }
+
+        if (xs.Count < 2)
+            return default;
+
+        double kinkCosine = Math.Cos(RouteCurveFitter.KinkAngleDegrees * Math.PI / 180.0);
+        double curvatureChange = 0.0;
+        double previousCurvature = 0.0;
+        for (int i = 1; i < xs.Count - 1; i++)
+        {
+            (double ax, double ay) = (xs[i] - xs[i - 1], ys[i] - ys[i - 1]);
+            (double bx, double by) = (xs[i + 1] - xs[i], ys[i + 1] - ys[i]);
+            double la = Math.Sqrt((ax * ax) + (ay * ay)), lb = Math.Sqrt((bx * bx) + (by * by));
+            double cosine = ((ax * bx) + (ay * by)) / (la * lb);
+            if (cosine < kinkCosine)
+            {
+                curvatureChange += 2.0 / referenceRadius;
+                continue;
+            }
+
+            double sine = ((ax * by) - (ay * bx)) / (la * lb);
+            double chord = Math.Sqrt(Square(xs[i + 1] - xs[i - 1]) + Square(ys[i + 1] - ys[i - 1]));
+            double curvature = chord > 0.0 ? 2.0 * sine / chord : 0.0;
+            curvatureChange += Math.Abs(curvature - previousCurvature);
+            previousCurvature = curvature;
+        }
+
+        curvatureChange += Math.Abs(previousCurvature);
+
+        double gradeChange = 0.0;
+        double? previousGrade = null;
+        for (int i = 1; i < xs.Count; i++)
+        {
+            double run = Math.Sqrt(Square(xs[i] - xs[i - 1]) + Square(ys[i] - ys[i - 1]));
+            double grade = (zs[i] - zs[i - 1]) / run;
+            if (previousGrade is double last)
+                gradeChange += Math.Abs(grade - last);
+            previousGrade = grade;
+        }
+
+        return new RouteComplexity(curvatureChange * referenceRadius, gradeChange / maxGrade);
+    }
+
     /// <summary>Signed plan curvature of a span (0 for a straight; positive turning left) and its plan length.</summary>
     private static double Curvature(RouteSpan span, out double planLength)
     {

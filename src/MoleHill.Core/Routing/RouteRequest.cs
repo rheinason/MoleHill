@@ -40,6 +40,16 @@ public sealed class RouteRequest
     public double ProfileTolerance { get; init; }
 
     /// <summary>
+    /// How far, in plan, the editable curve (<see cref="RouteAlternative.Curve"/>) may stray from the exact
+    /// route so that it needs fewer control points; model units. 0 picks one from the corridor width. Widened
+    /// by <see cref="Simplicity"/> like the profile tolerance.
+    /// </summary>
+    public double CurveTolerance { get; init; }
+
+    /// <summary>The plan tolerance the curve is fitted to: <see cref="CurveTolerance"/>, or 5% of the corridor width.</summary>
+    internal double EffectiveCurveTolerance => (CurveTolerance > 0.0 ? CurveTolerance : 0.05 * CorridorWidth) * SimplicityScale;
+
+    /// <summary>
     /// How much plainer a route may be at the price of earthwork; 0 (the default) is the route that follows
     /// the ground as closely as the other weights allow. At s, the turning radius the search prices turns
     /// at, the radius bends are rounded towards (never under <see cref="MinimumRadius"/>) and the profile's
