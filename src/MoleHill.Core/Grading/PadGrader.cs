@@ -29,7 +29,8 @@ public static partial class PadGrader
         if (result != null)
         {
             var envelopeViolations = GradingEnvelope.FindForPads(request.Terrain, request.Pads, result.Vertices, result.VertexCount, request.ModelTolerance);
-            result = GradingEnvelope.Clamp(result, envelopeViolations, "grade_pad", "Grade Pad");
+            result = GradingEnvelope.Clamp(result, envelopeViolations, "grade_pad", "Grade Pad")
+                .MeasuredAgainst(request.Terrain, request.ModelTolerance);
         }
 
         return new GradeOutcome

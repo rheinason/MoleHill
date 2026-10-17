@@ -69,7 +69,7 @@ public static partial class PathGrader
         GradingResult? result = GradeCore(
             vertices, vertexCount, faces, faceCount, request.Paths, request.HardConstraints,
             out string? errorMessage, request.ModelTolerance, request.PreferSplitKeep, performanceTimings);
-        return new GradeOutcome { Result = result, ErrorMessage = errorMessage };
+        return new GradeOutcome { Result = result?.MeasuredAgainst(request.Terrain, request.ModelTolerance), ErrorMessage = errorMessage };
     }
 
     private static GradingResult? GradeCore(

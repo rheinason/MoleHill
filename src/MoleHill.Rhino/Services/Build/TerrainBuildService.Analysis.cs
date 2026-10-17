@@ -1,6 +1,7 @@
 ﻿using System.Diagnostics;
 using MoleHill.Core.Analysis;
 using MoleHill.Core.Engine;
+using MoleHill.Core.Grading;
 using MoleHill.Rhino.Model;
 using MoleHill.Rhino.Registry;
 using MoleHill.Shared;
@@ -826,11 +827,11 @@ internal sealed partial class TerrainBuildService
 
         build.RecordTiming("Reference Comparison Volumes", volumeTimer.Elapsed, $"{currentFaces.Length / 3:N0} faces", StageTimingDiagnosticThresholdMs);
         referenceComparisonCache[cacheKey] = stats;
-        if (stats.FallbackProjectionCount > 0)
+        if (stats.OverhangFaceCount > 0)
         {
             build.Diagnostics.Add(
-                $"Reference comparison projection used Rhino fallback for {stats.FallbackProjectionCount:N0} samples " +
-                $"after {stats.GridProjectionCount:N0} 2.5D grid hits.");
+                $"Reference comparison: {stats.OverhangFaceCount:N0} face(s) lie over overlapping reference triangles " +
+                "(an overhang) and were measured against the nearest reference sheet.");
         }
 
         return stats;
@@ -875,13 +876,18 @@ internal sealed partial class TerrainBuildService
     private static ReferenceProjectionContext CreateReferenceProjectionContext(RhinoMesh baseMesh)
     {
         MeshHeightProjector? projector = null;
+        ReferenceSurface? surface = null;
         if (RhinoGeometryConversions.TryExtractMeshData(baseMesh, out var baseVertices, out _, out var baseFaces, out _, out _))
+        {
             projector = new MeshHeightProjector(baseVertices, baseVertices.Length / 3, baseFaces, baseFaces.Length / 3);
+            surface = new ReferenceSurface(baseVertices, baseVertices.Length / 3, baseFaces, baseFaces.Length / 3);
+        }
 
         return new ReferenceProjectionContext
         {
             Mesh = baseMesh,
-            Projector = projector
+            Projector = projector,
+            Surface = surface
         };
     }
 
@@ -926,8 +932,13 @@ internal sealed partial class TerrainBuildService
         return SlopeAnalyzer.ConvertUnitToRatio(slopeValue, unit) * 100.0;
     }
 
-    private const int ReferenceComparisonChunk = 16384;
-
+    /// <summary>
+    /// Cut and fill of the current mesh against the reference, exact: the two triangulations are overlaid in
+    /// plan and the height difference integrated piece by piece (<see cref="SurfaceDifferenceVolume"/>).
+    /// This used to read the reference once per face, at its centroid, which is exact only where the
+    /// reference is flat across the face; over a coarse terrain a large graded face read hundreds of cubic
+    /// metres off. A clipping boundary still selects whole faces by their centroid, as the colour map does.
+    /// </summary>
     private static ReferenceComparisonStats EstimateReferenceComparison(
         ReferenceProjectionContext projection,
         double[] currentVertices,
@@ -938,158 +949,41 @@ internal sealed partial class TerrainBuildService
         bool isEstimated,
         Func<bool>? shouldCancel)
     {
-        // Without a clipping boundary every face is one grid lookup, so the faces go in parallel, in fixed
-        // chunks summed in chunk order (the result does not depend on scheduling). Faces the grid cannot
-        // answer (a wall, a fold) are collected and projected through Rhino afterwards, one at a time. A
-        // boundary's containment test is a Rhino curve call, so that case stays on this thread.
-        if (boundaries.Count == 0 && projection.Projector != null)
-            return EstimateReferenceComparisonParallel(projection, currentVertices, currentFaces, faceCount, tolerance, isEstimated, shouldCancel);
+        if (projection.Surface == null)
+            return new ReferenceComparisonStats(0.0, 0.0, 0.0, isEstimated, 0);
 
-        int gridProjectionCountBefore = projection.GridProjectionCount;
-        int fallbackProjectionCountBefore = projection.FallbackProjectionCount;
-        double cutVolume = 0.0;
-        double fillVolume = 0.0;
-        double cutFillAbsMax = 0.0;
-
-        for (int faceIndex = 0; faceIndex < faceCount; faceIndex++)
+        bool[]? include = null;
+        if (boundaries.Count > 0)
         {
-            if ((faceIndex & 127) == 0)
-                ThrowIfCancellationRequested(shouldCancel);
+            // Boundary containment is a Rhino curve call, so the selection is made here, on this thread.
+            include = new bool[faceCount];
+            for (int face = 0; face < faceCount; face++)
+            {
+                if ((face & 127) == 0)
+                    ThrowIfCancellationRequested(shouldCancel);
+                int a = currentFaces[face * 3], b = currentFaces[face * 3 + 1], c = currentFaces[face * 3 + 2];
+                var centroid = new Point3d(
+                    (currentVertices[a * 3] + currentVertices[b * 3] + currentVertices[c * 3]) / 3.0,
+                    (currentVertices[a * 3 + 1] + currentVertices[b * 3 + 1] + currentVertices[c * 3 + 1]) / 3.0,
+                    (currentVertices[a * 3 + 2] + currentVertices[b * 3 + 2] + currentVertices[c * 3 + 2]) / 3.0);
+                include[face] = TerrainAnalysisPreviewBuilder.IsInsideBoundaries(centroid, boundaries, tolerance);
+            }
+        }
 
-            int a = currentFaces[faceIndex * 3];
-            int b = currentFaces[faceIndex * 3 + 1];
-            int c = currentFaces[faceIndex * 3 + 2];
-
-            var pa = new Point3d(currentVertices[a * 3], currentVertices[a * 3 + 1], currentVertices[a * 3 + 2]);
-            var pb = new Point3d(currentVertices[b * 3], currentVertices[b * 3 + 1], currentVertices[b * 3 + 2]);
-            var pc = new Point3d(currentVertices[c * 3], currentVertices[c * 3 + 1], currentVertices[c * 3 + 2]);
-
-            var centroid = new Point3d(
-                (pa.X + pb.X + pc.X) / 3.0,
-                (pa.Y + pb.Y + pc.Y) / 3.0,
-                (pa.Z + pb.Z + pc.Z) / 3.0);
-
-            if (!TerrainAnalysisPreviewBuilder.IsInsideBoundaries(centroid, boundaries, tolerance))
-                continue;
-
-            if (!TryProjectReferencePoint(projection, centroid, tolerance, out Point3d basePoint))
-                continue;
-
-            double deltaZ = centroid.Z - basePoint.Z;
-            cutFillAbsMax = Math.Max(cutFillAbsMax, Math.Abs(deltaZ));
-
-            double projectedArea = Math.Abs(
-                (pb.X - pa.X) * (pc.Y - pa.Y) -
-                (pb.Y - pa.Y) * (pc.X - pa.X)) * 0.5;
-
-            double volume = projectedArea * deltaZ;
-            if (volume >= 0)
-                fillVolume += volume;
-            else
-                cutVolume += -volume;
+        SurfaceDifference difference;
+        try
+        {
+            difference = SurfaceDifferenceVolume.Measure(
+                currentVertices, currentFaces, faceCount, projection.Surface, tolerance, include, shouldCancel: shouldCancel);
+        }
+        catch (OperationCanceledException)
+        {
+            ThrowIfCancellationRequested(() => true);
+            throw;
         }
 
         return new ReferenceComparisonStats(
-            cutVolume,
-            fillVolume,
-            cutFillAbsMax,
-            isEstimated,
-            projection.GridProjectionCount - gridProjectionCountBefore,
-            projection.FallbackProjectionCount - fallbackProjectionCountBefore);
-    }
-
-    private static ReferenceComparisonStats EstimateReferenceComparisonParallel(
-        ReferenceProjectionContext projection,
-        double[] v,
-        int[] f,
-        int faceCount,
-        double tolerance,
-        bool isEstimated,
-        Func<bool>? shouldCancel)
-    {
-        MeshHeightProjector projector = projection.Projector!;
-        int chunks = (faceCount + ReferenceComparisonChunk - 1) / ReferenceComparisonChunk;
-        var partial = new (double Cut, double Fill, double AbsMax, int Grid)[chunks];
-        var deferred = new List<int>?[chunks];
-        bool cancelled = false;
-        Parallel.For(0, chunks, (chunk, state) =>
-        {
-            // A cancellation thrown inside the loop would surface wrapped in an AggregateException.
-            if (shouldCancel?.Invoke() == true)
-            {
-                cancelled = true;
-                state.Stop();
-                return;
-            }
-
-            double cut = 0.0, fill = 0.0, absMax = 0.0;
-            int grid = 0;
-            int end = Math.Min(faceCount, (chunk + 1) * ReferenceComparisonChunk);
-            for (int face = chunk * ReferenceComparisonChunk; face < end; face++)
-            {
-                int a = f[face * 3], b = f[face * 3 + 1], c = f[face * 3 + 2];
-                double cx = (v[a * 3] + v[b * 3] + v[c * 3]) / 3.0;
-                double cy = (v[a * 3 + 1] + v[b * 3 + 1] + v[c * 3 + 1]) / 3.0;
-                double cz = (v[a * 3 + 2] + v[b * 3 + 2] + v[c * 3 + 2]) / 3.0;
-                if (!projector.TryProjectZ(cx, cy, cz, tolerance, out double baseZ, out MeshHeightProjector.ProjectionStatus status))
-                {
-                    if (status == MeshHeightProjector.ProjectionStatus.RequiresFallback)
-                        (deferred[chunk] ??= new List<int>()).Add(face);
-                    continue;
-                }
-
-                grid++;
-                AccumulateCutFill(v, a, b, c, cz - baseZ, ref cut, ref fill, ref absMax);
-            }
-
-            partial[chunk] = (cut, fill, absMax, grid);
-        });
-        if (cancelled)
-            ThrowIfCancellationRequested(() => true);
-
-        double cutVolume = 0.0, fillVolume = 0.0, cutFillAbsMax = 0.0;
-        int gridCount = 0, fallbackCount = 0;
-        for (int chunk = 0; chunk < chunks; chunk++)
-        {
-            cutVolume += partial[chunk].Cut;
-            fillVolume += partial[chunk].Fill;
-            cutFillAbsMax = Math.Max(cutFillAbsMax, partial[chunk].AbsMax);
-            gridCount += partial[chunk].Grid;
-            if (deferred[chunk] is not { } faces)
-                continue;
-
-            foreach (int face in faces)
-            {
-                ThrowIfCancellationRequested(shouldCancel);
-                int a = f[face * 3], b = f[face * 3 + 1], c = f[face * 3 + 2];
-                var centroid = new Point3d(
-                    (v[a * 3] + v[b * 3] + v[c * 3]) / 3.0,
-                    (v[a * 3 + 1] + v[b * 3 + 1] + v[c * 3 + 1]) / 3.0,
-                    (v[a * 3 + 2] + v[b * 3 + 2] + v[c * 3 + 2]) / 3.0);
-                fallbackCount++;
-                if (!projection.TryFallbackProject(centroid, tolerance, out Point3d basePoint))
-                    continue;
-
-                AccumulateCutFill(v, a, b, c, centroid.Z - basePoint.Z, ref cutVolume, ref fillVolume, ref cutFillAbsMax);
-            }
-        }
-
-        projection.GridProjectionCount += gridCount;
-        projection.FallbackProjectionCount += fallbackCount;
-        return new ReferenceComparisonStats(cutVolume, fillVolume, cutFillAbsMax, isEstimated, gridCount, fallbackCount);
-    }
-
-    private static void AccumulateCutFill(double[] v, int a, int b, int c, double deltaZ, ref double cut, ref double fill, ref double absMax)
-    {
-        absMax = Math.Max(absMax, Math.Abs(deltaZ));
-        double projectedArea = Math.Abs(
-            (v[b * 3] - v[a * 3]) * (v[c * 3 + 1] - v[a * 3 + 1]) -
-            (v[b * 3 + 1] - v[a * 3 + 1]) * (v[c * 3] - v[a * 3])) * 0.5;
-        double volume = projectedArea * deltaZ;
-        if (volume >= 0)
-            fill += volume;
-        else
-            cut += -volume;
+            difference.Cut, difference.Fill, difference.AbsMax, isEstimated, difference.FoldFaceCount);
     }
 
     private static bool TryProjectReferencePoint(
@@ -1109,7 +1003,6 @@ internal sealed partial class TerrainBuildService
                 out double z,
                 out status))
             {
-                projection.GridProjectionCount++;
                 projectedPoint = new Point3d(point.X, point.Y, z);
                 return true;
             }
@@ -1117,7 +1010,6 @@ internal sealed partial class TerrainBuildService
 
         if (projection.Projector == null || status == MeshHeightProjector.ProjectionStatus.RequiresFallback)
         {
-            projection.FallbackProjectionCount++;
             return projection.TryFallbackProject(point, tolerance, out projectedPoint);
         }
 

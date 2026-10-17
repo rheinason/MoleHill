@@ -179,6 +179,13 @@ internal sealed partial class TerrainController
     private static Mesh? FindIncomingModifierMesh(
         TerrainRuntimeCache runtimeCache,
         TerrainDefinition terrain,
+        int modifierIndex) =>
+        FindIncomingModifierStage(runtimeCache, terrain, modifierIndex)?.MeshOutput ?? runtimeCache.DisplayState?.BaseTerrainMesh;
+
+    /// <summary>The cached stage whose output the modifier at <paramref name="modifierIndex"/> received, or null when it took the base terrain.</summary>
+    private static StageCacheEntry? FindIncomingModifierStage(
+        TerrainRuntimeCache runtimeCache,
+        TerrainDefinition terrain,
         int modifierIndex)
     {
         TerrainBuildMode preferredMode = runtimeCache.DisplayState?.IsPreview == true
@@ -194,10 +201,10 @@ internal sealed partial class TerrainController
 
                 string stageKey = TerrainStageKey.ForMode(mode, TerrainStageKey.CreateModifier(previous));
                 if (runtimeCache.StageEntries.TryGetValue(stageKey, out StageCacheEntry? entry) && entry.MeshOutput != null)
-                    return entry.MeshOutput;
+                    return entry;
             }
         }
 
-        return runtimeCache.DisplayState?.BaseTerrainMesh;
+        return null;
     }
 }

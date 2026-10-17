@@ -135,12 +135,17 @@ TriangleNet (vendored)  ←  MoleHill.Core  ←  MoleHill.Grasshopper (GH host)
   the others. `mhDrapeCurveSection` (the button's right-click) drapes a picked stretch and joins it back
   between the untouched ends, ramping in over `Transition` so it ties into the curve. `Loose=Yes` moves only
   the curve's existing edit points (`CurveDrape.DrapeEditPoints`), keeping its type and point count.
-- **`mhBalancePad` writes the balance into the curve.** It balances one closed boundary with
-  `PadElevationBalancer` (range from `TrySuggestRange`, tolerance = pad area x 1 mm) and translates the
-  curve in Z. When the curve is a boundary of a Grade Pad card on the active terrain, the card's slopes and
-  reach are used and the ground is the mesh that card received (`TerrainController.DuplicateIncomingModifierMesh`),
-  not the final terrain, which already carries the pad; otherwise the slopes are options. Auto-balance as
-  a modifier stays declined: the drawn boundary still says what the pad does.
+- **`mhBalancePad` writes the balance into the curves.** It balances one or more closed boundaries with
+  `PadSetBalancer` (`Mode=Together` moves them by one amount until the set balances, `Mode=Each` balances
+  every pad on its own; range from `TrySuggestRange`, tolerance = pad area x 1 mm) and translates each
+  curve in Z. When the curves are boundaries of one Grade Pad card on the active terrain, the search grades
+  exactly as that card builds: its slopes and reach, the mesh it received
+  (`TerrainController.DuplicateIncomingModifierMesh`, not the final terrain, which already carries the pads),
+  the breaklines it received as lock barriers and hard constraints (`CopyIncomingModifierBreaklines`, unless
+  it grades through them), its tolerance and detail size, `GradeWindowed`, and the card's other pads held in
+  place. A balance measured on any other grade misses once built (found: 504 m3 with a contour crossing a
+  pad). Curves split between cards are refused. Otherwise the slopes are options. Auto-balance as a modifier
+  stays declined: the drawn boundary still says what the pad does.
 - **The long section is drawn geometry with its frame attached (prototype).** `mhExtractProfile` draws a
   plan curve's elevations (design line), the active terrain under it (ground line), a datum and station
   ticks at a chosen vertical exaggeration, grouped; the design line carries `MoleHill.Profile.*` user
@@ -725,6 +730,13 @@ constraints: their input Z values are placeholders and a successful grading tier
 them. The host persists the actual graded pad boundaries returned in `OutputPolylines` as hard
 constraints. This keeps downstream Remesh/Simplify metadata coherent with the mesh that Grade Pad built.
 
+**Every cut/fill volume is exact (`Core/Grading/SurfaceDifferenceVolume`).** The graded or current mesh is
+overlaid in plan on the reference (`ReferenceSurface`) and the linear height difference integrated on each
+clipped piece, so a volume depends on the two surfaces only, never on either triangulation. The graders'
+`GradingResult` volumes (lazily, on first read), Earthworks, Cut / Fill, zone earthworks and the balance
+searches all use it. The per-face sampling it replaced read the reference at a face's corners (graders) or
+centroid (Earthworks); on a coarse terrain a pad read 9-16% off, and moved whenever a diagonal flipped.
+
 For exploratory cut/fill balancing, `Core/Grading/BracketedVolumeSearch` measures both user-provided
 elevation bounds and bisects only when they bracket the target net volume. It keeps every cut/fill/net
 sample and the nearest result, detects non-monotone measurements and grading tier fallbacks, and has a
@@ -980,7 +992,8 @@ test above, because both are easy to reintroduce badly:
   `mhSetSunNorth` writes, so the aspect map and the sun agree. It lives outside the definition, which
   means the serialized definition fingerprint cannot see it: `ComputeAnalysisFingerprint` adds it
   explicitly for an aspect analysis, or rotating north would leave cached bearings on screen.
-- **Cut / Fill owns the delta; Earthworks owns the volumes.** Both derive from
+- **Cut / Fill owns the delta; Earthworks owns the volumes.** The volumes are exact (see "Every cut/fill
+  volume is exact"); a clipping boundary still selects whole faces by centroid, like the colour map. Both derive from
   `ReferenceComparisonAnalysisDefinition` and share one cached `ReferenceProjectionContext`
   (`ResolveReferenceProjection`), so a card cannot colour against one reference and draw against another.
   The colour map is per face, at the centroid; the **drawn** output contours a per-**vertex** field,

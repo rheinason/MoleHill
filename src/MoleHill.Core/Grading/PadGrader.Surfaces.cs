@@ -123,6 +123,10 @@ public static partial class PadGrader
                     continue;
                 }
 
+                TryResolveCornerFanSection(
+                    prepared, closest, px, py,
+                    ref boundaryX, ref boundaryY, ref boundaryZ, ref shoulderX, ref shoulderY, ref shoulderZ);
+
                 if (barriers.Segments.Length > 0 &&
                     GradingBarriers.IsCrossedByBarrier(
                         barriers,
@@ -411,6 +415,108 @@ public static partial class PadGrader
         shoulderY = LerpValue(prepared.ShoulderXy[(segmentIndex * 2) + 1], prepared.ShoulderXy[(next * 2) + 1], closest.SegmentT);
         shoulderZ = LerpValue(prepared.ShoulderZ[segmentIndex], prepared.ShoulderZ[next], closest.SegmentT);
         return double.IsFinite(shoulderZ);
+    }
+
+    /// <summary>
+    /// Replaces the section for a point whose nearest boundary location is a fanned corner with the section
+    /// along the point's own direction from that corner. A convex corner appears in the loop once per fan
+    /// ray (each copy with that ray's shoulder), joined by zero-length segments the closest-location search
+    /// skips, so a point in the corner sector reached the corner only through one of the two real edges, at
+    /// exactly the same distance either way, and floating-point noise chose between the incoming edge's
+    /// shoulder and the outgoing one's. Their reaches can differ several-fold. A batter point 28 m out
+    /// was graded when the 42 m shoulder won and left at the original ground when the 14 m one did. That
+    /// flipped as the pad moved by 3 cm, leaving a 3.7 m lump in the cut and moving its volume by hundreds
+    /// of cubic metres. The fan rays are evenly spaced in angle (see <c>TryBuildExpandedOffsetPolygon</c>),
+    /// so the point's section is interpolated between the two rays either side of it.
+    /// </summary>
+    private static void TryResolveCornerFanSection(
+        PreparedPadSections prepared,
+        ClosestLoopLocation closest,
+        double px,
+        double py,
+        ref double boundaryX,
+        ref double boundaryY,
+        ref double boundaryZ,
+        ref double shoulderX,
+        ref double shoulderY,
+        ref double shoulderZ)
+    {
+        int count = prepared.BoundaryVertexCount;
+        if (count < 2)
+            return;
+
+        int vertex;
+        if (closest.SegmentT <= 0.0)
+            vertex = closest.SegmentIndex;
+        else if (closest.SegmentT >= 1.0)
+            vertex = (closest.SegmentIndex + 1) % count;
+        else
+            return;
+
+        double[] loop = prepared.BoundaryLoopXy;
+        double cx = loop[vertex * 2], cy = loop[vertex * 2 + 1];
+        bool SameCorner(int index) =>
+            Math.Abs(loop[index * 2] - cx) <= 1e-12 * Math.Max(1.0, Math.Abs(cx)) &&
+            Math.Abs(loop[index * 2 + 1] - cy) <= 1e-12 * Math.Max(1.0, Math.Abs(cy));
+
+        // The fan is the run of consecutive copies of this corner, in loop (and so in sweep) order.
+        int first = vertex;
+        int steps = 0;
+        while (steps < count - 1 && SameCorner((first - 1 + count) % count))
+        {
+            first = (first - 1 + count) % count;
+            steps++;
+        }
+
+        int members = 1;
+        while (members < count && SameCorner((first + members) % count))
+            members++;
+        if (members < 2 || members >= count)
+            return;
+
+        int last = (first + members - 1) % count;
+        double firstReach = Distance(prepared.ShoulderXy[first * 2] - cx, prepared.ShoulderXy[first * 2 + 1] - cy);
+        double lastReach = Distance(prepared.ShoulderXy[last * 2] - cx, prepared.ShoulderXy[last * 2 + 1] - cy);
+        double pointDistance = Distance(px - cx, py - cy);
+        if (firstReach <= 1e-12 || lastReach <= 1e-12 || pointDistance <= 1e-12)
+            return;
+
+        double firstAngle = Math.Atan2(prepared.ShoulderXy[first * 2 + 1] - cy, prepared.ShoulderXy[first * 2] - cx);
+        double sweep = WrapAngle(Math.Atan2(prepared.ShoulderXy[last * 2 + 1] - cy, prepared.ShoulderXy[last * 2] - cx) - firstAngle);
+        if (Math.Abs(sweep) <= 1e-12)
+            return;
+
+        // Position of the point across the fan, 0 at the first ray and 1 at the last.
+        double across = Math.Clamp(WrapAngle(Math.Atan2(py - cy, px - cx) - firstAngle) / sweep, 0.0, 1.0);
+        double slot = across * (members - 1);
+        int lower = Math.Min((int)Math.Floor(slot), members - 2);
+        double t = slot - lower;
+        int a = (first + lower) % count;
+        int b = (first + lower + 1) % count;
+        double reachA = Distance(prepared.ShoulderXy[a * 2] - cx, prepared.ShoulderXy[a * 2 + 1] - cy);
+        double reachB = Distance(prepared.ShoulderXy[b * 2] - cx, prepared.ShoulderXy[b * 2 + 1] - cy);
+        double reach = LerpValue(reachA, reachB, t);
+        double z = LerpValue(prepared.ShoulderZ[a], prepared.ShoulderZ[b], t);
+        if (!(reach > 1e-12) || !double.IsFinite(z))
+            return;
+
+        boundaryX = cx;
+        boundaryY = cy;
+        boundaryZ = prepared.Pad.EvaluateZ(cx, cy);
+        shoulderX = cx + ((px - cx) / pointDistance * reach);
+        shoulderY = cy + ((py - cy) / pointDistance * reach);
+        shoulderZ = z;
+    }
+
+    private static double Distance(double dx, double dy) => Math.Sqrt((dx * dx) + (dy * dy));
+
+    private static double WrapAngle(double angle)
+    {
+        while (angle > Math.PI)
+            angle -= 2.0 * Math.PI;
+        while (angle <= -Math.PI)
+            angle += 2.0 * Math.PI;
+        return angle;
     }
 
     private static void ResolvePadShoulderEndpoint(

@@ -89,8 +89,8 @@ public sealed class ReferenceComparisonCacheTests
         Assert.Equal(1.5, high.FillVolume, 8);
         Assert.Equal(2, statisticsCache.Count);
         Assert.Single(projectionCache);
-        Assert.Equal(1, low.GridProjectionCount);
-        Assert.Equal(1, high.GridProjectionCount);
+        Assert.Equal(0, low.OverhangFaceCount);
+        Assert.Equal(0, high.OverhangFaceCount);
 
         TerrainBuildService.ReferenceComparisonStats Calculate(Mesh currentMesh)
         {

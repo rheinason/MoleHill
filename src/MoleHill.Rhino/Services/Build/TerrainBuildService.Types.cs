@@ -29,8 +29,7 @@ internal sealed partial class TerrainBuildService
         double FillVolume,
         double CutFillDisplayAbsMax,
         bool IsEstimated,
-        int GridProjectionCount,
-        int FallbackProjectionCount)
+        int OverhangFaceCount)
     {
         public double NetVolume => CutVolume - FillVolume;
     }
@@ -54,9 +53,8 @@ internal sealed partial class TerrainBuildService
 
         public MeshHeightProjector? Projector { get; init; }
 
-        public int GridProjectionCount { get; set; }
-
-        public int FallbackProjectionCount { get; set; }
+        /// <summary>The reference prepared for exact volume (<see cref="SurfaceDifferenceVolume"/>).</summary>
+        public ReferenceSurface? Surface { get; init; }
 
         private global::Rhino.Geometry.BoundingBox? _bounds;
 

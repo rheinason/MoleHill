@@ -112,7 +112,7 @@ public static class SurfaceStripGrader
             surfaces,
             barrierConstraints,
             out errorMessage,
-            profile: null);
+            profile: null)?.MeasuredAgainst(terrain, GradingTolerances.DefaultModelTolerance);
     }
 
     public static GradingResult? Grade(
@@ -132,7 +132,7 @@ public static class SurfaceStripGrader
             surfaces,
             barrierConstraints,
             out errorMessage,
-            profile);
+            profile)?.MeasuredAgainst(terrain, GradingTolerances.DefaultModelTolerance);
     }
 
     private static GradingResult? GradeCore(

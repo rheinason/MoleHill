@@ -19,7 +19,29 @@ an unbracketed target returns the nearer end, and bisection records every sample
 `PadGrader.Grade`, returning the actual best graded mesh and adjusted input boundary. GH integration
 and the first example graph remain B7 work. `PadElevationBalancer.TrySuggestRange` brackets the search
 from the terrain under the footprint (all cut at the bottom, all fill at the top, widened for the
-batters), so Rhino's `mhBalancePad` needs no bounds from the user.
+batters), so Rhino's `mhBalancePad` needs no bounds from the user. `PadSetBalancer` balances several
+pads at once (`Together`: one shared offset; `Each`: every pad to its own net, sweeping until all hold),
+grading them together through `GradeWindowed`, the entry point the Grade Pad card builds with, and giving
+each graded face's volume to the nearest pad footprint.
+
+**Every volume is exact: `SurfaceDifferenceVolume`.** It overlays the graded mesh on the original
+(`ReferenceSurface`, a CSR plan grid of the original's triangles) and integrates the linear height difference
+on each clipped piece, cutting a sign change exactly, so the figure depends on the two surfaces and never on
+how either is triangulated. A face copied unchanged is skipped; overlapping reference triangles (an overhang)
+fall back to sampling against the nearest sheet. `GradingResult.CutVolume`/`FillVolume` are exact against the
+terrain the public entry points were given (`MeasuredAgainst`, measured lazily on first read, so the Rhino
+build, which never reads them, pays nothing), and Rhino's Earthworks, Cut / Fill and zone volumes use the
+same routine. The per-face rules it replaced (corner average in the graders, centroid in Earthworks) were
+exact only where the original was flat across a face; on a coarse contour terrain a pad's figures were 9-16%
+off and jumped whenever a pad-top diagonal flipped.
+
+**Corner sections follow the fan.** `ApplyGradingToVerticesWithSections` grades a point in a pad's corner
+sector along its own direction from the corner, interpolated across the corner fan
+(`TryResolveCornerFanSection`). The fan's copies of the corner are joined by zero-length segments the
+closest-location search skips, so such a point used to reach the corner through one of the two real edges,
+tied in distance, and noise chose the incoming edge's shoulder or the outgoing one's. A point past the shorter
+reach was then left at the original ground, a lump inside the cut that came and went as the pad moved by
+centimetres (`PadGraderCornerFanTests`).
 
 `GradingWindows` + `PadGrader.Windowed.cs` / `PathGrader.Windowed.cs` (`GradeWindowed`) grade each group
 of pads or paths on the faces within their reach (a pad's filled outline, a path's centreline, grown by how

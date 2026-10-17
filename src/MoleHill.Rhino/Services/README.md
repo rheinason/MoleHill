@@ -433,10 +433,12 @@ layer table, dimension styles, and layouts can act on. See `docs/architecture.md
   source with its first piece. The service is excluded from the test project (it reaches `TerrainController`).
   `Loose=Yes` goes through `TerrainInputCommandAlgorithms.DrapeCurveLoose` instead: only a polyline's vertices or
   a curve's Greville points move, and the curve keeps its type.
-- `Commands/BalancePadCommandService.cs` - `mhBalancePad`: finds the Grade Pad card that owns the curve
-  (by id or layer, `OfType`, since the command is pad-specific), balances against that card's incoming
-  mesh with the card's slopes, or against the final terrain with `CutSlope`/`FillSlope` options, and
-  translates the curve to the balancing elevation.
+- `Commands/BalancePadCommandService.cs` - `mhBalancePad`: balances one or more boundaries (`Mode=Together`
+  or `Each`) through Core's `PadSetBalancer`. Finds the one Grade Pad card that owns every curve (by id or
+  layer, `OfType`, since the command is pad-specific) and grades exactly as it builds: incoming mesh,
+  incoming breaklines as locks and hard constraints, its tolerance profile, its other pads held. Without a
+  card it balances against the final terrain with `CutSlope`/`FillSlope` options. Esc stops it; each curve
+  is translated to its balancing elevation in one undo record.
 - `Commands/LongSectionCommandService.cs` - `mhExtractProfile` / `mhApplyProfile` (prototype): the drawing,
   its `MoleHill.Profile.*` frame user strings and the mapping back, through Core's `LongSectionProfile`. Enter
   at placement redraws an existing drawing in place (its group is deleted); `Ground` reads the active terrain

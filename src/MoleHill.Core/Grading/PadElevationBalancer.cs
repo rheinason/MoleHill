@@ -28,6 +28,7 @@ public static class PadElevationBalancer
         GradingResult? bestGrading = null;
         double bestError = double.PositiveInfinity;
         double originalElevation = pad.BoundaryVertices[2];
+        var reference = new ReferenceSurface(terrain);
 
         VolumeSearchSample? Evaluate(double elevation)
         {
@@ -43,7 +44,10 @@ public static class PadElevationBalancer
             GradingResult? result = gradeOutcome.Result;
             if (result == null)
                 return null;
-            double errorMagnitude = Math.Abs(result.NetVolume - targetNet);
+            SurfaceDifference volume = SurfaceDifferenceVolume.Measure(
+                result.Vertices, result.Faces, result.FaceCount, reference, modelTolerance);
+            double cut = volume.Cut, fill = volume.Fill;
+            double errorMagnitude = Math.Abs(cut - fill - targetNet);
             if (errorMagnitude < bestError)
             {
                 bestError = errorMagnitude;
@@ -52,7 +56,7 @@ public static class PadElevationBalancer
             bool fallback = result.StructuredDiagnostics.Any(diagnostic =>
                 diagnostic.Code.EndsWith(".fallback", StringComparison.OrdinalIgnoreCase));
             return new VolumeSearchSample(
-                elevation, result.CutVolume, result.FillVolume, fallback,
+                elevation, cut, fill, fallback,
                 fallback ? error ?? "Grade Pad used a fallback tier." : error);
         }
 
@@ -139,7 +143,7 @@ public static class PadElevationBalancer
         return true;
     }
 
-    private static PadGrader.PadBoundary Translate(PadGrader.PadBoundary pad, double elevationDelta)
+    internal static PadGrader.PadBoundary Translate(PadGrader.PadBoundary pad, double elevationDelta)
     {
         double[] vertices = (double[])pad.BoundaryVertices.Clone();
         for (int index = 0; index < pad.VertexCount; index++)

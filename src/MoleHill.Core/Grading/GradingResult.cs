@@ -76,11 +76,20 @@ public sealed class GradingResult
     /// <summary>Number of faces.</summary>
     public int FaceCount { get; }
 
-    /// <summary>Total excavation volume (positive).</summary>
-    public double CutVolume { get; }
+    /// <summary>
+    /// Total excavation volume (positive). Exact against the terrain the public grader entry points were
+    /// given (see <see cref="SurfaceDifferenceVolume"/>), measured the first time it is read.
+    /// </summary>
+    public double CutVolume => _exact?.Value.Cut ?? _cutVolume;
 
-    /// <summary>Total embankment volume (positive).</summary>
-    public double FillVolume { get; }
+    /// <summary>Total embankment volume (positive); measured as <see cref="CutVolume"/> is.</summary>
+    public double FillVolume => _exact?.Value.Fill ?? _fillVolume;
+
+    // A tier's own estimate, which samples the terrain at the face corners. Replaced by the exact figure
+    // once an entry point names the terrain the result replaced.
+    private readonly double _cutVolume;
+    private readonly double _fillVolume;
+    private Lazy<SurfaceDifference>? _exact;
 
     /// <summary>Net volume: Cut - Fill (positive = net cut).</summary>
     public double NetVolume => CutVolume - FillVolume;
@@ -131,8 +140,8 @@ public sealed class GradingResult
         ValidateFaceIndices(Faces, faceCount, vertexCount, nameof(faces));
         ValidateVolume(cutVolume, nameof(cutVolume));
         ValidateVolume(fillVolume, nameof(fillVolume));
-        CutVolume = cutVolume;
-        FillVolume = fillVolume;
+        _cutVolume = cutVolume;
+        _fillVolume = fillVolume;
         DaylightVertices = CopyDoublePrefix(daylightVertices, daylightVertexCount, stride: 3, nameof(daylightVertices));
         DaylightVertexCount = daylightVertexCount;
         ValidateFiniteValues(DaylightVertices, nameof(daylightVertices));
@@ -140,6 +149,19 @@ public sealed class GradingResult
         Diagnostics = diagnostics?.ToArray() ?? structuredDiagnostics?.Select(static diagnostic => diagnostic.Message).ToArray() ?? Array.Empty<string>();
         StructuredDiagnostics = structuredDiagnostics?.ToArray() ?? GradingDiagnostic.FromLegacyMessages(Diagnostics);
         PatchSummaries = patchSummaries?.ToArray() ?? Array.Empty<GradingPatch>();
+    }
+
+    /// <summary>
+    /// Makes <see cref="CutVolume"/>/<see cref="FillVolume"/> the exact difference from
+    /// <paramref name="terrain"/>, measured on first read so a caller that never reads them pays nothing.
+    /// Called by the public grader entry points on the result they return.
+    /// </summary>
+    internal GradingResult MeasuredAgainst(Engine.IndexedTriMesh terrain, double modelTolerance)
+    {
+        _exact = new Lazy<SurfaceDifference>(
+            () => SurfaceDifferenceVolume.Measure(Vertices, Faces, FaceCount, new ReferenceSurface(terrain), modelTolerance),
+            LazyThreadSafetyMode.ExecutionAndPublication);
+        return this;
     }
 
     private static double[] CopyDoublePrefix(double[] values, int itemCount, int stride, string parameterName)

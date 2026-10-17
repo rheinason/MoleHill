@@ -28,7 +28,7 @@ public static partial class PathGrader
             vertices, vertexCount, faces, faceCount, request.Paths, request.HardConstraints,
             request.ModelTolerance, request.PreferSplitKeep, previous, next, notes,
             out string? errorMessage);
-        return new GradeOutcome { Result = result, ErrorMessage = errorMessage };
+        return new GradeOutcome { Result = result?.MeasuredAgainst(request.Terrain, request.ModelTolerance), ErrorMessage = errorMessage };
     }
 
     private static GradingResult? GradeWindowed(

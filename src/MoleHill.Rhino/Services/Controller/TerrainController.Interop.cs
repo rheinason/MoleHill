@@ -1,4 +1,5 @@
 // TerrainController access points for other services: copies or read-only views of the final terrain mesh.
+using MoleHill.Core.Engine;
 using MoleHill.Rhino.Model;
 using Rhino;
 using Rhino.Geometry;
@@ -29,6 +30,25 @@ internal sealed partial class TerrainController
         if (cache.DisplayState == null || cache.DisplayState.HasDeferredOutputs)
             return null;
         return FindIncomingModifierMesh(cache, terrain, modifierIndex)?.DuplicateMesh();
+    }
+
+    /// <summary>
+    /// Copies of the breaklines the given modifier received in the last build, which a grading card turns
+    /// into lock barriers (unless it grades through them). Empty when the terrain has not been built, the
+    /// modifier is not in its stack, or it took the base terrain with none.
+    /// </summary>
+    public List<ConstraintPolyline> CopyIncomingModifierBreaklines(RhinoDoc doc, TerrainDefinition terrain, Guid modifierId)
+    {
+        int modifierIndex = terrain.Modifiers.FindIndex(modifier => modifier.Id == modifierId);
+        if (modifierIndex < 0)
+            return new List<ConstraintPolyline>();
+        TerrainRuntimeCache cache = GetRuntimeCache(doc.RuntimeSerialNumber, terrain.TerrainId);
+        if (cache.DisplayState == null || cache.DisplayState.HasDeferredOutputs)
+            return new List<ConstraintPolyline>();
+        StageCacheEntry? entry = FindIncomingModifierStage(cache, terrain, modifierIndex);
+        return entry == null
+            ? new List<ConstraintPolyline>()
+            : TerrainRuntimeCacheCloner.CloneConstraints(entry.PersistentHardConstraints);
     }
 
     /// <summary>

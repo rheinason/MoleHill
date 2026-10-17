@@ -32,7 +32,7 @@ public static partial class PadGrader
             out IReadOnlyList<GradingDiagnostic> failureDiagnostics);
         return new GradeOutcome
         {
-            Result = result,
+            Result = result?.MeasuredAgainst(request.Terrain, request.ModelTolerance),
             ErrorMessage = errorMessage,
             FailureOutputPolylines = failureOutputPolylines,
             FailureDiagnostics = failureDiagnostics
