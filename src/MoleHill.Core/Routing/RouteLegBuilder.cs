@@ -351,7 +351,7 @@ internal static class RouteLegBuilder
     }
 
     /// <summary>Cost of a straight chord over the sampled ground; infinite where it leaves the terrain.</summary>
-    private static double ChordCost(
+    internal static double ChordCost(
         RouteHeightGrid grid,
         RouteCost price,
         (double X, double Y) a,

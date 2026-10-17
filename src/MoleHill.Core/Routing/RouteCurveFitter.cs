@@ -354,7 +354,7 @@ public static class RouteCurveFitter
         return held;
     }
 
-    private const int GradeRefinements = 8;
+    private const int GradeRefinements = 3;
 
     /// <summary>The steepest grade between two parameters and where it is.</summary>
     private static (double Grade, double Where) SteepestBetween(RouteSplineCurve curve, double a, double b)

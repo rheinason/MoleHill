@@ -58,6 +58,17 @@ public sealed class RouteRequest
     /// </summary>
     public double Simplicity { get; init; }
 
+    /// <summary>
+    /// A line the route should stay near, in plan: a sketch the user drew. Null searches freely. Within
+    /// <see cref="GuideWidth"/> of it nothing changes; beyond, every move costs more, by the square of how
+    /// many widths further out it is, so the route keeps the sketch's intent and still finds the
+    /// switchbacks the sketch had no room for.
+    /// </summary>
+    public IReadOnlyList<(double X, double Y)>? Guide { get; init; }
+
+    /// <summary>How far from <see cref="Guide"/> the route may wander at no cost, in model units.</summary>
+    public double GuideWidth { get; init; }
+
     /// <summary>The factor <see cref="Simplicity"/> scales radii and tolerances by.</summary>
     internal double SimplicityScale => 1.0 + Math.Max(0.0, Simplicity);
 

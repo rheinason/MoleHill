@@ -117,6 +117,8 @@ public static class RouteSuggester
         }
 
         var search = new GridSearch(grid, request);
+        if (request.Guide is { Count: >= 2 } guide && request.GuideWidth > 0.0)
+            search.SetGuide(guide, request.GuideWidth);
         double cell = grid.CellSize;
         int bandCells = Math.Max(2, (int)Math.Ceiling(request.CorridorWidth / cell));
         int wanted = Math.Clamp(request.AlternativeCount, 1, MaxAlternatives);
@@ -391,6 +393,7 @@ public static class RouteSuggester
         private readonly int[] _closed;
         private readonly int[] _mark;
         private readonly float[] _penalty;
+        private float[]? _guide;
         private readonly PriorityQueue<int, double> _open = new();
         private int _generation;
         private int _markGeneration;
@@ -471,7 +474,7 @@ public static class RouteSuggester
                         continue;
 
                     double turn = heading == NoHeading ? 0.0 : TurnCost[(heading * Dx.Length) + move] * _turnRadiusCost;
-                    double cost = reached + (moveCost * (1.0 + _penalty[to])) + turn;
+                    double cost = reached + (moveCost * (1.0 + _penalty[to] + (_guide?[to] ?? 0f))) + turn;
                     if (_seen[toState] == _generation && cost >= _cost[toState])
                         continue;
 
@@ -483,6 +486,89 @@ public static class RouteSuggester
             }
 
             return null;
+        }
+
+        /// <summary>
+        /// Makes every node cost more the further it lies beyond <paramref name="width"/> of the guide:
+        /// <c>((d - width) / width)^2</c> extra, so twice the width out a move costs double. Distances come from
+        /// a two-pass nearest-seed propagation over the grid (exact to within a cell), from seeds every half
+        /// cell along the guide, so the whole grid is priced in two sweeps.
+        /// </summary>
+        public void SetGuide(IReadOnlyList<(double X, double Y)> guide, double width)
+        {
+            int count = _columns * _rows;
+            var seedX = new double[count];
+            var seedY = new double[count];
+            var distance = new double[count];
+            Array.Fill(distance, double.PositiveInfinity);
+            for (int i = 1; i < guide.Count; i++)
+            {
+                double length = Math.Sqrt(Geometry2D.DistanceSquared(guide[i - 1].X, guide[i - 1].Y, guide[i].X, guide[i].Y));
+                int pieces = Math.Max(1, (int)Math.Ceiling(length / (0.5 * _cell)));
+                for (int k = 0; k <= pieces; k++)
+                {
+                    double x = Geometry2D.Lerp(guide[i - 1].X, guide[i].X, (double)k / pieces);
+                    double y = Geometry2D.Lerp(guide[i - 1].Y, guide[i].Y, (double)k / pieces);
+                    int column = (int)Math.Round((x - _grid.OriginX) / _cell);
+                    int row = (int)Math.Round((y - _grid.OriginY) / _cell);
+                    if (column < 0 || column >= _columns || row < 0 || row >= _rows)
+                        continue;
+
+                    int node = (row * _columns) + column;
+                    double d = Geometry2D.DistanceSquared(x, y, _grid.NodeX(column), _grid.NodeY(row));
+                    if (d < distance[node])
+                    {
+                        distance[node] = d;
+                        seedX[node] = x;
+                        seedY[node] = y;
+                    }
+                }
+            }
+
+            Propagate(-1, -1, 1);
+            Propagate(1, 1, -1);
+
+            _guide = new float[count];
+            for (int node = 0; node < count; node++)
+            {
+                double beyond = (Math.Sqrt(distance[node]) - width) / width;
+                _guide[node] = beyond > 0.0 ? (float)Math.Min(beyond * beyond, 1e6) : 0f;
+            }
+
+            // One sweep in raster order (step 1) or reverse (step -1), taking each node's nearer seed from the
+            // neighbours already visited.
+            void Propagate(int dc, int dr, int step)
+            {
+                int rowStart = step > 0 ? 0 : _rows - 1, columnStart = step > 0 ? 0 : _columns - 1;
+                for (int row = rowStart; row >= 0 && row < _rows; row += step)
+                {
+                    for (int column = columnStart; column >= 0 && column < _columns; column += step)
+                    {
+                        int node = (row * _columns) + column;
+                        double x = _grid.NodeX(column), y = _grid.NodeY(row);
+                        Consider(column + dc, row);
+                        Consider(column + dc, row + dr);
+                        Consider(column, row + dr);
+                        Consider(column - dc, row + dr);
+
+                        void Consider(int c, int r)
+                        {
+                            if (c < 0 || c >= _columns || r < 0 || r >= _rows)
+                                return;
+                            int from = (r * _columns) + c;
+                            if (double.IsPositiveInfinity(distance[from]))
+                                return;
+                            double d = Geometry2D.DistanceSquared(x, y, seedX[from], seedY[from]);
+                            if (d < distance[node])
+                            {
+                                distance[node] = d;
+                                seedX[node] = seedX[from];
+                                seedY[node] = seedY[from];
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         /// <summary>The grid nodes nearest a polyline, sampled every half cell, without consecutive repeats.</summary>
