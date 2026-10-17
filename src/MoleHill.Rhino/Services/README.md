@@ -479,7 +479,8 @@ layer table, dimension styles, and layouts can act on. See `docs/architecture.md
   the curve Keep will add (`RouteRelaxScore`), outside the lock. Redraws are queued one at a time, so the UI
   thread paces them. The get loop (`RelaxGetPoint`, returns on mouse-up) grabs a pin or the band on press,
   moves the pin while dragging and releases a pin on a click; the floating panel's controls change the
-  shared `RouteSuggestionSettings` (weights, Fidelity, Simplicity) and its buttons end the getter through
+  shared `RouteSuggestionSettings` (grade limit typed in any slope unit, minimum radius, corridor width,
+  layer, weights, Fidelity, Simplicity; the command line has no options) and its buttons end the getter through
   `GetBaseClass.PostCustomMessage`. Help me and Keep run on a worker while the loop pumps `RhinoApp.Wait()`.
   The session and service are excluded from the test project (they reach `TerrainController` and `UI/`);
   the wording in `RouteRelaxReadout` and the math in Core are what is tested.

@@ -15,7 +15,8 @@ internal sealed record RouteRelaxSnapshot(
     double Cost,
     double SketchCost,
     bool Settled,
-    int Sweeps)
+    int Sweeps,
+    int Version)
 {
     /// <summary>How much cheaper than the sketch the band is, as a share.</summary>
     public double Improvement => SketchCost > 0.0 ? 1.0 - (Cost / SketchCost) : 0.0;

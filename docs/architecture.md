@@ -209,7 +209,9 @@ TriangleNet (vendored)  ←  MoleHill.Core  ←  MoleHill.Grasshopper (GH host)
   so the band never gets worse. `RouteRelaxSession` steps it on a worker and scores it on another while
   the get loop turns drags into pins (`RelaxGetPoint`: a press on a pin or on the band grabs it, a click
   releases a pin) and the floating `RouteRelaxForm` turns its compromise triangle (`RouteWeightTriangle`:
-  short / gentle / little earthwork), fidelity and plainness sliders into settings; the panel shows the
+  short / gentle / little earthwork), fidelity and plainness sliders, and its grade, radius, corridor
+  and layer fields into settings (every setting lives on the panel; the command line takes only Enter and
+  Esc, after a user found the split confusing); the panel shows the
   score against the sketch climbing (`ScoreSparkline`), the figures and the stretches the route does not
   fit, which `RouteRelaxConduit` also marks on the ground. A band can only slide, so a sketch straight up a
   slope too steep for the limit is reported as needing more route; **Help me** runs the grid search through

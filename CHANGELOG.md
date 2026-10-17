@@ -17,7 +17,7 @@ beta prereleases. Earlier versions are recorded only in the git history.
 **Input commands**
 - New **Relax Route** (`mhRelaxRoute`, and the Suggest Route button's right-click): draw a rough route and
   watch it relax over the terrain towards a gentler, cheaper line, live.
-  - Drag the route or its pins to steer it; click a pin to release it.
+  - Drag the route or its pins to steer it; click a pin to release it. Every setting is on the panel.
   - A floating panel shows how much better than your sketch the route has become, climbing as it relaxes,
     and the compromise as one triangle to drag between **Short**, **Gentle** and **Little earthwork**,
     with sliders for how firmly to **keep to the sketch** and how plain the route should be.

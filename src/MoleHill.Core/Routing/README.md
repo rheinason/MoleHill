@@ -111,6 +111,8 @@ a polyline the user edits and then assigns to a Grade Path.
   curve still meets them. The **grade** is held by re-laying the profile along the curve's own plan with
   `GradeLimitedProfile` at a share of the limit shrunk by the measured overshoot (rounding grade breaks
   steepens what lies between), with up to three rounds of exactly inserted knots where that cannot reach.
+  A line already over the limit (a route too short for its climb) is held to its own grade with 3% to
+  spare instead: held to the limit it cannot be, and a relaxed route came out with 79 control points.
   Moving control-point heights directly was rejected (a metre of height error). At Simplicity 2 the test
   sites give 15-36 control points against 45-105 exact, within the grade limit. `RouteCurveFitterTests`.
 - `RouteRelaxer.cs` (with `RouteRelaxSettings`, `RouteRelaxEvaluation`, `RouteRelaxIssue`,

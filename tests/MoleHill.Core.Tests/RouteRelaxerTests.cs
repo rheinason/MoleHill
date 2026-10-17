@@ -148,7 +148,11 @@ public sealed class RouteRelaxerTests
         RouteRelaxer relaxer = Create(grid, new[] { (200.0, 30.0), (200.0, 280.0) }, settings);
         relaxer.Step(500);
 
-        RouteRelaxEvaluation stuck = relaxer.Evaluate(fitCurve: false);
+        RouteRelaxEvaluation stuck = relaxer.Evaluate(fitCurve: true);
+        // Too short for its climb, the route is graded at the grade it needs; its curve holds that grade
+        // rather than spending knots on a limit it cannot meet (79 control points live).
+        _output.WriteLine($"stuck curve: {stuck.Curve!.ControlPointCount} control points, grade {stuck.Curve.MaxGrade:P2}");
+        Assert.True(stuck.Curve.ControlPointCount <= 8, $"{stuck.Curve.ControlPointCount} control points on a straight line");
         foreach (RouteRelaxIssue issue in stuck.Issues)
             _output.WriteLine($"{issue.Kind} {issue.StartStation:F0}-{issue.EndStation:F0} m, depth {issue.Depth:F1}, ground {issue.GroundGrade:P0}, extra {issue.ExtraLength:F0} m");
         Assert.Contains(stuck.Issues, issue => issue.Kind is RouteRelaxIssueKind.Climb or RouteRelaxIssueKind.TooShort);

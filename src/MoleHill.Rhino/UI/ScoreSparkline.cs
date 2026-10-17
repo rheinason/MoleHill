@@ -44,7 +44,9 @@ internal sealed class ScoreSparkline : Drawable
         double low = Math.Min(0.0, _values.Min());
         double high = Math.Max(0.1, _values.Max());
         float Y(double value) => (float)(Height - 2 - ((value - low) / (high - low) * (Height - 4)));
-        float X(int index) => (float)index / (MaximumSamples - 1) * (Width - 1);
+        // The history fills the chart as it grows, so a route that settles in a few samples is a line, not a tick.
+        int span = Math.Max(_values.Count, 20);
+        float X(int index) => (float)index / (span - 1) * (Width - 1);
 
         float zero = Y(0.0);
         g.DrawLine(new Pen(UiTheme.ZoneStripColor, 1f), 0, zero, Width, zero);
@@ -58,5 +60,9 @@ internal sealed class ScoreSparkline : Drawable
         area.Add(new PointF(points[^1].X, zero));
         g.FillPolygon(Color.FromArgb(25, 157, 73, 70), area.ToArray());
         g.DrawLines(new Pen(Color.FromArgb(25, 157, 73), 1.5f), points);
+
+        // Held since the last sample: carried on to the edge, so a settled route reads as a level line.
+        if (points[^1].X < Width - 1)
+            g.DrawLine(new Pen(Color.FromArgb(25, 157, 73, 140), 1f), points[^1].X, points[^1].Y, Width - 1, points[^1].Y);
     }
 }

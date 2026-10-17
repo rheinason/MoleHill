@@ -34,6 +34,9 @@ public static class RouteCurveFitter
 {
     public const int Degree = 3;
 
+    /// <summary>Grade slack, relative, for a line that is already over the limit.</summary>
+    internal const double OverLimitSlack = 0.03;
+
     /// <summary>A corner deflecting more than this stays a corner.</summary>
     public const double KinkAngleDegrees = 20.0;
 
@@ -83,7 +86,15 @@ public static class RouteCurveFitter
                 if (samples == null)
                     continue;
 
-                RouteSplineCurve curve = FitPiece(samples, limits, out double plan, out double vertical);
+                // A line already steeper than the limit (a route too short for its climb, graded at the grade
+                // it needs) is held to its own grade, with 3% to spare: it breaks the limit anyway and says so,
+                // and held to the limit, or to its own grade exactly, the fitter spent knots trying (79 control
+                // points on a relaxed route live, 2026-10-17).
+                double inputGrade = samples.MaxGrade;
+                Limits pieceLimits = limits.MaxGrade > 0.0 && inputGrade > limits.MaxGrade * (1.0 + 1e-6)
+                    ? limits with { MaxGrade = inputGrade * (1.0 + OverLimitSlack) }
+                    : limits;
+                RouteSplineCurve curve = FitPiece(samples, pieceLimits, out double plan, out double vertical);
                 pieces.Add(curve);
                 planDeviation = Math.Max(planDeviation, plan);
                 verticalDeviation = Math.Max(verticalDeviation, vertical);
@@ -1058,6 +1069,23 @@ public static class RouteCurveFitter
 
         /// <summary>The line's 3D length.</summary>
         public double Length { get; }
+
+        /// <summary>The steepest grade between successive samples.</summary>
+        public double MaxGrade
+        {
+            get
+            {
+                double worst = 0.0;
+                for (int k = 1; k < Count; k++)
+                {
+                    double run = Math.Sqrt(Geometry2D.DistanceSquared(X[k - 1], Y[k - 1], X[k], Y[k]));
+                    if (run > 1e-12)
+                        worst = Math.Max(worst, Math.Abs(Z[k] - Z[k - 1]) / run);
+                }
+
+                return worst;
+            }
+        }
 
         public double[] ChordParameters { get; }
 

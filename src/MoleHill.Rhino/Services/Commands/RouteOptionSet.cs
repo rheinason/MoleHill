@@ -150,7 +150,12 @@ internal sealed class RouteOptionSet
         return id == Guid.Empty ? _doc.Layers.CurrentLayerIndex : _doc.Layers.FindId(id).Index;
     }
 
-    private void ChooseLayer()
+    /// <summary>The output layer's full path, or "Current layer".</summary>
+    public string LayerName =>
+        LayerId != Guid.Empty && _doc.Layers.FindId(LayerId) is { IsDeleted: false } layer ? layer.FullPath : "Current layer";
+
+    /// <summary>Opens Rhino's layer dialog and makes the picked layer the output layer.</summary>
+    public void ChooseLayer()
     {
         int index = LayerId == Guid.Empty ? _doc.Layers.CurrentLayerIndex : (_doc.Layers.FindId(LayerId)?.Index ?? _doc.Layers.CurrentLayerIndex);
         bool setCurrent = false;

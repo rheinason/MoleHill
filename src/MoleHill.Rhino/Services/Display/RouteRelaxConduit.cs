@@ -75,8 +75,8 @@ internal sealed class RouteRelaxConduit : DisplayConduit
             if (snapshot is { Settled: true } && score?.Curve is { Count: >= 2 } curve)
                 e.Display.DrawPolyline(curve, Color.White, CurveWidth);
 
-            if (score != null)
-                DrawIssueStretches(e.Display, score);
+            if (IsCurrent(snapshot, score))
+                DrawIssueStretches(e.Display, score!);
         }
         finally
         {
@@ -103,9 +103,9 @@ internal sealed class RouteRelaxConduit : DisplayConduit
                 }
             }
 
-            if (score != null)
+            if (IsCurrent(snapshot, score))
             {
-                foreach ((RouteRelaxIssue issue, Point3d where, string tag) in score.Issues)
+                foreach ((RouteRelaxIssue issue, Point3d where, string tag) in score!.Issues)
                 {
                     using var dot = new TextDot(tag, where) { FontHeight = IssueFontHeight };
                     e.Display.DrawDot(dot, IssueColor(issue.Kind), Color.White, Color.White);
@@ -118,6 +118,14 @@ internal sealed class RouteRelaxConduit : DisplayConduit
             e.Display.PopDepthTesting();
         }
     }
+
+    /// <summary>
+    /// True when the score describes the band as drawn. While the band moves the score lags it by up to a
+    /// quarter second, and a marked stretch drawn from the old band strayed off the new one (live,
+    /// 2026-10-17), so marks wait for the score to catch up.
+    /// </summary>
+    private static bool IsCurrent(RouteRelaxSnapshot? snapshot, RouteRelaxScore? score) =>
+        snapshot != null && score != null && score.Version == snapshot.Version;
 
     /// <summary>The evaluated line coloured where the route leaves the ground deeper than the reporting depth.</summary>
     private static void DrawIssueStretches(DisplayPipeline display, RouteRelaxScore score)

@@ -1,4 +1,5 @@
 // The live part of mhRelaxRoute: a band relaxing on a worker while the user drags pins and turns weights.
+using MoleHill.Core.Analysis;
 using MoleHill.Core.Routing;
 using MoleHill.Rhino.UI;
 using MoleHill.Shared;
@@ -94,16 +95,12 @@ internal sealed class RouteRelaxSession : IDisposable
 
         while (true)
         {
+            // Every setting is on the panel; the command line takes Enter and Esc only.
             var getter = new RelaxGetPoint(this);
-            getter.SetCommandPrompt("Drag the route or its pins to steer it; click a pin to release it. Enter keeps the route");
+            getter.SetCommandPrompt("Drag the route or its pins to steer it, click a pin to release it; settings are on the panel. Enter keeps the route, Esc cancels");
             getter.AcceptNothing(true);
             getter.AcceptCustomMessage(true);
             getter.PermitObjectSnap(false);
-            getter.Constrain(_terrain, false);
-            _options.AddTo(getter);
-            int helpOption = getter.AddOption("HelpMe");
-            int resetOption = getter.AddOption("Reset");
-            int unpinOption = getter.AddOption("UnpinAll");
             _getter = getter;
 
             GetResult result = getter.Get(true);
@@ -137,18 +134,6 @@ internal sealed class RouteRelaxSession : IDisposable
 
                     continue;
 
-                case GetResult.Option:
-                    int chosen = getter.OptionIndex();
-                    if (chosen == helpOption)
-                        HelpMe();
-                    else if (chosen == resetOption)
-                        Reset();
-                    else if (chosen == unpinOption)
-                        UnpinAll();
-                    else
-                        CommitOptions(getter, result);
-                    continue;
-
                 default:
                     return null;
             }
@@ -180,10 +165,30 @@ internal sealed class RouteRelaxSession : IDisposable
 
     private RouteSuggestionSettings Settings => _options.Settings;
 
-    private void CommitOptions(GetBaseClass getter, GetResult result)
+    private void MaxGradeTyped(string text)
     {
-        _options.Commit(getter, result);
+        if (SlopeInput.TryParse(text, SlopeUnitPreference.Current, out double ratio) && Math.Abs(ratio) > 0.0)
+            _options.MaxGrade.SetRatio(Math.Abs(ratio));
+        else
+            RhinoApp.WriteLine($"'{text}' is not a slope. Type it in any unit: 8%, 80prom, 1:12.5 or 4.6deg.");
         ApplySettings(save: true);
+    }
+
+    private void LengthTyped(string text, Action<double> set, bool allowZero)
+    {
+        if (TryParseLength(text, out double value) && (value > 0.0 || (allowZero && value == 0.0)))
+            set(value);
+        else
+            RhinoApp.WriteLine($"'{text}' is not a length{(allowZero ? " (0 or more)" : " above zero")}.");
+        ApplySettings(save: true);
+    }
+
+    /// <summary>The number a length field starts with, so "10", "10 m" and "10.00 m" all read 10.</summary>
+    private static bool TryParseLength(string text, out double value)
+    {
+        string number = new string(text.Trim().TakeWhile(c => char.IsDigit(c) || c is '.' or ',' or '-' or '+').ToArray()).Replace(',', '.');
+        return double.TryParse(number, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out value) &&
+            double.IsFinite(value);
     }
 
     /// <summary>Hands the current options to the band (which wakes it) and mirrors them on the panel.</summary>
@@ -209,7 +214,16 @@ internal sealed class RouteRelaxSession : IDisposable
     }
 
     private void SyncForm() =>
-        _form?.SyncSettings(Settings.DistanceWeight, Settings.SteepnessWeight, Settings.EarthworksWeight, Settings.Fidelity, Settings.Simplicity);
+        _form?.SyncSettings(
+            SlopeInput.FormatWithUnit(Math.Abs(_options.MaxGrade.Ratio), SlopeUnitPreference.Current),
+            _units.FormatLength(Settings.MinimumRadius, "0.##"),
+            _units.FormatLength(Settings.CorridorWidth, "0.##"),
+            Settings.DistanceWeight,
+            Settings.SteepnessWeight,
+            Settings.EarthworksWeight,
+            Settings.Fidelity,
+            Settings.Simplicity,
+            _options.LayerName);
 
     // ── Actions ────────────────────────────────────────────────────────────
 
@@ -363,6 +377,23 @@ internal sealed class RouteRelaxSession : IDisposable
 
     internal RouteRelaxConduit Conduit => _conduit;
 
+    /// <summary>
+    /// The terrain under the cursor: where the view's ray through it first meets the terrain mesh, or the
+    /// getter's own point where it misses. Casting it here rather than constraining the getter to the mesh
+    /// keeps Rhino's "OnMesh" tooltip off the cursor.
+    /// </summary>
+    internal Point3d Ground(GetPointMouseEventArgs e)
+    {
+        if (e.Viewport.GetFrustumLine(e.WindowPoint.X, e.WindowPoint.Y, out Line ray))
+        {
+            Point3d[]? hits = global::Rhino.Geometry.Intersect.Intersection.MeshLine(_terrain, ray);
+            if (hits is { Length: > 0 })
+                return hits.OrderBy(hit => hit.DistanceToSquared(ray.From)).First();
+        }
+
+        return e.Point;
+    }
+
     internal static double WorldRadius(global::Rhino.Display.RhinoViewport viewport, Point3d at)
     {
         viewport.GetWorldToScreenScale(at, out double pixelsPerUnit);
@@ -458,7 +489,7 @@ internal sealed class RouteRelaxSession : IDisposable
             for (int i = 0; i < plan.Length / 2; i++)
                 band.Add(plan[i * 2], plan[(i * 2) + 1], GroundAt(plan[i * 2], plan[(i * 2) + 1]));
             var pins = _relaxer.Pins().Select(pin => (pin.Id, new Point3d(pin.X, pin.Y, GroundAt(pin.X, pin.Y)))).ToList();
-            snapshot = new RouteRelaxSnapshot(band, pins, _relaxer.Cost(), _relaxer.SketchCost, _relaxer.IsSettled, _relaxer.Sweeps);
+            snapshot = new RouteRelaxSnapshot(band, pins, _relaxer.Cost(), _relaxer.SketchCost, _relaxer.IsSettled, _relaxer.Sweeps, Volatile.Read(ref _version));
         }
 
         _snapshot = snapshot;
@@ -538,6 +569,14 @@ internal sealed class RouteRelaxSession : IDisposable
             Settings.Simplicity = simplicity;
             ApplySettings(save: true);
         };
+        form.MaxGradeTyped += MaxGradeTyped;
+        form.MinimumRadiusTyped += text => LengthTyped(text, value => Settings.MinimumRadius = value, allowZero: true);
+        form.CorridorWidthTyped += text => LengthTyped(text, value => Settings.CorridorWidth = value, allowZero: false);
+        form.LayerRequested += () =>
+        {
+            _options.ChooseLayer();
+            SyncForm();
+        };
         form.HelpRequested += () => Post(Request.HelpMe);
         form.ResetRequested += () => Post(Request.Reset);
         form.UnpinAllRequested += () => Post(Request.UnpinAll);
@@ -586,14 +625,15 @@ internal sealed class RouteRelaxSession : IDisposable
         protected override void OnMouseDown(GetPointMouseEventArgs e)
         {
             base.OnMouseDown(e);
-            double radius = WorldRadius(e.Viewport, e.Point);
+            Point3d point = _session.Ground(e);
+            double radius = WorldRadius(e.Viewport, point);
             _pressedAt = e.WindowPoint;
             _moved = false;
             _created = false;
-            _grabbed = _session.PinNear(e.Point, radius);
-            if (_grabbed < 0 && _session.IsOnBand(e.Point, radius))
+            _grabbed = _session.PinNear(point, radius);
+            if (_grabbed < 0 && _session.IsOnBand(point, radius))
             {
-                _grabbed = _session.AddPin(e.Point);
+                _grabbed = _session.AddPin(point);
                 _created = true;
             }
 
@@ -608,11 +648,12 @@ internal sealed class RouteRelaxSession : IDisposable
                 if (Math.Abs(e.WindowPoint.X - _pressedAt.X) + Math.Abs(e.WindowPoint.Y - _pressedAt.Y) > ClickPixels)
                     _moved = true;
                 if (_moved)
-                    _session.MovePin(_grabbed, e.Point);
+                    _session.MovePin(_grabbed, _session.Ground(e));
                 return;
             }
 
-            int hot = _session.PinNear(e.Point, WorldRadius(e.Viewport, e.Point));
+            Point3d point = _session.Ground(e);
+            int hot = _session.PinNear(point, WorldRadius(e.Viewport, point));
             if (hot != _session.Conduit.HotPin)
             {
                 _session.Conduit.HotPin = hot;

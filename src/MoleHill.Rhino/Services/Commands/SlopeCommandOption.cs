@@ -53,6 +53,13 @@ internal sealed class SlopeCommandOption
     /// <summary>The slope as rise/run — what the geometry actually needs.</summary>
     public double Ratio => _ratio;
 
+    /// <summary>Sets the slope from elsewhere (a panel field), remembered as a typed value would be.</summary>
+    public void SetRatio(double ratio)
+    {
+        _ratio = Math.Clamp(ratio, -MaxRatio, MaxRatio);
+        CommandOptionCache.SetValue(_cacheKey, _ratio);
+    }
+
     /// <summary>Human-readable slope for a prompt or a report line.</summary>
     public string Description => SlopeInput.FormatWithUnit(_ratio, _unit);
 
