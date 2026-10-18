@@ -797,6 +797,15 @@ curves and spot points that rebuild it within a stated tolerance: landform lines
 points first, then contours where the rebuilt surface deviates most, repeated until within tolerance, so
 the terrain stays editable afterwards. B6 inverted: the output is editable input, not a reduced mesh.
 
+### B26 — Scan to terrain: ground, buildings, walls, kerbs and contours from a drone mesh — **planned**
+
+**Planned 2026-10-18**, see `docs/scan-to-terrain-plan-2026-10-18.md`. A photogrammetry mesh of a built
+site (houses, roads, gardens) becomes, on layers: a clean ground surface, simplified building volumes with
+roof shapes, wall and terrace edges as breaklines, paved and soft areas from the texture's colours,
+suggested kerbs, and B25's contours restricted to the soft areas. Measured on the user's reference scan:
+buildings separate cleanly and their roofs fit 2 to 6 planes; walls read clearly; 10 to 15 cm kerbs are at
+the mesh's resolution limit, so they come from the colour boundary and are offered as suggestions.
+
 Smaller, recorded together: a **minimum-fall mode** on `mhSlopeCurveSection` (re-profile only the flat or
 uphill parts), and **more fixes in `mhValidateTerrainInputs`**.
 
