@@ -169,8 +169,14 @@ TriangleNet (vendored)  ←  MoleHill.Core  ←  MoleHill.Grasshopper (GH host)
   points under a fresh `Scan {source}` root in one Undo operation. Ground mesh output is an opt-in check.
   Physical defaults use document units. Esc cancels the ground worker before output; during recovery it
   keeps the curves found so far. Tolerance is checked against inferred ground vertices, not hidden surveyed
-  ground. A spent curve budget is reported with the residual error. Phase 1 has command-line settings;
-  texture classification, walls/kerbs/buildings, point clouds and the floating review panel remain planned.
+  ground. A spent curve budget is reported with the residual error. Phase 2's `ScanWalls` combines narrow
+  bands of unexplained rises into paired measured top/toe rails, rejecting short fragments, broad ramps
+  and fits outside the footprint. The route fitter supplies light NURBS on `Walls and edges`.
+  `TerrainCurveRecovery.ConstrainReference` inserts their sampled lines before contouring, excluding
+  old averages on the lines, and `FixedBreaklines` holds them through every rebuild, including landform
+  trials. `TerrainCurveRecovery.Breaklines.cs` owns reference preparation; the root partial owns recovery.
+  `Walls`, `WallHeight` and `WallLength` are command options; physical defaults use document units.
+  Texture classification, kerbs/buildings, point clouds and the floating review panel remain planned.
 - **`mhSuggestRoute` drafts the curve; Grade Path still follows it.** Modifiers follow drawn geometry
   exactly, so help with *where* a path should go belongs upstream, in a command that draws the curve.
   The user picks a terrain (any mesh/surface, or Enter for the active MoleHill terrain, as

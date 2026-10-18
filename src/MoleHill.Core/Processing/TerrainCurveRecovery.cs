@@ -26,7 +26,7 @@ namespace MoleHill.Core.Processing;
 /// says it is vertex-sampled. On a large terrain several contours are added per round, at worst-missed
 /// vertices far enough apart not to share one contour.</para>
 /// </summary>
-public static class TerrainCurveRecovery
+public static partial class TerrainCurveRecovery
 {
     public sealed class Options
     {
@@ -47,6 +47,9 @@ public static class TerrainCurveRecovery
 
         /// <summary>Contours added per rebuild; 0 picks by size (one below 5,000 vertices, then one more per 5,000, up to eight).</summary>
         public int ContoursPerRound { get; init; }
+
+        /// <summary>Measured breaklines held in every reconstruction, including landform-line trials.</summary>
+        public IReadOnlyList<double[]> FixedBreaklines { get; init; } = Array.Empty<double[]>();
 
         public Func<bool>? ShouldCancel { get; init; }
 
@@ -102,6 +105,7 @@ public static class TerrainCurveRecovery
     public static Result Recover(IndexedTriMesh terrain, Options options)
     {
         ArgumentNullException.ThrowIfNull(options);
+        ValidateBreaklines(options.FixedBreaklines);
         (double[] vertices, int vertexCount, int[] faces, int faceCount) = terrain;
         double verticalTolerance = options.VerticalTolerance;
         if (!double.IsFinite(verticalTolerance) || verticalTolerance <= 0.0 || vertexCount < 3 || faceCount < 1)
@@ -144,7 +148,7 @@ public static class TerrainCurveRecovery
 
         var contours = new List<RecoveredContour>();
         List<double[]> landformLines = options.LandformLines
-            ? SelectLandformLines(vertices, vertexCount, adjacency, onBorder, borders, spots, verticalTolerance, planTolerance)
+            ? SelectLandformLines(vertices, vertexCount, adjacency, onBorder, borders, spots, verticalTolerance, planTolerance, options.FixedBreaklines)
             : new List<double[]>();
 
         // A contour simplified across steep ground drifts off its height there, and two can cross; judging
@@ -171,7 +175,7 @@ public static class TerrainCurveRecovery
                 break;
             }
 
-            TinResult? rebuild = Rebuild(borders, landformLines, contours, spots, planTolerance, out string? error);
+            TinResult? rebuild = Rebuild(borders, landformLines, contours, spots, planTolerance, out string? error, options.FixedBreaklines);
             if (rebuild == null)
             {
                 termination = Termination.TriangulationFailed;
@@ -322,7 +326,8 @@ public static class TerrainCurveRecovery
         List<double[]> borders,
         List<double> spots,
         double verticalTolerance,
-        double planTolerance)
+        double planTolerance,
+        IReadOnlyList<double[]> fixedBreaklines)
     {
         var accepted = new List<double[]>();
         List<double[]> candidates = ExtractLandformLines(vertices, vertexCount, adjacency, onBorder)
@@ -335,7 +340,7 @@ public static class TerrainCurveRecovery
             return accepted;
 
         var noContours = new List<RecoveredContour>();
-        TinResult? baseline = Rebuild(borders, accepted, noContours, spots, planTolerance, out _);
+        TinResult? baseline = Rebuild(borders, accepted, noContours, spots, planTolerance, out _, fixedBreaklines);
         if (baseline == null)
             return accepted;
         double excess = Excess(Deviations(vertices, vertexCount, baseline, verticalTolerance), verticalTolerance);
@@ -345,7 +350,7 @@ public static class TerrainCurveRecovery
             if (excess <= 0.0)
                 break;
             accepted.Add(candidate);
-            TinResult? trial = Rebuild(borders, accepted, noContours, spots, planTolerance, out _);
+            TinResult? trial = Rebuild(borders, accepted, noContours, spots, planTolerance, out _, fixedBreaklines);
             double trialExcess = trial == null
                 ? double.PositiveInfinity
                 : Excess(Deviations(vertices, vertexCount, trial, verticalTolerance), verticalTolerance);
@@ -605,7 +610,8 @@ public static class TerrainCurveRecovery
         List<RecoveredContour> contours,
         List<double> spots,
         double planTolerance,
-        out string? error)
+        out string? error,
+        IReadOnlyList<double[]>? fixedBreaklines = null)
     {
         var xy = new List<double>();
         var z = new List<double>();
@@ -653,6 +659,9 @@ public static class TerrainCurveRecovery
 
         foreach (double[] border in borders)
             AddChain(border, closed: true);
+        if (fixedBreaklines != null)
+            foreach (double[] line in fixedBreaklines)
+                AddChain(line, closed: false);
         foreach (double[] line in landformLines)
             AddChain(line, closed: false);
         foreach (RecoveredContour contour in contours)

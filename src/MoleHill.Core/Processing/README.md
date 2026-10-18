@@ -3,6 +3,11 @@
 Input preparation before triangulation — cleaning, deduplicating, and discretizing raw points/curves.
 Pure, unit-tested.
 
+`TerrainCurveRecovery.Breaklines.cs` prepares a scan reference with measured wall rails before recovering
+its curves: original borders remain, and coarse averages on a rail are excluded instead of becoming
+conflicting heights along it. `FixedBreaklines` on recovery options holds the same lines in every
+rebuild and landform trial. The root `TerrainCurveRecovery.cs` partial owns recovery and simplification.
+
 - `PointMerge.cs` / `PointMergeMode.cs` — ordered merge targets without removing points: center,
   first/last, or transitive 3D proximity clusters. Uses flat XYZ arrays and compensated centers;
   pairwise checks are intended for manually selected sets. The Rhino host applies targets to grips.

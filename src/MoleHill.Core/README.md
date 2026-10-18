@@ -23,7 +23,7 @@ Two things about this project are not obvious from its file list:
 | [`Analysis/`](Analysis/README.md) | Slope, aspect, elevation, cut/fill, contours, waterflow, drainage |
 | [`Routing/`](Routing/README.md) | Route suggestion between picked points: height grid, A*, grade-limited profile |
 | [`IO/`](IO/README.md) | Host-free file readers: classic TIFF / GeoTIFF tags and raster georeferencing |
-| [`Scan/`](Scan/README.md) | Scan triangle rasters, ground filtering, harmonic fill and a simply bordered contouring mesh |
+| [`Scan/`](Scan/README.md) | Scan triangle rasters, ground filtering, harmonic fill, contouring mesh and measured wall top/toe curves |
 | [`Reporting/`](Reporting/README.md) | Quantity tables and CSV export |
 | [`Scattering/`](Scattering/README.md) | Deterministic weighted block scatter |
 | [`Sculpting/`](Sculpting/README.md) | The sparse world-XY displacement field and brush engine |

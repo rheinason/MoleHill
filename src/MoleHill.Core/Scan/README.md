@@ -22,7 +22,17 @@ editable curves and spots; the ground mesh is an internal intermediate.
 
 Ground under an object is inferred, especially uncertain where it meets a terrace step. This filter
 is geometric only: raised regions include vegetation and cars, and the object count is not a building
-count. Neither colour classification nor roof/wall/kerb reconstruction is implemented here yet.
+count. Neither colour classification nor roof/kerb reconstruction is implemented here yet.
+
+`ScanWalls` traces Phase 2 top/toe pairs from narrow bands of unexplained rises, with the ground trend
+measured outside the band. It merges a wall spread over multiple cells, rejects broad ramps and short
+fragments, splits at branches/gaps, and uses `RouteCurveFitter` for the editable curves. Fitting stays
+within a fraction of a cell so top and toe do not drift across each other. Prepared rails are checked
+against the contouring footprint. Their light polylines feed `TerrainCurveRecovery.ConstrainReference`,
+which inserts them before recovery and excludes old coarse heights on a measured segment. Pass those
+same lines through `FixedBreaklines` to hold them during every contour rebuild. `ScanWallsTests` covers
+height, orientation, scaling, multi-cell steps and constrained reconstruction, including heights between
+rail vertices. Set `MOLEHILL_SCAN_WALLS=1` to opt the reference measurement into Phase 2.
 
 `ScanGroundTests` covers sparse/overlapping triangles, houses and trees on a terraced slope, planar fill,
 empty scans, raster overflow, border topology and recovery. Opt into `ScanGroundMeasurementTests` with

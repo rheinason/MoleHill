@@ -132,7 +132,8 @@ internal static class TerrainToCurvesCommandService
     /// since lines save contours on creased ground and rarely on rough natural ground.
     /// </summary>
     internal static TerrainCurveRecovery.Result RecoverWithEscape(
-        IndexedTriMesh terrainMesh, double tolerance, double planTolerance, int maxCurves, int linesIndex, string stage)
+        IndexedTriMesh terrainMesh, double tolerance, double planTolerance, int maxCurves, int linesIndex, string stage,
+        IReadOnlyList<double[]>? fixedBreaklines = null)
     {
         bool cancelled = false;
         void OnEscape(object? sender, EventArgs e) => cancelled = true;
@@ -146,6 +147,7 @@ internal static class TerrainToCurvesCommandService
                     PlanTolerance = planTolerance,
                     MaximumCurves = maxCurves,
                     LandformLines = landformLines,
+                    FixedBreaklines = fixedBreaklines ?? Array.Empty<double[]>(),
                     ShouldCancel = () => cancelled,
                     ReportProgress = (round, worst) =>
                     {

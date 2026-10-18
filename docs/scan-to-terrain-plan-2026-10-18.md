@@ -1,7 +1,55 @@
 # Scan to terrain: plan (2026-10-18)
 
-**Status:** Phase 1 implemented; validation and measured limits below. Phases 2–5 remain planned.
+**Status:** Phases 1–2 implemented; validation and measured limits below. Phases 3–5 remain planned.
 Backlog entry **B26**. Supersedes nothing; builds on B25 (`mhTerrainToCurves`).
+
+## Phase 2 implementation and validation (2026-10-18)
+
+`ScanWalls` measures height changes after subtracting the trend outside each transition. Adjacent rises
+over up to 1 m form one wall band, so a 1.5 m wall rasterised across two cells is one full-height wall,
+not two half-height ones. Directed grid edges chain the bands, splitting branches and missing data;
+short stretches and fits outside the contouring footprint or fitting tolerances are discarded.
+Top and toe use the measured outer ground nodes, fitted through `RouteCurveFitter` to light curves.
+Their smoothing is bounded by rail clearance, so independently fitted top/toe curves stay on their sides
+of the step. Only measured narrow steps are emitted: broad ramps remain ground.
+
+`Walls=Yes` is the command default; `WallHeight` (0.6 m) and `WallLength` (3 m) are physical defaults
+converted to document units. Output is paired NURBS curves on `Scan {source}::Walls and edges`, carrying
+measured mean step and plan length in user text, grouped and undone with all other output.
+`Walls=No` retains Phase 1 recovery. These are geometry-derived steps, not a semantic identification of
+every built retaining wall. Curves can stop at a branch or where the ground evidence is missing.
+
+Light polyline samples of the fitted curves are inserted into the contouring reference, keeping its
+original border. Coarse averages on those lines are excluded: otherwise the triangulator would split
+a rail through the old averaged height and create a sawtooth edge. `TerrainCurveRecovery.FixedBreaklines`
+holds the same rails in every rebuild and in ridge/valley trials. This preserves the measured step
+instead of trying to fit both it and the earlier coarse smoothing at once. `TerrainCurveRecovery` is now
+split into its recovery implementation and `TerrainCurveRecovery.Breaklines.cs` reference preparation.
+
+Validation: 12 wall regression cases cover model-unit scaling, both directions, horizontal/diagonal and
+closed walls, planes/hills/spikes, gaps, multi-cell steps, invalid rails and reconstruction. Heights are
+checked between rail vertices as well as at them; the prepared reference retains one simple border.
+The focused wall/recovery run passed 21 cases; the plugin build passed with zero warnings/errors.
+The full managed Core/Rhino/Grasshopper suites were also run (native skips are not acceptance).
+Totals: Core 1,630 passed; Rhino 1,450 passed / 175 skipped; Grasshopper 56 passed / 18 skipped.
+
+In disposable Rhino, exact Debug plugin MVID `97e3453c-40bd-4d9a-8afd-e2b7b186fc6a`, two 1.5 m terrace
+steps plus a house produced two wall pairs (four light NURBS), two contours, one border and no spots.
+Residual was 0.225 m against the constrained reference at a 0.25 m target. Native rays at 19 stations
+along each output rail agreed with the check mesh within 0.01 m; layers, grouping and a single Undo
+restoring the source-only document passed. Evidence is under `.artifacts/scan-phase2/`.
+`Walls=No` was also run live: it wrote a separate root with no new wall curves and preserved the prior
+wall output. The viewport capture was visually reviewed, and the owned Rhino was closed afterward.
+
+Reference scan, current Phase 2 settings: 36 wall stretches, 162.8 m total paired centreline length;
+48,417 constrained reference vertices; 300 contours, 508 spots and one border, with a 0.524 m residual
+and `CurveBudgetSpent` at a 0.25 m target. This is measured against the new wall-constrained reference;
+it is not a ground-truth survey comparison. No tolerance claim is made for the default budget.
+Diagnostic wall extraction was about 0.93 s and recovery about 26 s on that run, not hosted performance
+acceptance. Set `MOLEHILL_SCAN_WALLS=1` in the reference measurement test to reproduce Phase 2.
+
+Commands used: the Phase 1 build and managed-suite commands below, plus
+`dotnet test tests/MoleHill.Core.Tests/MoleHill.Core.Tests.csproj --no-restore --filter "FullyQualifiedName~ScanWallsTests|FullyQualifiedName~TerrainCurveRecoveryTests" -v minimal`.
 
 ## Phase 1 implementation and validation (2026-10-18)
 
@@ -14,7 +62,7 @@ root, in one Undo step. `AddGroundMesh=Yes` adds a check mesh; it is off by defa
 respect document units. Esc cancels the ground worker before any output or stops recovery and keeps
 the curves found so far.
 
-This phase uses command-line options. The requested floating panel, staged preview and Keep workflow
+Phase 1 uses command-line options. The requested floating panel, staged preview and Keep workflow
 remain Phase 5; the full panel described below is the intended design. Colour, point clouds, walls,
 road edges and buildings are not implemented by Phase 1. Recovered contours are currently simplified
 polylines, as in B25; fitting them as light curves remains open.
@@ -263,13 +311,13 @@ Results preview in the viewport as they are computed, stage by stage; Keep write
 
 Re-phased after the decisions: the first deliverable is curves, so ground and contours come together.
 
-| Phase | Delivers | Main risk |
-|---|---|---|
-| 1 | S0, S1, S2, S7: contours and spot heights of the ground from a scan (mesh), houses removed | the filter on steep, terraced ground |
-| 2 | S4 walls and terrace edges, as breaklines the contours respect | chaining noisy steps into clean lines |
-| 3 | S5 + S6 paved and soft areas, kerbs and single road-edge breaklines; contours only in soft areas | shadows in the photo; kerbs below resolution |
-| 4 | S3 buildings with roof shapes | trees passing as buildings; roof segmentation on a smoothed mesh |
-| 5 | Point cloud input (S0), and the full panel | reading large clouds quickly |
+| Phase | Delivers | Main risk | Status |
+|---|---|---|---|
+| 1 | S0, S1, S2, S7: contours and spot heights of the ground from a scan (mesh), houses removed | the filter on steep, terraced ground | Checked; commit `fe69846` |
+| 2 | S4 walls and terrace edges, as breaklines the contours respect | chaining noisy steps into clean lines | Implemented and checked |
+| 3 | S5 + S6 paved and soft areas, kerbs and single road-edge breaklines; contours only in soft areas | shadows in the photo; kerbs below resolution | Next |
+| 4 | S3 buildings with roof shapes | trees passing as buildings; roof segmentation on a smoothed mesh | Planned |
+| 5 | Point cloud input (S0), and the full panel | reading large clouds quickly | Planned |
 
 Phase 1 alone replaces "trace the ground by hand"; phases 2 and 3 replace the draped breaklines. Buildings
 come fourth because nothing else depends on them (the ground filter only needs to know where they are,

@@ -43,6 +43,15 @@ first item, the component reads that, and the solve looks like a silent no-op.
 
 ## 1. Build before launching
 
+`mhScanToTerrain` Phase 2, 2026-10-18: exact Debug `.rhp` MVID
+`97e3453c-40bd-4d9a-8afd-e2b7b186fc6a`, owned disposable Rhino. Two 1.5 m terrace steps and a house
+gave two wall pairs (four light NURBS), two contours, a border and no spots, within 0.25 m against the
+wall-constrained ground (0.225 m residual). Native mesh rays at 19 stations per rail agreed within
+0.01 m; measured step user text, `Walls and edges` layer, grouping and one-command Undo back to the
+source-only scene passed. The multi-cell fixture specifically rejects double half-height wall output.
+Core reference measurement with `MOLEHILL_SCAN_WALLS=1` found 36 stretches (162.8 m), 300 contours and
+508 spots, with 0.524 m residual, budget spent. This does not claim a 0.25 m default-budget result.
+
 `mhScanToTerrain` Phase 1 was tested on 2026-10-18 in an owned disposable Rhino with the exact Debug
 `.rhp` (MVID `d3564ae4-cded-4704-9235-23c14d675f66`). A synthetic hillside with a house produced seven
 contours, one border and one spot at a 0.1918 m reconstruction miss (0.25 m target). The same source

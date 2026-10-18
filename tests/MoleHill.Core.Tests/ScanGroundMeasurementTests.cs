@@ -56,6 +56,26 @@ public class ScanGroundMeasurementTests(ITestOutputHelper output)
         timer.Restart();
         IndexedTriMesh mesh = ScanGroundMesher.Mesh(ground.Ground, 1.0);
         output.WriteLine($"mesh {mesh.VertexCount:N0} vertices in {timer.Elapsed.TotalSeconds:F2} s");
+        double[][] rails = Array.Empty<double[]>();
+        if (Environment.GetEnvironmentVariable("MOLEHILL_SCAN_WALLS") == "1")
+        {
+            timer.Restart();
+            IReadOnlyList<ScanWalls.Wall> walls = ScanWalls.Trace(ground.Ground, new()
+            {
+                MinimumHeight = 0.6,
+                MinimumLength = 3,
+                PlanTolerance = ground.Ground.CellSize,
+                VerticalTolerance = 0.1,
+                BorderMargin = 2,
+                MaximumWidth = 1,
+            }, mesh);
+            rails = walls.SelectMany(wall => new[] { wall.Top, wall.Toe }).ToArray();
+            output.WriteLine($"walls {walls.Count}, total length {walls.Sum(wall => wall.Length):F1} m in {timer.Elapsed.TotalSeconds:F2} s");
+            IndexedTriMesh? constrained = TerrainCurveRecovery.ConstrainReference(mesh, rails, 0.5, out string? error);
+            Assert.True(constrained.HasValue, error);
+            mesh = constrained.Value;
+            output.WriteLine($"constrained reference {mesh.VertexCount:N0} vertices");
+        }
 
         timer.Restart();
         int budget = int.TryParse(Environment.GetEnvironmentVariable("MOLEHILL_SCAN_MAX_CONTOURS"), out int requestedBudget)
@@ -68,6 +88,7 @@ public class ScanGroundMeasurementTests(ITestOutputHelper output)
             PlanTolerance = planTolerance,
             LandformLines = false,
             MaximumCurves = budget,
+            FixedBreaklines = rails,
         });
         output.WriteLine(
             $"curves in {timer.Elapsed.TotalSeconds:F1} s: {curves.Contours.Count} contours, {curves.SpotPointCount} spots, " +
