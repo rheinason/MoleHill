@@ -797,9 +797,9 @@ curves and spot points that rebuild it within a stated tolerance: landform lines
 points first, then contours where the rebuilt surface deviates most, repeated until within tolerance, so
 the terrain stays editable afterwards. B6 inverted: the output is editable input, not a reduced mesh.
 
-### B26 — Scan to terrain: ground, buildings, walls, kerbs and contours from a drone mesh — **Phases 1–3 implemented; later phases planned**
+### B26 — Scan to terrain: ground, buildings, walls, kerbs and contours from a drone mesh — **Phases 1–4 implemented; Phase 5 planned**
 
-**Phases 1–3 implemented 2026-10-18**, see `docs/scan-to-terrain-plan-2026-10-18.md` for validation and
+**Phases 1–4 implemented 2026-10-18**, see `docs/scan-to-terrain-plan-2026-10-18.md` for validation and
 the remaining phases. `mhScanToTerrain` filters raised objects, infers ground and outputs borders,
 contours and spots under a fresh `Scan {source}` root; check mesh opt-in. On the reference scan,
 102 large raised regions are removed and 34.4% of the footprint filled. The default 300-contour budget
@@ -811,7 +811,10 @@ tests confirmed full-height multi-cell steps, rail heights against the check mes
 Phase 3 adds diffuse UV classification, closed paved/soft boundaries, measured kerb pairs or single
 road edges, and fitted contours clipped to soft areas. Its reference run meets 0.25 m using 1,219
 contour fragments and 453 spots (budget 2,000); the default 300-fragment budget leaves 0.894 m.
-Buildings, point clouds and the floating preview panel remain open.
+Phase 4 adds fitted roof solids with measured fit evidence and explicitly flagged extrusion fallbacks.
+The textured native reference produced 52 valid closed Breps, including 20 fallbacks, all grouped with
+the scan output; metre/millimetre synthetic roof heights and one-command Undo passed.
+Point clouds and the floating preview panel remain open.
 The full goal: a photogrammetry mesh of a built site (houses, roads, gardens) becomes, on layers, simplified building volumes with
 roof shapes, wall and terrace edges as breaklines, paved and soft areas from the texture's colours,
 kerbs or single road-edge breaklines, and B25's contours restricted to the soft areas. Measured on the user's reference scan:

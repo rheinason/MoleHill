@@ -14,6 +14,7 @@ public static class ScanTerrainPipeline
         public ScanWalls.Options? Walls { get; init; }
         public ScanSurfaceAreas.Options? Areas { get; init; }
         public ScanRoadEdges.Options? Roads { get; init; }
+        public ScanBuildings.Options? Buildings { get; init; }
         public Action<string>? ReportProgress { get; init; }
     }
 
@@ -24,6 +25,7 @@ public static class ScanTerrainPipeline
         public required IReadOnlyList<ScanWalls.Wall> Walls { get; init; }
         public required IReadOnlyList<ScanRoadEdges.EdgeLine> Roads { get; init; }
         public ScanSurfaceAreas.Result? Areas { get; init; }
+        public ScanBuildings.Result? Buildings { get; init; }
         public int[]? SurfaceColours { get; init; }
         public required IReadOnlyList<double[]> FixedBreaklines { get; init; }
         public ITerrainRecoveryRegion? Region => Areas == null ? null : new ScanSoftRegion(Areas);
@@ -40,6 +42,12 @@ public static class ScanTerrainPipeline
         IndexedTriMesh reference = ScanGroundMesher.Mesh(ground.Ground, options.GroundSpacing);
         if (reference.IsEmpty)
             return new Result { Ground = ground, Reference = reference, Walls = Array.Empty<ScanWalls.Wall>(), Roads = Array.Empty<ScanRoadEdges.EdgeLine>(), FixedBreaklines = Array.Empty<double[]>() };
+        ScanBuildings.Result? buildings = null;
+        if (options.Buildings != null)
+        {
+            options.ReportProgress?.Invoke("Fitting building footprints and roof shapes");
+            buildings = ScanBuildings.Extract(scan, ground, rasters.Colours, options.Buildings);
+        }
         options.ReportProgress?.Invoke("Tracing wall top and toe lines");
         IReadOnlyList<ScanWalls.Wall> walls = options.Walls == null ? Array.Empty<ScanWalls.Wall>() : ScanWalls.Trace(ground.Ground, options.Walls, reference);
         var fixedLines = walls.SelectMany(wall => new[] { wall.Top, wall.Toe }).ToList();
@@ -71,7 +79,7 @@ public static class ScanTerrainPipeline
             options.ReportProgress?.Invoke("Preparing the reference with measured breaklines");
             reference = Prepare(reference, fixedLines);
         }
-        return new Result { Ground = ground, Reference = reference, Walls = walls, Roads = roads, Areas = areas, FixedBreaklines = fixedLines, SurfaceColours = rasters.Colours };
+        return new Result { Ground = ground, Reference = reference, Walls = walls, Roads = roads, Areas = areas, Buildings = buildings, FixedBreaklines = fixedLines, SurfaceColours = rasters.Colours };
 
         IndexedTriMesh Prepare(IndexedTriMesh mesh, IReadOnlyList<double[]> lines)
         {

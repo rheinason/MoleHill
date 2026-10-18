@@ -1,7 +1,66 @@
 # Scan to terrain: plan (2026-10-18)
 
-**Status:** Phases 1–3 implemented; validation and measured limits below. Phases 4–5 remain planned.
+**Status:** Phases 1–4 implemented and checked;
+Phase 5 remains planned.
 Backlog entry **B26**. Supersedes nothing; builds on B25 (`mhTerrainToCurves`).
+
+## Phase 4 implementation and validation (2026-10-18)
+
+`ScanBuildings` treats raised regions as candidates, fits planes to the original upward scan triangles,
+and grows connected plane regions across geometric adjacency (coincident UV seams are welded for this
+analysis only). Coplanar patches merge; small scattered planar patches do not establish a building.
+Colour supports vegetation rejection, with stronger coherent-plane evidence required for green turf
+roofs and for colour-free candidates. Low roofs, complex green roofs, occlusions and trees with planar
+canopies remain recognition limits.
+
+Footprints follow a dominant plan frame, straighten nearby parallel edges and retain meaningful
+courtyards. Diagonal contacts are closed within a raster cell to avoid four walls sharing one edge.
+Flat, shed, gable, hip, half-hip and crossing-gable templates are ranked by error and facet count.
+Continuous plane lattices and spatial plane arrangements are tried next; only after these fail does a
+median-height extrusion survive, explicitly marked `RoofFallback=Yes` with its diagnostic.
+
+The final shell, rather than only its mathematical roof function, is remeasured. A fitted model needs
+at least 90% of covered sample area within `RoofTolerance`, at least 85% sample coverage, and no roof
+vertex above the observed range plus twice that tolerance. Full RMS, tolerance share and coverage are
+reported separately. These are robust context models, not a tolerance guarantee at every scan point.
+Step junctions must be manifold; relabelling can only reduce bad junctions, after which accuracy is
+checked again. Every shell edge has exactly two opposite uses. The base is the lowest inferred ground
+along the footprint.
+
+`ScanBuildingFaces` coalesces connected coplanar shell triangles into faces with hole loops. The host
+creates trimmed planar faces and joins a valid outward closed Brep before adding any output; it does
+not convert and merge the entire triangle mesh in native code. Buildings share the scan root/group/Undo,
+on `Buildings`, carrying roof kind, eave/ridge/ground heights, plane count, fit evidence and fallback.
+They do not feed terrain inputs. `Buildings`, `BuildingArea`, `BuildingHeight` and `RoofTolerance` are
+interim command options; area cache values are physical square metres across document-unit changes.
+
+Current Core reference run with the actual atlas: 85 raised candidates, 51 solids; 23 vegetation and
+11 geometry rejections. Roofs: 11 gables, two cross gables, one half hip, one flat, 18 plane arrangements
+and 18 explicitly flagged extrusion fallbacks. This is not a counted ground-truth building inventory.
+The footprint overlay was inspected against the orthophoto. Diagnostic ground/building processing was
+about seven seconds; this is not hosted performance acceptance.
+
+Twenty-four building regressions cover canonical roofs, L plans, rotations, millimetres and survey
+coordinates, courtyards and diagonal contacts, turf roofs, rough/smooth canopies, noisy roofs, multiple
+roof levels, flagged fallback, cancellation and context-only pipeline behavior. Canonical closed shells
+are checked for opposite directed edge uses and roof heights; coplanar face counts are checked too.
+Full managed suites passed: Core 1,670; Rhino 1,450 / 175 native skips; Grasshopper 56 / 18 native skips.
+The normal plugin build passed with zero warnings/errors. Native skips are not live acceptance.
+
+Synthetic native testing checked six roof kinds as valid closed outward Breps with positive volume,
+grouping and one command Undo. Trimmed `CurveBrep` probes (not `RayShoot`, which ignores Brep trims)
+agreed with the analytic roofs within 0.027 m; simple models contain 6–13 planar faces.
+Final native testing used the normal Debug RHP MVID `95dd4eba-1f16-4604-9314-65b6152c4ec9`.
+Metre and millimetre fixtures retained all six roof kinds, fit accuracy and closed outward solids;
+`Buildings=No` emitted no Breps. One command Undo restored source-only documents.
+The UV-preserving textured reference produced 52 valid outward closed Breps with positive volume,
+including 20 flagged fallbacks; all 472 outputs were valid in one group, with the source retained.
+Its culled native triangulation differs from the Core measurement. This building check used a
+one-contour budget and disabled walls/areas/roads; its 6.386 m contour residual is budget spent,
+not terrain accuracy acceptance. Native trimming starts precisely to preserve short shared edges:
+an apparently valid trim at document tolerance moved edges and left gaps. Every joined solid is
+validated before document output. The owned disposable Rhino was closed after testing.
+Evidence: `.artifacts/scan-phase4/`.
 
 ## Phase 3 implementation and validation (2026-10-18)
 
@@ -400,7 +459,7 @@ Re-phased after the decisions: the first deliverable is curves, so ground and co
 | 1 | S0, S1, S2, S7: contours and spot heights of the ground from a scan (mesh), houses removed | the filter on steep, terraced ground | Checked; commit `fe69846` |
 | 2 | S4 walls and terrace edges, as breaklines the contours respect | chaining noisy steps into clean lines | Implemented and checked |
 | 3 | S5 + S6 paved and soft areas, kerbs and single road-edge breaklines; contours only in soft areas | shadows in the photo; kerbs below resolution | Implemented and checked |
-| 4 | S3 buildings with roof shapes | trees passing as buildings; roof segmentation on a smoothed mesh | Planned |
+| 4 | S3 buildings with roof shapes | trees passing as buildings; roof segmentation on a smoothed mesh | Implemented and checked |
 | 5 | Point cloud input (S0), and the full panel | reading large clouds quickly | Planned |
 
 Phase 1 alone replaces "trace the ground by hand"; phases 2 and 3 replace the draped breaklines. Buildings

@@ -17,6 +17,62 @@ public class ScanGroundMeasurementTests(ITestOutputHelper output)
 {
     [Fact]
     [Trait("Category", "Performance")]
+    public void Measure_ReferenceBuildings()
+    {
+        string? path = Environment.GetEnvironmentVariable("MOLEHILL_SCAN_OBJ");
+        if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+        {
+            output.WriteLine("Not measured: set MOLEHILL_SCAN_OBJ to the reference OBJ in metres.");
+            return;
+        }
+        IndexedTriMesh scan = ReadObj(path, out float[] uv);
+        ScanColourSource? colours = null;
+        string? texture = Environment.GetEnvironmentVariable("MOLEHILL_SCAN_TEXTURE_RGB");
+        if (!string.IsNullOrWhiteSpace(texture) && File.Exists(texture))
+        {
+            using var bitmap = new BinaryReader(File.OpenRead(texture));
+            int width = bitmap.ReadInt32(), height = bitmap.ReadInt32();
+            colours = new ScanColourSource(new ScanTexture(width, height, bitmap.ReadBytes(checked(width * height * 3))), uv);
+        }
+        var timer = Stopwatch.StartNew();
+        ScanTerrainPipeline.Result result = ScanTerrainPipeline.Build(scan, colours, new()
+        {
+            Ground = new() { SmallestObject = 2, LargestObject = 48, InitialThreshold = .3, MaximumThreshold = 4, Margin = .5, MinimumObjectArea = 20 },
+            GroundSpacing = 1, PlanTolerance = .5,
+            Buildings = new() { MinimumArea = 20, MinimumHeight = 2, FootprintTolerance = .5, RoofTolerance = .3 },
+            ReportProgress = stage => output.WriteLine($"{timer.Elapsed.TotalSeconds:F2}s: {stage}"),
+        });
+        ScanBuildings.Result buildings = result.Buildings!;
+        string measurement = $"buildings {timer.Elapsed.TotalSeconds:F2}s: {buildings.CandidateCount} candidates; {buildings.Buildings.Count} solids; " +
+            $"{buildings.RejectedVegetation} vegetation / {buildings.RejectedGeometry} geometry rejected; " +
+            string.Join(", ", buildings.Buildings.GroupBy(building => building.RoofKind).Select(group => $"{group.Key}={group.Count()}"));
+        output.WriteLine(measurement);
+        string? folder = Environment.GetEnvironmentVariable("MOLEHILL_SCAN_IMAGES");
+        if (!string.IsNullOrWhiteSpace(folder))
+        {
+            Directory.CreateDirectory(folder);
+            File.WriteAllText(Path.Combine(folder, "buildings.txt"), measurement);
+            File.WriteAllText(Path.Combine(folder, "buildings.json"), System.Text.Json.JsonSerializer.Serialize(new
+            {
+                result.Ground.Surface.OriginX, result.Ground.Surface.OriginY, result.Ground.Surface.Columns,
+                result.Ground.Surface.Rows, result.Ground.Surface.CellSize,
+                Buildings = buildings.Buildings.Select(building => new
+                {
+                    RoofKind = building.RoofKind.ToString(), building.Footprints, building.GroundHeight,
+                    building.EaveHeight, building.RidgeHeight, building.RoofRms, building.RoofWithinToleranceShare,
+                    building.RoofSampleCoverage,
+                    PlanarFaceCount = building.PlanarFaces.Count,
+                    building.PlanarShare, building.FootprintArea, building.RoofPlaneCount,
+                    building.Solid.Vertices, building.Solid.Faces, building.Diagnostic,
+                }),
+            }));
+        }
+        Assert.NotEmpty(buildings.Buildings);
+        Assert.All(buildings.Buildings, building => Assert.False(building.Solid.IsEmpty));
+    }
+
+    [Fact]
+    [Trait("Category", "Performance")]
     public void Measure_ReferenceSurfaces()
     {
         string? path = Environment.GetEnvironmentVariable("MOLEHILL_SCAN_OBJ");

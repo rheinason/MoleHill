@@ -43,6 +43,21 @@ first item, the component reads that, and the solve looks like a silent no-op.
 
 ## 1. Build before launching
 
+`mhScanToTerrain` Phase 4, 2026-10-18: normal Debug RHP MVID
+`95dd4eba-1f16-4604-9314-65b6152c4ec9`, Core `432b1e97-33fc-4ec7-b220-2a72e5c36fbd`, owned
+disposable Rhino. Six synthetic roofs (flat, shed, gable, hip, half hip, crossing gable) produced
+valid outward closed Breps with 6–13 faces; trimmed vertical `CurveBrep` probes agreed within 0.027 m.
+Metre/millimetre models retained roof kinds and accuracy. `Buildings=No` emitted no Breps. Single
+command Undo restored source-only scenes. `Intersection.RayShoot` ignores Brep trims and must not be
+used to assert roof coverage. The actual textured UV-preserving reference produced 52 valid outward
+closed Breps with positive volumes, 20 marked extrusion fallbacks, and 472 valid grouped outputs;
+the source remained and one command Undo restored it alone. This check disabled walls/areas/roads
+and used one contour: 6.386 m residual, explicitly budget spent. It is building conversion acceptance,
+not contour acceptance. Start planar trimming precisely: document-tolerance trims can be valid yet
+move tiny shared edges, leaving gaps after joining. Full managed suites: Core 1,670; Rhino 1,450 plus
+175 skips; Grasshopper 56 plus 18 skips. Plugin build passed with zero warnings/errors. Evidence:
+`.artifacts/scan-phase4/`. The owned slot was closed after testing.
+
 `mhScanToTerrain` Phase 3, 2026-10-18: exact normal Debug `.rhp` MVID
 `68fadd2e-22a1-472b-b544-0dae906d8221`, owned disposable Rhino. A textured road and lawn mound,
 half shadowed, produced three closed NURBS areas, four measured kerb pairs, two single edges, one

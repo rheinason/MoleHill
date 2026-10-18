@@ -32,7 +32,7 @@ Supports NURBS curves, polylines and lines; convert other curve types to NURBS f
 
 ## Folders
 
-`mhScanToTerrain` (Phases 1–3) takes a Z-up photogrammetry mesh and infers ground beneath raised objects,
+`mhScanToTerrain` (Phases 1–4) takes a Z-up photogrammetry mesh and infers ground beneath raised objects,
 then outputs editable borders, contours and spot points on separate layers under a fresh `Scan {source}`
 root. Enter starts with command-line settings; Esc cancels ground extraction or stops contour recovery
 and keeps its partial result. `AddGroundMesh=Yes` adds the internal ground mesh for checking. Defaults
@@ -45,7 +45,11 @@ and writes closed paved/soft boundaries; contours, spots and residual evaluation
 ground only. `RoadEdges=Yes` outputs measured kerb pairs where the step is clear, otherwise a single
 road-edge curve. Without colour, only measured geometry-supported kerbs are available. Scan contours
 are fitted NURBS where a smooth fit stays inside the region and height tolerance, with linear fallback.
-Buildings, point clouds and the floating preview/Keep panel remain later phases.
+`Buildings=Yes` fits roof context as closed Breps on `Buildings`, with `BuildingArea`, `BuildingHeight`
+and `RoofTolerance` controls. Models include fitted roof shapes and explicitly flagged median-height
+extrusion fallbacks. Metadata records roof kind, fit RMS, tolerance share, sample coverage and heights.
+They are context and do not become terrain inputs. Point clouds and the floating preview/Keep panel
+remain later phases.
 See the [plan](../../docs/scan-to-terrain-plan-2026-10-18.md).
 On the reference scan, the Phase 2 default 300-contour budget leaves about 0.52 m residual. A Phase 1 Core run with
 `Tolerance=0.25`, `PlanTolerance=0.1`, `MaxContours=1000` and `RidgesValleys=No` met 0.25 m against

@@ -1,6 +1,28 @@
 # Scan ground recovery
 
-Phases 1–3 of [scan to terrain](../../../docs/scan-to-terrain-plan-2026-10-18.md), independent of Rhino.
+Phases 1–4 of [scan to terrain](../../../docs/scan-to-terrain-plan-2026-10-18.md), independent of Rhino.
+
+`ScanBuildings` extracts building context without changing the terrain reference or fixed breaklines.
+Its `.Footprints` partial finds dominant axes and regularises outlines, preserving courtyards and
+closing diagonal contacts that would otherwise create non-manifold vertical edges. `.Planes` captures
+upward scan triangles, welds UV seams for adjacency, grows connected robustly fitted plane regions,
+and merges coplanar regions. Colour supports vegetation rejection; coherent planar turf roofs remain
+eligible, and colour-free input requires stronger dominant-plane evidence.
+
+`.Roofs` ranks flat/shed, gable, hip/half-hip and crossing-gable templates by measured error and facet
+count. It then tries continuous plane lattices and spatial plane arrangements before a flagged
+median-height extrusion. `.Solid` partitions the footprint by plane intersections and spatial patch
+cuts, closes roof steps, walls and the level base, and checks every directed shell edge. `.Junctions`
+removes alternating spatial labels that would make four walls share one vertical edge; every edit
+must reduce the number of bad junctions, and the final shell is remeasured. Accepted roofs put at least
+90% of covered scan-sample area within `RoofTolerance`, with at least 85% sample coverage; these are
+robust context models, not an all-sample tolerance promise. RMS, coverage and fallback are explicit.
+Green complex roofs, low buildings and noisy or occluded roof patches remain classification limits.
+
+`ScanBuildingFaces` coalesces the validated triangulated shell into connected planar faces with hole
+loops. It retains junction vertices shared by three or more face groups and removes redundant straight
+vertices elsewhere; the host creates trimmed planar faces and joins one closed Brep per building,
+instead of converting and merging every triangle in native code.
 
 `ScanTerrainPipeline` orchestrates one rasterisation, ground, wall-constrained reference, surface areas,
 road profiles and the final reference with fixed breaklines. `ScanColourSource` accepts triangle colours

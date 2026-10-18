@@ -186,8 +186,14 @@ TriangleNet (vendored)  ←  MoleHill.Core  ←  MoleHill.Grasshopper (GH host)
   and deviation to soft ground, retaining holes. Each error pick adds only its nearest clipped fragment.
   `.Region.cs` owns clipping; `.Fitting.cs` fits contours before reconstruction, with a linear fallback
   where a smooth curve would cross paving or exceed the height tolerance. `.Surfaces.cs` writes native
-  area/road curves; shared `AddOutput` accepts a contour factory. Buildings, point clouds and the floating
-  review panel remain planned.
+  area/road curves; shared `AddOutput` accepts a contour factory.
+  Phase 4's `ScanBuildings` consumes raised surface regions and original upward scan faces; it does not
+  modify terrain inputs. Its footprint/plane/roof/solid/junction partials regularise outlines, reject
+  vegetation using colour plus coherent planes, fit roof templates and general arrangements, and
+  validate closed shells. Every chosen shell is measured against roof samples before output, with
+  explicit robust fit, coverage and fallback metadata. `ScanBuildingFaces` coalesces planar regions in
+  Core; `.Buildings.cs` creates trimmed faces and joins valid closed Breps before document mutation.
+  All building context shares the scan root, group and Undo. Point clouds and the review panel remain open.
 - **`mhSuggestRoute` drafts the curve; Grade Path still follows it.** Modifiers follow drawn geometry
   exactly, so help with *where* a path should go belongs upstream, in a command that draws the curve.
   The user picks a terrain (any mesh/surface, or Enter for the active MoleHill terrain, as
