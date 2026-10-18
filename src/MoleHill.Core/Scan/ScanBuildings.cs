@@ -75,7 +75,7 @@ public static partial class ScanBuildings
 
     private sealed record PlaneRegion(RoofPlane Plane, List<int> Samples, double Area, double Rms);
 
-    public static Result Extract(IndexedTriMesh scan, ScanGround.Result ground, int[]? surfaceColours, Options options)
+    public static Result Extract(IndexedTriMesh scan, ScanGround.Result ground, int[]? surfaceColours, Options options, byte[]? surfaceClasses = null)
     {
         ArgumentNullException.ThrowIfNull(ground);
         ArgumentNullException.ThrowIfNull(options);
@@ -88,6 +88,8 @@ public static partial class ScanBuildings
         ScanGrid surface = ground.Surface;
         if (surfaceColours != null && surfaceColours.Length != surface.NodeCount)
             throw new ArgumentException("Colours must align with the scan surface.", nameof(surfaceColours));
+        if (surfaceClasses != null && surfaceClasses.Length != surface.NodeCount)
+            throw new ArgumentException("Classes must align with the scan surface.", nameof(surfaceClasses));
         options.CancellationToken.ThrowIfCancellationRequested();
         var raised = new bool[surface.NodeCount];
         for (int node = 0; node < raised.Length; node++)
@@ -131,6 +133,11 @@ public static partial class ScanBuildings
         foreach (Candidate candidate in candidates.Values)
         {
             options.CancellationToken.ThrowIfCancellationRequested();
+            if (surfaceClasses != null && candidate.Nodes.Count(node => surfaceClasses[node] is >= 3 and <= 5) > candidate.Nodes.Count * .5)
+            {
+                vegetation++;
+                continue;
+            }
             int coloured = 0, green = 0;
             foreach (int node in candidate.Nodes)
             {

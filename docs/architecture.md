@@ -165,17 +165,17 @@ TriangleNet (vendored)  ←  MoleHill.Core  ←  MoleHill.Grasshopper (GH host)
   steps by their raised perimeter, removes narrow ground scraps, and harmonically fills the largest
   footprint. Ground at fill edges uses a local median to suppress isolated wall-foot heights.
   `ScanGroundMesher` averages to a coarser spacing, preserving simple border loops for `TerrainCurveRecovery`.
-  The host reads a Z-up mesh and writes borders, contours, ridge/valley lines when requested, and spot
+  The host reads a Z-up mesh or cloud and writes borders, contours, ridge/valley lines when requested, and spot
   points under a fresh `Scan {source}` root in one Undo operation. Ground mesh output is an opt-in check.
-  Physical defaults use document units. Esc cancels the ground worker before output; during recovery it
-  keeps the curves found so far. Tolerance is checked against inferred ground vertices, not hidden surveyed
+  Physical defaults use document units. Esc/Cancel discards this scan preview before output; Keep accepts
+  a completed preview. Tolerance is checked against inferred ground vertices, not hidden surveyed
   ground. A spent curve budget is reported with the residual error. Phase 2's `ScanWalls` combines narrow
   bands of unexplained rises into paired measured top/toe rails, rejecting short fragments, broad ramps
   and fits outside the footprint. The route fitter supplies light NURBS on `Walls and edges`.
   `TerrainCurveRecovery.ConstrainReference` inserts their sampled lines before contouring, excluding
   old averages on the lines, and `FixedBreaklines` holds them through every rebuild, including landform
   trials. `TerrainCurveRecovery.Breaklines.cs` owns reference preparation; the root partial owns recovery.
-  `Walls`, `WallHeight` and `WallLength` are command options; physical defaults use document units.
+  Wall controls live on the floating panel; physical defaults use document units.
   `ScanMeshReader` captures diffuse bitmap bytes and face-corner UVs on the UI thread, preserving scan
   seams; vertex colours are the fallback. Pure `ScanTerrainPipeline` builds the wall-constrained
   reference before `ScanSurfaceAreas` classifies observed ground from chromaticity, slope and roughness.
@@ -193,7 +193,19 @@ TriangleNet (vendored)  ←  MoleHill.Core  ←  MoleHill.Grasshopper (GH host)
   validate closed shells. Every chosen shell is measured against roof samples before output, with
   explicit robust fit, coverage and fallback metadata. `ScanBuildingFaces` coalesces planar regions in
   Core; `.Buildings.cs` creates trimmed faces and joins valid closed Breps before document mutation.
-  All building context shares the scan root, group and Undo. Point clouds and the review panel remain open.
+  All building context shares the scan root, group and Undo.
+  `ScanPointCloud` bins original observations directly, preserving top/lowest heights, colours and LAS
+  classes. Observed four-corner cells alone become roof-fit triangles. Supplied class-2 ground anchors
+  override inferred heights and report disagreements against the independently run filter; classes 3–5
+  exclude vegetation candidates. `IsGround` still describes the top observation, excluding roofs above
+  a lower ground return from measured step/colour evidence. The host reads retained class bytes from
+  `PointCloud.UserDictionary["MoleHill.Scan.Classification"]`; source importers must retain them.
+  `UI/ScanToTerrainDialog` is a document-parented semi-modal panel with every setting and output/preview
+  toggle, asynchronous debounced computation, staged viewport output and Keep/Cancel. Core publishes
+  stage snapshots; the UI marshals them and ignores stale generations. `ScanToTerrainSettings` owns
+  physical cache conversion (saved only on Keep); `ScanToTerrainPreview` owns disposable native display
+  geometry. Preview changes no document objects or source visibility. Keep validates building Breps
+  before the existing shared output writer creates the fresh root/group. See [Scan to Terrain](scan-to-terrain.md).
 - **`mhSuggestRoute` drafts the curve; Grade Path still follows it.** Modifiers follow drawn geometry
   exactly, so help with *where* a path should go belongs upstream, in a command that draws the curve.
   The user picks a terrain (any mesh/surface, or Enter for the active MoleHill terrain, as

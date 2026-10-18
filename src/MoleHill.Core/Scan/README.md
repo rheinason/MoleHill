@@ -1,6 +1,6 @@
 # Scan ground recovery
 
-Phases 1–4 of [scan to terrain](../../../docs/scan-to-terrain-plan-2026-10-18.md), independent of Rhino.
+Pure [scan to terrain](../../../docs/scan-to-terrain.md) analysis, independent of Rhino.
 
 `ScanBuildings` extracts building context without changing the terrain reference or fixed breaklines.
 Its `.Footprints` partial finds dominant axes and regularises outlines, preserving courtyards and
@@ -64,7 +64,7 @@ editable curves and spots; the ground mesh is an internal intermediate.
 
 Ground under an object is inferred, especially uncertain where it meets a terrace step. This filter
 is geometric only: raised regions include vegetation and cars, and the object count is not a building
-count. Neither colour classification nor roof/kerb reconstruction is implemented here yet.
+count. Roof, surface and kerb classification are separate stages over that inferred ground.
 
 `ScanWalls` traces Phase 2 top/toe pairs from narrow bands of unexplained rises, with the ground trend
 measured outside the band. It merges a wall spread over multiple cells, rejects broad ramps and short
@@ -85,3 +85,24 @@ An ordinary managed run without that OBJ does not exercise the reference scan. M
 reports termination as well as error; successful execution does not imply the requested tolerance was
 reached. These timings are observations,
 not hosted performance acceptance or a claimed speed improvement.
+
+
+`ScanPointCloud` captures flat XYZ with optional packed RGB and LAS class bytes. It bins original
+observations into top, lowest and classified-ground heights without triangulating the source cloud.
+The top observation supplies colour and class. Empty nodes remain NaN; explicit cells beyond the
+16-million-node limit are rejected before allocation. Automatic cells target four observations per
+bin, with a dimension-aware cap. Sparse clouds need a larger user cell; no source gaps are bridged
+for roof fitting. Only four observed neighbouring nodes produce roof-fit triangles.
+
+The cloud pipeline uses the same later stages as mesh input. Class 2 ground observations become height
+anchors, including below roofs, while unclassified areas retain filtered anchors. The morphological
+filter runs independently to report disagreements above its initial allowance. Supplied ground is
+trusted rather than silently discarded; `IsGround` still describes the observed top surface, so an
+upper roof return never becomes measured kerb or paving evidence. Majority classes 3–5 exclude a
+vegetation candidate even when its canopy looks planar. Unclassified clouds still work geometrically.
+
+`ScanTerrainPipeline.Options.ReportPreview` publishes immutable stage snapshots after ground,
+buildings, walls, areas and final reference preparation. Fixed-line lists are copied so later stages
+cannot change earlier snapshots. Hosts marshal these callbacks to the UI and discard stale generations;
+Core retains no preview geometry or document handles. `ScanPointCloudTests` covers observations/classes,
+ground anchors/disagreements, vegetation, roofs, units, sparse gaps, stage callbacks, caps and cancellation.

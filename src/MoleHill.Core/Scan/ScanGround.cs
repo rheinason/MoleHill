@@ -3,7 +3,7 @@ using MoleHill.Core.Engine;
 namespace MoleHill.Core.Scan;
 
 /// <summary>
-/// The bare ground under a scan (S1 + S2 of docs/scan-to-terrain-plan-2026-10-18.md): rasterise the top
+/// The bare ground under a scan (docs/scan-to-terrain.md): rasterise the top
 /// surface, find what stands on the ground (houses, cars, trees, bushes), take it away and rebuild the
 /// ground beneath it smoothly from the ground around.
 /// <para><b>Filter.</b> The progressive morphological filter (Zhang et al. 2003): open the surface with
@@ -81,6 +81,9 @@ public static class ScanGround
         public required double FilledArea { get; init; }
 
         public double FilledShare => DomainArea > 0.0 ? FilledArea / DomainArea : 0.0;
+
+        public int ClassifiedGroundNodes { get; init; }
+        public int ClassifiedGroundDisagreements { get; init; }
     }
 
     public static Result Build(IndexedTriMesh scan, Options options)
@@ -196,6 +199,35 @@ public static class ScanGround
             StepCount = stepCount,
             DomainArea = domainNodes * surface.NodeArea,
             FilledArea = filledNodes * surface.NodeArea,
+        };
+    }
+
+    /// <summary>Use supplied LAS ground observations as height anchors, retaining filtered ground
+    /// elsewhere. The filter is also run as an independent disagreement check, not used to discard
+    /// supplied ground. IsGround still describes the observed top surface, so a roof over a ground
+    /// return is not offered as evidence for a kerb or paving.</summary>
+    internal static Result WithClassifiedGround(Result filtered, ScanGrid supplied, Options options)
+    {
+        var anchors = (bool[])filtered.IsGround.Clone();
+        var heights = (double[])filtered.Ground.Values.Clone();
+        var observed = (bool[])filtered.IsGround.Clone();
+        int count = 0, disagreements = 0;
+        for (int node = 0; node < supplied.NodeCount; node++)
+        {
+            if (!filtered.Domain[node] || !double.IsFinite(supplied.Values[node])) continue;
+            count++;
+            if (Math.Abs(supplied.Values[node] - filtered.Ground.Values[node]) > options.InitialThreshold) disagreements++;
+            heights[node] = supplied.Values[node]; anchors[node] = true;
+            observed[node] = Math.Abs(filtered.Surface.Values[node] - supplied.Values[node]) <= options.InitialThreshold;
+        }
+        if (count == 0) return filtered;
+        double[] ground = HarmonicFill.Fill(heights, anchors, filtered.Domain, supplied.Columns, supplied.Rows, options.CancellationToken);
+        return new Result
+        {
+            Surface = filtered.Surface, Ground = supplied.WithValues(ground), Domain = filtered.Domain, IsGround = observed,
+            ObjectCount = filtered.ObjectCount, StepCount = filtered.StepCount, DomainArea = filtered.DomainArea,
+            FilledArea = filtered.Domain.Where((inside, node) => inside && !anchors[node]).Count() * supplied.NodeArea,
+            ClassifiedGroundNodes = count, ClassifiedGroundDisagreements = disagreements,
         };
     }
 

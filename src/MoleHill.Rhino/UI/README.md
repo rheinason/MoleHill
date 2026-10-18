@@ -7,6 +7,14 @@ Layer source popovers use a native `GridView` for available layers. Filtering re
 keyboard navigation only selects and scrolls the existing rows. Enter commits the selected layer and
 Escape closes the popup from either the search box or the grid.
 
+- `ScanToTerrainDialog.cs` — the document-parented semi-modal `mhScanToTerrain` panel for mesh/cloud
+  input. All settings, output and preview toggles live in one scrollable surface, with fixed status
+  and Keep/Cancel buttons. Changes debounce and cancel older pure workers; generation checks discard
+  stale results and Keep accepts only the current completed preview. Native viewport resources belong
+  to `Services/Commands/ScanToTerrainPreview`; the dialog adds no document objects. Closing owns timer,
+  Escape-handler and conduit cleanup. Settings use model-unit length/area labels and shared slope
+  parsing. See [Scan to Terrain](../../../docs/scan-to-terrain.md).
+
 - `CurveProfileControl.cs` — the read-only plan-station chart in `mhInspectCurve`. It paints the curve
   coloured by the selected metric, the terrain line, violation bands, events, a scrub cursor with its
   readout, and the legend ramp that says what the colours mean. Colour comes from the service-side

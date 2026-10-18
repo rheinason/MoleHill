@@ -16,6 +16,7 @@ public static class ScanTerrainPipeline
         public ScanRoadEdges.Options? Roads { get; init; }
         public ScanBuildings.Options? Buildings { get; init; }
         public Action<string>? ReportProgress { get; init; }
+        public Action<Result>? ReportPreview { get; init; }
     }
 
     public sealed class Result
@@ -37,29 +38,57 @@ public static class ScanTerrainPipeline
         options.ReportProgress?.Invoke("Rasterising scan triangles and colours");
         double cell = options.Ground.CellSize > 0 ? options.Ground.CellSize : ScanRasterizer.AutomaticCellSize(scan);
         ScanRasterizer.Rasters rasters = ScanRasterizer.Rasterize(scan, cell, options.Ground.CancellationToken, colours);
+        return BuildRasters(scan, rasters.Top, rasters.Colours, options);
+    }
+
+    public static Result Build(ScanPointCloud cloud, Options options)
+    {
+        ArgumentNullException.ThrowIfNull(cloud); ArgumentNullException.ThrowIfNull(options);
+        options.ReportProgress?.Invoke("Binning cloud observations and colours");
+        double cell = options.Ground.CellSize > 0 ? options.Ground.CellSize : cloud.AutomaticCellSize();
+        ScanPointCloud.Raster raster = cloud.Rasterize(cell, options.Ground.CancellationToken);
+        IndexedTriMesh roofs = options.Buildings == null ? IndexedTriMesh.Empty : raster.RoofMesh(options.Ground.CancellationToken);
+        return BuildRasters(roofs, raster.Top, raster.Colours, options, raster.ClassifiedGround, raster.Classes);
+    }
+
+    private static Result BuildRasters(IndexedTriMesh scan, ScanGrid top, int[]? colours, Options options,
+        ScanGrid? classifiedGround = null, byte[]? classes = null)
+    {
         options.ReportProgress?.Invoke("Finding and filling the ground");
-        ScanGround.Result ground = ScanGround.FromSurface(rasters.Top, options.Ground);
+        ScanGround.Result ground = ScanGround.FromSurface(top, options.Ground);
+        if (classifiedGround != null)
+            ground = ScanGround.WithClassifiedGround(ground, classifiedGround, options.Ground);
         IndexedTriMesh reference = ScanGroundMesher.Mesh(ground.Ground, options.GroundSpacing);
         if (reference.IsEmpty)
             return new Result { Ground = ground, Reference = reference, Walls = Array.Empty<ScanWalls.Wall>(), Roads = Array.Empty<ScanRoadEdges.EdgeLine>(), FixedBreaklines = Array.Empty<double[]>() };
         ScanBuildings.Result? buildings = null;
+        IReadOnlyList<ScanWalls.Wall> walls = Array.Empty<ScanWalls.Wall>();
+        ScanSurfaceAreas.Result? areas = null;
+        IReadOnlyList<ScanRoadEdges.EdgeLine> roads = Array.Empty<ScanRoadEdges.EdgeLine>();
+        var fixedLines = new List<double[]>();
+        Result Snapshot() => new() { Ground = ground, Reference = reference, Walls = walls, Roads = roads, Areas = areas,
+            Buildings = buildings, FixedBreaklines = fixedLines.ToArray(), SurfaceColours = colours };
+        options.ReportPreview?.Invoke(Snapshot());
         if (options.Buildings != null)
         {
             options.ReportProgress?.Invoke("Fitting building footprints and roof shapes");
-            buildings = ScanBuildings.Extract(scan, ground, rasters.Colours, options.Buildings);
+            buildings = ScanBuildings.Extract(scan, ground, colours, options.Buildings, classes);
+            options.ReportPreview?.Invoke(Snapshot());
         }
         options.ReportProgress?.Invoke("Tracing wall top and toe lines");
-        IReadOnlyList<ScanWalls.Wall> walls = options.Walls == null ? Array.Empty<ScanWalls.Wall>() : ScanWalls.Trace(ground.Ground, options.Walls, reference);
-        var fixedLines = walls.SelectMany(wall => new[] { wall.Top, wall.Toe }).ToList();
+        walls = options.Walls == null ? Array.Empty<ScanWalls.Wall>() : ScanWalls.Trace(ground.Ground, options.Walls, reference);
+        fixedLines.AddRange(walls.SelectMany(wall => new[] { wall.Top, wall.Toe }));
         if (fixedLines.Count > 0)
         {
             options.ReportProgress?.Invoke("Preparing the reference with measured wall lines");
             reference = Prepare(reference, fixedLines);
         }
         options.ReportProgress?.Invoke("Classifying and tracing paved and soft areas");
-        ScanSurfaceAreas.Result? areas = options.Areas == null || colours == null ? null : ScanSurfaceAreas.Classify(ground, rasters.Colours, options.Areas, reference);
+        options.ReportPreview?.Invoke(Snapshot());
+        areas = options.Areas == null || colours == null ? null : ScanSurfaceAreas.Classify(ground, colours, options.Areas, reference);
+        options.ReportPreview?.Invoke(Snapshot());
         options.ReportProgress?.Invoke("Measuring kerbs and road edges");
-        IReadOnlyList<ScanRoadEdges.EdgeLine> roads = options.Roads == null ? Array.Empty<ScanRoadEdges.EdgeLine>() : areas == null
+        roads = options.Roads == null ? Array.Empty<ScanRoadEdges.EdgeLine>() : areas == null
             ? ScanRoadEdges.TraceGeometry(ground, options.Roads, reference)
             : ScanRoadEdges.Trace(ground, areas, options.Roads, reference);
         if (areas != null)
@@ -79,7 +108,7 @@ public static class ScanTerrainPipeline
             options.ReportProgress?.Invoke("Preparing the reference with measured breaklines");
             reference = Prepare(reference, fixedLines);
         }
-        return new Result { Ground = ground, Reference = reference, Walls = walls, Roads = roads, Areas = areas, Buildings = buildings, FixedBreaklines = fixedLines, SurfaceColours = rasters.Colours };
+        Result result = Snapshot(); options.ReportPreview?.Invoke(result); return result;
 
         IndexedTriMesh Prepare(IndexedTriMesh mesh, IReadOnlyList<double[]> lines)
         {

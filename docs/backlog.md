@@ -797,32 +797,9 @@ curves and spot points that rebuild it within a stated tolerance: landform lines
 points first, then contours where the rebuilt surface deviates most, repeated until within tolerance, so
 the terrain stays editable afterwards. B6 inverted: the output is editable input, not a reduced mesh.
 
-### B26 — Scan to terrain: ground, buildings, walls, kerbs and contours from a drone mesh — **Phases 1–4 implemented; Phase 5 planned**
+### Smaller command follow-ups
 
-**Phases 1–4 implemented 2026-10-18**, see `docs/scan-to-terrain-plan-2026-10-18.md` for validation and
-the remaining phases. `mhScanToTerrain` filters raised objects, infers ground and outputs borders,
-contours and spots under a fresh `Scan {source}` root; check mesh opt-in. On the reference scan,
-102 large raised regions are removed and 34.4% of the footprint filled. The default 300-contour budget
-leaves a 0.513 m miss against inferred ground at a 0.25 m target, explicitly reported as budget spent.
-A tighter Core reference run (`PlanTolerance=0.1`, budget 1,000) meets 0.25 m using 665 contours and 633 spots.
-Phase 2 adds measured wall top/toe NURBS held as fixed breaklines throughout contour recovery; 36
-stretches (162.8 m) on the reference scan, with a 0.524 m contour residual at the default budget. Native
-tests confirmed full-height multi-cell steps, rail heights against the check mesh, output layers and Undo.
-Phase 3 adds diffuse UV classification, closed paved/soft boundaries, measured kerb pairs or single
-road edges, and fitted contours clipped to soft areas. Its reference run meets 0.25 m using 1,219
-contour fragments and 453 spots (budget 2,000); the default 300-fragment budget leaves 0.894 m.
-Phase 4 adds fitted roof solids with measured fit evidence and explicitly flagged extrusion fallbacks.
-The textured native reference produced 52 valid closed Breps, including 20 fallbacks, all grouped with
-the scan output; metre/millimetre synthetic roof heights and one-command Undo passed.
-Point clouds and the floating preview panel remain open.
-The full goal: a photogrammetry mesh of a built site (houses, roads, gardens) becomes, on layers, simplified building volumes with
-roof shapes, wall and terrace edges as breaklines, paved and soft areas from the texture's colours,
-kerbs or single road-edge breaklines, and B25's contours restricted to the soft areas. Measured on the user's reference scan:
-buildings separate cleanly and their roofs fit 2 to 6 planes; walls read clearly; 10 to 15 cm kerbs are at
-the mesh's resolution limit. Decided 2026-10-18: roof shapes straight away, a kerb where the step is
-clear and a single breakline otherwise, curves only (no ground mesh output), point clouds as a second input.
-
-Smaller, recorded together: a **minimum-fall mode** on `mhSlopeCurveSection` (re-profile only the flat or
+A **minimum-fall mode** on `mhSlopeCurveSection` (re-profile only the flat or
 uphill parts), and **more fixes in `mhValidateTerrainInputs`**.
 
 ---

@@ -43,6 +43,35 @@ first item, the component reads that, and the solve looks like a silent no-op.
 
 ## 1. Build before launching
 
+`mhScanToTerrain` Phase 5, 2026-10-18: the combined reference check used normal Debug RHP
+`7c5e7fdf-cf0e-4c66-a17a-f0b46437a0c0` / Core `1b80fe4e-4b5c-4f4e-910b-332e24cbb37e`.
+The actual textured UV-preserving mesh produced 1,418 valid grouped objects: 52 closed outward
+positive-volume building Breps (20 marked fallbacks), 502 closed area NURBS, 34 wall pairs, one kerb
+pair, 249 single road edges, 300 contours and 244 spots. All 30,300 native contour samples and every
+spot were inside an independently recomputed soft mask. The 0.25 m target was **not** reached at
+budget 300: final residual 0.8937 m, explicitly reported. Preview retained the source-only document;
+Keep wrote the group and one command Undo restored the source alone. Undo/Redo and the kept viewport
+were inspected. The panel was captured at real `GetWindowRect` bounds filtered to the owned PID,
+including resize and lower scrolling (`.artifacts/scan-phase5/panel-cloud.png`,
+`panel-reference-bottom.png`, `reference-output.png`).
+
+Native classified/coloured cloud checks exercised 11,418 observations, a closed gable, supplied ground
+below the roof, physical settings across metre/millimetre document changes, independent preview/output
+toggles, stale Keep prevention, cancellation during work, grouping and one-command Undo. A million-point
+diagnostic exercised 1,002,001 native observations, 251,001 raster nodes and 0.008 m maximum ground-plane
+error; its single-run timing is not hosted performance acceptance. Ten cloud Core regressions passed.
+Final rebuilding after status wording and preserving Auto's original tie order used RHP
+`07a0aec5-1f5e-4e8e-92c5-721a46d3ee37` / Core `29d99e80-0751-4ca9-8b58-bbb901968c06`: a fresh cloud
+run exercised Auto, settings refresh, actual Keep, valid grouped output and one-command Undo again.
+Final managed suites: Core 1,680; Rhino 1,450 plus 175 skips; Grasshopper 56 plus 18 skips. Normal plugin
+build: zero warnings/errors. All owned slots were closed. No package was published.
+
+The owned Rhino's default WPF renderer initially captured even a minimal Eto label form as white.
+After confirming populated control bounds, setting `System.Windows.Media.RenderOptions.ProcessRenderMode`
+to `SoftwareOnly` **inside that disposable process** restored both the probe and actual panel paint.
+This was a test-session workaround, not a plugin change or global user setting. Do not treat a blank
+capture as a panel bug; confirm the renderer and control tree, then inspect a real rendered capture.
+
 `mhScanToTerrain` Phase 4, 2026-10-18: normal Debug RHP MVID
 `95dd4eba-1f16-4604-9314-65b6152c4ec9`, Core `432b1e97-33fc-4ec7-b220-2a72e5c36fbd`, owned
 disposable Rhino. Six synthetic roofs (flat, shed, gable, hip, half hip, crossing gable) produced

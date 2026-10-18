@@ -184,7 +184,7 @@ internal static class TerrainToCurvesCommandService
         result.Contours.Count + result.LandformLines.Count;
 
     /// <summary>The result within tolerance over one that is not; then fewer curves; then fewer spot points.</summary>
-    private static TerrainCurveRecovery.Result Better(TerrainCurveRecovery.Result a, TerrainCurveRecovery.Result b)
+    internal static TerrainCurveRecovery.Result Better(TerrainCurveRecovery.Result a, TerrainCurveRecovery.Result b)
     {
         bool aMet = a.Termination == TerrainCurveRecovery.Termination.ToleranceSatisfied;
         bool bMet = b.Termination == TerrainCurveRecovery.Termination.ToleranceSatisfied;
