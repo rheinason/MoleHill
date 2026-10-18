@@ -150,6 +150,54 @@ public sealed class ScanSurfaceTests
         Assert.All(lines.Where(line => line.IsKerb), line => Assert.InRange(line.MeasuredShare, 0.65, 1));
     }
 
+    [Theory]
+    [InlineData(1.0)]
+    [InlineData(1000.0)]
+    public void Trace_DiagonalCurvingRoadOnSlope_FitsAtPhysicalScaleWithoutGridCorners(double scale)
+    {
+        double Left(double y) => 10 + .2 * y + .002 * (y - 20) * (y - 20);
+        var scene = Scene(40 * scale, .25 * scale, (x, y) => .03 * x + .1 * y,
+            (x, y) => x / scale >= Left(y / scale) && x / scale <= Left(y / scale) + 6 ? 0x606060 : 0x328432);
+        var areas = ScanSurfaceAreas.Classify(scene.Ground, scene.Colours, new()
+        {
+            MaximumPavedRoughness = .1 * scale, MinimumArea = 2 * scale * scale,
+            PlanTolerance = .5 * scale, VerticalTolerance = .015 * scale,
+        });
+        var roads = ScanRoadEdges.Trace(scene.Ground, areas, new()
+        {
+            MinimumKerbHeight = .06 * scale, MaximumKerbHeight = .3 * scale, ProfileReach = scale,
+            MaximumKerbWidth = .6 * scale, MinimumLength = 2 * scale,
+            PlanTolerance = .5 * scale, VerticalTolerance = .015 * scale,
+        });
+        Assert.Equal(2, roads.Count);
+        Assert.All(roads, road =>
+        {
+            Assert.False(road.IsKerb);
+            Assert.InRange(road.BottomCurve.ControlPointCount, 4, 28);
+            Assert.InRange(road.BottomCurve.Pieces.Count, 1, 6);
+            for (int i = 0; i < road.BottomCurve.PointsXyz.Length; i += 3)
+            {
+                double x = road.BottomCurve.PointsXyz[i] / scale, y = road.BottomCurve.PointsXyz[i + 1] / scale;
+                double distance = Math.Min(Math.Abs(x - Left(y)), Math.Abs(x - Left(y) - 6));
+                Assert.InRange(distance, 0, .65);
+                Assert.InRange(Math.Abs(road.BottomCurve.PointsXyz[i + 2] / scale - (.03 * x + .1 * y)), 0, .015);
+            }
+        });
+        Assert.All(areas.Boundaries.Where(b => b.Kind == ScanSurfaceKind.Paved),
+            b => Assert.InRange(b.Curve.ControlPointCount, 4, 45));
+        var region = new ScanSoftRegion(areas);
+        // Clipping follows the fitted outline rather than stopping at an obsolete raster stair.
+        for (double y = 3.31 * scale; y < 38 * scale; y += 3.37 * scale)
+        {
+            var clipped = region.Clip(new[] { 0.0, y, 0, 40 * scale, y, 0 }, false);
+            Assert.Equal(2, clipped.Count);
+            double x = clipped[0].Points[^3];
+            Assert.True(region.Contains(x - .001 * scale, y));
+            Assert.False(region.Contains(x + .001 * scale, y));
+            Assert.InRange(Math.Abs(x / scale - Left(y / scale)), 0, .65);
+        }
+    }
+
     [Fact]
     public void Recover_RegionWithRoadAcrossMound_OutputsOnlySoftAreaContoursAndSpots()
     {

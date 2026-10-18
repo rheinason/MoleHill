@@ -17,6 +17,17 @@ accuracy/budget and ridge/valley mode are together in the scrollable panel. Grou
 user's preferred slope unit and typed alternatives such as `60%`, `1:3` or `14deg`. Lengths and areas
 show model units; accepted settings retain their physical values when document units change.
 
+Plan tolerance controls the physical detail of road/area outlines and building footprints. Raster
+steps are removed in plan before boundary heights are sampled, so a tight height tolerance on sloping
+ground does not lock in the grid. Footprints combine facade supports instead of extruding every small
+step. Genuine wings and courtyards are retained. Minimum patch area (default 10 m²) removes smaller
+paved/soft components and fills smaller enclosed gaps in the drawing mask; observed-ground flags stay
+unchanged. Lower it to retain small planted islands. Colour-only road heights use up to 0.1 m of the
+chosen vertical tolerance; measured kerbs retain their separate 0.015 m profile tolerance.
+
+Roof fitting remains a context approximation. A red preview and fallback metadata identify roofs
+that could not be reconstructed reliably; a cleaner footprint does not establish a reliable roof.
+
 Changes debounce, cancel superseded work and recompute asynchronously. Ground, buildings, walls,
 surface classes and the final curves appear as their stages complete. The paved/soft split is drawn
 with grey/green sample points (at most about 50,000); the boundaries use the full drawing masks.
@@ -30,6 +41,14 @@ including partially recovered curves. Settings are cached only on Keep. Ground m
 optional check, off by default. The source remains in place.
 
 ## Output and evidence
+
+The 2026-10-18 geometry-cleanup regression checks noisy rotated facades, a real L-shaped wing,
+courtyards, and a curving diagonal road on sloping ground in metres and millimetres. On the Core
+reference measurement, total footprint corners fell from 3,530 to 629 (median 54 to 10), with 51
+retained buildings. Nineteen roofs still used flagged extrusions: this is improved footprint detail,
+not completed roof recognition. The native 10 m² patch setting reduced closed area outputs from 502
+to 157; Keep produced valid grouped output and one Undo restored the source. These are geometry
+quality diagnostics, not a claim of surveyed accuracy or measured performance improvement.
 
 | Output layer | Meaning |
 |---|---|

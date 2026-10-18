@@ -78,4 +78,21 @@ public class TerrainCurveExtractionTests
         Assert.NotEqual(snapshot.Tolerance, original.Tolerance);
         Assert.Equal(((ScanToTerrainSettings)original).RoofTolerance, ((ScanToTerrainSettings)snapshot).RoofTolerance);
     }
+
+    [Theory]
+    [InlineData(UnitSystem.Meters, 1.0)]
+    [InlineData(UnitSystem.Millimeters, 1000.0)]
+    public void ScanSettings_CleanupControls_UsePhysicalScaleAndSeparateMeasuredKerbAccuracy(UnitSystem system, double scale)
+    {
+        var units = ModelUnitContext.FromUnitSystem(system);
+        var settings = ScanToTerrainSettings.Load(units) with
+        {
+            SurfaceArea = 12 * scale * scale, PlanTolerance = 1.2 * scale, Tolerance = .2 * scale,
+        };
+        var pipeline = settings.Pipeline(units, default, _ => { }, _ => { });
+        Assert.Equal(12 * scale * scale, pipeline.Areas!.MinimumArea);
+        Assert.Equal(1.2 * scale, pipeline.Buildings!.FootprintTolerance);
+        Assert.Equal(.015 * scale, pipeline.Roads!.VerticalTolerance);
+        Assert.Equal(.1 * scale, pipeline.Roads.RoadVerticalTolerance);
+    }
 }

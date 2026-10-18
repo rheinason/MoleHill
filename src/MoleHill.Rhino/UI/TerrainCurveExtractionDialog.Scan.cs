@@ -41,6 +41,7 @@ internal sealed partial class TerrainCurveExtractionDialog
         Number(walls, "Minimum height · " + length, nameof(settings.WallHeight));
         Number(walls, "Minimum length · " + length, nameof(settings.WallLength));
         var areas = Section(body, "Paved and soft ground"); Output(areas, "Area boundaries and colour split", nameof(settings.Surfaces));
+        Number(areas, "Minimum patch area · " + length + "²", nameof(settings.SurfaceArea), _units.FromSquareMeters(.1), increment: _units.FromSquareMeters(1));
         Number(areas, "Excess green threshold", nameof(settings.GreenThreshold), 0, 2, increment: .01);
         Number(areas, "Maximum paving saturation", nameof(settings.PavingSaturation), 0, 1, increment: .01);
         var roads = Section(body, "Kerbs and road edges"); Output(roads, "Measured kerbs or single breaklines", nameof(settings.RoadEdges));

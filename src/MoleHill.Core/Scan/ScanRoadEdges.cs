@@ -17,6 +17,8 @@ public static class ScanRoadEdges
         public required double MinimumLength { get; init; }
         public required double PlanTolerance { get; init; }
         public required double VerticalTolerance { get; init; }
+        /// <summary>Height tolerance for colour-only edges; null uses the measured kerb tolerance.</summary>
+        public double? RoadVerticalTolerance { get; init; }
         public double EvidenceShare { get; init; } = 0.65;
         public CancellationToken CancellationToken { get; init; }
     }
@@ -159,7 +161,8 @@ public static class ScanRoadEdges
                     double[] light = TerrainCurveRecovery.SimplifyOpen(points.ToArray(), grid.CellSize * 0.65, options.VerticalTolerance);
                     return RouteCurveFitter.Fit(new IReadOnlyList<double>[] { light }, plan, options.VerticalTolerance, 0, 0, 0);
                 }
-                FittedRouteCurve bottomCurve = Fit(bottom);
+                FittedRouteCurve bottomCurve = paired ? Fit(bottom) : ScanBoundaryFitter.Fit(bottom.ToArray(), closed,
+                    grid, projector, options.PlanTolerance, options.RoadVerticalTolerance ?? options.VerticalTolerance, options.CancellationToken);
                 FittedRouteCurve? topCurve = paired ? Fit(top) : null;
                 if (bottomCurve.Pieces.Count == 0 || paired && topCurve!.Pieces.Count == 0)
                     return;
@@ -245,6 +248,7 @@ public static class ScanRoadEdges
         if (!Positive(options.MinimumKerbHeight) || !Positive(options.MaximumKerbHeight) || options.MaximumKerbHeight < options.MinimumKerbHeight ||
             !Positive(options.ProfileReach) || !Positive(options.MaximumKerbWidth) || !Positive(options.MinimumLength) ||
             !Positive(options.PlanTolerance) || !Positive(options.VerticalTolerance) || !double.IsFinite(options.EvidenceShare) ||
+            options.RoadVerticalTolerance is double roadTolerance && !Positive(roadTolerance) ||
             options.EvidenceShare <= 0 || options.EvidenceShare > 1)
             throw new ArgumentOutOfRangeException(nameof(options));
     }

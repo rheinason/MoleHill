@@ -182,18 +182,22 @@ TriangleNet (vendored)  ←  MoleHill.Core  ←  MoleHill.Grasshopper (GH host)
   seams; vertex colours are the fallback. Pure `ScanTerrainPipeline` builds the wall-constrained
   reference before `ScanSurfaceAreas` classifies observed ground from chromaticity, slope and roughness.
   Drawing masks close only sub-minimum-area holes; unknown roofs remain unobserved. Closed paved/soft
-  boundaries follow the clean reference. `ScanRoadEdges` confirms narrow persistent measured steps as
+  boundaries follow the clean reference. `ScanBoundaryFitter` first removes raster steps in plan at the
+  physical tolerance, then drapes/fits their height; height changes on slopes cannot pin grid corners.
+  `ScanRoadEdges` confirms narrow persistent measured steps as
   kerb top/bottom pairs, otherwise writes a single colour edge; without colour it traces measured steps
   only. Paved boundaries and kerb rails join `FixedBreaklines`. `ScanSoftRegion` clips contours, spots
-  and deviation to soft ground, retaining holes. Each error pick adds only its nearest clipped fragment.
+  and deviation to fitted soft-area outlines through row-indexed edges, retaining holes. The panel's
+  physical minimum patch area controls small components/drawing holes (default 10 m²). Each error pick adds only its nearest clipped fragment.
   `.Region.cs` owns clipping; `.Fitting.cs` fits contours before reconstruction, with a linear fallback
   where a smooth curve would cross paving or exceed the height tolerance. `.Surfaces.cs` writes native
   area/road curves; `TerrainCurveExtractionGeometry` builds identical fitted contours for preview and output.
   Phase 4's `ScanBuildings` consumes raised surface regions and original upward scan faces; it does not
   modify terrain inputs. Its footprint/plane/roof/solid/junction partials regularise outlines, reject
   vegetation using colour plus coherent planes, fit roof templates and general arrangements, and
-  validate closed shells. Every chosen shell is measured against roof samples before output, with
-  explicit robust fit, coverage and fallback metadata. `ScanBuildingFaces` coalesces planar regions in
+  validate closed shells. Plan-only footprint thinning and combined facade supports suppress raster
+  teeth before wall construction. Every chosen shell is measured against roof samples before output,
+  with explicit robust fit, coverage and fallback metadata. `ScanBuildingFaces` coalesces planar regions in
   Core; `.Buildings.cs` creates trimmed faces and joins valid closed Breps before document mutation.
   All building context shares the scan root, group and Undo.
   `ScanPointCloud` bins original observations directly, preserving top/lowest heights, colours and LAS

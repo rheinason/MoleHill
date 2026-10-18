@@ -128,6 +128,49 @@ public sealed class ScanBuildingsTests
     }
 
     [Fact]
+    public void Extract_RotatedNoisyLBuilding_RetainsWingAndDominantFacadeDirections()
+    {
+        double angle = 27 * Math.PI / 180;
+        bool Footprint(double u, double v) => Math.Abs(u) <= 6 + .15 * Math.Sin(v * 7) &&
+            Math.Abs(v) <= 4 + .15 * Math.Sin(u * 8) && (u <= -2 || v <= 0);
+        var scene = Scene((u, v) => 6, Footprint, angle);
+        var building = Assert.Single(ScanBuildings.Extract(scene.Scan, scene.Ground, null, Options()).Buildings);
+        double[] loop = Assert.Single(building.Footprints);
+        Assert.InRange(loop.Length / 3, 6, 8);
+        Assert.InRange(building.FootprintArea, 60, 72);
+        for (int i = 0; i < loop.Length; i += 3)
+        {
+            int next = (i + 3) % loop.Length;
+            double direction = Math.Atan2(loop[next + 1] - loop[i + 1], loop[next] - loop[i]) - angle;
+            Assert.InRange(Math.Abs(Math.Sin(2 * direction)), 0, .08);
+        }
+        AssertWatertight(building.Solid);
+    }
+
+    [Theory]
+    [InlineData(1.0)]
+    [InlineData(1000.0)]
+    public void Extract_NoisyRotatedFacade_RecoversFourWallsInsteadOfRasterTeeth(double scale)
+    {
+        double angle = 27 * Math.PI / 180;
+        bool Footprint(double u, double v) => Math.Abs(u) <= 6 + .18 * Math.Sin(v * 8) &&
+            Math.Abs(v) <= 4 + .18 * Math.Sin(u * 7);
+        var scene = Scene((u, v) => 6 + .5 * (4 - Math.Abs(v)), Footprint, angle, scale);
+        var building = Assert.Single(ScanBuildings.Extract(scene.Scan, scene.Ground, null, Options(scale)).Buildings);
+        double[] loop = Assert.Single(building.Footprints);
+        Assert.Equal(12, loop.Length);
+        Assert.InRange(building.FootprintArea / (scale * scale), 90, 105);
+        Assert.Equal(ScanRoofKind.Gable, building.RoofKind);
+        for (int i = 0; i < loop.Length; i += 3)
+        {
+            int next = (i + 3) % loop.Length;
+            double direction = Math.Atan2(loop[next + 1] - loop[i + 1], loop[next] - loop[i]) - angle;
+            Assert.InRange(Math.Abs(Math.Sin(2 * direction)), 0, .06);
+        }
+        AssertWatertight(building.Solid);
+    }
+
+    [Fact]
     public void Extract_PlanarGreenTurfRoof_DoesNotRejectABuildingForItsColour()
     {
         var scene = Scene((u, v) => 6 + .5 * (4 - Math.Abs(v)), green: true);

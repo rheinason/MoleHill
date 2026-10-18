@@ -1,4 +1,5 @@
 using MoleHill.Core.Geometry;
+using MoleHill.Core.Processing;
 
 namespace MoleHill.Core.Scan;
 
@@ -31,7 +32,9 @@ public static partial class ScanBuildings
                 angle = theta;
             }
         }
-        double cos = Math.Cos(angle), sin = Math.Sin(angle), cell = surface.CellSize;
+        double cell = surface.CellSize;
+        angle = FacadeAngle(candidate, surface, options, angle);
+        double cos = Math.Cos(angle), sin = Math.Sin(angle);
         double left = points.Min(p => p.X * cos + p.Y * sin) - cell;
         double bottom = points.Min(p => -p.X * sin + p.Y * cos) - cell;
         double right = points.Max(p => p.X * cos + p.Y * sin) + cell;
@@ -80,11 +83,10 @@ public static partial class ScanBuildings
         var regular = new List<List<P2>>();
         foreach (List<P2> raw in rawLoops)
         {
-            List<double> xLevels = Levels(raw, vertical: true), yLevels = Levels(raw, vertical: false);
-            var loop = raw.Select(p => new P2(Snap(p.X, xLevels), Snap(p.Y, yLevels))).ToList();
+            var loop = Regularize(raw, options.FootprintTolerance);
             RemoveRedundant(loop, cell * 1e-8);
             if (loop.Count < 4 || Math.Abs(SignedArea(loop)) < cell * cell || SelfIntersects(loop))
-                loop = raw;
+                loop = Regularize(raw, options.FootprintTolerance * .5);
             regular.Add(loop);
         }
         List<List<P2>> world = Convert(regular);
@@ -100,42 +102,86 @@ public static partial class ScanBuildings
         return world;
 
         List<List<P2>> Convert(List<List<P2>> loops) => loops.Select(loop => loop.Select(p => new P2(p.X * cos - p.Y * sin, p.X * sin + p.Y * cos)).ToList()).ToList();
-        double Snap(double value, List<double> levels)
+    }
+
+    private static List<P2> Regularize(List<P2> raw, double tolerance)
+    {
+        double[] flat = raw.SelectMany(p => new[] { p.X, p.Y, 0.0 }).ToArray();
+        double[] simple = TerrainCurveRecovery.SimplifyClosed(flat, tolerance, double.PositiveInfinity);
+        var points = Enumerable.Range(0, simple.Length / 3).Select(i => new P2(simple[i * 3], simple[i * 3 + 1])).ToList();
+        if (points.Count < 4 || SelfIntersects(points))
+            return raw;
+        // Adjacent short raster steps belong to one facade. Infer its support from the whole run
+        // rather than requiring an uninterrupted grid edge several cells long.
+        var lines = new List<(bool Vertical, double At, double Weight)>();
+        for (int i = 0; i < points.Count; i++)
         {
-            double closest = value, distance = options.FootprintTolerance;
-            foreach (double level in levels)
-                if (Math.Abs(value - level) < distance)
-                {
-                    distance = Math.Abs(value - level);
-                    closest = level;
-                }
-            return closest;
+            P2 a = points[i], b = points[(i + 1) % points.Count];
+            bool vertical = Math.Abs(b.Y - a.Y) > Math.Abs(b.X - a.X);
+            double weight = vertical ? Math.Abs(b.Y - a.Y) : Math.Abs(b.X - a.X);
+            double at = vertical ? (a.X + b.X) * .5 : (a.Y + b.Y) * .5;
+            if (lines.Count > 0 && lines[^1].Vertical == vertical)
+            {
+                var last = lines[^1];
+                lines[^1] = (vertical, (last.At * last.Weight + at * weight) / (last.Weight + weight), last.Weight + weight);
+            }
+            else
+                lines.Add((vertical, at, weight));
         }
-        List<double> Levels(List<P2> loop, bool vertical)
+        if (lines.Count > 1 && lines[0].Vertical == lines[^1].Vertical)
         {
-            var lines = new List<(double At, double Length)>();
-            for (int i = 0; i < loop.Count; i++)
-            {
-                P2 a = loop[i], b = loop[(i + 1) % loop.Count];
-                double length = vertical ? Math.Abs(a.Y - b.Y) : Math.Abs(a.X - b.X);
-                double off = vertical ? Math.Abs(a.X - b.X) : Math.Abs(a.Y - b.Y);
-                if (off < cell * 1e-8 && length >= options.FootprintTolerance * 2)
-                    lines.Add((vertical ? a.X : a.Y, length));
-            }
-            lines.Sort((a, b) => a.At.CompareTo(b.At));
-            var levels = new List<double>();
-            for (int i = 0; i < lines.Count;)
-            {
-                int end = i + 1; double sum = lines[i].At * lines[i].Length, weight = lines[i].Length;
-                while (end < lines.Count && lines[end].At - lines[i].At <= options.FootprintTolerance)
-                {
-                    sum += lines[end].At * lines[end].Length; weight += lines[end].Length; end++;
-                }
-                levels.Add(sum / weight);
-                i = end;
-            }
-            return levels;
+            var a = lines[0]; var b = lines[^1];
+            lines[0] = (a.Vertical, (a.At * a.Weight + b.At * b.Weight) / (a.Weight + b.Weight), a.Weight + b.Weight);
+            lines.RemoveAt(lines.Count - 1);
         }
+        if (lines.Count < 4)
+            return points;
+        var fitted = new List<P2>();
+        for (int i = 0; i < lines.Count; i++)
+        {
+            var a = lines[(i + lines.Count - 1) % lines.Count]; var b = lines[i];
+            fitted.Add(a.Vertical ? new P2(a.At, b.At) : new P2(b.At, a.At));
+        }
+        double[] xy = fitted.SelectMany(p => new[] { p.X, p.Y }).ToArray();
+        // Orthogonalisation is conditional: non-orthogonal annexes retain their thinned outline.
+        double[] errors = raw.Select(p => Geometry2D.DistanceToPolygon(p.X, p.Y, xy, fitted.Count)).OrderBy(e => e).ToArray();
+        if (SelfIntersects(fitted) || errors[(int)((errors.Length - 1) * .95)] > tolerance || errors[^1] > tolerance * 2)
+            return points;
+        return fitted;
+    }
+
+    private static double FacadeAngle(Candidate candidate, ScanGrid surface, Options options, double fallback)
+    {
+        int minColumn = candidate.Nodes.Min(n => n % surface.Columns), maxColumn = candidate.Nodes.Max(n => n % surface.Columns);
+        int minRow = candidate.Nodes.Min(n => n / surface.Columns), maxRow = candidate.Nodes.Max(n => n / surface.Columns);
+        int columns = maxColumn - minColumn + 3, rows = maxRow - minRow + 3;
+        var mask = new bool[columns * rows];
+        foreach (int node in candidate.Nodes)
+            mask[(node / surface.Columns - minRow + 1) * columns + node % surface.Columns - minColumn + 1] = true;
+        var grid = new ScanGrid(0, 0, surface.CellSize, columns, rows, new double[mask.Length]);
+        double x = 0, y = 0, weight = 0;
+        foreach (var chain in ScanGridEdges.Trace(mask, grid, cancellationToken: options.CancellationToken))
+        {
+            if (!chain.Closed) continue;
+            double[] raw = chain.Edges.SelectMany(e =>
+            {
+                var p = ScanGridEdges.Corner(grid, e.Start);
+                return new[] { p.X, p.Y, 0.0 };
+            }).ToArray();
+            double[] simple = TerrainCurveRecovery.SimplifyClosed(raw, Math.Max(options.FootprintTolerance, surface.CellSize * .75), double.PositiveInfinity);
+            for (int i = 0; i < simple.Length; i += 3)
+            {
+                int next = (i + 3) % simple.Length;
+                double dx = simple[next] - simple[i], dy = simple[next + 1] - simple[i + 1];
+                double lengthSquared = dx * dx + dy * dy;
+                if (lengthSquared < options.FootprintTolerance * options.FootprintTolerance * 4) continue;
+                // Fourfold directions combine parallel and perpendicular facades. Long runs outweigh
+                // small annexes and raster diagonals; an extremal bounding-box edge has no special vote.
+                double theta = Math.Atan2(dy, dx) * 4;
+                x += lengthSquared * Math.Cos(theta); y += lengthSquared * Math.Sin(theta); weight += lengthSquared;
+            }
+        }
+        return weight > 0 && Math.Sqrt(x * x + y * y) > weight * .5 ? Math.Atan2(y, x) * .25 : fallback;
     }
 
     private static List<P2> ConvexHull(List<P2> points)

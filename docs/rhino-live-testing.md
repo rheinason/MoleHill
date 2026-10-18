@@ -43,6 +43,34 @@ first item, the component reads that, and the solve looks like a silent no-op.
 
 ## 1. Build before launching
 
+Shared curve extraction and scan outline cleanup, 2026-10-18: normal Debug shared-workflow build
+`3c874e29-95c5-4d65-bd2b-70c1083a2d70` / Core `c7776a08-f3f5-4335-89b5-92fa896d332c`
+produced six DEM contours and one spot plus border, all valid/grouped, with five cubic contours;
+one Undo restored the source. A native active terrain with a Smooth modifier used its final peak
+4.9264 m instead of the raw 5.5 m, with no scan preparation and no document output on Cancel.
+The common panel was captured at owned-PID window bounds.
+
+The full scan cleanup/settings build `3e3eb04a-a22d-41f3-a626-ab68f3ddcedf` / Core
+`aa02c30c-20e9-4ed7-a1a3-5180f8eee80d` exercised the textured reference with 10 m² minimum patch
+area: 624 valid grouped outputs, 52 closed buildings and 157 closed area NURBS (previously 502).
+Its deliberately limited 40-contour budget left 2.138 m residual, explicitly reported; this was
+outline/host integration acceptance, not contour accuracy acceptance. Preview retained the source
+alone and one command Undo restored it. The later facade-direction refinement is checked separately
+below; no road/region code changed after this combined native run. Evidence: `.artifacts/scan-quality/`.
+
+Final facade build `4f169a51-e5fa-49fe-a96b-2d2656cd5d48` / Core
+`09eae81d-4882-443a-a3a8-b508d065e34b` was loaded in a fresh disposable slot. With other outputs
+disabled, the textured reference produced 52 valid closed outward Breps with positive volumes;
+22 roofs were explicit extrusion fallbacks. One Undo restored the source. The subsequent Redo/capture
+was not verified: the bitmap was blank, so it supplies no evidence of final viewport appearance.
+The new minimum patch area row was captured and inspected at real owned-PID window bounds
+(`.artifacts/scan-quality/facades-native/`). The earlier all-output run verifies
+the road/area settings; this later run verifies final native building conversion. Owned slots were closed.
+
+Managed suites passed Core 1,689, Rhino 1,457 with 175 native skips, Grasshopper 56 with 18 native
+skips. Normal plugin build had zero warnings/errors. No package was published. These checks do not
+establish roof-recognition correctness: extrusion fallbacks remain explicitly marked.
+
 `mhScanToTerrain` Phase 5, 2026-10-18: the combined reference check used normal Debug RHP
 `7c5e7fdf-cf0e-4c66-a17a-f0b46437a0c0` / Core `1b80fe4e-4b5c-4f4e-910b-332e24cbb37e`.
 The actual textured UV-preserving mesh produced 1,418 valid grouped objects: 52 closed outward

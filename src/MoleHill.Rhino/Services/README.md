@@ -457,6 +457,9 @@ layer table, dimension styles, and layouts can act on. See `docs/architecture.md
   diffuse bitmap/vertex colours on the UI thread. `Import/ScanPointCloudReader.cs` copies point XYZ/RGB
   and optional `PointCloud.UserDictionary["MoleHill.Scan.Classification"]` LAS byte codes in point order.
   See [Scan to Terrain](../../../docs/scan-to-terrain.md) for the input contract and acceptance evidence.
+  Plan tolerance also governs building footprint cleanup without a hidden 0.5 m cap. Minimum patch
+  area is a physical area setting (10 m² default), and colour-only road heights use the selected
+  vertical tolerance capped at 0.1 m; measured kerbs keep 0.015 m profile accuracy.
 - `Commands/TerrainToCurvesCommandService.cs` - `mhTerrainToCurves`: runs Core's `TerrainCurveRecovery` on a
   picked mesh or the active terrain with `Tolerance`, `PlanTolerance`, `MaxContours` and `RidgesValleys`
   through the same asynchronous preview/Keep/Cancel workflow as scan recovery. Common settings, Core

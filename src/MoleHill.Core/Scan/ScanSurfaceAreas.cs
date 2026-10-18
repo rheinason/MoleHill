@@ -94,15 +94,11 @@ public static class ScanSurfaceAreas
                         z = clean;
                     raw.Add(x); raw.Add(y); raw.Add(z);
                 }
-                double plan = Math.Min(options.PlanTolerance, grid.CellSize * 0.75);
-                double[] points = TerrainCurveRecovery.SimplifyClosed(raw.ToArray(), plan, options.VerticalTolerance);
-                if (points.Length < 9)
-                    continue;
-                double[] closed = points.Concat(points.Take(3)).ToArray();
-                FittedRouteCurve curve = RouteCurveFitter.Fit(new IReadOnlyList<double>[] { closed },
-                    Math.Min(plan, grid.CellSize * 0.1), options.VerticalTolerance, 0, 0, 0);
+                FittedRouteCurve curve = ScanBoundaryFitter.Fit(raw.ToArray(), true, grid, projector,
+                    options.PlanTolerance, options.VerticalTolerance, options.CancellationToken);
                 if (curve.Pieces.Count > 0)
-                    boundaries.Add(new Boundary(kind, closed, curve));
+                    boundaries.Add(new Boundary(kind, TerrainCurveRecovery.SimplifyOpen(curve.PointsXyz,
+                        options.PlanTolerance * .05, options.VerticalTolerance * .1), curve));
             }
         }
         return new Result { Ground = grid, Classes = classes, PavedMask = pavedMask, SoftMask = softMask, Boundaries = boundaries };

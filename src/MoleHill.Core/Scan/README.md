@@ -3,8 +3,14 @@
 Pure [scan to terrain](../../../docs/scan-to-terrain.md) analysis, independent of Rhino.
 
 `ScanBuildings` extracts building context without changing the terrain reference or fixed breaklines.
-Its `.Footprints` partial finds dominant axes and regularises outlines, preserving courtyards and
-closing diagonal contacts that would otherwise create non-manifold vertical edges. `.Planes` captures
+Its `.Footprints` partial finds dominant axes from long facade runs (fourfold direction votes, with
+a bounding-box fallback when evidence is weak) and regularises outlines, preserving courtyards and
+closing diagonal contacts that would otherwise create non-manifold vertical edges. Plan-only thinning
+at `FootprintTolerance` precedes facade fitting; consecutive supports are combined before intersecting
+orthogonal walls. Short uninterrupted raster edges are not treated as architectural corners. The
+orthogonal fit requires 95% of the raster outline within the footprint tolerance and all of it within
+twice that tolerance, allowing isolated scan-edge outliers without moving a whole facade. Fits
+retain simplicity/area checks and a thinned fallback for non-orthogonal annexes. `.Planes` captures
 upward scan triangles, welds UV seams for adjacency, grows connected robustly fitted plane regions,
 and merges coplanar regions. Colour supports vegetation rejection; coherent planar turf roofs remain
 eligible, and colour-free input requires stronger dominant-plane evidence.
@@ -37,13 +43,22 @@ trend-corrected cross profiles along paved edges: persistent narrow steps produc
 kerb pairs, otherwise one draped edge. Without colour, only geometry-supported kerb-sized steps are
 available. These are measured steps, not semantic guarantees that every line is a built kerb.
 
-`ScanSoftRegion` clips contours exactly at mask cell boundaries, preserving paved islands and joining
+`ScanBoundaryFitter` cleans area boundaries and colour-only road edges in plan at the requested physical
+tolerance, then samples heights on the clean ground and fits the draped profile. Height variation on a
+slope cannot preserve a pixel corner. Thinning/plan fitting/profile fitting share the plan budget;
+closed outlines are checked for crossings. Measured kerb pairs retain their tighter coupled evidence
+tolerances; `RoadVerticalTolerance` can separately relax the colour-only profile. `Boundary.Points`
+is a light approximation of the fitted output, used for reference breaklines and region clipping.
+
+`ScanSoftRegion` clips contours at the fitted soft outlines, preserving paved islands and joining
 adjacent intervals without densifying straight lines. Recovery evaluates soft-ground vertices and
 keeps only the fragment nearest each selected error point, rather than spending the budget across
 every disconnected lawn at that height. Paved boundaries and measured rails stay in every rebuild.
 Contours are fitted before reconstruction, with an explicit polyline fallback where a smooth fit cannot
 respect the region or vertical tolerance. Unknown areas are excluded from soft-ground accuracy claims.
 All lengths use the input coordinate unit; the host converts physical defaults.
+Row-indexed outline edges serve containment and segment clipping, so recovery does not end on the
+obsolete raster stairs after the visible boundary has been cleaned.
 
 `ScanRasterizer` samples triangle interiors in plan into top and lowest `ScanGrid` heights. Either
 winding is accepted; vertical faces contribute no plan area. NaN denotes no data. Automatic spacing

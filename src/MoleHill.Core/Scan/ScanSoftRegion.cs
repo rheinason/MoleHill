@@ -1,33 +1,53 @@
 using MoleHill.Core.Processing;
+using MoleHill.Core.Geometry;
 
 namespace MoleHill.Core.Scan;
 
-/// <summary>Exact segment clipping to soft lattice cells, retaining paved/unknown islands as holes.</summary>
+/// <summary>Clips to the fitted soft-area outlines, retaining paved/unknown islands as holes.</summary>
 public sealed class ScanSoftRegion : ITerrainRecoveryRegion
 {
     private readonly ScanSurfaceAreas.Result _areas;
+    private readonly List<(double X0, double Y0, double X1, double Y1)> _edges = new();
+    private readonly List<int>[] _rows;
+    private readonly double _bottom;
+    private readonly double _rowHeight;
 
-    public ScanSoftRegion(ScanSurfaceAreas.Result areas) => _areas = areas ?? throw new ArgumentNullException(nameof(areas));
+    public ScanSoftRegion(ScanSurfaceAreas.Result areas)
+    {
+        _areas = areas ?? throw new ArgumentNullException(nameof(areas));
+        _bottom = areas.Ground.OriginY - areas.Ground.CellSize;
+        _rowHeight = Math.Max(areas.Ground.CellSize, areas.Ground.Rows * areas.Ground.CellSize / 128);
+        _rows = Enumerable.Range(0, 130).Select(_ => new List<int>()).ToArray();
+        foreach (var boundary in areas.Boundaries.Where(b => b.Kind == ScanSurfaceKind.Soft))
+            for (int i = 0; i + 5 < boundary.Points.Length; i += 3)
+            {
+                var p = boundary.Points;
+                int index = _edges.Count;
+                _edges.Add((p[i], p[i + 1], p[i + 3], p[i + 4]));
+                for (int row = Row(Math.Min(p[i + 1], p[i + 4])); row <= Row(Math.Max(p[i + 1], p[i + 4])); row++)
+                    _rows[row].Add(index);
+            }
+    }
+
+    private int Row(double y) => (int)Math.Clamp(Math.Floor((y - _bottom) / _rowHeight), 0, _rows.Length - 1);
 
     public bool Contains(double x, double y)
     {
-        ScanGrid grid = _areas.Ground;
-        double fx = (x - grid.OriginX) / grid.CellSize, fy = (y - grid.OriginY) / grid.CellSize;
-        if (!double.IsFinite(fx + fy) || fx < -1e-9 || fy < -1e-9 || fx > grid.Columns - 1 + 1e-9 || fy > grid.Rows - 1 + 1e-9)
+        if (!double.IsFinite(x + y))
             return false;
-        int column = (int)Math.Floor(fx + 0.5), row = (int)Math.Floor(fy + 0.5);
-        for (int dy = -1; dy <= 1; dy++)
+        bool inside = false;
+        double epsilon = _areas.Ground.CellSize * 1e-8;
+        foreach (int index in _rows[Row(y)])
         {
-            for (int dx = -1; dx <= 1; dx++)
-            {
-                int c = column + dx, r = row + dy;
-                if (c < 0 || r < 0 || c >= grid.Columns || r >= grid.Rows || Math.Abs(fx - c) > 0.5 + 1e-9 || Math.Abs(fy - r) > 0.5 + 1e-9)
-                    continue;
-                if (_areas.SoftMask[r * grid.Columns + c])
-                    return true;
-            }
+            var e = _edges[index];
+            if (x >= Math.Min(e.X0, e.X1) - epsilon && x <= Math.Max(e.X0, e.X1) + epsilon &&
+                y >= Math.Min(e.Y0, e.Y1) - epsilon && y <= Math.Max(e.Y0, e.Y1) + epsilon &&
+                Math.Abs(Geometry2D.Orient(e.X0, e.Y0, e.X1, e.Y1, x, y)) <= epsilon * (Math.Abs(e.X1 - e.X0) + Math.Abs(e.Y1 - e.Y0)))
+                return true;
+            if ((e.Y0 > y) != (e.Y1 > y) && x < e.X0 + (y - e.Y0) * (e.X1 - e.X0) / (e.Y1 - e.Y0))
+                inside = !inside;
         }
-        return false;
+        return inside;
     }
 
     public IReadOnlyList<RegionInputClipper.InputPolyline> Clip(double[] points, bool closed)
@@ -43,8 +63,25 @@ public sealed class ScanSoftRegion : ITerrainRecoveryRegion
             int a = segment * 3, b = ((segment + 1) % count) * 3;
             double dx = points[b] - points[a], dy = points[b + 1] - points[a + 1];
             var cuts = new List<double> { 0, 1 };
-            Axis(points[a], points[b], grid.OriginX, grid.Columns);
-            Axis(points[a + 1], points[b + 1], grid.OriginY, grid.Rows);
+            var candidates = new HashSet<int>();
+            for (int row = Row(Math.Min(points[a + 1], points[b + 1])); row <= Row(Math.Max(points[a + 1], points[b + 1])); row++)
+                candidates.UnionWith(_rows[row]);
+            foreach (int index in candidates)
+            {
+                var e = _edges[index];
+                if (Math.Max(e.X0, e.X1) < Math.Min(points[a], points[b]) || Math.Min(e.X0, e.X1) > Math.Max(points[a], points[b]))
+                    continue;
+                double da = Geometry2D.Orient(e.X0, e.Y0, e.X1, e.Y1, points[a], points[a + 1]);
+                double db = Geometry2D.Orient(e.X0, e.Y0, e.X1, e.Y1, points[b], points[b + 1]);
+                double ea = Geometry2D.Orient(points[a], points[a + 1], points[b], points[b + 1], e.X0, e.Y0);
+                double eb = Geometry2D.Orient(points[a], points[a + 1], points[b], points[b + 1], e.X1, e.Y1);
+                if (da != db && (ea <= 0 && eb >= 0 || ea >= 0 && eb <= 0))
+                {
+                    double t = da / (da - db);
+                    if (t > 0 && t < 1)
+                        cuts.Add(t);
+                }
+            }
             cuts.Sort();
             double runStart = double.NaN, runEnd = 0;
             for (int i = 0; i + 1 < cuts.Count; i++)
@@ -80,24 +117,6 @@ public sealed class ScanSoftRegion : ITerrainRecoveryRegion
                 runStart = double.NaN;
             }
 
-            void Axis(double start, double end, double origin, int nodes)
-            {
-                double delta = end - start;
-                if (Math.Abs(delta) < grid.CellSize * 1e-12)
-                    return;
-                Add(origin);
-                Add(origin + (nodes - 1) * grid.CellSize);
-                int first = (int)Math.Max(0, Math.Ceiling((Math.Min(start, end) - origin) / grid.CellSize - 0.5));
-                int last = (int)Math.Min(nodes - 2, Math.Floor((Math.Max(start, end) - origin) / grid.CellSize - 0.5));
-                for (int k = first; k <= last; k++)
-                    Add(origin + (k + 0.5) * grid.CellSize);
-                void Add(double coordinate)
-                {
-                    double t = (coordinate - start) / delta;
-                    if (t > 0 && t < 1)
-                        cuts.Add(t);
-                }
-            }
         }
         Flush();
         if (closed && output.Count > 1)
