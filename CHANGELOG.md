@@ -68,6 +68,8 @@ beta prereleases. Earlier versions are recorded only in the git history.
     strays between them. `Fit=Exact` gives a polyline that follows the profile exactly.
 - **Terrain to Curves** turns a dense terrain (a DEM or point-cloud mesh) into a border, spot points on
   peaks and pits, and as few contours as rebuild it within a tolerance, ready to use as editable input.
+  - The output goes on its own layers: Border, Ridges and valleys, Contours and Spot heights under
+    "Terrain to Curves {source}", a fresh root for every run.
   - Ridge and valley lines are added where they save contours. `RidgesValleys=Auto` tries with and without
     them and keeps whichever needs fewer curves.
 

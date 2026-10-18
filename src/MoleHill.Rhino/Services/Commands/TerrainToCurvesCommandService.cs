@@ -33,6 +33,7 @@ internal static class TerrainToCurvesCommandService
         int activeTerrainOption = getMesh.AddOption("ActiveMoleHillTerrain");
         GetResult picked = getMesh.Get();
         Mesh? mesh;
+        string sourceName;
         if (picked == GetResult.Option && getMesh.OptionIndex() == activeTerrainOption)
         {
             TerrainDefinition? terrain = TerrainController.Instance.GetSelectedTerrain(doc);
@@ -42,10 +43,14 @@ internal static class TerrainToCurvesCommandService
                 RhinoApp.WriteLine("Select and build an active MoleHill terrain first.");
                 return Result.Nothing;
             }
+
+            sourceName = terrain!.Name;
         }
         else if (picked == GetResult.Object && getMesh.Object(0).Mesh() is { } selected)
         {
             mesh = selected.DuplicateMesh();
+            string? objectName = getMesh.Object(0).Object()?.Attributes.Name;
+            sourceName = string.IsNullOrWhiteSpace(objectName) ? "mesh" : objectName;
         }
         else
         {
@@ -150,12 +155,14 @@ internal static class TerrainToCurvesCommandService
                 return Result.Failure;
             }
 
-            int added = AddOutput(doc, recovery);
+            int added = AddOutput(doc, recovery, sourceName, out string root);
             RhinoApp.WriteLine(
                 $"Terrain to curves: {recovery.Borders.Count} border(s), {recovery.LandformLines.Count} ridge/valley line(s), {recovery.Contours.Count} contour(s), " +
                 $"{recovery.SpotPointCount} spot point(s) from {terrainMesh.VertexCount:N0} vertices; worst miss " +
                 $"{recovery.MaximumDeviation.ToString("G4", CultureInfo.InvariantCulture)} at a terrain vertex. " +
                 recovery.Diagnostic);
+            if (added > 0)
+                RhinoApp.WriteLine($"Added to the layers under '{root}'.");
             doc.Views.Redraw();
             return added > 0 ? Result.Success : Result.Failure;
         }
@@ -178,29 +185,59 @@ internal static class TerrainToCurvesCommandService
         return a.SpotPointCount <= b.SpotPointCount ? a : b;
     }
 
-    /// <summary>Adds the curves and points to the current layer, named by role, grouped, in one undo step.</summary>
-    private static int AddOutput(RhinoDoc doc, TerrainCurveRecovery.Result recovery)
+    /// <summary>
+    /// The layers the output goes on, one per kind under a root named after the source: "Terrain to Curves
+    /// {source}::Contours" and so on. Each run gets its own root (" 2", " 3" when the name is taken), so a rerun
+    /// at another tolerance sits beside the first rather than mixing with it. They went on the current layer,
+    /// told apart only by object name, and a user missed the layers (2026-10-18).
+    /// </summary>
+    internal static readonly (string Name, System.Drawing.Color Color)[] OutputLayers =
     {
+        ("Border", System.Drawing.Color.FromArgb(35, 31, 32)),
+        ("Ridges and valleys", System.Drawing.Color.FromArgb(178, 34, 34)),
+        ("Contours", System.Drawing.Color.FromArgb(150, 100, 40)),
+        ("Spot heights", System.Drawing.Color.FromArgb(25, 157, 73)),
+    };
+
+    /// <summary>Adds the curves and points on their layers, named by role, grouped, in one undo step.</summary>
+    private static int AddOutput(RhinoDoc doc, TerrainCurveRecovery.Result recovery, string sourceName, out string root)
+    {
+        root = SurveyLayerNaming.NextFreeRootName(
+            $"Terrain to Curves {sourceName}".Trim(),
+            candidate => doc.Layers.FindByFullPath(candidate, -1) >= 0);
         var ids = new List<Guid>();
         uint undoRecord = doc.BeginUndoRecord("Terrain to Curves");
         try
         {
+            var layers = new Dictionary<string, int>(StringComparer.Ordinal);
+            string rootName = root;
+            ObjectAttributes On(string kind, string name)
+            {
+                if (!layers.TryGetValue(kind, out int index))
+                {
+                    index = EnsureLayer(doc, rootName, kind);
+                    layers[kind] = index;
+                }
+
+                return new ObjectAttributes { Name = name, LayerIndex = index };
+            }
+
             foreach (double[] border in recovery.Borders)
-                ids.Add(doc.Objects.AddPolyline(ToPoints(border, close: true), new ObjectAttributes { Name = "Border" }));
+                ids.Add(doc.Objects.AddPolyline(ToPoints(border, close: true), On("Border", "Border")));
 
             foreach (double[] line in recovery.LandformLines)
-                ids.Add(doc.Objects.AddPolyline(ToPoints(line, close: false), new ObjectAttributes { Name = "Ridge or valley" }));
+                ids.Add(doc.Objects.AddPolyline(ToPoints(line, close: false), On("Ridges and valleys", "Ridge or valley")));
 
             foreach (TerrainCurveRecovery.RecoveredContour contour in recovery.Contours)
             {
                 string name = $"Contour {contour.Level.ToString("F3", CultureInfo.InvariantCulture)}";
-                ids.Add(doc.Objects.AddPolyline(ToPoints(contour.PointsXyz, contour.IsClosed), new ObjectAttributes { Name = name }));
+                ids.Add(doc.Objects.AddPolyline(ToPoints(contour.PointsXyz, contour.IsClosed), On("Contours", name)));
             }
 
             for (int i = 0; i < recovery.SpotPoints.Length; i += 3)
             {
                 var point = new Point3d(recovery.SpotPoints[i], recovery.SpotPoints[i + 1], recovery.SpotPoints[i + 2]);
-                ids.Add(doc.Objects.AddPoint(point, new ObjectAttributes { Name = "Spot" }));
+                ids.Add(doc.Objects.AddPoint(point, On("Spot heights", "Spot")));
             }
 
             ids.RemoveAll(id => id == Guid.Empty);
@@ -213,6 +250,22 @@ internal static class TerrainToCurvesCommandService
         }
 
         return ids.Count;
+    }
+
+    /// <summary>The root layer and the kind's layer under it, created with the kind's colour if missing.</summary>
+    private static int EnsureLayer(RhinoDoc doc, string root, string kind)
+    {
+        int parent = doc.Layers.FindByFullPath(root, -1);
+        if (parent < 0)
+            parent = doc.Layers.Add(new Layer { Name = root });
+
+        string path = $"{root}::{kind}";
+        int index = doc.Layers.FindByFullPath(path, -1);
+        if (index >= 0)
+            return index;
+
+        System.Drawing.Color color = OutputLayers.First(layer => layer.Name == kind).Color;
+        return doc.Layers.Add(new Layer { Name = kind, ParentLayerId = doc.Layers[parent].Id, Color = color });
     }
 
     private static List<Point3d> ToPoints(double[] xyz, bool close)
