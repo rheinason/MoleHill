@@ -804,7 +804,8 @@ site (houses, roads, gardens) becomes, on layers: a clean ground surface, simpli
 roof shapes, wall and terrace edges as breaklines, paved and soft areas from the texture's colours,
 suggested kerbs, and B25's contours restricted to the soft areas. Measured on the user's reference scan:
 buildings separate cleanly and their roofs fit 2 to 6 planes; walls read clearly; 10 to 15 cm kerbs are at
-the mesh's resolution limit, so they come from the colour boundary and are offered as suggestions.
+the mesh's resolution limit. Decided 2026-10-18: roof shapes straight away, a kerb where the step is
+clear and a single breakline otherwise, curves only (no ground mesh output), point clouds as a second input.
 
 Smaller, recorded together: a **minimum-fall mode** on `mhSlopeCurveSection` (re-profile only the flat or
 uphill parts), and **more fixes in `mhValidateTerrainInputs`**.

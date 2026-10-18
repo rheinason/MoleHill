@@ -2,6 +2,18 @@
 
 **Status:** planned, not started. Backlog entry **B26**. Supersedes nothing; builds on B25 (`mhTerrainToCurves`).
 
+## Decisions (user, 2026-10-18)
+
+1. **Buildings go straight to roof shapes.** LOD1 boxes are not a deliverable; the extruded footprint is
+   only the fallback for a building no roof model fits, and is marked as such.
+2. **Kerbs: a kerb where it is clear, otherwise a single breakline.** Where the scan shows the step, emit a
+   kerb (top and bottom lines at the measured kerb height); where only the colour edge shows, emit one
+   breakline along the paved edge at ground height. Both are output, not suggestions to review.
+3. **Output is curves only: contours and breaklines.** The cleaned ground mesh is an internal step, not an
+   output (it may be offered as a debug toggle).
+4. **Input is mostly a textured mesh like the reference; sometimes a point cloud.** A point cloud is
+   welcome as an input because it is denser (and usually classified and coloured), which is what kerbs need.
+
 ## The problem
 
 A drone photogrammetry mesh of a site (houses, roads, gardens, walls on a hillside) is the most common
@@ -12,14 +24,17 @@ houses are in it.
 
 The goal is one command that takes the scan and gives back, on layers:
 
-1. **Ground**: a clean 2.5D ground surface with the houses, cars and bushes removed.
-2. **Buildings**: simplified closed volumes with the right roof shapes (flat, shed, gable, hip and
+1. **Buildings**: simplified closed volumes with the right roof shapes (flat, shed, gable, hip and
    combinations), standing on the ground.
-3. **Walls and terrace edges**: the steps in the ground, as top and toe breaklines.
-4. **Kerbs and road edges**: suggested breaklines along the paved areas, for the user to keep or delete.
-5. **Paved and soft areas**: closed boundaries from the photo colours.
-6. **Contours and spot heights**: the fewest that rebuild the soft areas within a tolerance (B25),
+2. **Walls and terrace edges**: the steps in the ground, as top and toe breaklines.
+3. **Kerbs and road edges**: a kerb (two lines) where the step is clear, otherwise one breakline along the
+   paved edge.
+4. **Paved and soft areas**: closed boundaries from the photo colours.
+5. **Contours and spot heights**: the fewest that rebuild the soft areas within a tolerance (B25),
    with the breaklines above as constraints, so contours go where the green is.
+
+The ground surface with houses, cars and bushes removed is computed (everything above depends on it)
+but not output.
 
 All of it is editable Rhino geometry, ready to become the sources of a MoleHill terrain.
 
@@ -71,6 +86,12 @@ coordinates (Rhino keeps an OBJ's UVs and material). Hand Core flat arrays: XYZ 
 optional RGB per face. Works without colour, with fewer results (no paved/soft split, kerbs from geometry
 only).
 
+**Point clouds** (Rhino `PointCloud`, from LAS/E57/XYZ imports) are the second input: points with optional
+colour and, when the source classified them, a ground/building/vegetation class. They go straight into the
+rasters of S1 (no triangles to rasterise), at a finer cell where the density allows: a typical drone cloud
+has tens to hundreds of points per m² against this mesh's 7 vertices, which is what makes 10 to 15 cm
+kerbs measurable. A supplied ground class short-cuts S2's filter (used when present, checked against it).
+
 ### S1. Rasters
 
 Rasterise the triangles (not the vertices; the vertex-only first cut left 40% of 0.5 m cells empty) into a
@@ -87,8 +108,8 @@ Classify each cell ground or not, then rebuild the ground under what is not.
   tall objects are not ground.
 - **Fill.** Harmonic (Laplace) interpolation across removed regions, from the ground around them, not
   nearest-neighbour, so a removed house leaves a smooth patch, not a lump.
-- **Output.** A ground mesh (regular grid, or a TIN of ground points), on a `Ground` layer, usable directly
-  as a terrain source. Report the share of the site that was filled.
+- **Result.** A ground model (grid) used by every later stage; not written to the document (the user
+  wants curves), except behind a debug toggle. Report the share of the site that was filled.
 
 ### S3. Buildings
 
@@ -100,11 +121,11 @@ usually green):
    removed. Most of this stock is rectangular or L-shaped.
 2. **Roof planes.** Region growing on the mesh's up-facing faces inside the footprint (normals within a
    few degrees, plane distance within a tolerance), merging small regions.
-3. **Roof model, in tiers.** LOD1: the footprint extruded from its ground height to the median roof
-   height (always possible). LOD2 parametric: fit flat, shed, gable, hip, half-hip and cross-gable models
-   to each rectangle of the footprint by least squares against the roof planes, choosing by error and
-   facet count. LOD2 general (later): intersect the fitted planes over the footprint for roofs no template
-   fits.
+3. **Roof model.** Fit flat, shed, gable, hip, half-hip and cross-gable models to each rectangle of the
+   footprint by least squares against the roof planes, choosing by error and facet count. For roofs no
+   template fits, intersect the fitted planes over the footprint (a general plane arrangement). Only when
+   both fail is the footprint extruded to the median roof height, and the building is flagged in its user
+   text so it can be found and fixed.
 4. **Solid.** A closed Brep from ground (lowest ground along the footprint) to the roof, one per building,
    with eave, ridge and ground heights in user text.
 
@@ -129,11 +150,17 @@ points.
 
 ### S6. Kerbs and road edges
 
-Candidates: the boundaries of paved areas, offset to where a step or crease in the ground lies within
-about a metre (when the scan resolves one), straightened along the road's direction. Each suggestion
-carries its evidence (colour edge only, or colour and step, with the step height) in user text, so the user
-can trust or discard it. Layer `Kerbs (suggested)`. A review mode in the same panel can come later: click to
-keep or drop.
+Candidates: the boundaries of paved areas, straightened along the road's direction, then measured across
+at intervals for a step within about a metre.
+
+- **Clear step** (a step of kerb height, 0.06 to 0.3 m, found along most of a stretch): a **kerb**, two lines
+  (bottom on the paved side, top on the other) at the measured heights. Layer `Kerbs`.
+- **No clear step** (colour edge only, or a step found too rarely): **one breakline** along the paved edge
+  at ground height. Layer `Road edges`.
+
+A stretch can switch between the two along its length. Each line carries its evidence in user text (step
+height measured, share of stations that found it), so a doubtful one is easy to spot. On the reference mesh
+most edges will come out as single breaklines; a point cloud should turn many into kerbs.
 
 ### S7. Contours and spots
 
@@ -143,26 +170,29 @@ heights on their own layers. Contours fitted as light curves (the route fitter),
 
 ## Command and panel
 
-`mhScanToTerrain`, following the user's stated preference (2026-10-17): every setting on one floating
-panel, the command line only takes Enter and Esc. The panel has one row per output (toggle, preview, its
-main setting): ground cell size and filter strength; building minimum size and roof detail (LOD1 / LOD2);
-wall minimum height; colour thresholds with a live preview of the paved/soft split; contour tolerance.
+`mhScanToTerrain` (mesh or point cloud), following the user's stated preference (2026-10-17): every
+setting on one floating panel, the command line only takes Enter and Esc. The panel has one row per output
+(toggle, preview, its main setting): ground cell size and filter strength; building minimum size; wall
+minimum height; kerb height range; colour thresholds with a live preview of the paved/soft split; contour
+tolerance.
 Results preview in the viewport as they are computed, stage by stage; Keep writes the layers under
 `Scan {source}::...` (a fresh root per run, as Terrain to Curves now does).
 
 ## Phasing
 
+Re-phased after the decisions: the first deliverable is curves, so ground and contours come together.
+
 | Phase | Delivers | Main risk |
 |---|---|---|
-| 1 | S0, S1, S2: clean ground mesh from a scan, with and without colour | the filter on steep, terraced ground |
-| 2 | S3 LOD1 + footprints | trees passing as buildings; L-plans |
-| 3 | S3 LOD2 parametric roofs | roof plane segmentation on a smoothed mesh |
-| 4 | S4 walls and edges | chaining noisy steps into clean lines |
-| 5 | S5 + S6 paved areas and suggested kerbs | shadows in the photo; kerbs below resolution |
-| 6 | S7 contours in soft areas + the full panel | none new (B25 exists) |
+| 1 | S0, S1, S2, S7: contours and spot heights of the ground from a scan (mesh), houses removed | the filter on steep, terraced ground |
+| 2 | S4 walls and terrace edges, as breaklines the contours respect | chaining noisy steps into clean lines |
+| 3 | S5 + S6 paved and soft areas, kerbs and single road-edge breaklines; contours only in soft areas | shadows in the photo; kerbs below resolution |
+| 4 | S3 buildings with roof shapes | trees passing as buildings; roof segmentation on a smoothed mesh |
+| 5 | Point cloud input (S0), and the full panel | reading large clouds quickly |
 
-Each phase is useful on its own: phase 1 alone replaces "trace the ground by hand", phase 4 replaces most
-of the draped breaklines.
+Phase 1 alone replaces "trace the ground by hand"; phases 2 and 3 replace the draped breaklines. Buildings
+come fourth because nothing else depends on them (the ground filter only needs to know where they are,
+which phase 1 already finds).
 
 ## Validation
 
@@ -175,11 +205,9 @@ of the draped breaklines.
 - **Speed**: the reference scan should complete each stage in seconds; the exploration's numpy version
   took 3 s end to end at 0.5 m.
 
-## Open questions for the user
+## Still open
 
-1. **Buildings**: LOD1 boxes first, or straight to roof shapes? Closed Breps on a layer, or also blocks?
-   Should footprints feed the terrain (as pads, or as holes the terrain is cut around)?
-2. **Kerbs**: suggested lines to keep or delete afterwards, or a review step in the panel?
-3. **Ground output**: a mesh, curves (contours and breaklines), or both by default?
-4. **Other scans**: is this mesh typical (density, one textured object, Z up), or are some from other
-   tools (Pix4D, Metashape, DJI Terra, RealityCapture) as several tiles or point clouds?
+- Whether building footprints should also feed the terrain (as pads, or as holes the terrain is cut
+  around). Not needed before phase 4.
+- A point cloud of the reference site (or any site that also has a mesh) would let phase 3 be measured on
+  both inputs; none is in hand yet.
