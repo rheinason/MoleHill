@@ -43,6 +43,23 @@ first item, the component reads that, and the solve looks like a silent no-op.
 
 ## 1. Build before launching
 
+`mhScanToTerrain` Phase 1 was tested on 2026-10-18 in an owned disposable Rhino with the exact Debug
+`.rhp` (MVID `d3564ae4-cded-4704-9235-23c14d675f66`). A synthetic hillside with a house produced seven
+contours, one border and one spot at a 0.1918 m reconstruction miss (0.25 m target). The same source
+scaled to millimetres retained the counts and physical tolerance; `AddGroundMesh=Yes` produced a valid
+1,681-vertex check mesh on its own layer. A rerun used a new root, and a single command Undo removed
+that run while retaining the earlier output. Cancelling at the options prompt added nothing. Esc during
+the ground worker was not exercised live; its cancellation probe has a managed test.
+
+The reference OBJ was read into a double-precision native mesh, with 14 degenerate faces culled before
+Rhino would accept it (383,128 vertices, 766,558 remaining faces). The registered command with automatic
+raster spacing and a 300-contour budget emitted 300 contours, a border and 487 spots; native assertions
+confirmed valid output on `Scan Reference scan::...` layers and source retention. It reported a 0.506 m
+residual at the 0.25 m target, **budget spent**, not tolerance satisfaction. The pure Core run on the
+unculled OBJ differs slightly (0.513 m, 488 spots). Viewport captures are in
+`.artifacts/scan-phase1/`; the scan plan records remaining limits. Build:
+`dotnet build src/MoleHill.Rhino/MoleHill.Rhino.csproj --no-restore -p:CopyRetryCount=0 -v minimal`.
+
 Build with no Rhino holding the `.rhp`:
 
 ```powershell
@@ -226,6 +243,11 @@ whether or not this session actually loaded it:
   ```csharp
   Console.WriteLine(Rhino.RhinoApp.CommandHistoryWindowText);
   ```
+
+  On 2026-10-18, the exact instance and command ID existed despite the startup block, but the registered
+  command would not execute until `Rhino.PlugIns.PlugIn.LoadPlugIn(id)` returned `true`. The path overload
+  instead reported "ID already in use". Confirm command execution after loading by ID; an instance alone
+  does not prove that its `OnLoad` completed.
 
   A `Blocking plug-in MoleHill.Rhino.` line requires checking the loaded instance, not assuming success
   or failure from history alone. In the 2026-09-10 smoke run, that startup line coexisted with a loaded

@@ -1,6 +1,87 @@
 # Scan to terrain: plan (2026-10-18)
 
-**Status:** planned, not started. Backlog entry **B26**. Supersedes nothing; builds on B25 (`mhTerrainToCurves`).
+**Status:** Phase 1 implemented; validation and measured limits below. Phases 2–5 remain planned.
+Backlog entry **B26**. Supersedes nothing; builds on B25 (`mhTerrainToCurves`).
+
+## Phase 1 implementation and validation (2026-10-18)
+
+`MoleHill.Core.Scan` now supplies triangle-interior top/lowest rasters, a progressive morphological
+ground filter with raised-perimeter terrace preservation, local median fill anchors, harmonic fill,
+and a coarser mesh with simple border loops. `mhScanToTerrain` reads a Z-up mesh and shares contour
+recovery and output writing with `mhTerrainToCurves`. Each run writes grouped editable geometry on
+`Scan {source}::Border`, `Contours`, `Spot heights`, and optional `Ridges and valleys`, under a fresh
+root, in one Undo step. `AddGroundMesh=Yes` adds a check mesh; it is off by default. Inputs and defaults
+respect document units. Esc cancels the ground worker before any output or stops recovery and keeps
+the curves found so far.
+
+This phase uses command-line options. The requested floating panel, staged preview and Keep workflow
+remain Phase 5; the full panel described below is the intended design. Colour, point clouds, walls,
+road edges and buildings are not implemented by Phase 1. Recovered contours are currently simplified
+polylines, as in B25; fitting them as light curves remains open.
+
+Reference scan rerun on 2026-10-18 (diagnostic measurement, not a hosted performance comparison):
+
+| Measure | Phase 1 result |
+|---|---|
+| Input | 383,128 vertices, 766,572 triangles |
+| Raster | 813 × 944 nodes, automatic 0.276 m spacing |
+| Raised regions ≥20 m² removed | 102 (includes non-building objects) |
+| Regions retained as ground steps | 239 |
+| Ground footprint | 58,480 m²; 34.4% filled |
+| Contouring mesh | 47,705 vertices at the rounded raster multiple (~1.1 m) |
+| 200-contour budget, 0.25 m target | 452 spots, 0.738 m worst miss, `CurveBudgetSpent` |
+| Command default 300-contour budget, 0.25 m target | 488 spots, 0.513 m worst miss, `CurveBudgetSpent` |
+| 1,000-contour budget, same plan tolerance | Stops at 753 contours and 703 spots; 0.262 m worst miss, `NoProgress` |
+| 1,000-contour budget, 0.1 m plan tolerance | 665 contours and 633 spots; ≤0.25 m worst miss, `ToleranceSatisfied` |
+
+**The reference scan does not meet 0.25 m at the default curve budget.** This is a reconstruction error
+against the inferred ground mesh, not a measurement of ground truth beneath buildings. Smooth filling
+cannot infer hidden terrace discontinuities; houses against terrace steps and remaining wall-foot
+anchors are known limits. The command reports the residual and termination rather than claiming a
+tolerance guarantee. Raising the budget alone to 1,000 did not meet the target; recovery exhausted its
+useful candidates before that budget was spent.
+
+**A measured recipe does meet the target:** `Tolerance=0.25`, `PlanTolerance=0.1`, `MaxContours=1000`,
+`RidgesValleys=No`, automatic raster cell and 1 m requested ground spacing. The pure Core reference run
+stopped at 665 contours and 633 spots with `ToleranceSatisfied` (≤0.25 m at every ground-mesh vertex).
+It took about 73 seconds for recovery in this diagnostic run; this is not a hosted performance claim.
+The command retains its faster 300-contour default and reports its actual residual. The tighter recipe
+was verified in Core; the live native reference test above used the default budget.
+
+Synthetic tests cover a terraced hillside with gable houses and trees, a 50% plain slope, planar fill,
+sparse overlapping triangles in both windings, overflow/empty inputs, planar coarse-mesh borders and
+recovery through a simply bordered mesh. The synthetic house fill error is asserted below 0.35 m;
+the separate linear-hole fill test is asserted below 0.001 coordinate units.
+
+Live Rhino validation used the exact Debug plugin and the registered command: synthetic geometry in
+metres and millimetres, output layers/grouping, opt-in check mesh, distinct rerun roots, one-command
+Undo and cancellation at the options prompt passed. The reference native mesh needed 14 degenerate
+faces culled before document insertion; that run emitted 300 contours, one border and 487 spots,
+with a 0.506 m reported residual and budget-spent termination. All output geometry was valid.
+The native and pure Core figures differ slightly because their source triangulations differ.
+See [live testing](rhino-live-testing.md) for the build identity and evidence.
+
+Validation commands (all passed; native skips do not count as native execution):
+
+- `dotnet build src/MoleHill.Rhino/MoleHill.Rhino.csproj --no-restore -p:CopyRetryCount=0 -v minimal`
+  — zero warnings/errors.
+- `dotnet test tests/MoleHill.Core.Tests/MoleHill.Core.Tests.csproj --no-restore --logger "console;verbosity=quiet"`
+  — full managed Core suite. The final scan regressions were also run with
+  `--filter FullyQualifiedName~ScanGroundTests -v minimal` (12 tests).
+- `dotnet test tests/MoleHill.Rhino.Tests/MoleHill.Rhino.Tests.csproj --no-restore -v minimal -p:NoWarn=CA1416`
+  — 1,450 passed, 175 native tests skipped; source exclusion fixed for the new command service.
+- `dotnet test tests/MoleHill.Grasshopper.Tests/MoleHill.Grasshopper.Tests.csproj --no-restore --logger "console;verbosity=quiet"`
+  — 56 passed, 18 native tests skipped.
+
+The disposable live Rhino was closed through its owning client after testing. No package was published.
+
+Reproduce the reference measurement with `MOLEHILL_SCAN_OBJ` set to the local Z-up OBJ (metres), then
+`dotnet test tests/MoleHill.Core.Tests/MoleHill.Core.Tests.csproj --no-restore --filter FullyQualifiedName~ScanGroundMeasurementTests --logger "console;verbosity=detailed"`.
+`MOLEHILL_SCAN_MAX_CONTOURS` defaults to 300; set it to 200 for the earlier comparison.
+For the tolerance-satisfying Core run, set `MOLEHILL_SCAN_MAX_CONTOURS=1000` and
+`MOLEHILL_SCAN_PLAN_TOLERANCE=0.1` (the latter defaults to 0.5 m).
+`MOLEHILL_SCAN_IMAGES` writes north-up surface/ground hillshades and the ground/fill classification.
+The real scan is not bundled, and ordinary test execution without that variable does not measure it.
 
 ## Decisions (user, 2026-10-18)
 

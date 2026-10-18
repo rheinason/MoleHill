@@ -32,6 +32,17 @@ Supports NURBS curves, polylines and lines; convert other curve types to NURBS f
 
 ## Folders
 
+`mhScanToTerrain` (Phase 1) takes a Z-up photogrammetry mesh and infers ground beneath raised objects,
+then outputs editable borders, contours and spot points on separate layers under a fresh `Scan {source}`
+root. Enter starts with command-line settings; Esc cancels ground extraction or stops contour recovery
+and keeps its partial result. `AddGroundMesh=Yes` adds the internal ground mesh for checking. Defaults
+are physical lengths converted to model units. The reported tolerance is against the inferred ground;
+the command reports when its contour budget is exhausted. Walls, road edges, buildings, point clouds
+and the floating preview/Keep panel remain later phases. See the [plan](../../docs/scan-to-terrain-plan-2026-10-18.md).
+On the reference scan, the default 300-contour budget leaves about 0.51 m residual. A Core run with
+`Tolerance=0.25`, `PlanTolerance=0.1`, `MaxContours=1000` and `RidgesValleys=No` met 0.25 m against
+inferred ground using 665 contours and 633 spots; use the larger budget when accuracy takes priority.
+
 | Folder | What lives there |
 |---|---|
 | [`Model/`](Model/README.md) | The persisted terrain definition: modifiers, zones, markers, objects, analyses, annotations |

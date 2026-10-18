@@ -797,12 +797,18 @@ curves and spot points that rebuild it within a stated tolerance: landform lines
 points first, then contours where the rebuilt surface deviates most, repeated until within tolerance, so
 the terrain stays editable afterwards. B6 inverted: the output is editable input, not a reduced mesh.
 
-### B26 — Scan to terrain: ground, buildings, walls, kerbs and contours from a drone mesh — **planned**
+### B26 — Scan to terrain: ground, buildings, walls, kerbs and contours from a drone mesh — **Phase 1 implemented; later phases planned**
 
-**Planned 2026-10-18**, see `docs/scan-to-terrain-plan-2026-10-18.md`. A photogrammetry mesh of a built
-site (houses, roads, gardens) becomes, on layers: a clean ground surface, simplified building volumes with
+**Phase 1 implemented 2026-10-18**, see `docs/scan-to-terrain-plan-2026-10-18.md` for validation and
+the remaining phases. `mhScanToTerrain` filters raised objects, infers ground and outputs borders,
+contours and spots under a fresh `Scan {source}` root; check mesh opt-in. On the reference scan,
+102 large raised regions are removed and 34.4% of the footprint filled. The default 300-contour budget
+leaves a 0.513 m miss against inferred ground at a 0.25 m target, explicitly reported as budget spent.
+A tighter Core reference run (`PlanTolerance=0.1`, budget 1,000) meets 0.25 m using 665 contours and 633 spots.
+Walls/kerbs/colour/buildings, point clouds, light curve fitting and the floating preview panel remain open.
+The full goal: a photogrammetry mesh of a built site (houses, roads, gardens) becomes, on layers, simplified building volumes with
 roof shapes, wall and terrace edges as breaklines, paved and soft areas from the texture's colours,
-suggested kerbs, and B25's contours restricted to the soft areas. Measured on the user's reference scan:
+kerbs or single road-edge breaklines, and B25's contours restricted to the soft areas. Measured on the user's reference scan:
 buildings separate cleanly and their roofs fit 2 to 6 planes; walls read clearly; 10 to 15 cm kerbs are at
 the mesh's resolution limit. Decided 2026-10-18: roof shapes straight away, a kerb where the step is
 clear and a single breakline otherwise, curves only (no ground mesh output), point clouds as a second input.

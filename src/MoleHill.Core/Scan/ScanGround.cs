@@ -1,0 +1,295 @@
+using MoleHill.Core.Engine;
+
+namespace MoleHill.Core.Scan;
+
+/// <summary>
+/// The bare ground under a scan (S1 + S2 of docs/scan-to-terrain-plan-2026-10-18.md): rasterise the top
+/// surface, find what stands on the ground (houses, cars, trees, bushes), take it away and rebuild the
+/// ground beneath it smoothly from the ground around.
+/// <para><b>Filter.</b> The progressive morphological filter (Zhang et al. 2003): open the surface with
+/// windows doubling from <see cref="Options.SmallestObject"/> to <see cref="Options.LargestObject"/>; a
+/// node the opening lowers by more than the window's height allowance stands on the ground. The
+/// allowance grows with the window by <see cref="Options.GroundSlope"/>, since an opening on sloping
+/// ground lowers it by about the slope times the window's half-width, and is capped at
+/// <see cref="Options.MaximumThreshold"/>.</para>
+/// <para><b>Objects, not steps.</b> On terraced ground the opening also lowers the top of a terrace
+/// narrower than the window: it is "raised" only along its wall and runs on into the hill behind. What
+/// stands on the ground is raised all round, so each raised region is kept as an object only when it
+/// stands above its surroundings along at least <see cref="Options.RaisedPerimeterShare"/> of its edge;
+/// the rest is ground, and its wall is left for the wall tracing of phase 2.</para>
+/// <para><b>Fill.</b> Objects grow by <see cref="Options.Margin"/> (the foot of a wall rasterises halfway
+/// up it), then everything but ground is filled by <see cref="HarmonicFill"/> over the scan's footprint:
+/// its largest connected piece, with the gaps inside it closed.</para>
+/// </summary>
+public static class ScanGround
+{
+    public sealed class Options
+    {
+        /// <summary>Raster cell; 0 picks <see cref="ScanRasterizer.AutomaticCellSize"/>.</summary>
+        public double CellSize { get; init; }
+
+        /// <summary>The narrowest object the filter's first window removes (its full width).</summary>
+        public required double SmallestObject { get; init; }
+
+        /// <summary>The widest object to remove, full width: the last window. Wider than the largest building.</summary>
+        public required double LargestObject { get; init; }
+
+        /// <summary>The steepest ground, rise over run, the height allowance must not mistake for an object.</summary>
+        public double GroundSlope { get; init; } = 0.6;
+
+        /// <summary>Height allowance of the first window: what may stand proud of the ground and still be ground.</summary>
+        public required double InitialThreshold { get; init; }
+
+        /// <summary>The allowance never grows past this.</summary>
+        public required double MaximumThreshold { get; init; }
+
+        /// <summary>An object is kept only if it stands above its surroundings along this share of its edge.</summary>
+        public double RaisedPerimeterShare { get; init; } = 0.5;
+
+        /// <summary>How far each object grows before the ground is filled under it.</summary>
+        public required double Margin { get; init; }
+
+        /// <summary>Objects at least this large in plan are counted in <see cref="Result.ObjectCount"/>.</summary>
+        public double MinimumObjectArea { get; init; }
+
+        public CancellationToken CancellationToken { get; init; }
+    }
+
+    public sealed class Result
+    {
+        /// <summary>The rasterised top surface (DSM), NaN where the scan has no face.</summary>
+        public required ScanGrid Surface { get; init; }
+
+        /// <summary>The ground: the surface where it is ground, filled elsewhere; NaN outside <see cref="Domain"/>.</summary>
+        public required ScanGrid Ground { get; init; }
+
+        /// <summary>Nodes the ground covers: the scan's largest piece, its inner gaps closed.</summary>
+        public required bool[] Domain { get; init; }
+
+        /// <summary>Nodes whose surface was taken as ground (not filled).</summary>
+        public required bool[] IsGround { get; init; }
+
+        /// <summary>Objects removed (at least <see cref="Options.MinimumObjectArea"/> in plan).</summary>
+        public required int ObjectCount { get; init; }
+
+        /// <summary>Raised regions kept as ground because they were raised along too little of their edge.</summary>
+        public required int StepCount { get; init; }
+
+        /// <summary>Plan area of the domain, and of the part of it that was filled.</summary>
+        public required double DomainArea { get; init; }
+
+        public required double FilledArea { get; init; }
+
+        public double FilledShare => DomainArea > 0.0 ? FilledArea / DomainArea : 0.0;
+    }
+
+    public static Result Build(IndexedTriMesh scan, Options options)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        Validate(options);
+        double cellSize = options.CellSize > 0.0 ? options.CellSize : ScanRasterizer.AutomaticCellSize(scan);
+        ScanGrid surface = ScanRasterizer.Rasterize(scan, cellSize, options.CancellationToken).Top;
+        return FromSurface(surface, options);
+    }
+
+    /// <summary>The ground of an already rasterised top surface.</summary>
+    public static Result FromSurface(ScanGrid surface, Options options)
+    {
+        ArgumentNullException.ThrowIfNull(surface);
+        ArgumentNullException.ThrowIfNull(options);
+        Validate(options);
+        options.CancellationToken.ThrowIfCancellationRequested();
+        int columns = surface.Columns, rows = surface.Rows;
+        double[] top = surface.Values;
+        double cell = surface.CellSize;
+        var covered = new bool[top.Length];
+        for (int i = 0; i < top.Length; i++)
+            covered[i] = !double.IsNaN(top[i]);
+
+        bool[] raised = FilterObjects(top, columns, rows, cell, options);
+        options.CancellationToken.ThrowIfCancellationRequested();
+
+        // Keep the regions that stand up all round; give back the terrace tops.
+        int[] labels = GridMorphology.Label(raised, columns, rows, out List<int> sizes, out _);
+        var raisedEdges = new int[sizes.Count];
+        var edges = new int[sizes.Count];
+        for (int node = 0; node < top.Length; node++)
+        {
+            int label = labels[node];
+            if (label < 0)
+                continue;
+            int i = node % columns, j = node / columns;
+            Compare(i > 0 ? node - 1 : -1);
+            Compare(i < columns - 1 ? node + 1 : -1);
+            Compare(j > 0 ? node - columns : -1);
+            Compare(j < rows - 1 ? node + columns : -1);
+
+            void Compare(int neighbour)
+            {
+                if (neighbour < 0 || labels[neighbour] == label || !covered[neighbour])
+                    return;
+                edges[label]++;
+                if (top[node] - top[neighbour] > options.InitialThreshold)
+                    raisedEdges[label]++;
+            }
+        }
+
+        var isObject = new bool[sizes.Count];
+        int objectCount = 0, stepCount = 0;
+        int minimumNodes = options.MinimumObjectArea > 0.0 ? (int)Math.Ceiling(options.MinimumObjectArea / surface.NodeArea) : 0;
+        for (int label = 0; label < sizes.Count; label++)
+        {
+            isObject[label] = edges[label] == 0 || raisedEdges[label] >= options.RaisedPerimeterShare * edges[label];
+            if (!isObject[label])
+                stepCount++;
+            else if (sizes[label] >= minimumNodes)
+                objectCount++;
+        }
+
+        var objects = new bool[top.Length];
+        for (int node = 0; node < top.Length; node++)
+            objects[node] = labels[node] >= 0 && isObject[labels[node]];
+        int marginNodes = Math.Max(0, (int)Math.Round(options.Margin / cell));
+        objects = GridMorphology.DilateMask(objects, columns, rows, marginNodes);
+
+        bool[] domain = GridMorphology.LargestComponentWithoutHoles(covered, columns, rows);
+        var isGround = new bool[top.Length];
+        for (int node = 0; node < top.Length; node++)
+            isGround[node] = domain[node] && covered[node] && !objects[node];
+
+        // A one-node sliver of ground reaching between two objects holds the fill to whatever it touched.
+        isGround = GridMorphology.OpenMask(isGround, columns, rows, 1);
+
+        // A scrap of ground smaller than the smallest object, inside or between objects (a node on a roof the
+        // filter missed, a gap between a house and its hedge), is not ground to hold the fill to: a harmonic
+        // fill pinned at one node makes a cone there.
+        int[] islands = GridMorphology.Label(isGround, columns, rows, out List<int> islandSizes, out _);
+        int smallestIsland = (int)Math.Ceiling(options.SmallestObject * options.SmallestObject / surface.NodeArea);
+        int largestIsland = 0;
+        for (int island = 1; island < islandSizes.Count; island++)
+        {
+            if (islandSizes[island] > islandSizes[largestIsland])
+                largestIsland = island;
+        }
+
+        int domainNodes = 0, filledNodes = 0;
+        for (int node = 0; node < top.Length; node++)
+        {
+            if (isGround[node] && islands[node] != largestIsland && islandSizes[islands[node]] < smallestIsland)
+                isGround[node] = false;
+            if (domain[node])
+            {
+                domainNodes++;
+                if (!isGround[node])
+                    filledNodes++;
+            }
+        }
+
+        double[] ground = HarmonicFill.Fill(SmoothFillEdge(top, isGround, domain, columns, rows), isGround, domain, columns, rows, options.CancellationToken);
+        return new Result
+        {
+            Surface = surface,
+            Ground = surface.WithValues(ground),
+            Domain = domain,
+            IsGround = isGround,
+            ObjectCount = objectCount,
+            StepCount = stepCount,
+            DomainArea = domainNodes * surface.NodeArea,
+            FilledArea = filledNodes * surface.NodeArea,
+        };
+    }
+
+    /// <summary>
+    /// The heights the fill is held to: at each ground node beside a node to fill, the median of the ground
+    /// within <see cref="FillEdgeReach"/> nodes, elsewhere the surface. A harmonic fill follows its edge
+    /// exactly, so one odd node there (the foot of a wall, a stone, a step of a stair) leaves a cone reaching
+    /// into the patch; the median keeps the edge's height and drops the odd one.
+    /// </summary>
+    private static double[] SmoothFillEdge(double[] top, bool[] isGround, bool[] domain, int columns, int rows)
+    {
+        var heights = (double[])top.Clone();
+        var window = new List<double>();
+        for (int node = 0; node < top.Length; node++)
+        {
+            if (!isGround[node])
+                continue;
+            int i = node % columns, j = node / columns;
+            bool edge = (i > 0 && domain[node - 1] && !isGround[node - 1]) ||
+                (i < columns - 1 && domain[node + 1] && !isGround[node + 1]) ||
+                (j > 0 && domain[node - columns] && !isGround[node - columns]) ||
+                (j < rows - 1 && domain[node + columns] && !isGround[node + columns]);
+            if (!edge)
+                continue;
+
+            window.Clear();
+            for (int y = Math.Max(0, j - FillEdgeReach); y <= Math.Min(rows - 1, j + FillEdgeReach); y++)
+            {
+                for (int x = Math.Max(0, i - FillEdgeReach); x <= Math.Min(columns - 1, i + FillEdgeReach); x++)
+                {
+                    int other = (y * columns) + x;
+                    if (isGround[other])
+                        window.Add(top[other]);
+                }
+            }
+
+            window.Sort();
+            heights[node] = window[window.Count / 2];
+        }
+
+        return heights;
+    }
+
+    private const int FillEdgeReach = 2;
+
+    private static void Validate(Options options)
+    {
+        if (!double.IsFinite(options.CellSize) || options.CellSize < 0 ||
+            !double.IsFinite(options.SmallestObject) || options.SmallestObject <= 0 ||
+            !double.IsFinite(options.LargestObject) || options.LargestObject < options.SmallestObject ||
+            !double.IsFinite(options.InitialThreshold) || options.InitialThreshold < 0 ||
+            !double.IsFinite(options.MaximumThreshold) || options.MaximumThreshold < options.InitialThreshold ||
+            !double.IsFinite(options.GroundSlope) || options.GroundSlope < 0 ||
+            !double.IsFinite(options.RaisedPerimeterShare) || options.RaisedPerimeterShare < 0 || options.RaisedPerimeterShare > 1 ||
+            !double.IsFinite(options.Margin) || options.Margin < 0 ||
+            !double.IsFinite(options.MinimumObjectArea) || options.MinimumObjectArea < 0)
+            throw new ArgumentOutOfRangeException(nameof(options), "Scan lengths and thresholds must be finite and nonnegative, object widths ordered and positive, and perimeter share between 0 and 1.");
+    }
+
+    /// <summary>
+    /// The progressive morphological filter: true where a node stands on the ground rather than being it.
+    /// Windows are half-widths in nodes, doubling from the smallest object's to the largest's.
+    /// </summary>
+    private static bool[] FilterObjects(double[] top, int columns, int rows, double cell, Options options)
+    {
+        var halfWidths = new List<double>();
+        double half = Math.Max(options.SmallestObject * 0.5, cell);
+        double last = Math.Max(options.LargestObject * 0.5, half);
+        while (half < last)
+        {
+            halfWidths.Add(half);
+            half *= 2.0;
+        }
+
+        halfWidths.Add(last);
+        var raised = new bool[top.Length];
+        double[] surface = top;
+        double previous = 0.0;
+        foreach (double halfWidth in halfWidths)
+        {
+            options.CancellationToken.ThrowIfCancellationRequested();
+            int k = (int)Math.Clamp(Math.Round(halfWidth / cell), 1, Math.Max(1, Math.Max(columns, rows)));
+            double[] opened = GridMorphology.Open(surface, columns, rows, k);
+            double threshold = Math.Min(options.InitialThreshold + (options.GroundSlope * (halfWidth - previous)), options.MaximumThreshold);
+            for (int node = 0; node < top.Length; node++)
+            {
+                if (!double.IsNaN(surface[node]) && surface[node] - opened[node] > threshold)
+                    raised[node] = true;
+            }
+
+            surface = opened;
+            previous = halfWidth;
+        }
+
+        return raised;
+    }
+}

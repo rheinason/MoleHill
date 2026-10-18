@@ -157,8 +157,20 @@ TriangleNet (vendored)  ←  MoleHill.Core  ←  MoleHill.Grasshopper (GH host)
 - **`mhTerrainToCurves` turns a terrain back into input.** `Core/Processing/TerrainCurveRecovery` returns
   borders, peak/pit spot points, ridge/valley lines that earn their length, and the fewest contours that
   rebuild the terrain within a vertical tolerance (vertex-sampled); `RidgesValleys=Auto` runs with and
-  without the lines and keeps the smaller result; the command adds them to the current layer, grouped and named by role.
+  without the lines and keeps the smaller result; the command adds them under a fresh `Terrain to Curves {source}`
+  layer root, grouped and named by role. Shared `RecoverWithEscape` and `AddOutput` helpers also serve scan recovery.
   Esc stops the search and keeps what it found.
+- **`mhScanToTerrain` infers bare ground before recovering curves.** `Core/Scan` rasterises triangles to
+  top/lowest height grids, applies progressive morphological openings, distinguishes objects from terrace
+  steps by their raised perimeter, removes narrow ground scraps, and harmonically fills the largest
+  footprint. Ground at fill edges uses a local median to suppress isolated wall-foot heights.
+  `ScanGroundMesher` averages to a coarser spacing, preserving simple border loops for `TerrainCurveRecovery`.
+  The host reads a Z-up mesh and writes borders, contours, ridge/valley lines when requested, and spot
+  points under a fresh `Scan {source}` root in one Undo operation. Ground mesh output is an opt-in check.
+  Physical defaults use document units. Esc cancels the ground worker before output; during recovery it
+  keeps the curves found so far. Tolerance is checked against inferred ground vertices, not hidden surveyed
+  ground. A spent curve budget is reported with the residual error. Phase 1 has command-line settings;
+  texture classification, walls/kerbs/buildings, point clouds and the floating review panel remain planned.
 - **`mhSuggestRoute` drafts the curve; Grade Path still follows it.** Modifiers follow drawn geometry
   exactly, so help with *where* a path should go belongs upstream, in a command that draws the curve.
   The user picks a terrain (any mesh/surface, or Enter for the active MoleHill terrain, as

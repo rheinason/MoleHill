@@ -103,59 +103,14 @@ internal static class TerrainToCurvesCommandService
                 return Result.Failure;
             }
 
-            bool cancelled = false;
-            void OnEscape(object? sender, EventArgs e) => cancelled = true;
-            RhinoApp.EscapeKeyPressed += OnEscape;
-            TerrainCurveRecovery.Result recovery;
-            try
-            {
-                TerrainCurveRecovery.Result Run(bool landformLines, string pass) =>
-                    TerrainCurveRecovery.Recover(terrainMesh, new TerrainCurveRecovery.Options
-                    {
-                        VerticalTolerance = tolerance,
-                        PlanTolerance = planTolerance,
-                        MaximumCurves = maxCurves,
-                        LandformLines = landformLines,
-                        ShouldCancel = () => cancelled,
-                        ReportProgress = (round, worst) =>
-                        {
-                            RhinoApp.SetCommandPrompt(
-                                $"{pass}round {round}: worst miss {worst.ToString("G4", CultureInfo.InvariantCulture)} (Esc stops and keeps the curves so far)");
-                            RhinoApp.Wait();
-                        }
-                    });
-
-                // Auto runs with and without ridge and valley lines and keeps whichever needs fewer curves:
-                // lines save contours on creased ground and rarely on rough natural ground.
-                if (linesIndex == 0)
-                {
-                    TerrainCurveRecovery.Result withLines = Run(true, "With ridges and valleys, ");
-                    TerrainCurveRecovery.Result withoutLines = cancelled ? withLines : Run(false, "Contours only, ");
-                    recovery = Better(withLines, withoutLines);
-                    if (!cancelled)
-                    {
-                        RhinoApp.WriteLine(
-                            $"Ridges and valleys: {CurveCount(withLines)} curves with them, {CurveCount(withoutLines)} without; " +
-                            (ReferenceEquals(recovery, withLines) ? "kept them." : "left them out."));
-                    }
-                }
-                else
-                {
-                    recovery = Run(linesIndex == 1, string.Empty);
-                }
-            }
-            finally
-            {
-                RhinoApp.EscapeKeyPressed -= OnEscape;
-            }
-
+            TerrainCurveRecovery.Result recovery = RecoverWithEscape(terrainMesh, tolerance, planTolerance, maxCurves, linesIndex, string.Empty);
             if (recovery.Termination == TerrainCurveRecovery.Termination.UnsupportedInput)
             {
                 RhinoApp.WriteLine(recovery.Diagnostic);
                 return Result.Failure;
             }
 
-            int added = AddOutput(doc, recovery, sourceName, out string root);
+            int added = AddOutput(doc, recovery, $"Terrain to Curves {sourceName}", "Terrain to Curves", null, out string root);
             RhinoApp.WriteLine(
                 $"Terrain to curves: {recovery.Borders.Count} border(s), {recovery.LandformLines.Count} ridge/valley line(s), {recovery.Contours.Count} contour(s), " +
                 $"{recovery.SpotPointCount} spot point(s) from {terrainMesh.VertexCount:N0} vertices; worst miss " +
@@ -168,7 +123,58 @@ internal static class TerrainToCurvesCommandService
         }
     }
 
-    private static readonly string[] LandformLabels = { "Auto", "Yes", "No" };
+    internal static readonly string[] LandformLabels = { "Auto", "Yes", "No" };
+
+    /// <summary>
+    /// Runs the recovery with Esc wired to stop it (keeping what it found), reporting each round on the
+    /// command line. <paramref name="linesIndex"/> picks ridge and valley lines from
+    /// <see cref="LandformLabels"/>: Auto runs with and without them and keeps whichever needs fewer curves,
+    /// since lines save contours on creased ground and rarely on rough natural ground.
+    /// </summary>
+    internal static TerrainCurveRecovery.Result RecoverWithEscape(
+        IndexedTriMesh terrainMesh, double tolerance, double planTolerance, int maxCurves, int linesIndex, string stage)
+    {
+        bool cancelled = false;
+        void OnEscape(object? sender, EventArgs e) => cancelled = true;
+        RhinoApp.EscapeKeyPressed += OnEscape;
+        try
+        {
+            TerrainCurveRecovery.Result Run(bool landformLines, string pass) =>
+                TerrainCurveRecovery.Recover(terrainMesh, new TerrainCurveRecovery.Options
+                {
+                    VerticalTolerance = tolerance,
+                    PlanTolerance = planTolerance,
+                    MaximumCurves = maxCurves,
+                    LandformLines = landformLines,
+                    ShouldCancel = () => cancelled,
+                    ReportProgress = (round, worst) =>
+                    {
+                        RhinoApp.SetCommandPrompt(
+                            $"{stage}{pass}round {round}: worst miss {worst.ToString("G4", CultureInfo.InvariantCulture)} (Esc stops and keeps the curves so far)");
+                        RhinoApp.Wait();
+                    }
+                });
+
+            if (linesIndex != 0)
+                return Run(linesIndex == 1, string.Empty);
+
+            TerrainCurveRecovery.Result withLines = Run(true, "With ridges and valleys, ");
+            TerrainCurveRecovery.Result withoutLines = cancelled ? withLines : Run(false, "Contours only, ");
+            TerrainCurveRecovery.Result better = Better(withLines, withoutLines);
+            if (!cancelled)
+            {
+                RhinoApp.WriteLine(
+                    $"Ridges and valleys: {CurveCount(withLines)} curves with them, {CurveCount(withoutLines)} without; " +
+                    (ReferenceEquals(better, withLines) ? "kept them." : "left them out."));
+            }
+
+            return better;
+        }
+        finally
+        {
+            RhinoApp.EscapeKeyPressed -= OnEscape;
+        }
+    }
 
     private static int CurveCount(TerrainCurveRecovery.Result result) =>
         result.Contours.Count + result.LandformLines.Count;
@@ -199,28 +205,41 @@ internal static class TerrainToCurvesCommandService
         ("Spot heights", System.Drawing.Color.FromArgb(25, 157, 73)),
     };
 
-    /// <summary>Adds the curves and points on their layers, named by role, grouped, in one undo step.</summary>
-    private static int AddOutput(RhinoDoc doc, TerrainCurveRecovery.Result recovery, string sourceName, out string root)
+    /// <summary>
+    /// Adds the curves and points on their layers under a fresh root named <paramref name="rootName"/> (" 2",
+    /// " 3" when taken), named by role, grouped, in one undo step. <paramref name="addExtra"/> adds more
+    /// objects in the same step: it gets a function from a layer (name and colour) to the attributes for it.
+    /// </summary>
+    internal static int AddOutput(
+        RhinoDoc doc,
+        TerrainCurveRecovery.Result recovery,
+        string rootName,
+        string undoName,
+        Func<Func<string, System.Drawing.Color, string, ObjectAttributes>, IEnumerable<Guid>>? addExtra,
+        out string root)
     {
         root = SurveyLayerNaming.NextFreeRootName(
-            $"Terrain to Curves {sourceName}".Trim(),
+            rootName.Trim(),
             candidate => doc.Layers.FindByFullPath(candidate, -1) >= 0);
         var ids = new List<Guid>();
-        uint undoRecord = doc.BeginUndoRecord("Terrain to Curves");
+        uint undoRecord = doc.BeginUndoRecord(undoName);
         try
         {
             var layers = new Dictionary<string, int>(StringComparer.Ordinal);
-            string rootName = root;
-            ObjectAttributes On(string kind, string name)
+            string layerRoot = root;
+            ObjectAttributes OnLayer(string kind, System.Drawing.Color color, string name)
             {
                 if (!layers.TryGetValue(kind, out int index))
                 {
-                    index = EnsureLayer(doc, rootName, kind);
+                    index = EnsureLayer(doc, layerRoot, kind, color);
                     layers[kind] = index;
                 }
 
                 return new ObjectAttributes { Name = name, LayerIndex = index };
             }
+
+            ObjectAttributes On(string kind, string name) =>
+                OnLayer(kind, OutputLayers.First(layer => layer.Name == kind).Color, name);
 
             foreach (double[] border in recovery.Borders)
                 ids.Add(doc.Objects.AddPolyline(ToPoints(border, close: true), On("Border", "Border")));
@@ -240,6 +259,9 @@ internal static class TerrainToCurvesCommandService
                 ids.Add(doc.Objects.AddPoint(point, On("Spot heights", "Spot")));
             }
 
+            if (addExtra != null)
+                ids.AddRange(addExtra(OnLayer));
+
             ids.RemoveAll(id => id == Guid.Empty);
             if (ids.Count > 0)
                 doc.Groups.Add(ids);
@@ -253,7 +275,7 @@ internal static class TerrainToCurvesCommandService
     }
 
     /// <summary>The root layer and the kind's layer under it, created with the kind's colour if missing.</summary>
-    private static int EnsureLayer(RhinoDoc doc, string root, string kind)
+    private static int EnsureLayer(RhinoDoc doc, string root, string kind, System.Drawing.Color color)
     {
         int parent = doc.Layers.FindByFullPath(root, -1);
         if (parent < 0)
@@ -264,7 +286,6 @@ internal static class TerrainToCurvesCommandService
         if (index >= 0)
             return index;
 
-        System.Drawing.Color color = OutputLayers.First(layer => layer.Name == kind).Color;
         return doc.Layers.Add(new Layer { Name = kind, ParentLayerId = doc.Layers[parent].Id, Color = color });
     }
 
