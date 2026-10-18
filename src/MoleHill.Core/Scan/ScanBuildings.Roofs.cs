@@ -14,7 +14,6 @@ public static partial class ScanBuildings
         public string Diagnostic { get; set; } = "";
         public double CoveredShare { get; set; } = 1;
         public IReadOnlyList<Cut> ExtraCuts { get; set; } = Array.Empty<Cut>();
-        public double SpatialPatchAreaShare { get; init; } = .03;
         public bool Approximate { get; init; }
         public bool Bounded { get; set; }
         public double Height(double x, double y) => Planes[Select(x, y)].Height(x, y);
@@ -168,17 +167,7 @@ public static partial class ScanBuildings
         };
         Evaluate(general);
         if (Accept(general))
-        {
             models.Add(general);
-            // A small real roof detail can be necessary to meet the fit. Retry less simplification
-            // before calling an otherwise recoverable roof an extrusion fallback.
-            foreach (double share in new[] { .01, 0.0 })
-                models.Add(new RoofModel
-                {
-                    Kind = general.Kind, Planes = general.Planes, Select = general.Select, ExtraCuts = general.ExtraCuts,
-                    SpatialPatchAreaShare = share, Rms = general.Rms, WithinShare = general.WithinShare, Score = general.Score,
-                });
-        }
 
         if (options.MinimumRoofDetail > 0 || options.MaximumRoofFaces > 0)
             foreach (RoofModel simple in choices.Where(model => model.Planes.Count <= 4)

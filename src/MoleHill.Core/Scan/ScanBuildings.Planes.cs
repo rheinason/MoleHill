@@ -30,7 +30,20 @@ public static partial class ScanBuildings
             double z = (scan.Vertices[a + 2] + scan.Vertices[b + 2] + scan.Vertices[c + 2]) / 3;
             var plane = new RoofPlane(-nx / nz, -ny / nz, z + nx / nz * x + ny / nz * y);
             int current = samples.Count;
-            samples.Add(new RoofSample { X = x, Y = y, Z = z, Weight = Math.Abs(nz) * 0.5, FacePlane = plane, Vertices = vertices, Neighbours = new[] { -1, -1, -1 } });
+            // For a uniform triangle E[(p-centroid)(q-centroid)] is the sum over its three
+            // vertices divided by twelve. Centroids alone lose all support along long triangles.
+            double Moment(int p, double meanP, int q, double meanQ) =>
+                ((scan.Vertices[a + p] - meanP) * (scan.Vertices[a + q] - meanQ) +
+                 (scan.Vertices[b + p] - meanP) * (scan.Vertices[b + q] - meanQ) +
+                 (scan.Vertices[c + p] - meanP) * (scan.Vertices[c + q] - meanQ)) / 12;
+            samples.Add(new RoofSample
+            {
+                X = x, Y = y, Z = z, MaximumZ = Math.Max(scan.Vertices[a + 2], Math.Max(scan.Vertices[b + 2], scan.Vertices[c + 2])),
+                Weight = Math.Abs(nz) * 0.5, FacePlane = plane,
+                XX = Moment(0, x, 0, x), XY = Moment(0, x, 1, y), YY = Moment(1, y, 1, y),
+                XZ = Moment(0, x, 2, z), YZ = Moment(1, y, 2, z),
+                Vertices = vertices, Neighbours = new[] { -1, -1, -1 },
+            });
             for (int k = 0; k < 3; k++)
             {
                 int p = vertices[k], q = vertices[(k + 1) % 3];
@@ -50,7 +63,8 @@ public static partial class ScanBuildings
     private static List<RoofSample> LocalSamples(List<RoofSample> samples, double originX, double originY) =>
         samples.Select(s => new RoofSample
         {
-            X = s.X - originX, Y = s.Y - originY, Z = s.Z, Weight = s.Weight,
+            X = s.X - originX, Y = s.Y - originY, Z = s.Z, MaximumZ = s.MaximumZ, Weight = s.Weight,
+            XX = s.XX, XY = s.XY, YY = s.YY, XZ = s.XZ, YZ = s.YZ,
             FacePlane = new RoofPlane(s.FacePlane.X, s.FacePlane.Y, s.FacePlane.Height(originX, originY)),
             Vertices = s.Vertices, Neighbours = s.Neighbours,
         }).ToList();
@@ -59,11 +73,13 @@ public static partial class ScanBuildings
     {
         var remaining = Enumerable.Repeat(true, samples.Count).ToArray();
         var smoothed = new RoofPlane[samples.Count];
+        double cosine = Math.Cos(options.PlaneAngleDegrees * Math.PI / 180);
         for (int i = 0; i < samples.Count; i++)
         {
             double x = samples[i].FacePlane.X * samples[i].Weight, y = samples[i].FacePlane.Y * samples[i].Weight, w = samples[i].Weight;
             foreach (int neighbour in samples[i].Neighbours)
-                if (neighbour >= 0)
+                // Normal smoothing must not erase a ridge before plane detection sees it.
+                if (neighbour >= 0 && NormalDot(samples[i].FacePlane, samples[neighbour].FacePlane) >= cosine)
                 {
                     RoofSample s = samples[neighbour];
                     x += s.FacePlane.X * s.Weight; y += s.FacePlane.Y * s.Weight; w += s.Weight;
@@ -72,13 +88,12 @@ public static partial class ScanBuildings
         }
         var random = new Random(1729);
         var regions = new List<PlaneRegion>();
-        double cosine = Math.Cos(options.PlaneAngleDegrees * Math.PI / 180);
         double minimumArea = options.MinimumArea * 0.03;
         for (int round = 0; round < options.MaximumPlanes; round++)
         {
             options.CancellationToken.ThrowIfCancellationRequested();
             int[] active = Enumerable.Range(0, samples.Count).Where(i => remaining[i]).ToArray();
-            if (active.Length < 3)
+            if (active.Length == 0)
                 break;
             RoofPlane? best = null;
             double bestArea = 0;
@@ -140,11 +155,11 @@ public static partial class ScanBuildings
                 if (area >= minimumArea)
                     grown.AddRange(patch);
             }
-            if (grown.Count < 3)
+            if (grown.Count == 0)
                 break;
             fitted = FitPlane(samples, grown) ?? fitted;
             double grownArea = grown.Sum(i => samples[i].Weight);
-            double rms = Math.Sqrt(grown.Sum(i => samples[i].Weight * Square(samples[i].Z - fitted.Height(samples[i].X, samples[i].Y))) / grownArea);
+            double rms = Math.Sqrt(grown.Sum(i => samples[i].Weight * SampleErrorSquared(samples[i], fitted)) / grownArea);
             regions.Add(new PlaneRegion(fitted, grown, grownArea, rms));
             foreach (int i in grown)
                 remaining[i] = false;
@@ -159,16 +174,23 @@ public static partial class ScanBuildings
                 if (FitPlane(samples, merged) is not RoofPlane fit)
                     continue;
                 double area = regions[i].Area + regions[j].Area;
-                double rms = Math.Sqrt(merged.Sum(k => samples[k].Weight * Square(samples[k].Z - fit.Height(samples[k].X, samples[k].Y))) / area);
-                if (rms > options.RoofTolerance * 0.5 || merged.Any(k => Math.Abs(samples[k].Z - fit.Height(samples[k].X, samples[k].Y)) > options.RoofTolerance))
+                double rms = Math.Sqrt(merged.Sum(k => samples[k].Weight * SampleErrorSquared(samples[k], fit)) / area);
+                if (rms > options.RoofTolerance * 0.5 || merged.Any(k => SampleErrorSquared(samples[k], fit) > Square(options.RoofTolerance)))
                     continue;
                 regions[i] = new PlaneRegion(fit, merged, area, rms);
                 regions.RemoveAt(j);
             }
         return regions.OrderByDescending(region => region.Area).ToList();
 
-        bool Matches(int i, RoofPlane plane) => Math.Abs(samples[i].Z - plane.Height(samples[i].X, samples[i].Y)) <= options.RoofTolerance &&
+        bool Matches(int i, RoofPlane plane) => SampleErrorSquared(samples[i], plane) <= Square(options.RoofTolerance) &&
             NormalDot(smoothed[i], plane) >= cosine;
+    }
+
+    private static double SampleErrorSquared(RoofSample sample, RoofPlane plane)
+    {
+        double x = plane.X - sample.FacePlane.X, y = plane.Y - sample.FacePlane.Y;
+        return Square(sample.Z - plane.Height(sample.X, sample.Y)) +
+            Math.Max(0, x * x * sample.XX + 2 * x * y * sample.XY + y * y * sample.YY);
     }
 
     private static RoofPlane? FitPlane(IReadOnlyList<RoofSample> samples, IReadOnlyList<int> indices)
@@ -185,8 +207,8 @@ public static partial class ScanBuildings
         foreach (int i in indices)
         {
             RoofSample s = samples[i]; double dx = s.X - x, dy = s.Y - y, dz = s.Z - z;
-            xx += s.Weight * dx * dx; xy += s.Weight * dx * dy; yy += s.Weight * dy * dy;
-            xz += s.Weight * dx * dz; yz += s.Weight * dy * dz;
+            xx += s.Weight * (dx * dx + s.XX); xy += s.Weight * (dx * dy + s.XY); yy += s.Weight * (dy * dy + s.YY);
+            xz += s.Weight * (dx * dz + s.XZ); yz += s.Weight * (dy * dz + s.YZ);
         }
         double determinant = xx * yy - xy * xy;
         if (determinant <= Math.Max(xx * yy, 1e-30) * 1e-12)

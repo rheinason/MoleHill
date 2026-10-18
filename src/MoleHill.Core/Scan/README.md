@@ -12,12 +12,17 @@ orthogonal fit requires 95% of the raster outline within the footprint tolerance
 twice that tolerance, allowing isolated scan-edge outliers without moving a whole facade. Fits
 retain simplicity/area checks and a thinned fallback for non-orthogonal annexes. `.Planes` captures
 upward scan triangles, welds UV seams for adjacency, grows connected robustly fitted plane regions,
-and merges coplanar regions. Colour supports vegetation rejection; coherent planar turf roofs remain
+and merges coplanar regions. Plane fitting integrates projected triangle area and second moments;
+triangle count and centroid locations do not substitute for geometric support. Normal smoothing
+does not cross the plane-angle crease threshold. Even one large triangle can support a plane, while
+the minimum measured area still applies. The upper-height guard uses observed triangle vertices,
+so a ridge is not rejected for lying above its face centroids. Colour supports vegetation rejection; coherent planar turf roofs remain
 eligible, and colour-free input requires stronger dominant-plane evidence.
 
 `.Roofs` ranks flat/shed, gable, hip/half-hip and crossing-gable templates by measured error and facet
 count. It then tries continuous plane lattices and spatial plane arrangements before a flagged
-median-height extrusion. `.Solid` partitions the footprint by plane intersections and spatial patch
+median-height extrusion. Each spatial arrangement uses the configured simplification once; it does
+not retry progressively weaker settings. `.Solid` partitions the footprint by plane intersections and spatial patch
 cuts, closes roof steps, walls and the level base, and checks every directed shell edge. `.Junctions`
 removes alternating spatial labels that would make four walls share one vertical edge; every edit
 must reduce the number of bad junctions, and the final shell is remeasured. Accepted roofs put at least

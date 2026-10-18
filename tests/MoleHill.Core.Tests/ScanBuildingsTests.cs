@@ -49,6 +49,49 @@ public sealed class ScanBuildingsTests
     }
 
     [Theory]
+    [InlineData(false, 1.0, .5)]
+    [InlineData(true, 1.0, .5)]
+    [InlineData(true, 1000.0, .5)]
+    [InlineData(true, 1.0, 1.0)]
+    public void Extract_SparsePlanarRoof_UsesTriangleSupportInsteadOfMinimumSampleCount(bool gable, double scale, double slope)
+    {
+        var scene = Scene((u, v) => gable ? 6 + slope * (4 - Math.Abs(v)) : 6, scale: scale);
+        double[] xyz = gable
+            ? new double[] { 4, 6, 6, 16, 6, 6, 4, 10, 6 + 4 * slope, 16, 10, 6 + 4 * slope, 4, 14, 6, 16, 14, 6 }
+            : new double[] { 4, 6, 6, 16, 6, 6, 4, 14, 6, 16, 14, 6 };
+        int[] faces = gable ? new[] { 0, 1, 3, 0, 3, 2, 2, 3, 5, 2, 5, 4 } : new[] { 0, 1, 3, 0, 3, 2 };
+        var sparse = IndexedTriMesh.FromArrays(xyz.Select(v => v * scale).ToArray(), faces);
+        var building = Assert.Single(ScanBuildings.Extract(sparse, scene.Ground, null, Options(scale)).Buildings);
+        Assert.True(building.RoofKind == (gable ? ScanRoofKind.Gable : ScanRoofKind.Flat), building.Diagnostic);
+        Assert.False(building.IsFallback);
+        Assert.InRange(building.RoofRms / scale, 0, 1e-8);
+        AssertWatertight(building.Solid);
+    }
+
+    [Fact]
+    public void Extract_RetriangulatedRoof_FitsTheSameAreaInsteadOfDifferentCentroidLocations()
+    {
+        var scene = Scene((u, v) => 6);
+        var xyz = new List<double> { 4, 6, 6, 16, 6, 6, 4, 14, 6, 16, 14, 6.12 };
+        int[] faces = { 0, 1, 3, 0, 3, 2 };
+        var coarse = Assert.Single(ScanBuildings.Extract(IndexedTriMesh.FromArrays(xyz.ToArray(), faces),
+            scene.Ground, null, Options()).Buildings);
+        var split = new List<int>();
+        // Split only one triangle: changing its sampling density must not move the fitted plane.
+        int center = xyz.Count / 3;
+        for (int axis = 0; axis < 3; axis++)
+            xyz.Add((xyz[axis] + xyz[3 + axis] + xyz[9 + axis]) / 3);
+        split.AddRange(new[] { 0, 1, center, 1, 3, center, 3, 0, center, 0, 3, 2 });
+        var refined = Assert.Single(ScanBuildings.Extract(IndexedTriMesh.FromArrays(xyz.ToArray(), split.ToArray()),
+            scene.Ground, null, Options()).Buildings);
+        Assert.False(coarse.IsFallback); Assert.False(refined.IsFallback);
+        Assert.Equal(coarse.RoofKind, refined.RoofKind);
+        Assert.Equal(coarse.EaveHeight, refined.EaveHeight, 8);
+        Assert.Equal(coarse.RidgeHeight, refined.RidgeHeight, 8);
+        AssertWatertight(refined.Solid);
+    }
+
+    [Theory]
     [InlineData(ScanRoofKind.Flat)]
     [InlineData(ScanRoofKind.Shed)]
     [InlineData(ScanRoofKind.Gable)]

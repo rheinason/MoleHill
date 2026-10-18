@@ -225,6 +225,11 @@ TriangleNet (vendored)  ←  MoleHill.Core  ←  MoleHill.Grasshopper (GH host)
   walls. Simple pitched fallbacks compete with the median extrusion on measured final-shell RMS;
   approximate templates require 50% within tolerance and 85% coverage, remain explicitly marked, and
   never inherit the accurate roof's 90% fit claim. Core zero budget is unbounded; host default is 12.
+  Roof-plane capture retains projected triangle second moments and maximum observed vertex Z.
+  Least-squares fitting uses triangle area, not just centroids; normal smoothing preserves creases.
+  Minimum plane support is measured area rather than a minimum triangle count. Sparse planar meshes
+  therefore use the same reconstruction as dense ones. Spatial simplification runs once per model,
+  without a cascade of weaker retries.
 - **`mhSuggestRoute` drafts the curve; Grade Path still follows it.** Modifiers follow drawn geometry
   exactly, so help with *where* a path should go belongs upstream, in a command that draws the curve.
   The user picks a terrain (any mesh/surface, or Enter for the active MoleHill terrain, as

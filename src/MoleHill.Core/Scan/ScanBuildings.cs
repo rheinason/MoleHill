@@ -72,7 +72,14 @@ public static partial class ScanBuildings
         public required double X { get; init; }
         public required double Y { get; init; }
         public required double Z { get; init; }
+        public required double MaximumZ { get; init; }
         public required double Weight { get; init; }
+        // Uniform projected triangle moments about its centroid; fitting uses its whole area.
+        public required double XX { get; init; }
+        public required double XY { get; init; }
+        public required double YY { get; init; }
+        public required double XZ { get; init; }
+        public required double YZ { get; init; }
         public required RoofPlane FacePlane { get; init; }
         public required int[] Vertices { get; init; }
         public required int[] Neighbours { get; init; }
@@ -157,7 +164,7 @@ public static partial class ScanBuildings
             }
             bool greenCandidate = coloured > candidate.Nodes.Count * 0.5 && green > coloured * options.MaximumGreenShare;
             List<RoofSample> samples = CaptureRoofSamples(scan, candidate);
-            if (samples.Count < 3)
+            if (samples.Count == 0)
             {
                 if (greenCandidate) vegetation++; else geometry++;
                 continue;
@@ -321,7 +328,7 @@ public static partial class ScanBuildings
         model.WithinShare = covered > 0 ? within / covered : 0;
         model.CoveredShare = covered / weight;
         double highest = solid.Vertices.Where((_, i) => i % 3 == 2).Max();
-        bool bounded = highest <= samples.Max(sample => sample.Z) + options.RoofTolerance * 2;
+        bool bounded = highest <= samples.Max(sample => sample.MaximumZ) + options.RoofTolerance * 2;
         model.Bounded = bounded;
         return model.WithinShare >= 0.9 && model.CoveredShare >= 0.85 && bounded;
     }

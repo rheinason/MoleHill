@@ -172,6 +172,18 @@ changes must be established with `validate.ps1 hosted-perf`, not these single di
 
 ## Reconstruction improvements still open
 
+The 2026-10-18 upstream roof correction fixes three causes before reconstruction: triangle-count
+rejection of sparse facets, normal averaging across ridges, and a height guard based on centroids
+instead of the observed vertices. Plane fits integrate projected triangle area, including second
+moments, making least-squares fitting invariant to subdivision of the same triangle support. Regressions cover sparse flat
+and gabled roofs, steep ridges, metres/millimetres and unequal subdivision. The spatial-arrangement
+retry sequence with progressively weaker simplification was removed.
+
+On the same Core textured reference and settings (2 m detail, twelve roof faces), retained buildings
+changed from 50 to 51 and median extrusions from six to four. Eighteen models met the accurate-fit
+contract versus seventeen previously; twenty-nine still used pitched approximations. This is a
+modest improvement, not evidence that the complex roof segmentation problem is solved.
+
 Road boundaries currently follow classified paving, which includes drives and parking as well as roads.
 The next useful step is a connected corridor graph: infer paired sides and junctions, fit shared
 alignments, and retain other paving loops as area boundaries. Simplifying each loop alone cannot

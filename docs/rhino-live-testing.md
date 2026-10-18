@@ -43,6 +43,25 @@ first item, the component reads that, and the solve looks like a silent no-op.
 
 ## 1. Build before launching
 
+Upstream roof corrections, 2026-10-18: normal Debug RHP `ef6d3038-2009-419d-b745-ae2f9aac8c9e`
+and Core `985b4ab6-a094-43fb-83a5-d44747517632` were loaded from the exact standard output paths
+in a fresh owned `aardvark`, PID 20516, Rhino 8.35.26251.13001. The same UV-preserving reference,
+settings, prearmed timers and `_mhScanToTerrain` command sequence as the clarity run below produced
+588 valid grouped outputs. Native queries confirmed 51 valid closed outward positive-volume Breps,
+837 total native faces and no more than twelve roof facets including internal vertical steps.
+All 83 road/kerb runs met the 2 m minimum; road output remained 82 unpaired runs / 5,649 Core controls.
+Forty contours retained exact level Z; their deliberately capped budget still left 2.138 m residual.
+Source-off/on viewport captures were inspected. One Undo restored the source alone, confirmed by query.
+The owned slot was closed gracefully and process exit checked. Evidence: `.artifacts/scan-early/native/`.
+
+Five new regression cases cover sparse facets, a steep ridge, model units and subdivision invariance.
+The original sparse cases failed before the fixes; the steep case exposed cross-ridge normal blending.
+Full Core suite: 1,707 passed. Rhino: 1,457 passed / 175 native skips. Normal plugin build had zero
+warnings/errors, using the same build/test commands below. The Core textured reference retained 51
+buildings rather than 50 and four median extrusions rather than six, with 29 pitched approximations
+still present. This is a modest early-stage correction, not completed roof recognition. Progressive
+spatial-simplification retries were removed. No package was published.
+
 Scan clarity and Astra review, 2026-10-18: fresh normal Debug RHP
 `b51eac8d-3ccb-4a76-b7ef-d211f0f0d9a0` / Core `aae37372-1b58-4d76-ba2d-3e6e2a93ad4b`
 were loaded from `src/MoleHill.Rhino/bin/Debug/net7.0/` in owned slot `aardvark`, PID 37528,
