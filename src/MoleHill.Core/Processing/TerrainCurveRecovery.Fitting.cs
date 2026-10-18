@@ -13,6 +13,7 @@ public static partial class TerrainCurveRecovery
         {
             double plan = planTolerance * 0.25 * Math.Pow(0.25, attempt);
             FittedRouteCurve curve = RouteCurveFitter.Fit(new IReadOnlyList<double>[] { input }, plan, verticalTolerance * 0.1, 0, 0, 0);
+            curve = AtElevation(curve, contour.Level);
             if (curve.Pieces.Count == 0 || curve.MaxPlanDeviation > plan * 1.01)
                 continue;
             double[] samples = curve.PointsXyz;
@@ -45,5 +46,18 @@ public static partial class TerrainCurveRecovery
         // A tight corner beside a mask edge can be impossible to smooth without crossing the excluded
         // area. Keep its exact clipped polyline; the host can express it as a degree-one NURBS.
         return contour;
+    }
+
+    private static FittedRouteCurve AtElevation(FittedRouteCurve curve, double level)
+    {
+        var pieces = curve.Pieces.Select(piece =>
+        {
+            double[] controls = (double[])piece.ControlPoints.Clone();
+            for (int i = 2; i < controls.Length; i += 3) controls[i] = level;
+            return new RouteSplineCurve(piece.Degree, (double[])piece.Knots.Clone(), controls);
+        }).ToArray();
+        double[] samples = (double[])curve.PointsXyz.Clone();
+        for (int i = 2; i < samples.Length; i += 3) samples[i] = level;
+        return new FittedRouteCurve(pieces, samples, curve.MaxPlanDeviation, 0, 0, curve.SmallestRadius, curve.Complexity);
     }
 }

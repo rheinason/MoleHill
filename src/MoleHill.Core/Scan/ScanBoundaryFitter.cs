@@ -6,11 +6,11 @@ using MoleHill.Core.Routing;
 namespace MoleHill.Core.Scan;
 
 /// <summary>Removes raster steps in plan before sampling the clean ground's height.</summary>
-internal static class ScanBoundaryFitter
+internal static partial class ScanBoundaryFitter
 {
     public static FittedRouteCurve Fit(double[] raw, bool closed, ScanGrid ground,
         MeshHeightProjector? projector, double planTolerance, double verticalTolerance,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default, bool straightPlan = false)
     {
         // Height must not hold a grid corner in place: moving it sideways on a slope changes its Z.
         // Spend the plan budget in three parts: thinning, plan fitting, then fitting the draped profile.
@@ -19,13 +19,16 @@ internal static class ScanBoundaryFitter
             flat[i] = 0;
         if (closed && flat.Length >= 6 && flat[0] == flat[^3] && flat[1] == flat[^2])
             flat = flat[..^3];
+        if (straightPlan)
+            flat = SmoothPlan(flat, closed, ground.CellSize, planTolerance);
+        double thinning = straightPlan ? .55 : .65;
         double[] light = closed
-            ? TerrainCurveRecovery.SimplifyClosed(flat, planTolerance * .65, double.PositiveInfinity)
-            : TerrainCurveRecovery.SimplifyOpen(flat, planTolerance * .65, double.PositiveInfinity);
+            ? TerrainCurveRecovery.SimplifyClosed(flat, planTolerance * thinning, double.PositiveInfinity)
+            : TerrainCurveRecovery.SimplifyOpen(flat, planTolerance * thinning, double.PositiveInfinity);
         if (closed)
         {
             // A narrow island can collapse or self-intersect when thinned. Keep a simple outline.
-            double tolerance = planTolerance * .65;
+            double tolerance = planTolerance * thinning;
             while ((light.Length < 9 || Intersects(light)) && tolerance > planTolerance * .01)
             {
                 tolerance *= .5;
@@ -35,6 +38,8 @@ internal static class ScanBoundaryFitter
                 light = flat;
             light = light.Concat(light.Take(3)).ToArray();
         }
+        if (straightPlan)
+            return FitStraightPlan(light, ground, projector, planTolerance, verticalTolerance, cancellationToken);
         FittedRouteCurve plan = RouteCurveFitter.Fit(new IReadOnlyList<double>[] { light },
             planTolerance * .25, verticalTolerance, 0, 0, 0);
         double[] outline = plan.PointsXyz;

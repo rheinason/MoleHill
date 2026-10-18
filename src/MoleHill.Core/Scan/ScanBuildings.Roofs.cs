@@ -15,6 +15,8 @@ public static partial class ScanBuildings
         public double CoveredShare { get; set; } = 1;
         public IReadOnlyList<Cut> ExtraCuts { get; set; } = Array.Empty<Cut>();
         public double SpatialPatchAreaShare { get; init; } = .03;
+        public bool Approximate { get; init; }
+        public bool Bounded { get; set; }
         public double Height(double x, double y) => Planes[Select(x, y)].Height(x, y);
     }
 
@@ -178,6 +180,14 @@ public static partial class ScanBuildings
                 });
         }
 
+        if (options.MinimumRoofDetail > 0 || options.MaximumRoofFaces > 0)
+            foreach (RoofModel simple in choices.Where(model => model.Planes.Count <= 4)
+                .GroupBy(model => model.Kind).SelectMany(group => group.OrderBy(model => model.Rms).ThenBy(model => model.Planes.Count).Take(2)))
+                models.Add(new RoofModel
+                {
+                    Kind = simple.Kind, Planes = simple.Planes, Select = simple.Select, Approximate = true,
+                    Diagnostic = $"Simplified {simple.Kind} fallback: small roof details/complex arrangements omitted; fit is approximate.",
+                });
         RoofModel fallback = ExtrusionFallback(samples);
         Evaluate(fallback);
         RoofModel closest = choices.Concat(new[] { envelope, lattice, general }).OrderBy(model => model.Score).First();

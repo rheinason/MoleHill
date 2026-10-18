@@ -139,6 +139,24 @@ public sealed class ScanSurfaceTests
     }
 
     [Fact]
+    public void Trace_ShortKerbEvidence_DiscardsRunsBelowMinimumLength()
+    {
+        var scene = Scene(20, .1, (x, y) => x < 8 && y > 4.5 && y < 5.5 ? .15 : 0,
+            (x, y) => x >= 8 && x <= 12 ? 0x606060 : 0x328432);
+        var areas = ScanSurfaceAreas.Classify(scene.Ground, scene.Colours, AreaOptions);
+        var roads = ScanRoadEdges.Trace(scene.Ground, areas, RoadOptions);
+        Assert.NotEmpty(roads);
+        Assert.All(roads, road =>
+        {
+            double length = 0;
+            var points = road.BottomCurve.PointsXyz;
+            for (int i = 3; i < points.Length; i += 3)
+                length += Math.Sqrt(Math.Pow(points[i] - points[i - 3], 2) + Math.Pow(points[i + 1] - points[i - 2], 2));
+            Assert.True(length >= RoadOptions.MinimumLength, $"Short road run: {length}");
+        });
+    }
+
+    [Fact]
     public void Trace_KerbDisappearsAlongRoad_SwitchesToSingleBreaklines()
     {
         var scene = Scene(20, 0.1, (x, y) => (x < 8 || x > 12) && y < 10 ? 0.15 : 0,
@@ -148,6 +166,44 @@ public sealed class ScanSurfaceTests
         Assert.Contains(lines, line => line.IsKerb);
         Assert.Contains(lines, line => !line.IsKerb);
         Assert.All(lines.Where(line => line.IsKerb), line => Assert.InRange(line.MeasuredShare, 0.65, 1));
+    }
+
+    [Theory]
+    [InlineData(1.0)]
+    [InlineData(1000.0)]
+    public void Trace_NoisyStraightRoadWithRollingProfile_AddsHeightControlsOnTheSamePlanLine(double scale)
+    {
+        double Left(double y) => 8 + .15 * y + .1 * Math.Sin(y * 7);
+        var scene = Scene(20 * scale, .1 * scale, (x, y) => scale * (.02 * y / scale + .15 * Math.Sin(y / scale * .8)),
+            (x, y) => x / scale >= Left(y / scale) && x / scale <= Left(y / scale) + 4 ? 0x606060 : 0x328432);
+        var areas = ScanSurfaceAreas.Classify(scene.Ground, scene.Colours, new()
+        {
+            MaximumPavedRoughness = .1 * scale, MinimumArea = 2 * scale * scale,
+            PlanTolerance = .5 * scale, VerticalTolerance = .05 * scale,
+        });
+        var roads = ScanRoadEdges.Trace(scene.Ground, areas, new()
+        {
+            MinimumKerbHeight = .06 * scale, MaximumKerbHeight = .3 * scale, ProfileReach = scale,
+            MaximumKerbWidth = .6 * scale, MinimumLength = 2 * scale,
+            PlanTolerance = .5 * scale, VerticalTolerance = .015 * scale, RoadVerticalTolerance = .05 * scale,
+        });
+        Assert.Equal(2, roads.Count);
+        foreach (var road in roads)
+        {
+            var piece = Assert.Single(road.BottomCurve.Pieces);
+            Assert.InRange(piece.ControlPointCount, 5, 40);
+            var a = piece.Start; var b = piece.End;
+            double length = Math.Sqrt(Math.Pow(b.X - a.X, 2) + Math.Pow(b.Y - a.Y, 2));
+            for (int i = 0; i < piece.ControlPoints.Length; i += 3)
+                Assert.InRange(Math.Abs(MoleHill.Core.Geometry.Geometry2D.Orient(a.X, a.Y, b.X, b.Y,
+                    piece.ControlPoints[i], piece.ControlPoints[i + 1])) / length, 0, scale * 1e-9);
+            for (int i = 0; i <= 100; i++)
+            {
+                var p = piece.PointAt(i / 100.0);
+                double y = p.Y / scale;
+                Assert.InRange(Math.Abs(p.Z / scale - (.02 * y + .15 * Math.Sin(y * .8))), 0, .055);
+            }
+        }
     }
 
     [Theory]

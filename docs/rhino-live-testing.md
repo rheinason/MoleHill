@@ -43,6 +43,40 @@ first item, the component reads that, and the solve looks like a silent no-op.
 
 ## 1. Build before launching
 
+Scan clarity and Astra review, 2026-10-18: fresh normal Debug RHP
+`b51eac8d-3ccb-4a76-b7ef-d211f0f0d9a0` / Core `aae37372-1b58-4d76-ba2d-3e6e2a93ad4b`
+were loaded from `src/MoleHill.Rhino/bin/Debug/net7.0/` in owned slot `aardvark`, PID 37528,
+Rhino 8.35.26251.13001. `run_csharp` loaded the exact plugin and checked its path and module IDs,
+imported the UV-preserving reference mesh, selected it, armed Eto timers, then `run_command`
+invoked `_mhScanToTerrain`. Timers set the controls, asserted source-only document state and
+captured the viewport with Show source off/on. Buildings now shade in `PostDrawObjects`; source
+suppression uses `PreDrawObject`. Both captures were nonblank and inspected. The source-off view
+shows roofs and linework without selection highlight. The real dialog was captured at PID-filtered
+GetWindowRect bounds, including the road controls and contour/area explanation.
+
+Native queries after Keep found 588 valid grouped outputs: 51 valid closed outward building Breps
+with positive volumes and 813 total native faces. An independent Brep face audit excluded floors
+and exterior facades, included internal vertical roof steps, and found at most seven roof faces
+against the configured cap of twelve. All 83 road/kerb runs met the 2 m minimum; 82 unpaired roads
+used 5,649 Core controls versus 14,324 before this change. Every control on each road plan segment
+was collinear in XY. All forty contours had exactly one elevation in both samples and spline controls.
+The forty-contour budget deliberately left 2.138 m residual: this was host/clarity validation, not
+contour accuracy acceptance. One command Undo was queried to restore the source alone.
+`close_slot` closed the owned PID gracefully and process exit was checked.
+
+Astra reviewed the reconstruction and native evidence, corrected approximate-roof ranking and
+budget semantics, and identified a short split-run leak; a failing regression preceded its fix.
+The review's larger remaining directions are recorded in `scan-to-terrain.md`. Roof approximation
+is still material: cleaner geometry does not establish survey accuracy. Astra reached its usage
+limit before the final native pass; the primary agent finished it. Artifacts:
+`.artifacts/scan-clarity/reference-final/` and `.artifacts/scan-clarity/reviewed-roofs/`.
+
+Commands: `dotnet build src/MoleHill.Rhino/MoleHill.Rhino.csproj --no-restore --verbosity quiet`,
+`dotnet test tests/MoleHill.Core.Tests/MoleHill.Core.Tests.csproj --no-restore --verbosity quiet`
+(1,702 passed), and the corresponding Rhino test project (1,457 passed / 175 native skips).
+Grasshopper tests passed 56 with 18 native skips. Plugin build: zero warnings/errors. Native skips
+are not acceptance evidence. No package was published.
+
 Shared curve extraction and scan outline cleanup, 2026-10-18: normal Debug shared-workflow build
 `3c874e29-95c5-4d65-bd2b-70c1083a2d70` / Core `c7776a08-f3f5-4335-89b5-92fa896d332c`
 produced six DEM contours and one spot plus border, all valid/grouped, with five cubic contours;

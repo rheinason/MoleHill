@@ -15,8 +15,10 @@ Escape closes the popup from either the search box or the grid.
   to `Services/Commands/TerrainCurveExtractionPreview`; the dialog adds no document objects. Closing owns timer,
   Escape-handler and conduit cleanup. Settings use model-unit length/area labels and shared slope
   parsing. See [Scan to Terrain](../../../docs/scan-to-terrain.md).
-  Scan area controls include a physical minimum patch area; the common plan tolerance also controls
-  road/area vector cleanup and building footprints. Measured kerb accuracy remains separate.
+  Scan controls include physical minimum patch area, roof detail/face limits, and independent road
+  alignment/height tolerances. The source is suppressed during drawing unless Show source is checked;
+  classification sample points are opt-in. Dark green horizontal contours and muted draped area
+  outlines have explicit explanations. Measured kerb accuracy remains separate.
 
 - `CurveProfileControl.cs` — the read-only plan-station chart in `mhInspectCurve`. It paints the curve
   coloured by the selected metric, the terrain line, violation bands, events, a scrub cursor with its

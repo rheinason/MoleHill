@@ -25,6 +25,15 @@ must reduce the number of bad junctions, and the final shell is remeasured. Acce
 robust context models, not an all-sample tolerance promise. RMS, coverage and fallback are explicit.
 Green complex roofs, low buildings and noisy or occluded roof patches remain classification limits.
 
+`MinimumRoofDetail` optionally removes narrow/small arrangement patches before shell validation.
+`MaximumRoofFaces` independently limits actual coalesced roof facets, including internal vertical roof
+steps; floor and exterior footprint walls are exempt. Its Core default zero is unbounded. The host
+defaults to 2 m detail and 12 faces. When detailed models fail or exceed that budget, simple pitched
+templates can survive as `IsApproximateRoof` fallbacks. Final-shell RMS ranks admissible approximations
+against the median extrusion; a pitched approximation needs at least 50% within tolerance, 85% coverage
+and the same upper-height bound. Actual RMS/within/coverage remain explicit; these do not meet the 90%
+accurate-fit contract. `IsFallback` includes both approximation kinds.
+
 `ScanBuildingFaces` coalesces the validated triangulated shell into connected planar faces with hole
 loops. It retains junction vertices shared by three or more face groups and removes redundant straight
 vertices elsewhere; the host creates trimmed planar faces and joins one closed Brep per building,
@@ -49,6 +58,9 @@ slope cannot preserve a pixel corner. Thinning/plan fitting/profile fitting shar
 closed outlines are checked for crossings. Measured kerb pairs retain their tighter coupled evidence
 tolerances; `RoadVerticalTolerance` can separately relax the colour-only profile. `Boundary.Points`
 is a light approximation of the fitted output, used for reference breaklines and region clipping.
+For unpaired roads, `.Profile.cs` uses bounded plan denoising/thinning followed by a station/elevation
+spline mapped back onto held straight XY segments. Height refinement cannot move controls sideways.
+The host exposes independent physical road alignment/height tolerances. Paired kerb fitting is unchanged.
 
 `ScanSoftRegion` clips contours at the fitted soft outlines, preserving paved islands and joining
 adjacent intervals without densifying straight lines. Recovery evaluates soft-ground vertices and

@@ -72,6 +72,8 @@ recovery keeps its existing full-terrain polyline behavior unless these options 
   each chord so they stay within the vertical tolerance and do not cross. `RecoverBest` owns the shared
   Auto/Yes/No landform trial selection, preferring tolerance satisfaction then fewer curves/spots,
   without mutating the caller's options; cancellation stops subsequent trials.
+  `.Fitting.cs` explicitly fixes every fitted contour control/sample to its single elevation; the
+  host's common preview and output consume that same horizontal geometry.
 - `ZonePriorityResolver.cs` — deterministic boundary ordering before a shared area split, using zone
   stack index, source boundary index, input elevation, and elevation-priority flag. Stack-priority zones
   separate elevation-sorted runs, avoiding the old mixed-mode comparator cycle. Rhino's zone stage calls

@@ -38,6 +38,13 @@ public class TerrainCurveExtractionTests
         Assert.Equal(a.Recovery.Contours.SelectMany(c => c.PointsXyz), b.Recovery.Contours.SelectMany(c => c.PointsXyz));
         Assert.Equal(a.Recovery.SpotPoints, b.Recovery.SpotPoints);
         Assert.Contains(b.Recovery.Contours, c => c.Curve != null);
+        foreach (var contour in b.Recovery.Contours)
+        {
+            Assert.All(contour.PointsXyz.Where((_, i) => i % 3 == 2), z => Assert.Equal(contour.Level, z));
+            if (contour.Curve != null)
+                foreach (var piece in contour.Curve.Pieces)
+                    Assert.All(piece.ControlPoints.Where((_, i) => i % 3 == 2), z => Assert.Equal(contour.Level, z));
+        }
     }
 
     [Fact]
@@ -88,11 +95,13 @@ public class TerrainCurveExtractionTests
         var settings = ScanToTerrainSettings.Load(units) with
         {
             SurfaceArea = 12 * scale * scale, PlanTolerance = 1.2 * scale, Tolerance = .2 * scale,
+            RoadPlanTolerance = 2 * scale, RoadHeightTolerance = .08 * scale,
         };
         var pipeline = settings.Pipeline(units, default, _ => { }, _ => { });
         Assert.Equal(12 * scale * scale, pipeline.Areas!.MinimumArea);
         Assert.Equal(1.2 * scale, pipeline.Buildings!.FootprintTolerance);
         Assert.Equal(.015 * scale, pipeline.Roads!.VerticalTolerance);
-        Assert.Equal(.1 * scale, pipeline.Roads.RoadVerticalTolerance);
+        Assert.Equal(2 * scale, pipeline.Roads.PlanTolerance);
+        Assert.Equal(.08 * scale, pipeline.Roads.RoadVerticalTolerance);
     }
 }

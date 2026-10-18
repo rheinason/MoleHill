@@ -20,7 +20,9 @@ internal static partial class ScanToTerrainCommandService
                 bool paved = boundary.Kind == ScanSurfaceKind.Paved;
                 string kind = paved ? "Paved areas" : "Soft areas";
                 using Curve curve = RouteCurveBuilder.FromFitted(boundary.Curve);
-                yield return doc.Objects.AddCurve(curve, onLayer(kind, paved ? Color.FromArgb(100, 105, 110) : Color.FromArgb(70, 140, 70), kind));
+                ObjectAttributes attributes = onLayer(kind, paved ? Color.SlateGray : Color.DarkSeaGreen, kind + " — draped boundary");
+                attributes.SetUserString("MoleHill.Scan.GeometryRole", "Classification boundary and elevation breakline");
+                yield return doc.Objects.AddCurve(curve, attributes);
             }
         }
         foreach (ScanRoadEdges.EdgeLine edge in pipeline.Roads)

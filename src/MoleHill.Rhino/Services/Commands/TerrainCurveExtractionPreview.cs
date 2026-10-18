@@ -9,8 +9,9 @@ namespace MoleHill.Rhino.Services;
 
 /// <summary>Disposable, document-scoped viewport output. All native geometry is created on the UI
 /// thread; preview never adds objects, changes source visibility or creates an Undo record.</summary>
-internal sealed class TerrainCurveExtractionPreview(uint documentSerial) : DisplayConduit, IDisposable
+internal sealed class TerrainCurveExtractionPreview(uint documentSerial, Guid? sourceId = null) : DisplayConduit, IDisposable
 {
+    public bool ShowSource { get; set; }
     private readonly List<(Curve Curve, Color Colour)> _curves = new();
     private readonly List<(Mesh Mesh, DisplayMaterial Material)> _meshes = new();
     private readonly List<(Point3d[] Points, Color Colour)> _points = new();
@@ -38,19 +39,22 @@ internal sealed class TerrainCurveExtractionPreview(uint documentSerial) : Displ
             if (show.Contains(nameof(ScanToTerrainSettings.Surfaces)) && pipeline.Areas != null)
             {
                 foreach (ScanSurfaceAreas.Boundary area in pipeline.Areas.Boundaries)
-                    _curves.Add((RouteCurveBuilder.FromFitted(area.Curve), area.Kind == ScanSurfaceKind.Paved ? Color.DimGray : Color.ForestGreen));
-                var paved = new List<Point3d>(); var soft = new List<Point3d>();
-                ScanGrid grid = pipeline.Ground.Ground;
-                int stride = Math.Max(1, (int)Math.Ceiling(grid.NodeCount / 50000.0));
-                for (int node = 0; node < grid.NodeCount; node += stride)
+                    _curves.Add((RouteCurveBuilder.FromFitted(area.Curve), area.Kind == ScanSurfaceKind.Paved ? Color.SlateGray : Color.DarkSeaGreen));
+                if (show.Contains("SurfaceClasses"))
                 {
-                    ScanSurfaceKind kind = pipeline.Areas.PavedMask[node] ? ScanSurfaceKind.Paved :
-                        pipeline.Areas.SoftMask[node] ? ScanSurfaceKind.Soft : ScanSurfaceKind.Unknown;
-                    if (kind is not (ScanSurfaceKind.Paved or ScanSurfaceKind.Soft) || !double.IsFinite(grid.Values[node])) continue;
-                    var point = new Point3d(grid.NodeX(node % grid.Columns), grid.NodeY(node / grid.Columns), grid.Values[node]);
-                    (kind == ScanSurfaceKind.Paved ? paved : soft).Add(point);
+                    var paved = new List<Point3d>(); var soft = new List<Point3d>();
+                    ScanGrid grid = pipeline.Ground.Ground;
+                    int stride = Math.Max(1, (int)Math.Ceiling(grid.NodeCount / 50000.0));
+                    for (int node = 0; node < grid.NodeCount; node += stride)
+                    {
+                        ScanSurfaceKind kind = pipeline.Areas.PavedMask[node] ? ScanSurfaceKind.Paved :
+                            pipeline.Areas.SoftMask[node] ? ScanSurfaceKind.Soft : ScanSurfaceKind.Unknown;
+                        if (kind is not (ScanSurfaceKind.Paved or ScanSurfaceKind.Soft) || !double.IsFinite(grid.Values[node])) continue;
+                        var point = new Point3d(grid.NodeX(node % grid.Columns), grid.NodeY(node / grid.Columns), grid.Values[node]);
+                        (kind == ScanSurfaceKind.Paved ? paved : soft).Add(point);
+                    }
+                    _points.Add((paved.ToArray(), Color.Gray)); _points.Add((soft.ToArray(), Color.LimeGreen));
                 }
-                _points.Add((paved.ToArray(), Color.Gray)); _points.Add((soft.ToArray(), Color.LimeGreen));
             }
             if (show.Contains(nameof(ScanToTerrainSettings.RoadEdges)))
                 foreach (ScanRoadEdges.EdgeLine edge in pipeline.Roads)
@@ -65,11 +69,17 @@ internal sealed class TerrainCurveExtractionPreview(uint documentSerial) : Displ
         if (show.Contains(nameof(TerrainCurveExtractionSettings.Contours)))
         {
             foreach (var contour in recovery.Contours)
-                _curves.Add((TerrainCurveExtractionGeometry.Contour(contour), Color.DarkGoldenrod));
+                _curves.Add((TerrainCurveExtractionGeometry.Contour(contour), Color.ForestGreen));
             _points.Add((Points(recovery.SpotPoints), Color.SeaGreen));
         }
         if (show.Contains(nameof(TerrainCurveExtractionSettings.RidgesValleys)))
             foreach (double[] line in recovery.LandformLines) _curves.Add((Polyline(line, false), Color.Firebrick));
+    }
+
+    protected override void PreDrawObject(DrawObjectEventArgs e)
+    {
+        if (!ShowSource && sourceId.HasValue && e.RhinoDoc.RuntimeSerialNumber == documentSerial && e.RhinoObject?.Id == sourceId.Value)
+            e.DrawObject = false;
     }
 
     private static Point3d[] Points(double[] xyz)
@@ -97,13 +107,18 @@ internal sealed class TerrainCurveExtractionPreview(uint documentSerial) : Displ
         foreach (var item in _curves) e.IncludeBoundingBox(item.Curve.GetBoundingBox(false));
         foreach (var item in _points) if (item.Points.Length > 0) e.IncludeBoundingBox(new BoundingBox(item.Points));
     }
+    protected override void PostDrawObjects(DrawEventArgs e)
+    {
+        if (e.RhinoDoc.RuntimeSerialNumber != documentSerial) return;
+        foreach (var item in _meshes) e.Display.DrawMeshShaded(item.Mesh, item.Material);
+    }
+
     protected override void DrawForeground(DrawEventArgs e)
     {
         if (e.RhinoDoc.RuntimeSerialNumber != documentSerial) return;
         e.Display.PushDepthTesting(false); e.Display.PushDepthWriting(false);
         try
         {
-            foreach (var item in _meshes) e.Display.DrawMeshShaded(item.Mesh, item.Material);
             foreach (var item in _curves) e.Display.DrawCurve(item.Curve, item.Colour, 2);
             foreach (var item in _points) e.Display.DrawPoints(item.Points, PointStyle.Simple, 2, item.Colour);
         }

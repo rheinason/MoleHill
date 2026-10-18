@@ -114,10 +114,11 @@ public static partial class ScanBuildings
                     edgeUses.Add(key, uses = new List<CellEdge>(2));
                 uses.Add(new CellEdge(a, b, cell));
             }
-        if (model.ExtraCuts.Count > 0)
+        if (model.ExtraCuts.Count > 0 || model.Kind == ScanRoofKind.PlaneArrangement && options.MinimumRoofDetail > 0)
         {
-            if (model.SpatialPatchAreaShare > 0)
-                SimplifySpatialPatches(cells, edgeUses, model, options.MinimumArea * model.SpatialPatchAreaShare, options.CancellationToken);
+            if (model.SpatialPatchAreaShare > 0 || options.MinimumRoofDetail > 0)
+                SimplifySpatialPatches(cells, edgeUses, model, options.MinimumArea * model.SpatialPatchAreaShare,
+                    options.CancellationToken, options.MinimumRoofDetail);
             RegularizeRoofJunctions(cells, cellXy, xyPoints, edgeUses, model, baseZ, epsilon, options.CancellationToken);
         }
         for (int cellIndex = 0; cellIndex < cells.Count; cellIndex++)

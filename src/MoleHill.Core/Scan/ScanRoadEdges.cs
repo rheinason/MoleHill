@@ -2,6 +2,7 @@ using MoleHill.Core.Processing;
 using MoleHill.Core.Routing;
 using MoleHill.Core.Engine;
 using MoleHill.Core.Analysis;
+using MoleHill.Core.Geometry;
 
 namespace MoleHill.Core.Scan;
 
@@ -162,9 +163,15 @@ public static class ScanRoadEdges
                     return RouteCurveFitter.Fit(new IReadOnlyList<double>[] { light }, plan, options.VerticalTolerance, 0, 0, 0);
                 }
                 FittedRouteCurve bottomCurve = paired ? Fit(bottom) : ScanBoundaryFitter.Fit(bottom.ToArray(), closed,
-                    grid, projector, options.PlanTolerance, options.RoadVerticalTolerance ?? options.VerticalTolerance, options.CancellationToken);
+                    grid, projector, options.PlanTolerance, options.RoadVerticalTolerance ?? options.VerticalTolerance, options.CancellationToken, straightPlan: true);
                 FittedRouteCurve? topCurve = paired ? Fit(top) : null;
                 if (bottomCurve.Pieces.Count == 0 || paired && topCurve!.Pieces.Count == 0)
+                    return;
+                double runLength = 0;
+                double[] runPoints = bottomCurve.PointsXyz;
+                for (int i = 3; i < runPoints.Length; i += 3)
+                    runLength += Math.Sqrt(Geometry2D.DistanceSquared(runPoints[i - 3], runPoints[i - 2], runPoints[i], runPoints[i + 1]));
+                if (runLength < options.MinimumLength)
                     return;
                 result.Add(new EdgeLine
                 {

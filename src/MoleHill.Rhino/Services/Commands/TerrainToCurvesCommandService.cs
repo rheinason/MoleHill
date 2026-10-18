@@ -36,6 +36,7 @@ internal static class TerrainToCurvesCommandService
         GetResult picked = getMesh.Get();
         Mesh? mesh;
         string sourceName;
+        Guid? sourceId = null;
         if (picked == GetResult.Option && getMesh.OptionIndex() == activeTerrainOption)
         {
             TerrainDefinition? terrain = TerrainController.Instance.GetSelectedTerrain(doc);
@@ -51,6 +52,8 @@ internal static class TerrainToCurvesCommandService
         else if (picked == GetResult.Object && getMesh.Object(0).Mesh() is { } selected)
         {
             mesh = selected.DuplicateMesh();
+            sourceId = getMesh.Object(0).ObjectId;
+            getMesh.Object(0).Object()?.Select(false);
             string? objectName = getMesh.Object(0).Object()?.Attributes.Name;
             sourceName = string.IsNullOrWhiteSpace(objectName) ? "mesh" : objectName;
         }
@@ -72,7 +75,7 @@ internal static class TerrainToCurvesCommandService
                     var reference = new TerrainCurveExtractionPrepared(terrainMesh);
                     preview(reference);
                     return await TerrainCurveExtractionService.RecoverAsync(reference, current, unitContext, token, progress);
-                });
+                }, sourceId);
             RhinoApp.SetCommandPrompt("Terrain to curves — adjust the floating panel; Enter keeps a ready preview, Esc cancels");
             if (!panel.ShowSemiModal(doc, RhinoEtoApp.MainWindowForDocument(doc)) || panel.Prepared?.Recovery is not { } recovery)
                 return Result.Cancel;

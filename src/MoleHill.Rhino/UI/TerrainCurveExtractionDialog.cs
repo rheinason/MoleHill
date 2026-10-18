@@ -35,16 +35,23 @@ internal sealed partial class TerrainCurveExtractionDialog : Dialog<bool>
 
     public TerrainCurveExtractionDialog(RhinoDoc doc, ModelUnitContext units, string title, string sourceName, string summary,
         TerrainCurveExtractionSettings settings,
-        Func<TerrainCurveExtractionSettings, CancellationToken, Action<string>, Action<TerrainCurveExtractionPrepared>, Task<TerrainCurveExtractionPrepared>> compute)
+        Func<TerrainCurveExtractionSettings, CancellationToken, Action<string>, Action<TerrainCurveExtractionPrepared>, Task<TerrainCurveExtractionPrepared>> compute,
+        Guid? sourceId = null)
     {
         _doc = doc; _units = units; Settings = settings; _compute = compute;
-        _preview = new TerrainCurveExtractionPreview(doc.RuntimeSerialNumber);
+        _preview = new TerrainCurveExtractionPreview(doc.RuntimeSerialNumber, sourceId);
         Title = title + " — " + sourceName;
         Resizable = true; Padding = 12; Size = new Size(660, 790); MinimumSize = new Size(540, 520);
         this.UseRhinoStyle();
         var body = new DynamicLayout { Spacing = new Size(8, 7), Padding = 4 };
         body.AddRow(new Label { Text = summary, Wrap = WrapMode.Word, Width = 460 });
         body.AddRow(new Label { Text = "Adjust settings to update the preview. Keep writes a fresh layer tree; Cancel discards it.", Wrap = WrapMode.Word, Width = 460 });
+        if (sourceId.HasValue)
+        {
+            var showSource = new CheckBox { Text = "Show source", Checked = false };
+            showSource.CheckedChanged += (_, _) => { _preview.ShowSource = showSource.Checked == true; _doc.Views.Redraw(); };
+            body.AddRow(showSource);
+        }
         string length = units.Abbreviation;
         bool scan = BuildPreparationSections(body);
         Size = new Size(660, scan ? 790 : 460); MinimumSize = new Size(540, scan ? 520 : 360);
@@ -54,7 +61,8 @@ internal sealed partial class TerrainCurveExtractionDialog : Dialog<bool>
             _visibility["Reference"] = referencePreview;
             referencePreview.CheckedChanged += (_, _) => UpdatePreview(); body.AddRow(referencePreview);
         }
-        var contours = Section(body, "Contours and spot heights"); Output(contours, "Contours and spots", nameof(settings.Contours));
+        var contours = Section(body, "Horizontal contours and spot heights"); Output(contours, "Contours and spots", nameof(settings.Contours));
+        if (scan) contours.AddRow(new Label { Text = "Dark green: horizontal contours, one elevation per curve. Muted area outlines carry ground height.", Wrap = WrapMode.Word, Width = 460 });
         Number(contours, "Vertical tolerance · " + length, nameof(settings.Tolerance));
         Number(contours, "Plan tolerance · " + length, nameof(settings.PlanTolerance));
         Number(contours, "Contour budget", nameof(settings.MaxContours), 1, 100000, 0);

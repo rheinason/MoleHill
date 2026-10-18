@@ -49,9 +49,10 @@ internal static partial class ScanToTerrainCommandService
         }
         catch (ArgumentException error) { RhinoApp.WriteLine(error.Message); return Result.Failure; }
         RhinoApp.WriteLine(diagnostic);
+        source?.Select(false);
         using var panel = new TerrainCurveExtractionDialog(doc, units, "Scan to Terrain", sourceName, diagnostic ?? string.Empty,
             ScanToTerrainSettings.Load(units), (settings, token, progress, preview) =>
-                ComputeAsync(mesh, colours, cloud, (ScanToTerrainSettings)settings, units, token, progress, preview));
+                ComputeAsync(mesh, colours, cloud, (ScanToTerrainSettings)settings, units, token, progress, preview), source?.Id);
         RhinoApp.SetCommandPrompt("Scan to terrain — adjust the floating panel; Enter keeps a ready preview, Esc cancels");
         if (!panel.ShowSemiModal(doc, RhinoEtoApp.MainWindowForDocument(doc)) || panel.Prepared?.Recovery == null)
             return Result.Cancel;

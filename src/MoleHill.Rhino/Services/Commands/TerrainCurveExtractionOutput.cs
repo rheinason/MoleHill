@@ -13,7 +13,7 @@ internal static class TerrainCurveExtractionOutput
     {
         ("Border", System.Drawing.Color.FromArgb(35, 31, 32)),
         ("Ridges and valleys", System.Drawing.Color.FromArgb(178, 34, 34)),
-        ("Contours", System.Drawing.Color.FromArgb(150, 100, 40)),
+        ("Contours", System.Drawing.Color.ForestGreen),
         ("Spot heights", System.Drawing.Color.FromArgb(25, 157, 73)),
     };
 

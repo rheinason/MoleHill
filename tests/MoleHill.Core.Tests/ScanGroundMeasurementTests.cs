@@ -39,7 +39,10 @@ public class ScanGroundMeasurementTests(ITestOutputHelper output)
         {
             Ground = new() { SmallestObject = 2, LargestObject = 48, InitialThreshold = .3, MaximumThreshold = 4, Margin = .5, MinimumObjectArea = 20 },
             GroundSpacing = 1, PlanTolerance = .5,
-            Buildings = new() { MinimumArea = 20, MinimumHeight = 2, FootprintTolerance = .5, RoofTolerance = .3 },
+            Buildings = new() { MinimumArea = 20, MinimumHeight = 2, FootprintTolerance = .5, RoofTolerance = .3,
+                MinimumRoofDetail = double.TryParse(Environment.GetEnvironmentVariable("MOLEHILL_SCAN_ROOF_DETAIL"),
+                    System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double detail) ? detail : 0,
+                MaximumRoofFaces = int.TryParse(Environment.GetEnvironmentVariable("MOLEHILL_SCAN_ROOF_FACES"), out int roofFaces) ? roofFaces : 0 },
             ReportProgress = stage => output.WriteLine($"{timer.Elapsed.TotalSeconds:F2}s: {stage}"),
         });
         ScanBuildings.Result buildings = result.Buildings!;
@@ -58,7 +61,7 @@ public class ScanGroundMeasurementTests(ITestOutputHelper output)
                 result.Ground.Surface.Rows, result.Ground.Surface.CellSize,
                 Buildings = buildings.Buildings.Select(building => new
                 {
-                    RoofKind = building.RoofKind.ToString(), building.Footprints, building.GroundHeight,
+                    RoofKind = building.RoofKind.ToString(), building.IsApproximateRoof, building.Footprints, building.GroundHeight,
                     building.EaveHeight, building.RidgeHeight, building.RoofRms, building.RoofWithinToleranceShare,
                     building.RoofSampleCoverage,
                     PlanarFaceCount = building.PlanarFaces.Count,

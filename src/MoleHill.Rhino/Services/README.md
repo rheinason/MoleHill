@@ -458,8 +458,14 @@ layer table, dimension styles, and layouts can act on. See `docs/architecture.md
   and optional `PointCloud.UserDictionary["MoleHill.Scan.Classification"]` LAS byte codes in point order.
   See [Scan to Terrain](../../../docs/scan-to-terrain.md) for the input contract and acceptance evidence.
   Plan tolerance also governs building footprint cleanup without a hidden 0.5 m cap. Minimum patch
-  area is a physical area setting (10 m² default), and colour-only road heights use the selected
-  vertical tolerance capped at 0.1 m; measured kerbs keep 0.015 m profile accuracy.
+  area is a physical area setting (10 m² default). Colour-only roads use independent alignment (1 m)
+  and height (0.2 m, capped by overall tolerance) settings; measured kerbs keep 0.015 m profile accuracy.
+  Roof size suppression (2 m) and a face budget (12, including roof steps) keep context models light;
+  approximate pitched templates remain marked and retain actual fit metrics. The preview suppresses
+  the picked source in `PreDrawObject`, preserving document visibility; culling the last document
+  object can suppress the entire foreground pipeline and must not be used for this. Source selection
+  is cleared on capture. Shaded meshes draw in `PostDrawObjects`; curves and points draw in
+  `DrawForeground`. Classification samples are opt-in. Preview and bake share contour/area colours.
 - `Commands/TerrainToCurvesCommandService.cs` - `mhTerrainToCurves`: runs Core's `TerrainCurveRecovery` on a
   picked mesh or the active terrain with `Tolerance`, `PlanTolerance`, `MaxContours` and `RidgesValleys`
   through the same asynchronous preview/Keep/Cancel workflow as scan recovery. Common settings, Core

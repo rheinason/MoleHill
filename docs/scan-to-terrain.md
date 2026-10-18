@@ -17,22 +17,34 @@ accuracy/budget and ridge/valley mode are together in the scrollable panel. Grou
 user's preferred slope unit and typed alternatives such as `60%`, `1:3` or `14deg`. Lengths and areas
 show model units; accepted settings retain their physical values when document units change.
 
-Plan tolerance controls the physical detail of road/area outlines and building footprints. Raster
+Plan tolerance controls the physical detail of area outlines and building footprints. Raster
 steps are removed in plan before boundary heights are sampled, so a tight height tolerance on sloping
 ground does not lock in the grid. Footprints combine facade supports instead of extruding every small
 step. Genuine wings and courtyards are retained. Minimum patch area (default 10 m²) removes smaller
 paved/soft components and fills smaller enclosed gaps in the drawing mask; observed-ground flags stay
-unchanged. Lower it to retain small planted islands. Colour-only road heights use up to 0.1 m of the
-chosen vertical tolerance; measured kerbs retain their separate 0.015 m profile tolerance.
+unchanged. Lower it to retain small planted islands. Roads have their own alignment tolerance (default
+1 m) and height tolerance (default 0.2 m, capped by the overall vertical tolerance). Bounded plan
+denoising and thinning choose a small sequence of straight XY segments; height controls stay on those
+segments. Measured kerbs retain their separate 0.015 m profile tolerance.
 
 Roof fitting remains a context approximation. A red preview and fallback metadata identify roofs
 that could not be reconstructed reliably; a cleaner footprint does not establish a reliable roof.
+Minimum roof detail (default 2 m; zero disables size suppression) removes narrow arrangement patches.
+Maximum roof faces (default 12) applies independently and includes interior vertical roof steps,
+excluding the floor and exterior facades. An over-complex roof can become a simpler flagged pitched
+approximation rather than a flat box. Approximate templates must cover at least 85% of samples, explain
+at least 50% within tolerance, and stay below the measured height bound; the final measured RMS ranks
+them against the median extrusion. They retain actual fit errors and do not inherit the 90% fit claim.
 
 Changes debounce, cancel superseded work and recompute asynchronously. Ground, buildings, walls,
 surface classes and the final curves appear as their stages complete. The paved/soft split is drawn
-with grey/green sample points (at most about 50,000); the boundaries use the full drawing masks.
-Red building previews identify median-height extrusion fallbacks. Preview visibility changes are
-immediate and do not recompute. Source visibility and document objects remain unchanged during review.
+with optional grey/green sample points (off by default, at most about 50,000). Dark green curves are
+horizontal contours: every control has the contour's single Z value. Muted closed area outlines are
+classification boundaries draped onto the ground; paved outlines also constrain the terrain rebuild.
+They carry elevation data and are not horizontal contours. Red roofs identify approximate pitched or
+median-extrusion fallbacks. Preview visibility changes are immediate and do not recompute. The source
+is deselected and suppressed during drawing by default; Show source restores its display. Its document
+visibility and geometry stay unchanged, and closing the panel removes this drawing-only suppression.
 
 Keep is disabled until the current settings have a completed preview. Keep validates every native
 building Brep, then writes a fresh `Scan {source}` layer tree, one group and one command Undo. Repeating
@@ -56,7 +68,7 @@ quality diagnostics, not a claim of surveyed accuracy or measured performance im
 | Contours / Spot heights | Fitted, editable ground inputs; clipped to soft areas when classified |
 | Ridges and valleys | Optional lines offered to reduce the recovery curve count |
 | Walls and edges | Paired measured top/toe breaklines, held in every contour reconstruction |
-| Paved areas / Soft areas | Closed area boundaries from colour and ground geometry |
+| Paved areas / Soft areas | Closed draped classification boundaries carrying ground elevation; paved boundaries also constrain recovery |
 | Kerbs / Road edges | Persistent measured narrow steps as pairs; otherwise one colour edge |
 | Buildings | Closed roof context Breps with fit and fallback metadata; never terrain inputs |
 | Ground (check) | Opt-in internal reference mesh |
@@ -70,7 +82,7 @@ can still be traced. Filled heights never count as measured kerb evidence.
 
 Buildings use dominant footprint axes, connected fitted roof planes, flat/shed/gable/hip/half-hip/
 cross-gable templates, then general plane arrangements. Courtyards are retained. Only after these
-models fail does a flagged median-height extrusion survive. Every shell edge has two opposite uses.
+models fail does a flagged simple approximation or median-height extrusion survive. Every shell edge has two opposite uses.
 A fitted roof requires at least 90% of covered roof-sample area within its roof tolerance and at least
 85% sample coverage; this is a robust context fit, not an all-point tolerance guarantee. User text
 records roof kind, fallback, RMS, tolerance share, coverage, planar share, plane count, footprint area,
@@ -157,3 +169,21 @@ dotnet test tests/MoleHill.Core.Tests/MoleHill.Core.Tests.csproj --no-restore --
 
 An ordinary run without the external files does not exercise those reference measurements. Performance
 changes must be established with `validate.ps1 hosted-perf`, not these single diagnostic runs.
+
+## Reconstruction improvements still open
+
+Road boundaries currently follow classified paving, which includes drives and parking as well as roads.
+The next useful step is a connected corridor graph: infer paired sides and junctions, fit shared
+alignments, and retain other paving loops as area boundaries. Simplifying each loop alone cannot
+resolve that semantic ambiguity. Each emitted run now meets the minimum length independently,
+including runs split by intermittent kerb evidence.
+
+Complex roofs need decomposition into wings or subvolumes before fitting. A global small-plane
+template can be clean but inaccurate; the face cap is a drawing-complexity control, not a promise of
+survey accuracy. On the diagnostic reference, the reviewed Core run reduced total planar building
+faces from 3,028 to 792, while approximate pitched roofs still had median RMS about 0.52 m at a
+0.30 m fitting tolerance. Keep the approximate designation and actual error when comparing outputs.
+
+Recovered contours already have one exact elevation per curve, including all fitted controls.
+An optional fixed interval drawing mode would make level spacing more familiar; the current adaptive
+reconstruction allocates its contour budget by residual error instead.

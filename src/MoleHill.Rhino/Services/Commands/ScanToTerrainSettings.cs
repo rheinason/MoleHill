@@ -24,10 +24,14 @@ internal sealed record ScanToTerrainSettings : TerrainCurveExtractionSettings
     public double SurfaceArea { get; set; }
     public double KerbMin { get; set; }
     public double KerbMax { get; set; }
+    public double RoadPlanTolerance { get; set; }
+    public double RoadHeightTolerance { get; set; }
     public bool Buildings { get; set; } = true;
     public double BuildingArea { get; set; }
     public double BuildingHeight { get; set; }
     public double RoofTolerance { get; set; }
+    public double RoofDetail { get; set; }
+    public int RoofFaces { get; set; } = 12;
 
     private const string Prefix = "MoleHill.ScanToTerrain.";
     private static readonly (string Name, double Metres)[] Lengths =
@@ -36,7 +40,8 @@ internal sealed record ScanToTerrainSettings : TerrainCurveExtractionSettings
         (nameof(GroundSpacing), 1), (nameof(RasterCell), 0), (nameof(InitialThreshold), .3),
         (nameof(MaximumThreshold), 4), (nameof(ObjectMargin), .5), (nameof(WallHeight), .6),
         (nameof(WallLength), 3), (nameof(KerbMin), .06), (nameof(KerbMax), .3),
-        (nameof(BuildingHeight), 2), (nameof(RoofTolerance), .3),
+        (nameof(BuildingHeight), 2), (nameof(RoofTolerance), .3), (nameof(RoofDetail), 2),
+        (nameof(RoadPlanTolerance), 1), (nameof(RoadHeightTolerance), .2),
     };
     private static readonly string[] Toggles = { nameof(Walls), nameof(Surfaces), nameof(RoadEdges), nameof(Buildings), nameof(AddGroundMesh) };
 
@@ -55,6 +60,7 @@ internal sealed record ScanToTerrainSettings : TerrainCurveExtractionSettings
         result.GreenThreshold = CommandOptionCache.GetValue(Prefix + nameof(GreenThreshold), .08);
         result.PavingSaturation = CommandOptionCache.GetValue(Prefix + nameof(PavingSaturation), .25);
         result.GroundSlope = CommandOptionCache.GetValue(Prefix + nameof(GroundSlope), .6);
+        result.RoofFaces = CommandOptionCache.GetValue(Prefix + nameof(RoofFaces), 12);
         return result;
     }
 
@@ -70,6 +76,7 @@ internal sealed record ScanToTerrainSettings : TerrainCurveExtractionSettings
         CommandOptionCache.SetValue(Prefix + nameof(GreenThreshold), GreenThreshold);
         CommandOptionCache.SetValue(Prefix + nameof(PavingSaturation), PavingSaturation);
         CommandOptionCache.SetValue(Prefix + nameof(GroundSlope), GroundSlope);
+        CommandOptionCache.SetValue(Prefix + nameof(RoofFaces), RoofFaces);
     }
 
     public ScanTerrainPipeline.Options Pipeline(ModelUnitContext units, CancellationToken token,
@@ -83,7 +90,8 @@ internal sealed record ScanToTerrainSettings : TerrainCurveExtractionSettings
         },
         GroundSpacing = GroundSpacing, PlanTolerance = PlanTolerance, ReportProgress = progress, ReportPreview = preview,
         Buildings = Buildings ? new() { MinimumArea = BuildingArea, MinimumHeight = BuildingHeight,
-            FootprintTolerance = PlanTolerance, RoofTolerance = RoofTolerance, CancellationToken = token } : null,
+            FootprintTolerance = PlanTolerance, RoofTolerance = RoofTolerance, MinimumRoofDetail = RoofDetail,
+            MaximumRoofFaces = RoofFaces, CancellationToken = token } : null,
         Walls = Walls ? new() { MinimumHeight = WallHeight, MinimumLength = WallLength, PlanTolerance = PlanTolerance,
             VerticalTolerance = Math.Min(Tolerance, units.FromMeters(.1)), BorderMargin = GroundSpacing * 2,
             MaximumWidth = units.FromMeters(1), CancellationToken = token } : null,
@@ -91,7 +99,7 @@ internal sealed record ScanToTerrainSettings : TerrainCurveExtractionSettings
             MaximumPavedRoughness = units.FromMeters(.1), MinimumArea = SurfaceArea,
             PlanTolerance = PlanTolerance, VerticalTolerance = Math.Min(Tolerance, units.FromMeters(.05)), CancellationToken = token } : null,
         Roads = RoadEdges ? new() { MinimumKerbHeight = KerbMin, MaximumKerbHeight = KerbMax, ProfileReach = units.FromMeters(1),
-            MaximumKerbWidth = units.FromMeters(.6), MinimumLength = units.FromMeters(2), PlanTolerance = PlanTolerance,
-            VerticalTolerance = units.FromMeters(.015), RoadVerticalTolerance = Math.Min(Tolerance, units.FromMeters(.1)), CancellationToken = token } : null,
+            MaximumKerbWidth = units.FromMeters(.6), MinimumLength = units.FromMeters(2), PlanTolerance = RoadPlanTolerance,
+            VerticalTolerance = units.FromMeters(.015), RoadVerticalTolerance = Math.Min(Tolerance, RoadHeightTolerance), CancellationToken = token } : null,
     };
 }

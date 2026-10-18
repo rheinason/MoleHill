@@ -214,6 +214,17 @@ TriangleNet (vendored)  ←  MoleHill.Core  ←  MoleHill.Grasshopper (GH host)
   `TerrainCurveExtractionPreview` owns disposable native display
   geometry. Preview changes no document objects or source visibility. Keep validates building Breps
   before the existing shared output writer creates the fresh root/group. See [Scan to Terrain](scan-to-terrain.md).
+  The picked source is deselected and its drawing is suppressed in `PreDrawObject` until Show source
+  is checked; `ObjectCulling` must not remove the last document object because it can skip foreground
+  output. Classification sample points are opt-in. Dark green contours have exactly level control Z;
+  muted draped classification outlines carry ground heights and explain that role in the panel.
+  Unpaired roads use `ScanBoundaryFitter.Profile`: bounded plan cleanup chooses straight XY segments,
+  then a station/elevation fit adds height controls on those segments. Independent host road alignment
+  and height tolerances do not alter measured kerb accuracy. Roof detail suppression and the face
+  budget are independent. The budget counts actual coalesced roof facets including internal step
+  walls. Simple pitched fallbacks compete with the median extrusion on measured final-shell RMS;
+  approximate templates require 50% within tolerance and 85% coverage, remain explicitly marked, and
+  never inherit the accurate roof's 90% fit claim. Core zero budget is unbounded; host default is 12.
 - **`mhSuggestRoute` drafts the curve; Grade Path still follows it.** Modifiers follow drawn geometry
   exactly, so help with *where* a path should go belongs upstream, in a command that draws the curve.
   The user picks a terrain (any mesh/surface, or Enter for the active MoleHill terrain, as

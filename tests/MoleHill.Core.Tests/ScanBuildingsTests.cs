@@ -222,6 +222,28 @@ public sealed class ScanBuildingsTests
         AssertWatertight(building.Solid);
     }
 
+    [Theory]
+    [InlineData(1.0)]
+    [InlineData(1000.0)]
+    public void Extract_LimitedRoofDetail_KeepsSimplePitchedFallbackAndReportsItsError(double scale)
+    {
+        var scene = Scene((u, v) => 6 + .5 * (4 - Math.Abs(v)) + (Math.Abs(u) < 1 && Math.Abs(v) < 3 ? 1 : 0), scale: scale);
+        var building = Assert.Single(ScanBuildings.Extract(scene.Scan, scene.Ground, null, new()
+        {
+            MinimumArea = 20 * scale * scale, MinimumHeight = 2 * scale,
+            FootprintTolerance = .5 * scale, RoofTolerance = .1 * scale,
+            MinimumRoofDetail = 2 * scale, MaximumRoofFaces = 2,
+        }).Buildings);
+        Assert.Equal(ScanRoofKind.Gable, building.RoofKind);
+        Assert.True(building.IsFallback);
+        Assert.True(building.IsApproximateRoof);
+        Assert.Equal(7, building.PlanarFaces.Count);
+        Assert.InRange(building.RidgeHeight / scale, 7.8, 8.2);
+        Assert.True(building.RoofWithinToleranceShare < .9);
+        Assert.Contains("approximate", building.Diagnostic);
+        AssertWatertight(building.Solid);
+    }
+
     [Fact]
     public void Extract_TwoRoofLevels_ReconstructsTheirStepAsAClosedArrangement()
     {
@@ -235,6 +257,64 @@ public sealed class ScanBuildingsTests
         Assert.Equal(6, lowRoof, 6);
         Assert.True(projector.TryGetHeightExtremes(15, 10, .001, out _, out double highRoof));
         Assert.Equal(9, highRoof, 6);
+    }
+
+    [Theory]
+    [InlineData(0.0, 1, 1)]
+    [InlineData(2.0, 1, 1)]
+    [InlineData(0.0, 2, 2)]
+    [InlineData(2.0, 2, 2)]
+    [InlineData(0.0, 0, 2)]
+    public void Extract_RoofFaceBudget_IsIndependentOfDetailSuppression(double detail, int budget, int expectedFaces)
+    {
+        var scene = Scene((u, v) => 6 + .5 * (4 - Math.Abs(v)));
+        var building = Assert.Single(ScanBuildings.Extract(scene.Scan, scene.Ground, null, new()
+        {
+            MinimumArea = 20, MinimumHeight = 2, FootprintTolerance = .5, RoofTolerance = .2,
+            MinimumRoofDetail = detail, MaximumRoofFaces = budget,
+        }).Buildings);
+        int upward = building.PlanarFaces.Count(face => face.Loops.Sum(loop =>
+            Enumerable.Range(0, loop.Length / 3).Sum(i =>
+            {
+                int a = i * 3, b = (a + 3) % loop.Length;
+                return (loop[a] - loop[0]) * (loop[b + 1] - loop[1]) -
+                    (loop[b] - loop[0]) * (loop[a + 1] - loop[1]);
+            })) > 1e-8);
+        Assert.Equal(expectedFaces, upward);
+        Assert.Equal(budget == 1, building.IsFallback);
+        AssertWatertight(building.Solid);
+    }
+
+    [Fact]
+    public void Extract_ApproximateRoof_ExplainsMajorityAndReportsSelectedShellFit()
+    {
+        var scene = Scene((u, v) => 6 + .5 * (4 - Math.Abs(v)) + (Math.Abs(u) < 1 && Math.Abs(v) < 3 ? 1 : 0));
+        var building = Assert.Single(ScanBuildings.Extract(scene.Scan, scene.Ground, null, new()
+        {
+            MinimumArea = 20, MinimumHeight = 2, FootprintTolerance = .5, RoofTolerance = .1,
+            MinimumRoofDetail = 2, MaximumRoofFaces = 2,
+        }).Buildings);
+        Assert.True(building.IsApproximateRoof);
+        Assert.InRange(building.RoofWithinToleranceShare, .5, .9);
+        Assert.Contains("Selected shell:", building.Diagnostic);
+        Assert.Contains("coverage", building.Diagnostic);
+        Assert.InRange(building.RoofRms, .1, .5);
+    }
+
+    [Theory]
+    [InlineData(2, true)]
+    [InlineData(3, false)]
+    public void Extract_RoofFaceBudget_CountsVerticalRoofSteps(int budget, bool fallback)
+    {
+        var scene = Scene((u, v) => u < 4 ? 6 : 9 + .4 * v);
+        var building = Assert.Single(ScanBuildings.Extract(scene.Scan, scene.Ground, null, new()
+        {
+            MinimumArea = 20, MinimumHeight = 2, FootprintTolerance = .5, RoofTolerance = .2,
+            MaximumRoofFaces = budget,
+        }).Buildings);
+        Assert.Equal(fallback, building.IsFallback);
+        if (!fallback) Assert.Equal(ScanRoofKind.PlaneArrangement, building.RoofKind);
+        AssertWatertight(building.Solid);
     }
 
     [Fact]

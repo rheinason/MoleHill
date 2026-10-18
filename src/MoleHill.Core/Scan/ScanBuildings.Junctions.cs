@@ -4,7 +4,7 @@ namespace MoleHill.Core.Scan;
 public static partial class ScanBuildings
 {
     private static void SimplifySpatialPatches(List<RoofCell> cells, Dictionary<long, List<CellEdge>> edges,
-        RoofModel model, double minimumArea, CancellationToken cancellationToken)
+        RoofModel model, double minimumArea, CancellationToken cancellationToken, double minimumWidth = 0)
     {
         var neighbours = Enumerable.Range(0, cells.Count).Select(_ => new List<int>()).ToArray();
         foreach (List<CellEdge> uses in edges.Values)
@@ -17,7 +17,7 @@ public static partial class ScanBuildings
         {
             cancellationToken.ThrowIfCancellationRequested();
             var visited = new bool[cells.Count];
-            List<int>? smallest = null; double smallestArea = minimumArea;
+            List<int>? smallest = null; double smallestArea = double.PositiveInfinity;
             var queue = new Queue<int>();
             for (int start = 0; start < cells.Count; start++)
             {
@@ -34,7 +34,8 @@ public static partial class ScanBuildings
                             visited[next] = true; queue.Enqueue(next);
                         }
                 }
-                if (area < smallestArea && patch.Any(cell => neighbours[cell].Any(next => cells[next].Plane != cells[start].Plane)))
+                bool tooSmall = area < minimumArea || minimumWidth > 0 && PatchWidth(patch) < minimumWidth;
+                if (tooSmall && area < smallestArea && patch.Any(cell => neighbours[cell].Any(next => cells[next].Plane != cells[start].Plane)))
                 {
                     smallest = patch; smallestArea = area;
                 }
@@ -52,7 +53,27 @@ public static partial class ScanBuildings
             // falls, so there is no oscillation. Final accuracy is checked on the constructed shell.
         }
         if (merged > 0)
-            model.Diagnostic += $" Merged {merged} sub-minimum-area spatial roof patch(es).";
+            model.Diagnostic += $" Merged {merged} sub-minimum-size spatial roof patch(es).";
+
+        double PatchWidth(List<int> patch)
+        {
+            List<P2> hull = ConvexHull(patch.SelectMany(cell => cells[cell].Polygon).ToList());
+            double bestArea = double.PositiveInfinity, width = double.PositiveInfinity;
+            for (int i = 0; i < hull.Count; i++)
+            {
+                P2 a = hull[i], b = hull[(i + 1) % hull.Count];
+                double theta = Math.Atan2(b.Y - a.Y, b.X - a.X), cosine = Math.Cos(theta), sine = Math.Sin(theta);
+                double minX = double.PositiveInfinity, maxX = double.NegativeInfinity, minY = minX, maxY = maxX;
+                foreach (P2 p in hull)
+                {
+                    double x = p.X * cosine + p.Y * sine, y = -p.X * sine + p.Y * cosine;
+                    minX = Math.Min(minX, x); maxX = Math.Max(maxX, x); minY = Math.Min(minY, y); maxY = Math.Max(maxY, y);
+                }
+                double area = (maxX - minX) * (maxY - minY);
+                if (area < bestArea) { bestArea = area; width = Math.Min(maxX - minX, maxY - minY); }
+            }
+            return width;
+        }
     }
 
     private static void RegularizeRoofJunctions(List<RoofCell> cells, int[][] cellXy, List<P2> points,
