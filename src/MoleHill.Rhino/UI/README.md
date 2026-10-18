@@ -7,11 +7,12 @@ Layer source popovers use a native `GridView` for available layers. Filtering re
 keyboard navigation only selects and scrolls the existing rows. Enter commits the selected layer and
 Escape closes the popup from either the search box or the grid.
 
-- `ScanToTerrainDialog.cs` — the document-parented semi-modal `mhScanToTerrain` panel for mesh/cloud
-  input. All settings, output and preview toggles live in one scrollable surface, with fixed status
+- `TerrainCurveExtractionDialog.cs` + `.Scan.cs` — the shared document-parented semi-modal panel for
+  `mhTerrainToCurves` and `mhScanToTerrain`. The root owns common recovery controls and lifecycle;
+  the optional Scan partial adds mesh/cloud preparation controls. All settings, output and preview toggles live in one scrollable surface, with fixed status
   and Keep/Cancel buttons. Changes debounce and cancel older pure workers; generation checks discard
   stale results and Keep accepts only the current completed preview. Native viewport resources belong
-  to `Services/Commands/ScanToTerrainPreview`; the dialog adds no document objects. Closing owns timer,
+  to `Services/Commands/TerrainCurveExtractionPreview`; the dialog adds no document objects. Closing owns timer,
   Escape-handler and conduit cleanup. Settings use model-unit length/area labels and shared slope
   parsing. See [Scan to Terrain](../../../docs/scan-to-terrain.md).
 

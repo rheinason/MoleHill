@@ -158,8 +158,10 @@ TriangleNet (vendored)  ←  MoleHill.Core  ←  MoleHill.Grasshopper (GH host)
   borders, peak/pit spot points, ridge/valley lines that earn their length, and the fewest contours that
   rebuild the terrain within a vertical tolerance (vertex-sampled); `RidgesValleys=Auto` runs with and
   without the lines and keeps the smaller result; the command adds them under a fresh `Terrain to Curves {source}`
-  layer root, grouped and named by role. Shared `RecoverWithEscape` and `AddOutput` helpers also serve scan recovery.
-  Esc stops the search and keeps what it found.
+  layer root, grouped and named by role. Both commands use `TerrainCurveExtractionService`, the same
+  fitted contour builder, preview conduit, output writer and `TerrainCurveExtractionDialog`.
+  A picked DEM or the active terrain's final built mesh goes straight to recovery; only scan input
+  runs ground filtering. Esc/Cancel discards the preview; Keep writes the completed result.
 - **`mhScanToTerrain` infers bare ground before recovering curves.** `Core/Scan` rasterises triangles to
   top/lowest height grids, applies progressive morphological openings, distinguishes objects from terrace
   steps by their raised perimeter, removes narrow ground scraps, and harmonically fills the largest
@@ -186,7 +188,7 @@ TriangleNet (vendored)  ←  MoleHill.Core  ←  MoleHill.Grasshopper (GH host)
   and deviation to soft ground, retaining holes. Each error pick adds only its nearest clipped fragment.
   `.Region.cs` owns clipping; `.Fitting.cs` fits contours before reconstruction, with a linear fallback
   where a smooth curve would cross paving or exceed the height tolerance. `.Surfaces.cs` writes native
-  area/road curves; shared `AddOutput` accepts a contour factory.
+  area/road curves; `TerrainCurveExtractionGeometry` builds identical fitted contours for preview and output.
   Phase 4's `ScanBuildings` consumes raised surface regions and original upward scan faces; it does not
   modify terrain inputs. Its footprint/plane/roof/solid/junction partials regularise outlines, reject
   vegetation using colour plus coherent planes, fit roof templates and general arrangements, and
@@ -200,10 +202,12 @@ TriangleNet (vendored)  ←  MoleHill.Core  ←  MoleHill.Grasshopper (GH host)
   exclude vegetation candidates. `IsGround` still describes the top observation, excluding roofs above
   a lower ground return from measured step/colour evidence. The host reads retained class bytes from
   `PointCloud.UserDictionary["MoleHill.Scan.Classification"]`; source importers must retain them.
-  `UI/ScanToTerrainDialog` is a document-parented semi-modal panel with every setting and output/preview
+  `UI/TerrainCurveExtractionDialog` is a document-parented semi-modal panel with every setting and output/preview
   toggle, asynchronous debounced computation, staged viewport output and Keep/Cancel. Core publishes
-  stage snapshots; the UI marshals them and ignores stale generations. `ScanToTerrainSettings` owns
-  physical cache conversion (saved only on Keep); `ScanToTerrainPreview` owns disposable native display
+  stage snapshots; the UI marshals them and ignores stale generations. Its `.Scan` partial adds optional
+  preparation controls. `TerrainCurveExtractionSettings` owns common physical cache conversion and
+  `ScanToTerrainSettings` adds scan controls (saved only on Keep in separate command namespaces).
+  `TerrainCurveExtractionPreview` owns disposable native display
   geometry. Preview changes no document objects or source visibility. Keep validates building Breps
   before the existing shared output writer creates the fresh root/group. See [Scan to Terrain](scan-to-terrain.md).
 - **`mhSuggestRoute` drafts the curve; Grade Path still follows it.** Modifiers follow drawn geometry

@@ -114,6 +114,12 @@ public static partial class TerrainCurveRecovery
     public static Result Recover(IndexedTriMesh terrain, Options options)
     {
         ArgumentNullException.ThrowIfNull(options);
+        return Recover(terrain, options, options.LandformLines);
+    }
+
+    private static Result Recover(IndexedTriMesh terrain, Options options, bool useLandforms)
+    {
+        ArgumentNullException.ThrowIfNull(options);
         ValidateBreaklines(options.FixedBreaklines);
         (double[] vertices, int vertexCount, int[] faces, int faceCount) = terrain;
         double verticalTolerance = options.VerticalTolerance;
@@ -175,7 +181,7 @@ public static partial class TerrainCurveRecovery
         }
 
         var contours = new List<RecoveredContour>();
-        List<double[]> landformLines = options.LandformLines
+        List<double[]> landformLines = useLandforms
             ? SelectLandformLines(vertices, vertexCount, adjacency, onBorder, borders, spots, verticalTolerance, planTolerance, options.FixedBreaklines, options.Region)
             : new List<double[]>();
 

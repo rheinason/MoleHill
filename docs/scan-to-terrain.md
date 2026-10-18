@@ -4,6 +4,11 @@
 curves and building context. Select the source, then use the floating panel. All settings are on this
 panel; after selection the command line takes Enter/Esc only.
 
+`mhTerrainToCurves` uses the same recovery runner, fitted contour geometry, preview panel and output
+writer. A DEM mesh or the active MoleHill terrain's final built mesh bypasses scan preparation entirely.
+The shared settings retain separate defaults/cache namespaces for the two commands. Auto ridge/valley
+selection lives in Core and follows the same tolerance/count rules for either source.
+
 ## Review and Keep
 
 Each output has an output checkbox and an independent Preview checkbox. Ground/filter controls,

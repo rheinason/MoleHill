@@ -9,59 +9,66 @@ namespace MoleHill.Rhino.Services;
 
 /// <summary>Disposable, document-scoped viewport output. All native geometry is created on the UI
 /// thread; preview never adds objects, changes source visibility or creates an Undo record.</summary>
-internal sealed class ScanToTerrainPreview(uint documentSerial) : DisplayConduit, IDisposable
+internal sealed class TerrainCurveExtractionPreview(uint documentSerial) : DisplayConduit, IDisposable
 {
     private readonly List<(Curve Curve, Color Colour)> _curves = new();
     private readonly List<(Mesh Mesh, DisplayMaterial Material)> _meshes = new();
     private readonly List<(Point3d[] Points, Color Colour)> _points = new();
 
-    public void Update(ScanTerrainPipeline.Result? pipeline, TerrainCurveRecovery.Result? recovery, ISet<string> show)
+    public void Update(TerrainCurveExtractionPrepared? prepared, ISet<string> show)
     {
         Clear();
-        if (pipeline == null) return;
-        if (show.Contains(nameof(ScanToTerrainSettings.AddGroundMesh)))
-            _meshes.Add((MeshOf(pipeline.Reference), new DisplayMaterial(Color.LightGray) { Transparency = .55 }));
-        if (show.Contains(nameof(ScanToTerrainSettings.Buildings)) && pipeline.Buildings != null)
-            foreach (ScanBuildings.Building building in pipeline.Buildings.Buildings)
-                _meshes.Add((MeshOf(building.Solid), new DisplayMaterial(building.IsFallback ? Color.IndianRed : Color.BurlyWood) { Transparency = .2 }));
-        if (show.Contains(nameof(ScanToTerrainSettings.Walls)))
-            foreach (ScanWalls.Wall wall in pipeline.Walls)
-            {
-                _curves.Add((RouteCurveBuilder.FromFitted(wall.TopCurve), Color.SaddleBrown));
-                _curves.Add((RouteCurveBuilder.FromFitted(wall.ToeCurve), Color.SaddleBrown));
-            }
-        if (show.Contains(nameof(ScanToTerrainSettings.Surfaces)) && pipeline.Areas != null)
+        if (prepared == null) return;
+        if (show.Contains("Reference"))
+            _meshes.Add((MeshOf(prepared.Reference), new DisplayMaterial(Color.LightGray) { Transparency = .55 }));
+        var pipeline = prepared.Scan;
+        if (pipeline != null)
         {
-            foreach (ScanSurfaceAreas.Boundary area in pipeline.Areas.Boundaries)
-                _curves.Add((RouteCurveBuilder.FromFitted(area.Curve), area.Kind == ScanSurfaceKind.Paved ? Color.DimGray : Color.ForestGreen));
-            var paved = new List<Point3d>(); var soft = new List<Point3d>();
-            ScanGrid grid = pipeline.Ground.Ground;
-            int stride = Math.Max(1, (int)Math.Ceiling(grid.NodeCount / 50000.0));
-            for (int node = 0; node < grid.NodeCount; node += stride)
+            if (show.Contains(nameof(ScanToTerrainSettings.AddGroundMesh)))
+                _meshes.Add((MeshOf(pipeline.Reference), new DisplayMaterial(Color.LightGray) { Transparency = .55 }));
+            if (show.Contains(nameof(ScanToTerrainSettings.Buildings)) && pipeline.Buildings != null)
+                foreach (ScanBuildings.Building building in pipeline.Buildings.Buildings)
+                    _meshes.Add((MeshOf(building.Solid), new DisplayMaterial(building.IsFallback ? Color.IndianRed : Color.BurlyWood) { Transparency = .2 }));
+            if (show.Contains(nameof(ScanToTerrainSettings.Walls)))
+                foreach (ScanWalls.Wall wall in pipeline.Walls)
+                {
+                    _curves.Add((RouteCurveBuilder.FromFitted(wall.TopCurve), Color.SaddleBrown));
+                    _curves.Add((RouteCurveBuilder.FromFitted(wall.ToeCurve), Color.SaddleBrown));
+                }
+            if (show.Contains(nameof(ScanToTerrainSettings.Surfaces)) && pipeline.Areas != null)
             {
-                ScanSurfaceKind kind = pipeline.Areas.PavedMask[node] ? ScanSurfaceKind.Paved :
-                    pipeline.Areas.SoftMask[node] ? ScanSurfaceKind.Soft : ScanSurfaceKind.Unknown;
-                if (kind is not (ScanSurfaceKind.Paved or ScanSurfaceKind.Soft) || !double.IsFinite(grid.Values[node])) continue;
-                var point = new Point3d(grid.NodeX(node % grid.Columns), grid.NodeY(node / grid.Columns), grid.Values[node]);
-                (kind == ScanSurfaceKind.Paved ? paved : soft).Add(point);
+                foreach (ScanSurfaceAreas.Boundary area in pipeline.Areas.Boundaries)
+                    _curves.Add((RouteCurveBuilder.FromFitted(area.Curve), area.Kind == ScanSurfaceKind.Paved ? Color.DimGray : Color.ForestGreen));
+                var paved = new List<Point3d>(); var soft = new List<Point3d>();
+                ScanGrid grid = pipeline.Ground.Ground;
+                int stride = Math.Max(1, (int)Math.Ceiling(grid.NodeCount / 50000.0));
+                for (int node = 0; node < grid.NodeCount; node += stride)
+                {
+                    ScanSurfaceKind kind = pipeline.Areas.PavedMask[node] ? ScanSurfaceKind.Paved :
+                        pipeline.Areas.SoftMask[node] ? ScanSurfaceKind.Soft : ScanSurfaceKind.Unknown;
+                    if (kind is not (ScanSurfaceKind.Paved or ScanSurfaceKind.Soft) || !double.IsFinite(grid.Values[node])) continue;
+                    var point = new Point3d(grid.NodeX(node % grid.Columns), grid.NodeY(node / grid.Columns), grid.Values[node]);
+                    (kind == ScanSurfaceKind.Paved ? paved : soft).Add(point);
+                }
+                _points.Add((paved.ToArray(), Color.Gray)); _points.Add((soft.ToArray(), Color.LimeGreen));
             }
-            _points.Add((paved.ToArray(), Color.Gray)); _points.Add((soft.ToArray(), Color.LimeGreen));
+            if (show.Contains(nameof(ScanToTerrainSettings.RoadEdges)))
+                foreach (ScanRoadEdges.EdgeLine edge in pipeline.Roads)
+                {
+                    _curves.Add((RouteCurveBuilder.FromFitted(edge.BottomCurve), Color.DarkOrange));
+                    if (edge.TopCurve != null) _curves.Add((RouteCurveBuilder.FromFitted(edge.TopCurve), Color.DarkOrange));
+                }
         }
-        if (show.Contains(nameof(ScanToTerrainSettings.RoadEdges)))
-            foreach (ScanRoadEdges.EdgeLine edge in pipeline.Roads)
-            {
-                _curves.Add((RouteCurveBuilder.FromFitted(edge.BottomCurve), Color.DarkOrange));
-                if (edge.TopCurve != null) _curves.Add((RouteCurveBuilder.FromFitted(edge.TopCurve), Color.DarkOrange));
-            }
+        var recovery = prepared.Recovery;
         if (recovery == null) return;
         foreach (double[] border in recovery.Borders) _curves.Add((Polyline(border, true), Color.Black));
-        if (show.Contains(nameof(ScanToTerrainSettings.Contours)))
+        if (show.Contains(nameof(TerrainCurveExtractionSettings.Contours)))
         {
             foreach (var contour in recovery.Contours)
-                _curves.Add((contour.Curve == null ? Polyline(contour.PointsXyz, contour.IsClosed) : RouteCurveBuilder.FromFitted(contour.Curve), Color.DarkGoldenrod));
+                _curves.Add((TerrainCurveExtractionGeometry.Contour(contour), Color.DarkGoldenrod));
             _points.Add((Points(recovery.SpotPoints), Color.SeaGreen));
         }
-        if (show.Contains(nameof(ScanToTerrainSettings.RidgesValleys)))
+        if (show.Contains(nameof(TerrainCurveExtractionSettings.RidgesValleys)))
             foreach (double[] line in recovery.LandformLines) _curves.Add((Polyline(line, false), Color.Firebrick));
     }
 

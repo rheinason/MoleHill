@@ -4,10 +4,8 @@ using MoleHill.Shared;
 namespace MoleHill.Rhino.Services;
 
 /// <summary>Physical defaults and model-unit settings for one scan preview. Cache is written on Keep.</summary>
-internal sealed record ScanToTerrainSettings
+internal sealed record ScanToTerrainSettings : TerrainCurveExtractionSettings
 {
-    public double Tolerance { get; set; }
-    public double PlanTolerance { get; set; }
     public double LargestObject { get; set; }
     public double GroundSpacing { get; set; }
     public double RasterCell { get; set; }
@@ -15,9 +13,6 @@ internal sealed record ScanToTerrainSettings
     public double InitialThreshold { get; set; }
     public double MaximumThreshold { get; set; }
     public double ObjectMargin { get; set; }
-    public int MaxContours { get; set; } = 300;
-    public int RidgesValleys { get; set; } = 2;
-    public bool Contours { get; set; } = true;
     public bool AddGroundMesh { get; set; }
     public bool Walls { get; set; } = true;
     public double WallHeight { get; set; }
@@ -36,17 +31,17 @@ internal sealed record ScanToTerrainSettings
     private const string Prefix = "MoleHill.ScanToTerrain.";
     private static readonly (string Name, double Metres)[] Lengths =
     {
-        (nameof(Tolerance), .25), (nameof(PlanTolerance), .5), (nameof(LargestObject), 48),
+        (nameof(LargestObject), 48),
         (nameof(GroundSpacing), 1), (nameof(RasterCell), 0), (nameof(InitialThreshold), .3),
         (nameof(MaximumThreshold), 4), (nameof(ObjectMargin), .5), (nameof(WallHeight), .6),
         (nameof(WallLength), 3), (nameof(KerbMin), .06), (nameof(KerbMax), .3),
         (nameof(BuildingHeight), 2), (nameof(RoofTolerance), .3),
     };
-    private static readonly string[] Toggles = { nameof(Walls), nameof(Surfaces), nameof(RoadEdges), nameof(Buildings), nameof(AddGroundMesh), nameof(Contours) };
+    private static readonly string[] Toggles = { nameof(Walls), nameof(Surfaces), nameof(RoadEdges), nameof(Buildings), nameof(AddGroundMesh) };
 
     public static ScanToTerrainSettings Load(ModelUnitContext units)
     {
-        var result = new ScanToTerrainSettings();
+        var result = Read(new ScanToTerrainSettings(), units, Prefix, .25, .5, 300, 2);
         foreach (var entry in Lengths)
             typeof(ScanToTerrainSettings).GetProperty(entry.Name)!.SetValue(result, CommandOptionCache.GetLength(Prefix + entry.Name, units, entry.Metres));
         foreach (string name in Toggles)
@@ -55,8 +50,6 @@ internal sealed record ScanToTerrainSettings
             property.SetValue(result, CommandOptionCache.GetValue(Prefix + name, (bool)property.GetValue(result)! ? 1 : 0) == 1);
         }
         result.BuildingArea = units.FromSquareMeters(CommandOptionCache.GetValue(Prefix + "BuildingArea.SquareMeters", 20.0));
-        result.MaxContours = CommandOptionCache.GetValue(Prefix + "MaxCurves", 300);
-        result.RidgesValleys = CommandOptionCache.GetValue(Prefix + nameof(RidgesValleys), 2);
         result.GreenThreshold = CommandOptionCache.GetValue(Prefix + nameof(GreenThreshold), .08);
         result.PavingSaturation = CommandOptionCache.GetValue(Prefix + nameof(PavingSaturation), .25);
         result.GroundSlope = CommandOptionCache.GetValue(Prefix + nameof(GroundSlope), .6);
@@ -65,13 +58,12 @@ internal sealed record ScanToTerrainSettings
 
     public void Save(ModelUnitContext units)
     {
+        Save(units, Prefix);
         foreach (var entry in Lengths)
             CommandOptionCache.SetLength(Prefix + entry.Name, units, (double)typeof(ScanToTerrainSettings).GetProperty(entry.Name)!.GetValue(this)!);
         foreach (string name in Toggles)
             CommandOptionCache.SetValue(Prefix + name, (bool)typeof(ScanToTerrainSettings).GetProperty(name)!.GetValue(this)! ? 1 : 0);
         CommandOptionCache.SetValue(Prefix + "BuildingArea.SquareMeters", units.ToSquareMeters(BuildingArea));
-        CommandOptionCache.SetValue(Prefix + "MaxCurves", MaxContours);
-        CommandOptionCache.SetValue(Prefix + nameof(RidgesValleys), RidgesValleys);
         CommandOptionCache.SetValue(Prefix + nameof(GreenThreshold), GreenThreshold);
         CommandOptionCache.SetValue(Prefix + nameof(PavingSaturation), PavingSaturation);
         CommandOptionCache.SetValue(Prefix + nameof(GroundSlope), GroundSlope);

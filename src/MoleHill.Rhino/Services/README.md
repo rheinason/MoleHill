@@ -1,4 +1,4 @@
-﻿# MoleHill.Rhino/Services
+# MoleHill.Rhino/Services
 
 The Rhino-side engine: builds terrain from the saved definition, manages document state, previews, and
 bakes. Rhino API lives here; reusable math is in `MoleHill.Core`. See `docs/architecture.md`.
@@ -445,11 +445,11 @@ layer table, dimension styles, and layouts can act on. See `docs/architecture.md
   or picked targets (`DrapeCommandService.TrySelectTargets`); a smooth curve applies through
   `TerrainInputCommandAlgorithms.ApplyProfileToEditPoints` unless `Fit=Exact`.
 - `Commands/ScanToTerrainCommandService.cs` + `.Surfaces.cs` + `.Buildings.cs` — `mhScanToTerrain`
-  captures mesh/cloud arrays, opens `UI/ScanToTerrainDialog`, runs cancellable pure stages asynchronously,
+  captures mesh/cloud arrays, opens `UI/TerrainCurveExtractionDialog`, runs cancellable pure stages asynchronously,
   validates native building Breps, then writes accepted output in one group and command Undo. Native
   planar trimming starts precisely to preserve short shared arrangement edges.
   `ScanToTerrainSettings` holds model-unit settings with physical length/area cache values saved only
-  on Keep. `ScanToTerrainPreview` owns document-scoped native viewport resources; preview adds no
+  on Keep. `TerrainCurveExtractionPreview` owns document-scoped native viewport resources; preview adds no
   objects, changes no source visibility and creates no Undo. The dialog debounces changes, cancels old
   work and ignores stale callbacks; preview visibility changes need no computation. Its lifetime owns
   timers, Escape handlers and the conduit. All settings live on the panel; the command line accepts
@@ -459,8 +459,9 @@ layer table, dimension styles, and layouts can act on. See `docs/architecture.md
   See [Scan to Terrain](../../../docs/scan-to-terrain.md) for the input contract and acceptance evidence.
 - `Commands/TerrainToCurvesCommandService.cs` - `mhTerrainToCurves`: runs Core's `TerrainCurveRecovery` on a
   picked mesh or the active terrain with `Tolerance`, `PlanTolerance`, `MaxContours` and `RidgesValleys`
-  (Auto runs with and without landform lines and keeps the result with fewer curves), pumping
-  `RhinoApp.Wait()` per round so Esc stops it.
+  through the same asynchronous preview/Keep/Cancel workflow as scan recovery. Common settings, Core
+  `RecoverBest` selection, `TerrainCurveExtractionService`, geometry, preview and output writer are shared;
+  ordinary terrain bypasses scan preparation. All contours are NURBS, with fitted cubic pieces where supported.
 - `Commands/SlopeCommandOption.cs` - the `Slope` + `Units` option pair every slope-taking command shares
   (`mhSlopeCurve`, `mhGradientInterpolation`, `mhOffsetFeature`, `mhSuggestRoute`'s `MaxGrade`). It was
   a private class inside `GeometryCommandService`; it has its own file so commands in other services

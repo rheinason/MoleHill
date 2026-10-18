@@ -18,7 +18,6 @@ namespace MoleHill.Rhino.Services;
 /// native buildings and writes the accepted output in the command's single Undo record.</summary>
 internal static partial class ScanToTerrainCommandService
 {
-    internal sealed record Prepared(ScanTerrainPipeline.Result Pipeline, TerrainCurveRecovery.Result Recovery);
 
     public static Result Run(RhinoDoc doc)
     {
@@ -50,71 +49,50 @@ internal static partial class ScanToTerrainCommandService
         }
         catch (ArgumentException error) { RhinoApp.WriteLine(error.Message); return Result.Failure; }
         RhinoApp.WriteLine(diagnostic);
-        using var panel = new ScanToTerrainDialog(doc, units, sourceName, diagnostic ?? string.Empty,
+        using var panel = new TerrainCurveExtractionDialog(doc, units, "Scan to Terrain", sourceName, diagnostic ?? string.Empty,
             ScanToTerrainSettings.Load(units), (settings, token, progress, preview) =>
-                ComputeAsync(mesh, colours, cloud, settings, units, token, progress, preview));
+                ComputeAsync(mesh, colours, cloud, (ScanToTerrainSettings)settings, units, token, progress, preview));
         RhinoApp.SetCommandPrompt("Scan to terrain — adjust the floating panel; Enter keeps a ready preview, Esc cancels");
-        if (!panel.ShowSemiModal(doc, RhinoEtoApp.MainWindowForDocument(doc)) || panel.Prepared == null)
+        if (!panel.ShowSemiModal(doc, RhinoEtoApp.MainWindowForDocument(doc)) || panel.Prepared?.Recovery == null)
             return Result.Cancel;
-        Prepared prepared = panel.Prepared;
-        ScanToTerrainSettings accepted = panel.Settings;
+        TerrainCurveExtractionPrepared prepared = panel.Prepared;
+        ScanTerrainPipeline.Result pipeline = prepared.Scan!;
+        TerrainCurveRecovery.Result recovery = prepared.Recovery!;
+        ScanToTerrainSettings accepted = (ScanToTerrainSettings)panel.Settings;
         List<Brep> solids;
-        try { solids = BuildBuildingSolids(doc, prepared.Pipeline.Buildings); }
+        try { solids = BuildBuildingSolids(doc, pipeline.Buildings); }
         catch (OperationCanceledException) { return Result.Cancel; }
         catch (InvalidOperationException error)
         { RhinoApp.WriteLine($"Scan to terrain: {error.Message} No output was added."); return Result.Failure; }
         int added; string root;
         try
         {
-            added = TerrainToCurvesCommandService.AddOutput(doc, prepared.Recovery, $"Scan {sourceName}", "Scan to Terrain",
-                onLayer => AddExtras(doc, prepared.Pipeline, solids, accepted.AddGroundMesh, onLayer), out root,
-                contourFactory: BuildContourCurve);
+            added = TerrainCurveExtractionOutput.Add(doc, recovery, $"Scan {sourceName}", "Scan to Terrain",
+                onLayer => AddExtras(doc, pipeline, solids, accepted.AddGroundMesh, onLayer), out root);
         }
         finally { foreach (Brep solid in solids) solid.Dispose(); }
         if (added > 0) accepted.Save(units);
-        RhinoApp.WriteLine($"Scan to terrain: {prepared.Pipeline.Buildings?.Buildings.Count ?? 0} buildings, " +
-            $"{prepared.Pipeline.Walls.Count} walls, {prepared.Pipeline.Roads.Count} road/kerb stretches; " +
-            $"{prepared.Recovery.Contours.Count} contours and {prepared.Recovery.SpotPointCount} spots. " + prepared.Recovery.Diagnostic);
-        if (prepared.Pipeline.Ground.ClassifiedGroundNodes > 0)
-            RhinoApp.WriteLine($"Used {prepared.Pipeline.Ground.ClassifiedGroundNodes:N0} supplied ground cells; " +
-                $"{prepared.Pipeline.Ground.ClassifiedGroundDisagreements:N0} differ from the independent filter by more than its initial allowance.");
+        RhinoApp.WriteLine($"Scan to terrain: {pipeline.Buildings?.Buildings.Count ?? 0} buildings, " +
+            $"{pipeline.Walls.Count} walls, {pipeline.Roads.Count} road/kerb stretches; " +
+            $"{recovery.Contours.Count} contours and {recovery.SpotPointCount} spots. " + recovery.Diagnostic);
+        if (pipeline.Ground.ClassifiedGroundNodes > 0)
+            RhinoApp.WriteLine($"Used {pipeline.Ground.ClassifiedGroundNodes:N0} supplied ground cells; " +
+                $"{pipeline.Ground.ClassifiedGroundDisagreements:N0} differ from the independent filter by more than its initial allowance.");
         if (added > 0) RhinoApp.WriteLine($"Added to the layers under '{root}'.");
         doc.Views.Redraw(); return added > 0 ? Result.Success : Result.Failure;
     }
 
-    internal static async Task<Prepared> ComputeAsync(IndexedTriMesh mesh, ScanColourSource? colours, ScanPointCloud? cloud,
+    internal static async Task<TerrainCurveExtractionPrepared> ComputeAsync(IndexedTriMesh mesh, ScanColourSource? colours, ScanPointCloud? cloud,
         ScanToTerrainSettings settings, ModelUnitContext units, CancellationToken token, Action<string> progress,
-        Action<ScanTerrainPipeline.Result> preview)
+        Action<TerrainCurveExtractionPrepared> preview)
     {
-        var options = settings.Pipeline(units, token, progress, preview);
+        var options = settings.Pipeline(units, token, progress, stage => preview(TerrainCurveExtractionPrepared.FromScan(stage)));
         ScanTerrainPipeline.Result pipeline = await Task.Run(() => cloud == null
             ? ScanTerrainPipeline.Build(mesh, colours, options) : ScanTerrainPipeline.Build(cloud, options), token);
         token.ThrowIfCancellationRequested();
         if (pipeline.Reference.IsEmpty) throw new InvalidOperationException("No connected ground was found. Try a larger raster cell for a sparse cloud.");
-        TerrainCurveRecovery.Result recovery = await Task.Run(() =>
-        {
-            TerrainCurveRecovery.Result Recover(bool lines) => TerrainCurveRecovery.Recover(pipeline.Reference, new()
-            {
-                VerticalTolerance = settings.Tolerance, PlanTolerance = settings.PlanTolerance,
-                MaximumCurves = settings.Contours ? settings.MaxContours : 1,
-                LandformLines = lines, FixedBreaklines = pipeline.FixedBreaklines, Region = pipeline.Region, FitContours = true,
-                ShouldCancel = () => token.IsCancellationRequested,
-                ReportProgress = (round, miss) => progress($"Contours, round {round}: {miss:G4} {units.Abbreviation} miss"),
-            });
-            progress("Recovering contours and spot heights");
-            TerrainCurveRecovery.Result result = Recover(settings.RidgesValleys != 2);
-            if (settings.RidgesValleys == 0 && !token.IsCancellationRequested)
-                result = TerrainToCurvesCommandService.Better(result, Recover(false));
-            return result;
-        }, token);
-        token.ThrowIfCancellationRequested();
-        if (recovery.Termination is TerrainCurveRecovery.Termination.UnsupportedInput or TerrainCurveRecovery.Termination.TriangulationFailed)
-            throw new InvalidOperationException(recovery.Diagnostic);
-        if (!settings.Contours)
-            recovery = new() { Borders = recovery.Borders, Contours = Array.Empty<TerrainCurveRecovery.RecoveredContour>(),
-                LandformLines = recovery.LandformLines, SpotPoints = Array.Empty<double>(), MaximumDeviation = recovery.MaximumDeviation,
-                Rounds = recovery.Rounds, Termination = recovery.Termination, Diagnostic = "Contours and spots disabled.", EvaluatedVertexCount = recovery.EvaluatedVertexCount };
-        return new(pipeline, recovery);
+        return await TerrainCurveExtractionService.RecoverAsync(TerrainCurveExtractionPrepared.FromScan(pipeline),
+            settings, units, token, progress);
     }
 
     private static Guid AddGroundMesh(
