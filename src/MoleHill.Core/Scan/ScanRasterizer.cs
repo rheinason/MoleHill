@@ -14,7 +14,11 @@ public static class ScanRasterizer
     /// <summary>The most nodes a raster may have; a finer cell on a large scan is refused.</summary>
     public const long MaximumNodeCount = 16_000_000;
 
-    public readonly record struct Rasters(ScanGrid Top, ScanGrid Lowest);
+    public readonly record struct Rasters(ScanGrid Top, ScanGrid Lowest)
+    {
+        /// <summary>Colour of the highest triangle at each node, packed RGB; -1 means no colour.</summary>
+        public int[]? Colours { get; init; }
+    }
 
     /// <summary>
     /// A cell about one triangle's side: the square root of plan extent over face count, which on the
@@ -35,11 +39,13 @@ public static class ScanRasterizer
         return cell;
     }
 
-    public static Rasters Rasterize(IndexedTriMesh mesh, double cellSize, CancellationToken cancellationToken = default)
+    public static Rasters Rasterize(IndexedTriMesh mesh, double cellSize, CancellationToken cancellationToken = default,
+        ScanColourSource? colours = null)
     {
         if (!(cellSize > 0.0) || !double.IsFinite(cellSize))
             throw new ArgumentOutOfRangeException(nameof(cellSize), "Cell size must be positive.");
         cancellationToken.ThrowIfCancellationRequested();
+        colours?.Validate(mesh.FaceCount);
 
         (double minX, double minY, double maxX, double maxY) = PlanExtent(mesh);
         if (mesh.IsEmpty || !(maxX >= minX) || !(maxY >= minY))
@@ -59,6 +65,9 @@ public static class ScanRasterizer
 
         var top = new double[columns * rows];
         var lowest = new double[columns * rows];
+        int[]? rgb = colours == null ? null : new int[top.Length];
+        if (rgb != null)
+            Array.Fill(rgb, -1);
         Array.Fill(top, double.NaN);
         Array.Fill(lowest, double.NaN);
         double[] vertices = mesh.Vertices;
@@ -107,7 +116,11 @@ public static class ScanRasterizer
                     double z = (wa * az) + (wb * bz) + (wc * cz);
                     ref double high = ref top[offset + column];
                     if (double.IsNaN(high) || z > high)
+                    {
                         high = z;
+                        if (rgb != null)
+                            rgb[offset + column] = colours!.Sample(face, wa, wb, wc);
+                    }
                     ref double low = ref lowest[offset + column];
                     if (double.IsNaN(low) || z < low)
                         low = z;
@@ -117,7 +130,7 @@ public static class ScanRasterizer
 
         return new Rasters(
             new ScanGrid(minX, minY, cellSize, columns, rows, top),
-            new ScanGrid(minX, minY, cellSize, columns, rows, lowest));
+            new ScanGrid(minX, minY, cellSize, columns, rows, lowest)) { Colours = rgb };
     }
 
     private static (double MinX, double MinY, double MaxX, double MaxY) PlanExtent(IndexedTriMesh mesh)

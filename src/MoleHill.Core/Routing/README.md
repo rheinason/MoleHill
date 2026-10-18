@@ -100,7 +100,9 @@ a polyline the user edits and then assigns to a Grade Path.
   for the closest to the ground), s = 4 4–11. `RouteComplexityTests` holds the direction.
 - `RouteCurveFitter.cs` / `RouteSplineCurve.cs` / `FittedRouteCurve.cs` — the editable curve: the fewest
   cubic control points within a plan tolerance (`RouteRequest.CurveTolerance`, default 5% of the corridor
-  width) and the profile tolerance, both widened by Simplicity. Legs are cut at waypoints and at corners
+  width) and the profile tolerance, both widened by Simplicity. A two-sample piece is represented
+  directly as an exact linear cubic with held endpoints; scan boundaries share this fitter.
+  Legs are cut at waypoints and at corners
   over 20 degrees and fitted separately, ends held. Each piece is a **smoothing spline**: least squares
   plus a bending penalty, weighted as far as the tolerance allows by bisection, separately for plan and
   heights, with parameters corrected to each sample's nearest point. Plain least squares rang where

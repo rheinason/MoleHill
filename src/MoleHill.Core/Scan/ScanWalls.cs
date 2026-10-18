@@ -33,6 +33,8 @@ public static class ScanWalls
         public required double[] Toe { get; init; }
         public required double Length { get; init; }
         public required double MeanHeight { get; init; }
+        public double MinimumHeight { get; init; }
+        public double MaximumHeight { get; init; }
     }
 
     private readonly record struct Crossing(int Start, int End, int Top, int Toe, double Height);
@@ -187,6 +189,8 @@ public static class ScanWalls
                 Toe = TerrainCurveRecovery.SimplifyOpen(toeCurve.PointsXyz, plan * 0.1, options.VerticalTolerance * 0.1),
                 Length = length,
                 MeanHeight = chain.Average(edge => edge.Height),
+                MinimumHeight = chain.Min(edge => edge.Height),
+                MaximumHeight = chain.Max(edge => edge.Height),
             });
         }
 

@@ -1,7 +1,91 @@
 # Scan to terrain: plan (2026-10-18)
 
-**Status:** Phases 1–2 implemented; validation and measured limits below. Phases 3–5 remain planned.
+**Status:** Phases 1–3 implemented; validation and measured limits below. Phases 4–5 remain planned.
 Backlog entry **B26**. Supersedes nothing; builds on B25 (`mhTerrainToCurves`).
+
+## Phase 3 implementation and validation (2026-10-18)
+
+`ScanMeshReader` preserves coincident vertices carrying different UVs and captures the diffuse bitmap
+on the UI thread; the pure raster samples each winning top triangle through its face-corner UVs.
+Vertex colour averages are the fallback. No colour means no paved/soft split; measured narrow steps
+in the kerb height range can still be traced from observed geometry. Filled ground is excluded from
+that evidence; a synthetic regression checks a removed object's inferred step is not emitted as a kerb.
+
+`ScanSurfaceAreas` classifies observed ground using normalised excess green, saturation, slope and
+roughness, retaining paved islands and building-sized unknown holes. Sub-minimum-area components are
+omitted and smaller enclosed holes are closed in drawing masks only; the observed-ground flags and
+raw classes remain unchanged. Fitted closed area boundaries follow the clean wall-constrained reference.
+`ScanRoadEdges` measures trend-corrected profiles at colour edges. Persistent steps of 0.06–0.3 m within
+0.6 m produce paired kerb curves; otherwise the run becomes one draped road edge. Output carries
+measured step height and evidence share. This detects measured steps, not the semantic identity of
+every kerb; dark materials, coloured paving and vegetation remain classification limitations.
+
+`ScanTerrainPipeline` prepares walls before areas, then adds paved boundaries and paired kerbs to the
+fixed reference. `ScanSoftRegion` clips contours exactly to soft cells, including holes. Spots and
+deviation evaluation stay in the same region. A pick retains only the clipped fragment nearest its
+error point; adding every disconnected lawn fragment at that level wasted the curve budget. Contours
+are fitted before reconstruction so reported error describes their sampled geometry. A corner that
+cannot be smoothed inside the mask retains its clipped line as a degree-one NURBS. The ordinary
+`mhTerrainToCurves` defaults retain their existing full-terrain polyline behavior.
+
+New interim command options: `Surfaces`, `RoadEdges`, `GreenThreshold`, `PavingSaturation`, `KerbMin`
+and `KerbMax`. Both output families default on; the floating panel remains Phase 5.
+
+Reference Core measurement with the supplied diffuse atlas:
+
+| Measure | Phase 3 result |
+|---|---|
+| Paved / soft drawing mask | 10,970.8 / 20,895.7 m² |
+| Closed area loops | 495, including holes |
+| Walls / measured kerb stretches / single road-edge stretches | 36 / 1 / 247 |
+| Final reference | 63,364 vertices |
+| 300 contour budget, 0.25 m target | 236 spots; 0.8938 m miss; `CurveBudgetSpent` |
+| 2,000 contour budget, same settings | Stops at 1,219 contours, 453 spots; 0.2498 m miss; `ToleranceSatisfied` |
+
+The larger-budget recipe uses automatic raster spacing, 1 m ground spacing, `PlanTolerance=0.5`,
+`Tolerance=0.25`, `RidgesValleys=No`, walls/surfaces/road edges enabled, and wall fitting plan tolerance
+0.25 m in the Core measurement (the command shares its main plan tolerance with wall fitting, so its
+precise reference can differ). Accuracy is vertex-sampled against inferred soft ground, not surveyed
+truth or a full-site claim. Unknown and paved ground are
+excluded. The diagnostic larger-budget run took about 17 s for the surface pipeline and 112 s for
+contour recovery; these are not hosted performance acceptance figures.
+
+Thirteen surface tests cover shadowed grass/roads, top-face UV sampling, removed roofs, small drawing
+holes, paved islands, exact clipping, measured and disappearing kerbs, plain/sloping colour edges,
+geometry-only steps in metres/millimetres, and fitted recovery over disconnected lawns. The additional
+route regression checks exact endpoints at survey coordinates. Full suites: Core 1,645 passed;
+Rhino 1,450 passed / 175 skipped; Grasshopper 56 passed / 18 skipped. Native skips are not acceptance.
+The normal plugin build passed with zero warnings/errors.
+
+Live synthetic validation used exact Debug plugin MVID `68fadd2e-22a1-472b-b544-0dae906d8221`.
+A textured road across a lawn mound, with half the bitmap shadowed, produced three closed NURBS area
+boundaries, four measured kerb pairs, two single road edges, one soft contour and one spot. All 17
+outputs (including border and optional check mesh) were valid and shared one group. Native contour
+samples and spots stayed outside paving; kerb metadata satisfied the height and evidence ranges.
+Reported residual was 0.1369 m at a 0.25 m target. Scaling the source to millimetres retained output
+counts and physical residual. A single command Undo restored the source-only scene. A separate native
+seam fixture retained six vertices rather than merging to four, with distinct face UVs and the expected
+green/grey bitmap samples. The curve-only viewport capture was visually reviewed.
+
+Live reference validation preserved OBJ UV seams (633,522 native vertices, 766,558 triangles after
+culling 14 degenerate faces) and read the actual 8192² atlas. With a fixed 0.276 m raster, 1 m requested
+ground spacing and shared 0.5 m plan tolerance, it emitted 500 closed area NURBS, 33 wall stretches,
+226 single road edges, no confirmed kerb, 300 contour NURBS and 240 spots. All 1,334 outputs were valid
+and grouped; the source remained. All 30,300 native contour samples and every spot were inside a
+separately recomputed soft mask. The residual was 0.9506 m, budget spent. These settings and the culled
+native triangulation differ from the Core run; kerbs near the scan's resolution limit are sensitive
+to sampling. The viewport capture was inspected.
+
+After excluding inferred heights from geometry-only kerb evidence, the final Core MVID
+`aa2ab8dd-10ff-406a-bad1-b2b319dd6811` was rebuilt and loaded in another fresh disposable Rhino.
+The same road fixture without colour produced two valid measured kerb pairs, two contours and a spot,
+with no invented area classes; residual was 0.15 m at a 0.25 m target. All owned sessions were closed.
+
+Evidence and diagnostic logs: `.artifacts/scan-phase3/`. Reproduce reference classification with
+`MOLEHILL_SCAN_OBJ`, `MOLEHILL_SCAN_TEXTURE_RGB` (binary int32 width/height then top-down RGB bytes),
+`MOLEHILL_SCAN_MAX_CONTOURS=2000`, and optional `MOLEHILL_SCAN_IMAGES`, then
+`dotnet test tests/MoleHill.Core.Tests/MoleHill.Core.Tests.csproj --no-restore --filter FullyQualifiedName~Measure_ReferenceSurfaces --logger "console;verbosity=detailed"`.
+The build and full-suite commands are the same as Phase 1 below. No package was published.
 
 ## Phase 2 implementation and validation (2026-10-18)
 
@@ -315,7 +399,7 @@ Re-phased after the decisions: the first deliverable is curves, so ground and co
 |---|---|---|---|
 | 1 | S0, S1, S2, S7: contours and spot heights of the ground from a scan (mesh), houses removed | the filter on steep, terraced ground | Checked; commit `fe69846` |
 | 2 | S4 walls and terrace edges, as breaklines the contours respect | chaining noisy steps into clean lines | Implemented and checked |
-| 3 | S5 + S6 paved and soft areas, kerbs and single road-edge breaklines; contours only in soft areas | shadows in the photo; kerbs below resolution | Next |
+| 3 | S5 + S6 paved and soft areas, kerbs and single road-edge breaklines; contours only in soft areas | shadows in the photo; kerbs below resolution | Implemented and checked |
 | 4 | S3 buildings with roof shapes | trees passing as buildings; roof segmentation on a smoothed mesh | Planned |
 | 5 | Point cloud input (S0), and the full panel | reading large clouds quickly | Planned |
 

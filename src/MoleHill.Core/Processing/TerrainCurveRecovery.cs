@@ -2,6 +2,7 @@
 using MoleHill.Core.Analysis;
 using MoleHill.Core.Engine;
 using MoleHill.Core.Grading;
+using MoleHill.Core.Routing;
 
 namespace MoleHill.Core.Processing;
 
@@ -51,6 +52,12 @@ public static partial class TerrainCurveRecovery
         /// <summary>Measured breaklines held in every reconstruction, including landform-line trials.</summary>
         public IReadOnlyList<double[]> FixedBreaklines { get; init; } = Array.Empty<double[]>();
 
+        /// <summary>Null measures the full terrain; otherwise contours, spots and deviation stay in this region.</summary>
+        public ITerrainRecoveryRegion? Region { get; init; }
+
+        /// <summary>Fit light curves before reconstruction so the measured result describes their sampled geometry.</summary>
+        public bool FitContours { get; init; }
+
         public Func<bool>? ShouldCancel { get; init; }
 
         /// <summary>Called after each round with (round, worst deviation).</summary>
@@ -75,6 +82,7 @@ public static partial class TerrainCurveRecovery
         public required double[] PointsXyz { get; init; }
 
         public required bool IsClosed { get; init; }
+        public FittedRouteCurve? Curve { get; init; }
     }
 
     public sealed class Result
@@ -98,6 +106,7 @@ public static partial class TerrainCurveRecovery
         public required Termination Termination { get; init; }
 
         public required string Diagnostic { get; init; }
+        public int EvaluatedVertexCount { get; init; }
 
         public int SpotPointCount => SpotPoints.Length / 3;
     }
@@ -130,6 +139,23 @@ public static partial class TerrainCurveRecovery
         if (borders.Count == 0)
             return Unsupported("The terrain's border collapsed when simplified.");
 
+        int evaluated = vertexCount;
+        if (options.Region != null)
+        {
+            evaluated = 0;
+            for (int v = 0; v < vertexCount; v++)
+                if (options.Region.Contains(vertices[v * 3], vertices[v * 3 + 1]))
+                    evaluated++;
+            if (evaluated == 0)
+                return new Result
+                {
+                    Borders = borders, Contours = Array.Empty<RecoveredContour>(), LandformLines = Array.Empty<double[]>(),
+                    SpotPoints = Array.Empty<double>(), MaximumDeviation = 0, Rounds = 0,
+                    Termination = Termination.ToleranceSatisfied, Diagnostic = "No terrain vertices fall in the requested region; no contours or spots were requested.",
+                    EvaluatedVertexCount = 0,
+                };
+        }
+
         MeshVertexAdjacency adjacency = MeshVertexAdjacency.Build(new List<int>(faces[..(faceCount * 3)]), faceCount, vertexCount);
         var onBorder = new bool[vertexCount];
         foreach (int[] loop in loops)
@@ -140,6 +166,8 @@ public static partial class TerrainCurveRecovery
         var spotted = new HashSet<int>();
         foreach (int extremum in FindExtrema(vertices, vertexCount, adjacency, Math.Max(1, options.ExtremumRings), onBorder))
         {
+            if (options.Region != null && !options.Region.Contains(vertices[extremum * 3], vertices[extremum * 3 + 1]))
+                continue;
             spotted.Add(extremum);
             spots.Add(vertices[extremum * 3]);
             spots.Add(vertices[extremum * 3 + 1]);
@@ -148,7 +176,7 @@ public static partial class TerrainCurveRecovery
 
         var contours = new List<RecoveredContour>();
         List<double[]> landformLines = options.LandformLines
-            ? SelectLandformLines(vertices, vertexCount, adjacency, onBorder, borders, spots, verticalTolerance, planTolerance, options.FixedBreaklines)
+            ? SelectLandformLines(vertices, vertexCount, adjacency, onBorder, borders, spots, verticalTolerance, planTolerance, options.FixedBreaklines, options.Region)
             : new List<double[]>();
 
         // A contour simplified across steep ground drifts off its height there, and two can cross; judging
@@ -183,7 +211,7 @@ public static partial class TerrainCurveRecovery
                 break;
             }
 
-            double[] deviations = Deviations(vertices, vertexCount, rebuild, verticalTolerance);
+            double[] deviations = Deviations(vertices, vertexCount, rebuild, verticalTolerance, options.Region);
             worstDeviation = 0.0;
             foreach (double deviation in deviations)
             {
@@ -195,7 +223,9 @@ public static partial class TerrainCurveRecovery
             if (worstDeviation <= verticalTolerance)
             {
                 termination = Termination.ToleranceSatisfied;
-                diagnostic = FormattableString.Invariant($"Within {verticalTolerance:G4} at every terrain vertex.");
+                diagnostic = options.Region == null
+                    ? FormattableString.Invariant($"Within {verticalTolerance:G4} at every terrain vertex.")
+                    : FormattableString.Invariant($"Within {verticalTolerance:G4} at every terrain vertex in the requested region.");
                 break;
             }
 
@@ -215,13 +245,20 @@ public static partial class TerrainCurveRecovery
             {
                 attempted.Add(fresh[i]);
                 RecoveredContour? contour = traced[i];
-                if (contour != null && contours.Count < options.MaximumCurves &&
-                    !contours.Any(existing => Math.Abs(existing.Level - contour.Level) < 1e-12 && SameStart(existing, contour)))
+                int before = contours.Count;
+                foreach (RecoveredContour clipped in ClipContour(contour, options.Region,
+                    vertices[fresh[i] * 3], vertices[fresh[i] * 3 + 1]))
                 {
-                    contours.Add(contour);
-                    added++;
+                    RecoveredContour piece = options.FitContours
+                        ? FitContour(clipped, planTolerance, verticalTolerance, TerrainAt, options.Region) : clipped;
+                    if (contours.Count < options.MaximumCurves && !contours.Any(existing =>
+                        Math.Abs(existing.Level - piece.Level) < 1e-12 && SameStart(existing, piece)))
+                    {
+                        contours.Add(piece);
+                        added++;
+                    }
                 }
-                else if (AddSpot(fresh[i]))
+                if (before == contours.Count && AddSpot(fresh[i]))
                 {
                     added++;
                 }
@@ -251,7 +288,8 @@ public static partial class TerrainCurveRecovery
             MaximumDeviation = double.IsFinite(worstDeviation) ? worstDeviation : double.NaN,
             Rounds = round,
             Termination = termination,
-            Diagnostic = diagnostic
+            Diagnostic = diagnostic,
+            EvaluatedVertexCount = evaluated
         };
 
         bool AddSpot(int vertex)
@@ -327,11 +365,13 @@ public static partial class TerrainCurveRecovery
         List<double> spots,
         double verticalTolerance,
         double planTolerance,
-        IReadOnlyList<double[]> fixedBreaklines)
+        IReadOnlyList<double[]> fixedBreaklines,
+        ITerrainRecoveryRegion? region)
     {
         var accepted = new List<double[]>();
         List<double[]> candidates = ExtractLandformLines(vertices, vertexCount, adjacency, onBorder)
             .Select(line => SimplifyOpen(line, planTolerance, verticalTolerance))
+            .SelectMany(line => region == null ? new[] { line } : region.Clip(line, false).Select(piece => piece.Points))
             .Where(line => line.Length >= 6 && PlanLength(line) > planTolerance * 10.0)
             .OrderByDescending(PlanLength)
             .Take(MaximumLandformCandidates)
@@ -343,7 +383,7 @@ public static partial class TerrainCurveRecovery
         TinResult? baseline = Rebuild(borders, accepted, noContours, spots, planTolerance, out _, fixedBreaklines);
         if (baseline == null)
             return accepted;
-        double excess = Excess(Deviations(vertices, vertexCount, baseline, verticalTolerance), verticalTolerance);
+        double excess = Excess(Deviations(vertices, vertexCount, baseline, verticalTolerance, region), verticalTolerance);
         double cell = Math.Max(MeanSpacing(vertices, vertexCount), 1e-12);
         foreach (double[] candidate in candidates)
         {
@@ -353,7 +393,7 @@ public static partial class TerrainCurveRecovery
             TinResult? trial = Rebuild(borders, accepted, noContours, spots, planTolerance, out _, fixedBreaklines);
             double trialExcess = trial == null
                 ? double.PositiveInfinity
-                : Excess(Deviations(vertices, vertexCount, trial, verticalTolerance), verticalTolerance);
+                : Excess(Deviations(vertices, vertexCount, trial, verticalTolerance, region), verticalTolerance);
             double required = LandformEarnFactor * verticalTolerance * PlanLength(candidate) / cell;
             if (excess - trialExcess >= required)
                 excess = trialExcess;
@@ -675,7 +715,7 @@ public static partial class TerrainCurveRecovery
     }
 
     /// <summary>The rebuild's vertical miss at every terrain vertex; 0 where the simplified border left it outside.</summary>
-    private static double[] Deviations(double[] vertices, int vertexCount, TinResult rebuild, double tolerance)
+    private static double[] Deviations(double[] vertices, int vertexCount, TinResult rebuild, double tolerance, ITerrainRecoveryRegion? region = null)
     {
         var projector = new MeshHeightProjector(rebuild.Vertices, rebuild.VertexCount, rebuild.Faces, rebuild.FaceCount);
         var deviations = new double[vertexCount];
@@ -683,6 +723,8 @@ public static partial class TerrainCurveRecovery
         for (int v = 0; v < vertexCount; v++)
         {
             double x = vertices[v * 3], y = vertices[v * 3 + 1], zRef = vertices[v * 3 + 2];
+            if (region != null && !region.Contains(x, y))
+                continue;
             // A vertex the simplified border left outside is the border's plan tolerance at work, not a miss.
             if (projector.TryGetHeightExtremes(x, y, lookup, out double low, out double high))
                 deviations[v] = Math.Max(Math.Abs(zRef - low), Math.Abs(zRef - high));

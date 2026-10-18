@@ -17,6 +17,88 @@ public class ScanGroundMeasurementTests(ITestOutputHelper output)
 {
     [Fact]
     [Trait("Category", "Performance")]
+    public void Measure_ReferenceSurfaces()
+    {
+        string? path = Environment.GetEnvironmentVariable("MOLEHILL_SCAN_OBJ");
+        string? texture = Environment.GetEnvironmentVariable("MOLEHILL_SCAN_TEXTURE_RGB");
+        if (string.IsNullOrWhiteSpace(path) || !File.Exists(path) || string.IsNullOrWhiteSpace(texture) || !File.Exists(texture))
+        {
+            output.WriteLine("Not measured: set MOLEHILL_SCAN_OBJ and MOLEHILL_SCAN_TEXTURE_RGB (width, height, top-down RGB bytes).");
+            return;
+        }
+        IndexedTriMesh scan = ReadObj(path, out float[] uv);
+        using var bitmap = new BinaryReader(File.OpenRead(texture));
+        int width = bitmap.ReadInt32(), height = bitmap.ReadInt32();
+        var colours = new ScanColourSource(new ScanTexture(width, height, bitmap.ReadBytes(checked(width * height * 3))), uv);
+        var timer = Stopwatch.StartNew();
+        string? progressFolder = Environment.GetEnvironmentVariable("MOLEHILL_SCAN_IMAGES");
+        if (!string.IsNullOrWhiteSpace(progressFolder))
+            Directory.CreateDirectory(progressFolder);
+        ScanTerrainPipeline.Result result = ScanTerrainPipeline.Build(scan, colours, new()
+        {
+            ReportProgress = stage =>
+            {
+                output.WriteLine($"{timer.Elapsed.TotalSeconds:F2}s: {stage}");
+                if (!string.IsNullOrWhiteSpace(progressFolder))
+                    File.AppendAllText(Path.Combine(progressFolder, "stages.txt"), $"{timer.Elapsed.TotalSeconds:F2}s: {stage}{Environment.NewLine}");
+            },
+            Ground = new() { SmallestObject = 2, LargestObject = 48, InitialThreshold = 0.3, MaximumThreshold = 4, Margin = 0.5, MinimumObjectArea = 20 },
+            GroundSpacing = 1,
+            PlanTolerance = 0.5,
+            Walls = new() { MinimumHeight = 0.6, MinimumLength = 3, PlanTolerance = 0.25, VerticalTolerance = 0.1, BorderMargin = 2, MaximumWidth = 1 },
+            Areas = new() { MaximumPavedRoughness = 0.1, MinimumArea = 2, PlanTolerance = 0.5, VerticalTolerance = 0.05 },
+            Roads = new() { MinimumKerbHeight = 0.06, MaximumKerbHeight = 0.3, ProfileReach = 1, MaximumKerbWidth = 0.6, MinimumLength = 2, PlanTolerance = 0.5, VerticalTolerance = 0.015 },
+        });
+        output.WriteLine($"surfaces pipeline {timer.Elapsed.TotalSeconds:F2}s: paved {result.Areas!.PavedArea:F1} m2, soft {result.Areas.SoftArea:F1} m2; {result.Areas.Boundaries.Count} area loops; {result.Walls.Count} walls; {result.Roads.Count(edge => edge.IsKerb)} kerb stretches, {result.Roads.Count(edge => !edge.IsKerb)} road-edge stretches; {result.Reference.VertexCount} reference vertices");
+        string? folder = Environment.GetEnvironmentVariable("MOLEHILL_SCAN_IMAGES");
+        if (!string.IsNullOrWhiteSpace(folder))
+        {
+            Directory.CreateDirectory(folder);
+            Write("orthophoto.ppm", node => result.SurfaceColours![node]);
+            Write("surfaces.ppm", node => result.Areas.PavedMask[node] ? 0x808080 : result.Areas.SoftMask[node] ? 0x39843C : 0x000000);
+            File.WriteAllText(Path.Combine(folder, "surface-lines.json"), System.Text.Json.JsonSerializer.Serialize(new
+            {
+                Boundaries = result.Areas.Boundaries.Select(boundary => new { boundary.Kind, boundary.Points }),
+                Roads = result.Roads.Select(edge => new { edge.IsKerb, edge.Bottom, edge.Top, edge.MeanStep, edge.MeasuredShare }),
+            }));
+        }
+        timer.Restart();
+        int budget = int.TryParse(Environment.GetEnvironmentVariable("MOLEHILL_SCAN_MAX_CONTOURS"), out int requested) ? requested : 300;
+        TerrainCurveRecovery.Result recovery = TerrainCurveRecovery.Recover(result.Reference, new()
+        {
+            VerticalTolerance = 0.25, PlanTolerance = 0.5, MaximumCurves = budget, LandformLines = false,
+            FixedBreaklines = result.FixedBreaklines, Region = result.Region,
+            FitContours = true,
+        });
+        string measurement = $"soft contours {timer.Elapsed.TotalSeconds:F2}s: {recovery.Contours.Count} contours, {recovery.SpotPointCount} spots, {recovery.MaximumDeviation:G6} miss, {recovery.Termination}";
+        output.WriteLine(measurement);
+        if (!string.IsNullOrWhiteSpace(folder))
+            File.WriteAllText(Path.Combine(folder, "recovery.txt"), measurement);
+        Assert.NotEqual(TerrainCurveRecovery.Termination.TriangulationFailed, recovery.Termination);
+        Assert.NotEqual(TerrainCurveRecovery.Termination.UnsupportedInput, recovery.Termination);
+        Assert.NotEmpty(result.Areas.Boundaries);
+        void Write(string name, Func<int, int> colour)
+        {
+            ScanGrid grid = result.Ground.Ground;
+            using var stream = File.Create(Path.Combine(folder!, name));
+            stream.Write(System.Text.Encoding.ASCII.GetBytes($"P6\n{grid.Columns} {grid.Rows}\n255\n"));
+            var row = new byte[grid.Columns * 3];
+            for (int r = grid.Rows - 1; r >= 0; r--)
+            {
+                for (int c = 0; c < grid.Columns; c++)
+                {
+                    int rgb = colour(r * grid.Columns + c);
+                    row[c * 3] = rgb < 0 ? (byte)0 : (byte)(rgb >> 16);
+                    row[c * 3 + 1] = rgb < 0 ? (byte)0 : (byte)(rgb >> 8);
+                    row[c * 3 + 2] = rgb < 0 ? (byte)0 : (byte)rgb;
+                }
+                stream.Write(row);
+            }
+        }
+    }
+
+    [Fact]
+    [Trait("Category", "Performance")]
     public void Measure_ReferenceScan()
     {
         string? path = Environment.GetEnvironmentVariable("MOLEHILL_SCAN_OBJ");
@@ -153,11 +235,16 @@ public class ScanGroundMeasurementTests(ITestOutputHelper output)
     }
 
     /// <summary>Vertices and faces of an OBJ, polygons fanned into triangles; texture and normals ignored.</summary>
-    internal static IndexedTriMesh ReadObj(string path)
+    internal static IndexedTriMesh ReadObj(string path) => ReadObj(path, out _);
+
+    internal static IndexedTriMesh ReadObj(string path, out float[] cornerUv)
     {
         var vertices = new List<double>();
         var faces = new List<int>();
         var corners = new List<int>();
+        var texels = new List<(float U, float V)>();
+        var faceUv = new List<float>();
+        var uvCorners = new List<int>();
         foreach (string line in File.ReadLines(path))
         {
             if (line.StartsWith("v ", StringComparison.Ordinal))
@@ -166,21 +253,39 @@ public class ScanGroundMeasurementTests(ITestOutputHelper output)
                 for (int k = 1; k <= 3; k++)
                     vertices.Add(double.Parse(parts[k], CultureInfo.InvariantCulture));
             }
+            else if (line.StartsWith("vt ", StringComparison.Ordinal))
+            {
+                string[] parts = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                texels.Add((float.Parse(parts[1], CultureInfo.InvariantCulture), float.Parse(parts[2], CultureInfo.InvariantCulture)));
+            }
             else if (line.StartsWith("f ", StringComparison.Ordinal))
             {
                 string[] parts = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
                 corners.Clear();
+                uvCorners.Clear();
                 for (int k = 1; k < parts.Length; k++)
                 {
-                    int index = int.Parse(parts[k].Split('/')[0], CultureInfo.InvariantCulture);
+                    string[] item = parts[k].Split('/');
+                    int index = int.Parse(item[0], CultureInfo.InvariantCulture);
                     corners.Add(index > 0 ? index - 1 : (vertices.Count / 3) + index);
+                    int uvIndex = item.Length > 1 && item[1].Length > 0 ? int.Parse(item[1], CultureInfo.InvariantCulture) : 0;
+                    uvCorners.Add(uvIndex > 0 ? uvIndex - 1 : uvIndex < 0 ? texels.Count + uvIndex : -1);
                 }
 
                 for (int k = 1; k + 1 < corners.Count; k++)
+                {
                     faces.AddRange(new[] { corners[0], corners[k], corners[k + 1] });
+                    foreach (int corner in new[] { 0, k, k + 1 })
+                    {
+                        int uvIndex = uvCorners[corner];
+                        (float u, float v) = uvIndex >= 0 && uvIndex < texels.Count ? texels[uvIndex] : (float.NaN, float.NaN);
+                        faceUv.Add(u); faceUv.Add(v);
+                    }
+                }
             }
         }
 
+        cornerUv = faceUv.ToArray();
         return IndexedTriMesh.FromArrays(vertices.ToArray(), faces.ToArray());
     }
 }

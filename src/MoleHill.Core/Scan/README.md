@@ -1,6 +1,26 @@
 # Scan ground recovery
 
-Phase 1 of [scan to terrain](../../../docs/scan-to-terrain-plan-2026-10-18.md), independent of Rhino.
+Phases 1–3 of [scan to terrain](../../../docs/scan-to-terrain-plan-2026-10-18.md), independent of Rhino.
+
+`ScanTerrainPipeline` orchestrates one rasterisation, ground, wall-constrained reference, surface areas,
+road profiles and the final reference with fixed breaklines. `ScanColourSource` accepts triangle colours
+or `ScanTexture` RGB bytes plus per-corner UVs; the winning top triangle supplies each raster colour.
+The host preserves UV seams rather than merging coincident scan vertices.
+
+`ScanSurfaceAreas` uses normalised excess green, saturation, local slope and roughness on observed
+ground. Removed roofs remain unknown. Components below the minimum area are omitted; smaller enclosed
+holes are filled only in drawing masks, never in observed-ground flags. `ScanGridEdges` traces separate
+closed area loops including holes; boundary heights follow the clean reference. `ScanRoadEdges` measures
+trend-corrected cross profiles along paved edges: persistent narrow steps produce fitted top/bottom
+kerb pairs, otherwise one draped edge. Without colour, only geometry-supported kerb-sized steps are
+available. These are measured steps, not semantic guarantees that every line is a built kerb.
+
+`ScanSoftRegion` clips contours exactly at mask cell boundaries, preserving paved islands and joining
+adjacent intervals without densifying straight lines. Recovery evaluates soft-ground vertices and
+keeps only the fragment nearest each selected error point, rather than spending the budget across
+every disconnected lawn at that height. Paved boundaries and measured rails stay in every rebuild.
+Contours are fitted before reconstruction, with an explicit polyline fallback where a smooth fit cannot
+respect the region or vertical tolerance. Unknown areas are excluded from soft-ground accuracy claims.
 All lengths use the input coordinate unit; the host converts physical defaults.
 
 `ScanRasterizer` samples triangle interiors in plan into top and lowest `ScanGrid` heights. Either

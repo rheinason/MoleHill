@@ -7,6 +7,10 @@ Pure, unit-tested.
 its curves: original borders remain, and coarse averages on a rail are excluded instead of becoming
 conflicting heights along it. `FixedBreaklines` on recovery options holds the same lines in every
 rebuild and landform trial. The root `TerrainCurveRecovery.cs` partial owns recovery and simplification.
+`ITerrainRecoveryRegion` scopes deviation and spot selection. `.Region.cs` clips each contour and picks
+the fragment nearest its selected error; `.Fitting.cs` fits light curves before rebuilding, checking
+the region and reference height and retaining an unfitted fallback when necessary. Ordinary terrain
+recovery keeps its existing full-terrain polyline behavior unless these options are supplied.
 
 - `PointMerge.cs` / `PointMergeMode.cs` — ordered merge targets without removing points: center,
   first/last, or transitive 3D proximity clusters. Uses flat XYZ arrays and compensated centers;

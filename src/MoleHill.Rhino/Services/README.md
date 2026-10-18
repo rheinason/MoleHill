@@ -444,11 +444,14 @@ layer table, dimension styles, and layouts can act on. See `docs/architecture.md
   at placement redraws an existing drawing in place (its group is deleted); `Ground` reads the active terrain
   or picked targets (`DrapeCommandService.TrySelectTargets`); a smooth curve applies through
   `TerrainInputCommandAlgorithms.ApplyProfileToEditPoints` unless `Fit=Exact`.
-- `Commands/ScanToTerrainCommandService.cs` - Phases 1–2 `mhScanToTerrain`: mesh extraction, cancellable Core
+- `Commands/ScanToTerrainCommandService.cs` + `.Surfaces.cs` - Phases 1–3 `mhScanToTerrain`: mesh extraction, cancellable Core
   ground recovery, paired measured wall top/toe curves held in contour recovery, and optional check mesh.
   `Walls`, `WallHeight`, `WallLength` control step tracing; `RouteCurveBuilder` writes light NURBS on
   `Walls and edges`. Uses document-unit defaults and shares recovery,
-  fresh per-source output layers and grouped Undo with Terrain to Curves. No colour or point-cloud input yet.
+  fresh per-source output layers and grouped Undo with Terrain to Curves. `Import/ScanMeshReader.cs`
+  preserves UV seams and captures diffuse bitmap bytes or vertex colours before the worker starts.
+  `Surfaces` writes closed paved/soft boundaries and scopes fitted contours to soft ground; `RoadEdges`
+  writes measured kerb pairs or single draped colour edges. Point-cloud input remains planned.
 - `Commands/TerrainToCurvesCommandService.cs` - `mhTerrainToCurves`: runs Core's `TerrainCurveRecovery` on a
   picked mesh or the active terrain with `Tolerance`, `PlanTolerance`, `MaxContours` and `RidgesValleys`
   (Auto runs with and without landform lines and keeps the result with fewer curves), pumping

@@ -43,6 +43,29 @@ first item, the component reads that, and the solve looks like a silent no-op.
 
 ## 1. Build before launching
 
+`mhScanToTerrain` Phase 3, 2026-10-18: exact normal Debug `.rhp` MVID
+`68fadd2e-22a1-472b-b544-0dae906d8221`, owned disposable Rhino. A textured road and lawn mound,
+half shadowed, produced three closed NURBS areas, four measured kerb pairs, two single edges, one
+contour, one spot, border and optional check mesh: 17 valid outputs in one group, 0.1369 m residual.
+Native contour samples and spots avoided paving; kerb height/evidence metadata passed. Scaling the
+source to millimetres retained counts and physical residual. One command Undo restored the source-only
+document. The native seam fixture preserved six vertices and distinct UV/bitmap samples across a
+coincident edge. The curve-only viewport capture was inspected (`.artifacts/scan-phase3/`).
+Full managed suites passed (Core 1,645; Rhino 1,450 plus 175 skips; Grasshopper 56 plus 18 skips).
+The separate Core reference run reached a 0.2498 m soft-region vertex miss using 1,219 contour
+fragments and 453 spots, budget 2,000. Default budget 300 leaves 0.8938 m, explicitly budget spent.
+These are inferred-ground results; the scan plan records settings and classification limits.
+The textured native reference (633,522 UV-preserving vertices; 14 degenerate faces culled) produced
+1,334 valid grouped outputs, including 500 closed area NURBS and 300 contour NURBS. All 30,300 sampled
+contour points and every spot were inside a separately recomputed soft mask. Its fixed 0.276 m raster
+and shared 0.5 m plan tolerance gave 0.9506 m residual at budget 300, explicitly budget spent;
+33 wall stretches, 226 single road edges and no confirmed kerb. The native triangulation/settings
+differ from the Core measurement. The curve-only capture was inspected and the owned slot closed.
+Final geometry-only validation used the rebuilt Core MVID `aa2ab8dd-10ff-406a-bad1-b2b319dd6811`
+in another fresh slot: two valid measured kerb pairs, two contours and one spot, no area classes,
+0.15 m residual at a 0.25 m target. Filled heights are excluded from measured kerb evidence; the
+metre/millimetre Core regression checks this. The owned slot was closed afterward.
+
 `mhScanToTerrain` Phase 2, 2026-10-18: exact Debug `.rhp` MVID
 `97e3453c-40bd-4d9a-8afd-e2b7b186fc6a`, owned disposable Rhino. Two 1.5 m terrace steps and a house
 gave two wall pairs (four light NURBS), two contours, a border and no spots, within 0.25 m against the

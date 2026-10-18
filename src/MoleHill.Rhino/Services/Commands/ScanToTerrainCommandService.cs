@@ -1,4 +1,4 @@
-// mhScanToTerrain: the ground under a drone scan, as contours and spot heights with the houses taken out.
+// mhScanToTerrain: ground, wall/road edges and soft-area contours; .Surfaces writes area/road output.
 using System.Diagnostics;
 using System.Globalization;
 using MoleHill.Core.Engine;
@@ -15,14 +15,14 @@ using Rhino.Input.Custom;
 namespace MoleHill.Rhino.Services;
 
 /// <summary>
-/// Phase 1 of scan to terrain (docs/scan-to-terrain-plan-2026-10-18.md): takes a photogrammetry mesh with
+/// Phases 1–3 of scan to terrain (docs/scan-to-terrain-plan-2026-10-18.md): takes a photogrammetry mesh with
 /// its houses, cars and trees in, finds the bare ground under it (<see cref="ScanGround"/>), meshes that at
 /// a contouring spacing (<see cref="ScanGroundMesher"/>) and recovers the fewest contours and spot heights
 /// that rebuild it within a tolerance, exactly as <c>mhTerrainToCurves</c> does for a clean terrain. The
 /// output is curves on layers under "Scan {source}"; the ground mesh itself is only added when asked for,
 /// to check the filter by.
 /// </summary>
-internal static class ScanToTerrainCommandService
+internal static partial class ScanToTerrainCommandService
 {
     private const string Prefix = "MoleHill.ScanToTerrain.";
 
@@ -53,6 +53,12 @@ internal static class ScanToTerrainCommandService
         int traceWalls = CommandOptionCache.GetValue(Prefix + "Walls", 1);
         double wallHeight = CommandOptionCache.GetLength(Prefix + "WallHeight", unitContext, 0.6);
         double wallLength = CommandOptionCache.GetLength(Prefix + "WallLength", unitContext, 3.0);
+        int surfaces = CommandOptionCache.GetValue(Prefix + "Surfaces", 1);
+        int roadEdges = CommandOptionCache.GetValue(Prefix + "RoadEdges", 1);
+        double green = CommandOptionCache.GetValue(Prefix + "GreenThreshold", 0.08);
+        double saturation = CommandOptionCache.GetValue(Prefix + "PavingSaturation", 0.25);
+        double kerbMinimum = CommandOptionCache.GetLength(Prefix + "KerbMin", unitContext, 0.06);
+        double kerbMaximum = CommandOptionCache.GetLength(Prefix + "KerbMax", unitContext, 0.3);
         while (true)
         {
             var options = new GetOption();
@@ -66,6 +72,10 @@ internal static class ScanToTerrainCommandService
             var budgetOption = new OptionInteger(maxCurves, 1, 100000);
             var wallHeightOption = new OptionDouble(wallHeight, doc.ModelAbsoluteTolerance, 1e9);
             var wallLengthOption = new OptionDouble(wallLength, doc.ModelAbsoluteTolerance, 1e9);
+            var greenOption = new OptionDouble(green, 0.0, 2.0);
+            var saturationOption = new OptionDouble(saturation, 0.0, 1.0);
+            var kerbMinOption = new OptionDouble(kerbMinimum, doc.ModelAbsoluteTolerance, 1e9);
+            var kerbMaxOption = new OptionDouble(kerbMaximum, doc.ModelAbsoluteTolerance, 1e9);
             options.AddOptionDouble("Tolerance", ref toleranceOption, "Largest vertical miss of the contours");
             options.AddOptionDouble("PlanTolerance", ref planOption);
             options.AddOptionDouble("LargestObject", ref largestOption, "Widest thing standing on the ground, wider than the largest building");
@@ -75,6 +85,12 @@ internal static class ScanToTerrainCommandService
             options.AddOptionDouble("WallHeight", ref wallHeightOption, "Smallest step above the local slope to trace");
             options.AddOptionDouble("WallLength", ref wallLengthOption, "Shortest continuous wall to keep");
             int wallsOption = options.AddOptionList("Walls", YesNo, Math.Clamp(traceWalls, 0, 1));
+            int surfacesOption = options.AddOptionList("Surfaces", YesNo, Math.Clamp(surfaces, 0, 1));
+            int roadsOption = options.AddOptionList("RoadEdges", YesNo, Math.Clamp(roadEdges, 0, 1));
+            options.AddOptionDouble("GreenThreshold", ref greenOption, "Normalised excess green for soft ground");
+            options.AddOptionDouble("PavingSaturation", ref saturationOption, "Largest colour saturation for paving");
+            options.AddOptionDouble("KerbMin", ref kerbMinOption);
+            options.AddOptionDouble("KerbMax", ref kerbMaxOption);
             int linesOption = options.AddOptionList("RidgesValleys", TerrainToCurvesCommandService.LandformLabels, Math.Clamp(linesIndex, 0, 2));
             int groundOption = options.AddOptionList("AddGroundMesh", YesNo, Math.Clamp(showGround, 0, 1));
             GetResult result = options.Get();
@@ -86,6 +102,10 @@ internal static class ScanToTerrainCommandService
             maxCurves = budgetOption.CurrentValue;
             wallHeight = wallHeightOption.CurrentValue;
             wallLength = wallLengthOption.CurrentValue;
+            green = greenOption.CurrentValue;
+            saturation = saturationOption.CurrentValue;
+            kerbMinimum = kerbMinOption.CurrentValue;
+            kerbMaximum = kerbMaxOption.CurrentValue;
             if (result == GetResult.Option)
             {
                 if (options.OptionIndex() == linesOption)
@@ -94,6 +114,10 @@ internal static class ScanToTerrainCommandService
                     showGround = options.Option().CurrentListOptionIndex;
                 else if (options.OptionIndex() == wallsOption)
                     traceWalls = options.Option().CurrentListOptionIndex;
+                else if (options.OptionIndex() == surfacesOption)
+                    surfaces = options.Option().CurrentListOptionIndex;
+                else if (options.OptionIndex() == roadsOption)
+                    roadEdges = options.Option().CurrentListOptionIndex;
                 continue;
             }
 
@@ -113,17 +137,25 @@ internal static class ScanToTerrainCommandService
         CommandOptionCache.SetValue(Prefix + "Walls", traceWalls);
         CommandOptionCache.SetLength(Prefix + "WallHeight", unitContext, wallHeight);
         CommandOptionCache.SetLength(Prefix + "WallLength", unitContext, wallLength);
+        CommandOptionCache.SetValue(Prefix + "Surfaces", surfaces);
+        CommandOptionCache.SetValue(Prefix + "RoadEdges", roadEdges);
+        CommandOptionCache.SetValue(Prefix + "GreenThreshold", green);
+        CommandOptionCache.SetValue(Prefix + "PavingSaturation", saturation);
+        CommandOptionCache.SetLength(Prefix + "KerbMin", unitContext, kerbMinimum);
+        CommandOptionCache.SetLength(Prefix + "KerbMax", unitContext, kerbMaximum);
 
         RhinoApp.SetCommandPrompt("Reading the scan…");
         RhinoApp.Wait();
         IndexedTriMesh scan;
+        ScanColourSource? colours;
         using (Mesh copy = picked.DuplicateMesh())
         {
-            if (!RhinoGeometryConversions.TryExtractMesh(copy, out scan, out string? meshError))
+            if (!ScanMeshReader.TryRead(doc, getMesh.Object(0).Object(), copy, out scan, out colours, out string? meshError))
             {
                 RhinoApp.WriteLine(meshError ?? "The mesh could not be read.");
                 return Result.Failure;
             }
+            RhinoApp.WriteLine(meshError);
         }
 
         RhinoApp.SetCommandPrompt("Finding the ground under the scan. Press Esc to cancel");
@@ -132,6 +164,8 @@ internal static class ScanToTerrainCommandService
         ScanGround.Result ground;
         IndexedTriMesh groundMesh;
         IReadOnlyList<ScanWalls.Wall> walls;
+        ScanTerrainPipeline.Result pipeline;
+        string stageMessage = "Preparing scan terrain";
         using var cancellation = new CancellationTokenSource();
         void OnEscape(object? sender, EventArgs e) => cancellation.Cancel();
         RhinoApp.EscapeKeyPressed += OnEscape;
@@ -148,38 +182,54 @@ internal static class ScanToTerrainCommandService
                 MinimumObjectArea = unitContext.FromSquareMeters(20.0),
                 CancellationToken = cancellation.Token,
             };
-            var work = Task.Run(() =>
+            var work = Task.Run(() => ScanTerrainPipeline.Build(scan, colours, new()
             {
-                ScanGround.Result found = ScanGround.Build(scan, groundOptions);
-                IndexedTriMesh mesh = ScanGroundMesher.Mesh(found.Ground, spacing);
-                IReadOnlyList<ScanWalls.Wall> measured = traceWalls == 1 && !mesh.IsEmpty
-                    ? ScanWalls.Trace(found.Ground, new ScanWalls.Options
+                Ground = groundOptions,
+                GroundSpacing = spacing,
+                PlanTolerance = planTolerance,
+                ReportProgress = stage => System.Threading.Interlocked.Exchange(ref stageMessage, stage),
+                Walls = traceWalls == 1 ? new ScanWalls.Options
                     {
                         MinimumHeight = wallHeight,
                         MinimumLength = wallLength,
-                        PlanTolerance = Math.Min(planTolerance, found.Ground.CellSize),
+                        PlanTolerance = planTolerance,
                         VerticalTolerance = Math.Min(tolerance, unitContext.FromMeters(0.1)),
                         BorderMargin = spacing * 2,
                         MaximumWidth = unitContext.FromMeters(1.0),
                         CancellationToken = cancellation.Token,
-                    }, mesh)
-                    : Array.Empty<ScanWalls.Wall>();
-                if (measured.Count > 0)
+                    } : null,
+                Areas = surfaces == 1 ? new ScanSurfaceAreas.Options
                 {
-                    double[][] rails = measured.SelectMany(wall => new[] { wall.Top, wall.Toe }).ToArray();
-                    IndexedTriMesh? constrained = TerrainCurveRecovery.ConstrainReference(mesh, rails, planTolerance, out string? error);
-                    if (constrained == null)
-                        throw new InvalidOperationException(error ?? "The measured wall lines could not be triangulated.");
-                    mesh = constrained.Value;
-                }
-                return (found, mesh, measured);
-            });
+                    ExcessGreen = green,
+                    MaximumPavedSaturation = saturation,
+                    MaximumPavedRoughness = unitContext.FromMeters(0.1),
+                    MinimumArea = unitContext.FromSquareMeters(2),
+                    PlanTolerance = planTolerance,
+                    VerticalTolerance = Math.Min(tolerance, unitContext.FromMeters(0.05)),
+                    CancellationToken = cancellation.Token,
+                } : null,
+                Roads = roadEdges == 1 ? new ScanRoadEdges.Options
+                {
+                    MinimumKerbHeight = kerbMinimum,
+                    MaximumKerbHeight = kerbMaximum,
+                    ProfileReach = unitContext.FromMeters(1),
+                    MaximumKerbWidth = unitContext.FromMeters(0.6),
+                    MinimumLength = unitContext.FromMeters(2),
+                    PlanTolerance = planTolerance,
+                    VerticalTolerance = unitContext.FromMeters(0.015),
+                    CancellationToken = cancellation.Token,
+                } : null,
+            }));
             while (!work.IsCompleted)
             {
+                RhinoApp.SetCommandPrompt(System.Threading.Volatile.Read(ref stageMessage) + ". Press Esc to cancel");
                 RhinoApp.Wait();
                 System.Threading.Thread.Sleep(15);
             }
-            (ground, groundMesh, walls) = work.GetAwaiter().GetResult();
+            pipeline = work.GetAwaiter().GetResult();
+            ground = pipeline.Ground;
+            groundMesh = pipeline.Reference;
+            walls = pipeline.Walls;
             cancellation.Token.ThrowIfCancellationRequested();
         }
         catch (OperationCanceledException)
@@ -214,10 +264,13 @@ internal static class ScanToTerrainCommandService
             $"contours traced on {groundMesh.VertexCount:N0} points at about {Format(Math.Max(1, Math.Round(spacing / ground.Surface.CellSize)) * ground.Surface.CellSize)} {unitContext.Abbreviation} spacing.");
         RhinoApp.WriteLine("Contour tolerance is measured against the inferred ground, not surveyed ground beneath removed objects. Ground near terrace steps may need correction.");
         RhinoApp.WriteLine($"Traced {walls.Count} wall/terrace edge(s), each with a measured top and toe.");
+        if (pipeline.Areas != null)
+            RhinoApp.WriteLine($"Classified {unitContext.ToSquareMeters(pipeline.Areas.PavedArea):N0} m² paved and {unitContext.ToSquareMeters(pipeline.Areas.SoftArea):N0} m² soft ground; contours and spots describe soft areas only.");
+        RhinoApp.WriteLine($"Road edges: {pipeline.Roads.Count(edge => edge.IsKerb)} measured kerb stretch(es), {pipeline.Roads.Count(edge => !edge.IsKerb)} single breakline stretch(es).");
 
         TerrainCurveRecovery.Result recovery = TerrainToCurvesCommandService.RecoverWithEscape(
             groundMesh, tolerance, planTolerance, maxCurves, linesIndex, "Contours, ",
-            walls.SelectMany(wall => new[] { wall.Top, wall.Toe }).ToArray());
+            pipeline.FixedBreaklines, pipeline.Region, fitContours: true);
         if (recovery.Termination == TerrainCurveRecovery.Termination.UnsupportedInput)
         {
             RhinoApp.WriteLine(recovery.Diagnostic);
@@ -229,8 +282,9 @@ internal static class ScanToTerrainCommandService
             recovery,
             $"Scan {sourceName}",
             "Scan to Terrain",
-            onLayer => AddExtras(doc, groundMesh, walls, showGround == 1, onLayer),
-            out string root);
+            onLayer => AddExtras(doc, pipeline, showGround == 1, onLayer),
+            out string root,
+            contourFactory: BuildContourCurve);
         RhinoApp.WriteLine(
             $"Scan to terrain: {recovery.Contours.Count} contour(s), {recovery.LandformLines.Count} ridge/valley line(s), " +
             $"{recovery.SpotPointCount} spot point(s); worst miss {Format(recovery.MaximumDeviation)} against the ground. " +
@@ -255,10 +309,10 @@ internal static class ScanToTerrainCommandService
         return doc.Objects.AddMesh(mesh, onLayer("Ground (check)", System.Drawing.Color.FromArgb(160, 160, 160), "Scan ground"));
     }
 
-    private static IEnumerable<Guid> AddExtras(RhinoDoc doc, IndexedTriMesh mesh, IReadOnlyList<ScanWalls.Wall> walls,
+    private static IEnumerable<Guid> AddExtras(RhinoDoc doc, ScanTerrainPipeline.Result pipeline,
         bool showGround, Func<string, System.Drawing.Color, string, ObjectAttributes> onLayer)
     {
-        foreach (ScanWalls.Wall wall in walls)
+        foreach (ScanWalls.Wall wall in pipeline.Walls)
         {
             using Curve top = RouteCurveBuilder.FromFitted(wall.TopCurve);
             using Curve toe = RouteCurveBuilder.FromFitted(wall.ToeCurve);
@@ -272,8 +326,10 @@ internal static class ScanToTerrainCommandService
             yield return doc.Objects.AddCurve(top, Attributes("top"));
             yield return doc.Objects.AddCurve(toe, Attributes("toe"));
         }
+        foreach (Guid id in AddSurfaceOutput(doc, pipeline, onLayer))
+            yield return id;
         if (showGround)
-            yield return AddGroundMesh(doc, mesh, onLayer);
+            yield return AddGroundMesh(doc, pipeline.Reference, onLayer);
     }
 
     private static string Format(double value) => value.ToString("G4", CultureInfo.InvariantCulture);

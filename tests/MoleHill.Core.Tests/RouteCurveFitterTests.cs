@@ -35,6 +35,24 @@ public sealed class RouteCurveFitterTests
     }
 
     [Fact]
+    public void Fit_TwoPointPieceAtSurveyCoordinates_IsExactlyLinearAndKeepsItsEndpoints()
+    {
+        double[] line = { 500000, 6200000, 17, 500030, 6200040, 22 };
+        FittedRouteCurve fitted = RouteCurveFitter.Fit(new[] { line }, 0.01, 0.01, 0, 0, 0);
+        RouteSplineCurve curve = Assert.Single(fitted.Pieces);
+        Assert.Equal((line[0], line[1], line[2]), curve.Start);
+        Assert.Equal((line[3], line[4], line[5]), curve.End);
+        for (int i = 0; i <= 20; i++)
+        {
+            double t = i / 20.0;
+            (double x, double y, double z) = curve.PointAt(t);
+            Assert.Equal(line[0] + 30 * t, x, 7);
+            Assert.Equal(line[1] + 40 * t, y, 7);
+            Assert.Equal(17 + 5 * t, z, 10);
+        }
+    }
+
+    [Fact]
     public void Fit_StraightArcStraight_FewPointsWithinToleranceAndRadius()
     {
         // 50 m straight, a 90-degree arc at 20 m sampled every degree, 50 m straight; climbing gently.

@@ -94,7 +94,21 @@ public static class RouteCurveFitter
                 Limits pieceLimits = limits.MaxGrade > 0.0 && inputGrade > limits.MaxGrade * (1.0 + 1e-6)
                     ? limits with { MaxGrade = inputGrade * (1.0 + OverLimitSlack) }
                     : limits;
-                RouteSplineCurve curve = FitPiece(samples, pieceLimits, out double plan, out double vertical);
+                double plan = 0, vertical = 0;
+                RouteSplineCurve curve;
+                if (last == first + 1)
+                {
+                    // A two-point piece is already a straight 3D segment. Its exact cubic avoids
+                    // solving a smoothing system for every straight side of a scan area boundary.
+                    var controls = new double[12];
+                    for (int i = 0; i < 4; i++)
+                        for (int axis = 0; axis < 3; axis++)
+                            controls[i * 3 + axis] = i == 0 ? leg[first * 3 + axis] : i == 3 ? leg[last * 3 + axis] :
+                                leg[first * 3 + axis] + (leg[last * 3 + axis] - leg[first * 3 + axis]) * (i / 3.0);
+                    curve = new RouteSplineCurve(Degree, new double[] { 0, 0, 0, 0, 1, 1, 1, 1 }, controls);
+                }
+                else
+                    curve = FitPiece(samples, pieceLimits, out plan, out vertical);
                 pieces.Add(curve);
                 planDeviation = Math.Max(planDeviation, plan);
                 verticalDeviation = Math.Max(verticalDeviation, vertical);

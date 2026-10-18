@@ -133,7 +133,7 @@ internal static class TerrainToCurvesCommandService
     /// </summary>
     internal static TerrainCurveRecovery.Result RecoverWithEscape(
         IndexedTriMesh terrainMesh, double tolerance, double planTolerance, int maxCurves, int linesIndex, string stage,
-        IReadOnlyList<double[]>? fixedBreaklines = null)
+        IReadOnlyList<double[]>? fixedBreaklines = null, ITerrainRecoveryRegion? region = null, bool fitContours = false)
     {
         bool cancelled = false;
         void OnEscape(object? sender, EventArgs e) => cancelled = true;
@@ -148,6 +148,8 @@ internal static class TerrainToCurvesCommandService
                     MaximumCurves = maxCurves,
                     LandformLines = landformLines,
                     FixedBreaklines = fixedBreaklines ?? Array.Empty<double[]>(),
+                    Region = region,
+                    FitContours = fitContours,
                     ShouldCancel = () => cancelled,
                     ReportProgress = (round, worst) =>
                     {
@@ -218,7 +220,8 @@ internal static class TerrainToCurvesCommandService
         string rootName,
         string undoName,
         Func<Func<string, System.Drawing.Color, string, ObjectAttributes>, IEnumerable<Guid>>? addExtra,
-        out string root)
+        out string root,
+        Func<TerrainCurveRecovery.RecoveredContour, Curve>? contourFactory = null)
     {
         root = SurveyLayerNaming.NextFreeRootName(
             rootName.Trim(),
@@ -252,7 +255,13 @@ internal static class TerrainToCurvesCommandService
             foreach (TerrainCurveRecovery.RecoveredContour contour in recovery.Contours)
             {
                 string name = $"Contour {contour.Level.ToString("F3", CultureInfo.InvariantCulture)}";
-                ids.Add(doc.Objects.AddPolyline(ToPoints(contour.PointsXyz, contour.IsClosed), On("Contours", name)));
+                if (contourFactory == null)
+                    ids.Add(doc.Objects.AddPolyline(ToPoints(contour.PointsXyz, contour.IsClosed), On("Contours", name)));
+                else
+                {
+                    using Curve curve = contourFactory(contour);
+                    ids.Add(doc.Objects.AddCurve(curve, On("Contours", name)));
+                }
             }
 
             for (int i = 0; i < recovery.SpotPoints.Length; i += 3)

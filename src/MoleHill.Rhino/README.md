@@ -32,7 +32,7 @@ Supports NURBS curves, polylines and lines; convert other curve types to NURBS f
 
 ## Folders
 
-`mhScanToTerrain` (Phases 1–2) takes a Z-up photogrammetry mesh and infers ground beneath raised objects,
+`mhScanToTerrain` (Phases 1–3) takes a Z-up photogrammetry mesh and infers ground beneath raised objects,
 then outputs editable borders, contours and spot points on separate layers under a fresh `Scan {source}`
 root. Enter starts with command-line settings; Esc cancels ground extraction or stops contour recovery
 and keeps its partial result. `AddGroundMesh=Yes` adds the internal ground mesh for checking. Defaults
@@ -40,8 +40,13 @@ are physical lengths converted to model units. The reported tolerance is against
 the command reports when its contour budget is exhausted. `Walls=Yes` traces paired top/toe NURBS onto
 `Walls and edges` and holds their sampled rails in the contour reconstruction. `WallHeight` defaults to
 0.6 m and `WallLength` to 3 m, converted to model units. Narrow multi-cell steps form one measured wall;
-ordinary slopes and broad ramps are excluded. `Walls=No` retains Phase 1 recovery. Road edges, buildings, point clouds
-and the floating preview/Keep panel remain later phases. See the [plan](../../docs/scan-to-terrain-plan-2026-10-18.md).
+ordinary slopes and broad ramps are excluded. `Surfaces=Yes` reads diffuse UV texture or vertex colours
+and writes closed paved/soft boundaries; contours, spots and residual evaluation then describe soft
+ground only. `RoadEdges=Yes` outputs measured kerb pairs where the step is clear, otherwise a single
+road-edge curve. Without colour, only measured geometry-supported kerbs are available. Scan contours
+are fitted NURBS where a smooth fit stays inside the region and height tolerance, with linear fallback.
+Buildings, point clouds and the floating preview/Keep panel remain later phases.
+See the [plan](../../docs/scan-to-terrain-plan-2026-10-18.md).
 On the reference scan, the Phase 2 default 300-contour budget leaves about 0.52 m residual. A Phase 1 Core run with
 `Tolerance=0.25`, `PlanTolerance=0.1`, `MaxContours=1000` and `RidgesValleys=No` met 0.25 m against
 inferred ground using 665 contours and 633 spots; use the larger budget when accuracy takes priority.

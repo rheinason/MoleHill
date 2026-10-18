@@ -176,7 +176,18 @@ TriangleNet (vendored)  ←  MoleHill.Core  ←  MoleHill.Grasshopper (GH host)
   old averages on the lines, and `FixedBreaklines` holds them through every rebuild, including landform
   trials. `TerrainCurveRecovery.Breaklines.cs` owns reference preparation; the root partial owns recovery.
   `Walls`, `WallHeight` and `WallLength` are command options; physical defaults use document units.
-  Texture classification, kerbs/buildings, point clouds and the floating review panel remain planned.
+  `ScanMeshReader` captures diffuse bitmap bytes and face-corner UVs on the UI thread, preserving scan
+  seams; vertex colours are the fallback. Pure `ScanTerrainPipeline` builds the wall-constrained
+  reference before `ScanSurfaceAreas` classifies observed ground from chromaticity, slope and roughness.
+  Drawing masks close only sub-minimum-area holes; unknown roofs remain unobserved. Closed paved/soft
+  boundaries follow the clean reference. `ScanRoadEdges` confirms narrow persistent measured steps as
+  kerb top/bottom pairs, otherwise writes a single colour edge; without colour it traces measured steps
+  only. Paved boundaries and kerb rails join `FixedBreaklines`. `ScanSoftRegion` clips contours, spots
+  and deviation to soft ground, retaining holes. Each error pick adds only its nearest clipped fragment.
+  `.Region.cs` owns clipping; `.Fitting.cs` fits contours before reconstruction, with a linear fallback
+  where a smooth curve would cross paving or exceed the height tolerance. `.Surfaces.cs` writes native
+  area/road curves; shared `AddOutput` accepts a contour factory. Buildings, point clouds and the floating
+  review panel remain planned.
 - **`mhSuggestRoute` drafts the curve; Grade Path still follows it.** Modifiers follow drawn geometry
   exactly, so help with *where* a path should go belongs upstream, in a command that draws the curve.
   The user picks a terrain (any mesh/surface, or Enter for the active MoleHill terrain, as
