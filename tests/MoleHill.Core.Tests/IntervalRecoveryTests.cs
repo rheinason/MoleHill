@@ -92,6 +92,23 @@ public sealed class IntervalRecoveryTests
         Assert.InRange(result.UnmeasuredArea, 20, 30 + 1e-9); // the 4 x 5 m box, counted by vertex on a 1 m grid
     }
 
+    [Theory]
+    [InlineData(1)]
+    [InlineData(1000)]
+    public void Recover_InputsPerArea_CapsByMeasuredGroundInModelUnits(double scale)
+    {
+        // 10 inputs over the 16 x 16 unit grid (256 square units): its eight contours, then two spots, not the
+        // default 2,000. The contours at the interval are drawn first; the cap stops spot heights.
+        var mesh = Mesh((x, y) => .4 * Math.Sin(x * .9) * Math.Cos(y * .7) + .1 * y, scale);
+        var result = TerrainCurveRecovery.Recover(mesh, new TerrainCurveRecovery.Options
+        {
+            VerticalTolerance = .05 * scale, PlanTolerance = .1 * scale, LandformLines = false,
+            Policy = new() { ContourInterval = .5 * scale, InputsPerArea = 10.0 / 256 / (scale * scale) },
+        });
+        Assert.Equal(TerrainCurveRecovery.Termination.CurveBudgetSpent, result.Termination);
+        Assert.Equal(10, result.Contours.Count + result.SpotPointCount);
+    }
+
     [Fact]
     public void RecoverBest_IntervalMode_RunsOnceWithoutLandformLines()
     {

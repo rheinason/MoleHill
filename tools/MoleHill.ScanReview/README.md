@@ -15,7 +15,8 @@ negative indices are supported. This diagnostic reader keeps degenerate faces; n
 may cull them, so compare runs using the same reader.
 
 Options: `--no-recovery` exports geometry only; `--legacy-recovery` compares the legacy 300-contour
-budget on the same prepared reference; `--max-inputs=N` changes the new combined cap (default 2,000).
+budget on the same prepared reference; `--inputs-per-ha=N` sets the input cap per hectare of measured ground (default 500, the command's), and
+`--max-inputs=N` replaces it with a fixed count.
 Landform lines are disabled, and buildings are off unless `--buildings` asks for them with the native
 command's defaults (`--roof-faces=N` changes the face budget, 0 lifts it). It then writes
 `buildings.json` (kind, roof error and face counts per building), `buildings.obj`, the planar faces a

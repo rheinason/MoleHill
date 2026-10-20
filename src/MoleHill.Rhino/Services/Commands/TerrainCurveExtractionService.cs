@@ -17,7 +17,7 @@ internal static class TerrainCurveExtractionService
             MaximumCurves = settings.Contours ? settings.MaxContours : 0,
             Policy = settings is ScanToTerrainSettings scan && settings.Contours ? new TerrainRecoveryPolicy
             {
-                PreferredContours = settings.MaxContours, MaximumInputs = scan.MaximumRecoveryInputs,
+                PreferredContours = settings.MaxContours, InputsPerArea = scan.RecoveryInputsPerHectare * units.ToSquareMeters(1) / 10000,
                 ContourInterval = scan.ContourInterval, ReportActivity = progress
             } : null,
             FixedBreaklines = prepared.FixedBreaklines,

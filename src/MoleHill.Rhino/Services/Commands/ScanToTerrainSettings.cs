@@ -28,7 +28,8 @@ internal sealed record ScanToTerrainSettings : TerrainCurveExtractionSettings
     public double BuiltEdgeTolerance { get; set; }
     public double MaximumBridgeLength { get; set; }
     public double NoiseFeatureSize { get; set; }
-    public int MaximumRecoveryInputs { get; set; } = 2000;
+    /// <summary>Recovery's runaway guard: contours and spots allowed per hectare of measured ground.</summary>
+    public int RecoveryInputsPerHectare { get; set; } = 500;
     /// <summary>Height between soft-ground contours; redundant ones are removed.</summary>
     public double ContourInterval { get; set; }
     /// <summary>How far paving may sit from its outline breaklines before a spot height is added.</summary>
@@ -70,7 +71,7 @@ internal sealed record ScanToTerrainSettings : TerrainCurveExtractionSettings
         result.GreenThreshold = CommandOptionCache.GetValue(Prefix + nameof(GreenThreshold), .08);
         result.PavingSaturation = CommandOptionCache.GetValue(Prefix + nameof(PavingSaturation), .25);
         result.GroundSlope = CommandOptionCache.GetValue(Prefix + nameof(GroundSlope), .6);
-        result.MaximumRecoveryInputs = CommandOptionCache.GetValue(Prefix + "RecoveryPolicy.MaximumInputs", 2000);
+        result.RecoveryInputsPerHectare = CommandOptionCache.GetValue(Prefix + "RecoveryPolicy.InputsPerHectare", 500);
         result.RoofFaces = CommandOptionCache.GetValue(Prefix + nameof(RoofFaces), 12);
         return result;
     }
@@ -88,7 +89,7 @@ internal sealed record ScanToTerrainSettings : TerrainCurveExtractionSettings
         CommandOptionCache.SetValue(Prefix + nameof(PavingSaturation), PavingSaturation);
         CommandOptionCache.SetValue(Prefix + nameof(GroundSlope), GroundSlope);
         CommandOptionCache.SetValue(Prefix + nameof(RoofFaces), RoofFaces);
-        CommandOptionCache.SetValue(Prefix + "RecoveryPolicy.MaximumInputs", MaximumRecoveryInputs);
+        CommandOptionCache.SetValue(Prefix + "RecoveryPolicy.InputsPerHectare", RecoveryInputsPerHectare);
     }
 
     public ScanTerrainPipeline.Options Pipeline(ModelUnitContext units, CancellationToken token,

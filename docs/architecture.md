@@ -245,7 +245,7 @@ TriangleNet (vendored)  ←  MoleHill.Core  ←  MoleHill.Grasshopper (GH host)
   from accepted lines, preserving both original and filtered references and reporting displacement.
   Scan recovery's `TerrainRecoveryPolicy` selects interval mode: contours every Contour interval on smooth
   soft ground, redundant ones removed by local trials, then spot heights only where ground misses its own
-  accuracy, up to 2,000 inputs. The `.Informative` partial (error-driven selection) remains for policy
+  accuracy, up to `InputsPerArea` of measured ground (the command's 500 per hectare). The `.Informative` partial (error-driven selection) remains for policy
   callers without an interval; other callers retain legacy budget behavior. Both residual and termination are explicit.
   The scan panel shows outputs, preview and terrain accuracy first, with detailed controls collapsed
   under Advanced. Built-edge default is 0.25 m, natural plan 0.5 m, bridge limit 1 m; all scale by units. Roof detail suppression and the face

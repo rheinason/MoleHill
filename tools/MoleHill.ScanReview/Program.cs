@@ -8,7 +8,10 @@ if (args.Length < 3) throw new ArgumentException("Usage: MoleHill.ScanReview <sc
 double accuracy = double.TryParse(args.FirstOrDefault(a => a.StartsWith("--accuracy="))?.Split('=')[1], NumberStyles.Float, CultureInfo.InvariantCulture, out double requestedAccuracy) ? requestedAccuracy : .25;
 double interval = double.TryParse(args.FirstOrDefault(a => a.StartsWith("--interval="))?.Split('=')[1], NumberStyles.Float, CultureInfo.InvariantCulture, out double requestedInterval) ? requestedInterval : .5;
 double? neck = double.TryParse(args.FirstOrDefault(a => a.StartsWith("--neck="))?.Split('=')[1], NumberStyles.Float, CultureInfo.InvariantCulture, out double requestedNeck) ? requestedNeck > 0 ? requestedNeck : null : 3;
+// The command's guard is a density; --max-inputs=N replaces it with a fixed count, as before.
 int inputCap = int.TryParse(args.FirstOrDefault(a => a.StartsWith("--max-inputs="))?.Split('=')[1], out int requestedCap) ? requestedCap : 2000;
+double inputsPerHectare = args.Any(a => a.StartsWith("--max-inputs=")) ? 0
+    : double.TryParse(args.FirstOrDefault(a => a.StartsWith("--inputs-per-ha="))?.Split('=')[1], NumberStyles.Float, CultureInfo.InvariantCulture, out double requestedDensity) ? requestedDensity : 500;
 bool withBuildings = args.Contains("--buildings");
 double partDrop = double.TryParse(args.FirstOrDefault(a => a.StartsWith("--part-drop="))?.Split('=')[1], NumberStyles.Float, CultureInfo.InvariantCulture, out double requestedDrop) ? requestedDrop : 1.5;
 int roofFaces = int.TryParse(args.FirstOrDefault(a => a.StartsWith("--roof-faces="))?.Split('=')[1], out int requestedFaces) ? requestedFaces : 12;
@@ -137,7 +140,7 @@ if (!args.Contains("--no-recovery"))
 {
     var recovery = TerrainCurveRecovery.Recover(result.Reference, new()
     {
-        Policy = args.Contains("--legacy-recovery") ? null : new() { PreferredContours = 300, MaximumInputs = inputCap, ContourInterval = interval, ReportActivity = message => Console.WriteLine($"{timer.Elapsed.TotalSeconds:F1}s {message}") },
+        Policy = args.Contains("--legacy-recovery") ? null : new() { PreferredContours = 300, MaximumInputs = inputCap, InputsPerArea = inputsPerHectare / 10000, ContourInterval = interval, ReportActivity = message => Console.WriteLine($"{timer.Elapsed.TotalSeconds:F1}s {message}") },
         ReportProgress = (round, miss) => { if (round % 5 == 0) Console.WriteLine($"Recovery {round}: {miss:F4} m"); },
         VerticalTolerance = accuracy,
         PlanTolerance = .5,
@@ -173,7 +176,7 @@ File.WriteAllText(Path.Combine(folder, "manifest.json"), JsonSerializer.Serializ
     CreatedUtc = DateTime.UtcNow, Obj = Path.GetFullPath(args[0]), ObjSha256 = Hash(args[0]),
     Texture = Path.GetFullPath(args[1]), TextureSha256 = Hash(args[1]),
     CoreModule = typeof(ScanTerrainPipeline).Assembly.ManifestModule.ModuleVersionId,
-    Arguments = args, PreferredContours = 300, MaximumInputs = inputCap,
+    Arguments = args, PreferredContours = 300, MaximumInputs = inputsPerHectare > 0 ? (int?)null : inputCap, InputsPerHectare = inputsPerHectare,
     VerticalTolerance = .25, PlanTolerance = .5, BuiltEdgeTolerance = .25,
     MaximumBridgeLength = 1, NoiseFeatureSize = .5, NoiseHeightAllowance = .1,
     Buildings = withBuildings, LandformLines = false

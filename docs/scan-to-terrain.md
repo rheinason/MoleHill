@@ -40,8 +40,9 @@ its simplified outlines, draped on the ground, are its breaklines. Soft ground i
 Contour interval (default 0.5 m); contours that the reconstruction does not need are removed. Spot
 heights are added only where ground still misses its accuracy: Terrain accuracy (0.25 m) on smooth soft
 ground, Paved accuracy (0.5 m) on paving and on rough soft ground (bushes, hedges, bed edges departing
-0.2 m from their surroundings), where contours would otherwise chase scan clutter. Maximum recovery
-inputs (2,000 contours and spots) caps the result. A cap or no-progress result reports its remaining
+0.2 m from their surroundings), where contours would otherwise chase scan clutter. Recovery inputs per
+hectare (500 contours and spots per hectare of measured ground) caps the result. The tolerance decides how many are
+used; both reference scans need about 195 per hectare, so the cap only stops a runaway. A cap or no-progress result reports its remaining
 error; it does not mean the requested accuracy was achieved. Accuracy is checked at inferred reference
 vertices on classified ground; unknown ground (under buildings and trees) is excluded. It is not an
 overlay-wide or surveyed accuracy certificate. On the reference scan the preview is ready in about 18 s

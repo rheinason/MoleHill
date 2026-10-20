@@ -47,7 +47,7 @@ kerb pairs or single road edges. Contours are fitted within soft areas when colo
 available. Building roof shapes are closed context Breps with explicit fit evidence and flagged
 median-height extrusion fallbacks; they do not become terrain inputs. Tolerance is measured against
 inferred ground. Scan recovery prunes redundant generated inputs and can continue past the preferred
-300 contours, with a combined 2,000-input cap and explicit residual/termination. Bounded isolated-noise
+300 contours, with a combined input cap per hectare of measured ground (500) and explicit residual/termination. Bounded isolated-noise
 cleanup reports its displacement and the recovery also measures the original reference. See
 [Scan to Terrain](../../docs/scan-to-terrain.md) for the workflow, classification contract, validation
 figures and known limits.

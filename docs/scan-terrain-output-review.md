@@ -382,3 +382,8 @@ inputs (was 1,153) and Vardalag 2,055 (was 2,220). Under the 2,000 cap Vardalag'
 3.52). Its worst remaining misses are real boulders, 6 m high, beside a pond. Not tried: taking fills out of the
 ground evidence; the seams no longer drive the misses.
 
+The input cap scales with area, 2026-10-20. A fixed 2,000 stopped Vardalag short of tolerance only because it is
+twice Grønalid's size: per hectare they need the same, about 195 inputs. The command's setting is now Recovery
+inputs per hectare (500). Both references meet both tolerances by default: Grønalid with 1,046 inputs (cap 1,649),
+Vardalag with 2,055 (cap 3,056).
+

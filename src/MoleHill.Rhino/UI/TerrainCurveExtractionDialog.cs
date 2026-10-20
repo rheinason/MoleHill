@@ -73,7 +73,7 @@ internal sealed partial class TerrainCurveExtractionDialog : Dialog<bool>
             // Soft ground is contoured at an interval; paving is carried by its outline breaklines.
             Number(contours, "Contour interval · " + length, nameof(scanSettings.ContourInterval), _units.FromMeters(.01));
             Number(contours, "Paved accuracy · " + length, nameof(scanSettings.PavedTolerance), _units.FromMeters(.01));
-            Number(detail, "Maximum recovery inputs", nameof(scanSettings.MaximumRecoveryInputs), 1, 100000, 0);
+            Number(detail, "Recovery inputs per hectare", nameof(scanSettings.RecoveryInputsPerHectare), 1, 100000, 0);
         }
         else
         {

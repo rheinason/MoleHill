@@ -18,7 +18,8 @@ public static partial class TerrainCurveRecovery
         var policy = options.Policy!;
         double interval = policy.ContourInterval, tolerance = options.VerticalTolerance;
         double plan = options.PlanTolerance > 0 ? options.PlanTolerance : tolerance;
-        if (!double.IsFinite(interval) || policy.MaximumInputs < 1 || options.SecondaryRegion != null &&
+        if (!double.IsFinite(interval) || policy.MaximumInputs < 1 || !double.IsFinite(policy.InputsPerArea) || policy.InputsPerArea < 0 ||
+            options.SecondaryRegion != null &&
             !(double.IsFinite(options.SecondaryTolerance) && options.SecondaryTolerance > 0))
             throw new ArgumentOutOfRangeException(nameof(options), "Interval recovery needs a finite interval, a positive cap and a positive secondary tolerance.");
         if (!double.IsFinite(tolerance) || tolerance <= 0 || terrain.VertexCount < 3 || terrain.FaceCount < 1)
@@ -59,6 +60,8 @@ public static partial class TerrainCurveRecovery
             else if (options.SecondaryRegion?.Contains(x, y) == true) { secondary[v] = true; tolerances[v] = options.SecondaryTolerance; evaluated++; }
             else weights[v] = 0;
         }
+        int cap = policy.InputsPerArea > 0
+            ? (int)Math.Clamp(Math.Ceiling(weights.Sum() * policy.InputsPerArea), 1, int.MaxValue) : policy.MaximumInputs;
         var adjacency = MeshVertexAdjacency.Build(new List<int>(faces[..(terrain.FaceCount * 3)]), terrain.FaceCount, count);
         var projector = new MeshHeightProjector(vertices, count, faces, terrain.FaceCount);
         double? Height(double x, double y) => projector.TryGetHeightExtremes(x, y, tolerance * 1e-3, out _, out double z) ? z : null;
@@ -185,14 +188,14 @@ public static partial class TerrainCurveRecovery
             if (Cancelled()) { termination = Termination.Cancelled; break; }
             options.ReportProgress?.Invoke(++round, MaximumOf(primary: true));
             if (ratio <= 1) { termination = Termination.ToleranceSatisfied; break; }
-            if (contours.Count + spotIds.Count >= policy.MaximumInputs) { termination = Termination.CurveBudgetSpent; break; }
+            if (contours.Count + spotIds.Count >= cap) { termination = Termination.CurveBudgetSpent; break; }
             var scaled = new double[count];
             for (int v = 0; v < count; v++) scaled[v] = deviations[v] / tolerances[v] * tolerance;
             var picks = ErrorRegionPicks(scaled, weights, adjacency, blocked, 256, tolerance);
             int added = 0;
             foreach (int v in picks)
             {
-                if (contours.Count + spotIds.Count >= policy.MaximumInputs) break;
+                if (contours.Count + spotIds.Count >= cap) break;
                 if (!spotIds.Add(v)) { blocked.Add(v); continue; }
                 spots.Add(vertices[v * 3]); spots.Add(vertices[v * 3 + 1]); spots.Add(vertices[v * 3 + 2]); added++;
             }
@@ -220,7 +223,7 @@ public static partial class TerrainCurveRecovery
             SecondaryMaximumDeviation = secondaryMaximum,
             Rounds = round,
             Termination = termination,
-            Diagnostic = $"{(termination == Termination.ToleranceSatisfied ? "Met" : termination.ToString())}: contours every {interval:G4} " +
+            Diagnostic = $"{(termination == Termination.ToleranceSatisfied ? "Met" : termination.ToString())} (cap {cap}): contours every {interval:G4} " +
                 $"({pruned} of {tracedCount} redundant removed), {accuracy}.",
             EvaluatedVertexCount = evaluated,
             ExcessErrorVolume = excess,

@@ -5,6 +5,13 @@ public sealed record TerrainRecoveryPolicy
 {
     public int PreferredContours { get; init; } = 300;
     public int MaximumInputs { get; init; } = 2000;
+
+    /// <summary>
+    /// Above zero, interval recovery may add this many inputs per square model unit of measured ground, in place
+    /// of <see cref="MaximumInputs"/>. The tolerance decides how many are spent; the cap only stops a runaway, and
+    /// a fixed count stopped a site twice the size short: two references both need about 195 per hectare.
+    /// </summary>
+    public double InputsPerArea { get; init; }
     public int PruneInterval { get; init; } = 25;
 
     /// <summary>
