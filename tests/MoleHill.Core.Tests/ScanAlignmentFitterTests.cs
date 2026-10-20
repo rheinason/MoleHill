@@ -56,6 +56,36 @@ public sealed class ScanAlignmentFitterTests
     [Theory]
     [InlineData(1)]
     [InlineData(1000)]
+    public void FitPair_CornerWithRasterOvershoot_PiecesMeetAtTheCornerHeight(double scale)
+    {
+        // An L-shaped wall whose rasterised rails step past the corner before turning, with heights that differ
+        // there: each leg once averaged its own overshoot into the corner height, and the legs did not meet.
+        var top = new List<double>(); var toe = new List<double>();
+        void Add(double x, double y, double z)
+        {
+            top.AddRange(new[] { x * scale, y * scale, (z + 2) * scale });
+            toe.AddRange(new[] { (x - .4) * scale, (y + .4) * scale, z * scale });
+        }
+        for (int i = 0; i < 50; i++)
+            Add(i * .2, 0, .01 * i);
+        Add(10.08, -.04, .62);
+        Add(10, 0, .5);
+        Add(10.04, -.08, .41);
+        for (int i = 1; i <= 50; i++)
+            Add(10, i * .2, .5 + .01 * i);
+        Assert.True(ScanAlignmentFitter.FitPair(top.ToArray(), toe.ToArray(), false, .1 * scale,
+            .25 * scale, .02 * scale, default, out var high, out var low));
+        foreach (var rail in new[] { high, low })
+            for (int k = 1; k < rail.Pieces.Count; k++)
+            {
+                var end = rail.Pieces[k - 1].PointAt(1); var start = rail.Pieces[k].PointAt(0);
+                Assert.InRange(Math.Abs(end.Z - start.Z) / scale, 0, 1e-9);
+            }
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(1000)]
     public void FitPair_ClosedCircularTerrace_KeepsConcentricArcsAndCloses(double scale)
     {
         double[] Ring(double radius, double z) => Enumerable.Range(0, 121).SelectMany(i =>

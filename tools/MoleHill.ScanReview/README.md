@@ -20,10 +20,12 @@ Landform lines are disabled, and buildings are off unless `--buildings` asks for
 command's defaults (`--roof-faces=N` changes the face budget, 0 lifts it). It then writes
 `buildings.json` (kind, roof error and face counts per building), `buildings.obj`, the planar faces a
 host joins into each solid as `building-faces.json`, and the scan's top surface as `surface.bin` (the
-`ground.bin` header, then float32 heights) to compare roofs against. Physical settings are explicit
+`ground.bin` header, then float32 heights) to compare roofs against. Every run also writes the prepared reference
+mesh contours are recovered from as `reference.obj`, and its fixed breaklines as `fixed.json`. Physical settings are explicit
 in `Program.cs`. `terrain.json` includes rational pieces, controls, sample points, observation/inference
 metadata and filtering/rejection counts. `orthophoto.ppm` records raster colour placement.
-`contours.json` records contours/spots, termination and filtered/original-reference residuals.
+`contours.json` records contours/spots, termination, filtered/original-reference residuals, the uncovered
+area and the remaining miss regions (worst first; the run also prints the twelve worst).
 
 The reference input is external and is not distributed with this repository. See
 [terrain output review](../../docs/scan-terrain-output-review.md) for the baseline, measured changes

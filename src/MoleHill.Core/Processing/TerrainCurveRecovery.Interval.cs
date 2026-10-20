@@ -109,6 +109,8 @@ public static partial class TerrainCurveRecovery
         var trials = new LocalTrials(vertices, count, weights, tolerances, plan);
         double epsilon = Math.Max(1e-15, weights.Sum() * tolerance * 1e-10);
         double[] deviations = Array.Empty<double>();
+        var uncovered = new bool[count];
+        TinResult? last = null;
         double excess = 0, ratio = 0;
         if (!Evaluate()) return Failed();
 
@@ -191,8 +193,12 @@ public static partial class TerrainCurveRecovery
 
         double primaryMaximum = MaximumOf(primary: true);
         double? secondaryMaximum = options.SecondaryRegion == null ? null : MaximumOf(primary: false);
-        double outside = 0;
-        for (int v = 0; v < count; v++) if (weights[v] > 0 && deviations[v] > tolerances[v]) outside += weights[v];
+        double outside = 0, uncoveredArea = 0;
+        for (int v = 0; v < count; v++)
+        {
+            if (weights[v] > 0 && deviations[v] > tolerances[v]) outside += weights[v];
+            if (weights[v] > 0 && uncovered[v]) uncoveredArea += weights[v];
+        }
         string accuracy = $"within {tolerance:G4}: worst {primaryMaximum:G4}" +
             (secondaryMaximum is double s ? $"; secondary within {options.SecondaryTolerance:G4}: worst {s:G4}" : string.Empty);
         return new Result
@@ -211,6 +217,8 @@ public static partial class TerrainCurveRecovery
             ExcessErrorVolume = excess,
             AreaOutsideTolerance = outside,
             PrunedInputCount = pruned,
+            UncoveredArea = uncoveredArea,
+            Misses = MissRegions(),
         };
 
         IEnumerable<(double[] Points, bool Closed)> Chains(int skipContour = -1)
@@ -224,7 +232,9 @@ public static partial class TerrainCurveRecovery
         {
             var tin = Rebuild(borders, new List<double[]>(), contours, spots, plan, out _, options.FixedBreaklines);
             if (tin == null) return false;
-            deviations = Deviations(vertices, count, tin, tolerance);
+            last = tin;
+            Array.Clear(uncovered);
+            deviations = Deviations(vertices, count, tin, tolerance, uncovered: uncovered);
             excess = 0; ratio = 0;
             for (int v = 0; v < count; v++)
                 if (weights[v] > 0)
@@ -238,6 +248,39 @@ public static partial class TerrainCurveRecovery
             double maximum = 0;
             for (int v = 0; v < count; v++) if (weights[v] > 0 && secondary[v] != primary) maximum = Math.Max(maximum, deviations[v]);
             return maximum;
+        }
+
+        // Misses connected through vertices that miss the same way: a step missed on both sides is two regions.
+        List<MissRegion> MissRegions()
+        {
+            var rebuilt = last == null ? null : new MeshHeightProjector(last.Vertices, last.VertexCount, last.Faces, last.FaceCount);
+            var signed = new double[count];
+            for (int v = 0; v < count; v++)
+            {
+                if (weights[v] <= 0 || deviations[v] <= tolerances[v]) continue;
+                double x = vertices[v * 3], y = vertices[v * 3 + 1], z = vertices[v * 3 + 2];
+                signed[v] = rebuilt != null && rebuilt.TryGetHeightExtremes(x, y, tolerance * 1e-3, out double lo, out double hi)
+                    ? Math.Abs(z - lo) >= Math.Abs(z - hi) ? z - lo : z - hi : double.NaN;
+            }
+            var seen = new bool[count]; var misses = new List<MissRegion>();
+            for (int seed = 0; seed < count; seed++)
+            {
+                if (seen[seed] || weights[seed] <= 0 || deviations[seed] <= tolerances[seed]) continue;
+                var queue = new Queue<int>(); queue.Enqueue(seed); seen[seed] = true;
+                int worst = seed, members = 0; double area = 0;
+                while (queue.TryDequeue(out int v))
+                {
+                    members++; area += weights[v];
+                    if (deviations[v] > deviations[worst]) worst = v;
+                    foreach (int next in adjacency.NeighborsOf(v))
+                        if (!seen[next] && weights[next] > 0 && deviations[next] > tolerances[next] && secondary[next] == secondary[seed] &&
+                            !(signed[next] * signed[seed] < 0))
+                        { seen[next] = true; queue.Enqueue(next); }
+                }
+                misses.Add(new MissRegion(vertices[worst * 3], vertices[worst * 3 + 1], vertices[worst * 3 + 2], deviations[worst],
+                    signed[worst], area, members, secondary[seed]));
+            }
+            return misses.OrderByDescending(m => m.Deviation).ToList();
         }
 
         Result Failed() => Unsupported("The recovered curves could not be triangulated.");

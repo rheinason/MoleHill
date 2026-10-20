@@ -55,6 +55,26 @@ public sealed class IntervalRecoveryTests
     }
 
     [Fact]
+    public void Recover_BudgetSpentOnAStep_ReportsTheMissWhereAndWhichWay()
+    {
+        // A 3 m block standing on flat "paving" that only spots may describe; one input cannot rebuild it.
+        var mesh = Mesh((x, y) => x >= 10 && x <= 12 && y >= 6 && y <= 9 ? 3 : 0);
+        var result = TerrainCurveRecovery.Recover(mesh, new TerrainCurveRecovery.Options
+        {
+            VerticalTolerance = .1, PlanTolerance = .1, LandformLines = false, FitContours = false,
+            Policy = new() { ContourInterval = .5, MaximumInputs = 1 },
+            Region = new HalfPlane(left: true), SecondaryRegion = new HalfPlane(left: false), SecondaryTolerance = .3,
+        });
+        Assert.Equal(TerrainCurveRecovery.Termination.CurveBudgetSpent, result.Termination);
+        Assert.Equal(result.SecondaryMaximumDeviation!.Value, result.Misses[0].Deviation, 9);
+        Assert.True(result.Misses[0].IsSecondary);
+        // The block stands above the rebuild; the spot's fan stands above the ground beside it: two regions.
+        Assert.Contains(result.Misses, miss => miss.SignedDeviation > 0 && miss.X >= 10 && miss.X <= 12 && miss.Y >= 6 && miss.Y <= 9);
+        Assert.Contains(result.Misses, miss => miss.SignedDeviation < 0);
+        Assert.Equal(0, result.UncoveredArea);
+    }
+
+    [Fact]
     public void RecoverBest_IntervalMode_RunsOnceWithoutLandformLines()
     {
         int runs = 0;

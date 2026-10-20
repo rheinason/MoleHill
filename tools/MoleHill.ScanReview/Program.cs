@@ -103,9 +103,21 @@ if (result.Buildings is ScanBuildings.Result buildings)
             obj.WriteLine($"f {solid.Faces[f * 3] + offset} {solid.Faces[f * 3 + 1] + offset} {solid.Faces[f * 3 + 2] + offset}");
         offset += solid.VertexCount;
     }
+    Console.WriteLine($"{buildings.CandidateCount} raised candidates: {buildings.RejectedVegetation} rejected as vegetation, {buildings.RejectedGeometry} as geometry");
     Console.WriteLine($"{buildings.Buildings.Count} buildings, {buildings.Buildings.Count(b => b.IsFallback)} fallbacks, median roof RMS {buildings.Buildings.Select(b => b.RoofRms).OrderBy(r => r).ElementAtOrDefault(buildings.Buildings.Count / 2):F3} m");
 }
 Console.WriteLine($"{result.Walls.Count} wall pairs; {result.Roads.Count(x => x.IsKerb)} kerb pairs; {result.Roads.Count(x => !x.IsKerb)} colour edges; {result.Areas.Boundaries.Count} areas; cell={grid.CellSize}");
+// The breaklines the reference was constrained with and the rebuild keeps.
+File.WriteAllText(Path.Combine(folder, "fixed.json"), JsonSerializer.Serialize(result.FixedBreaklines));
+using (var reference = new StreamWriter(Path.Combine(folder, "reference.obj")))
+{
+    // The prepared reference the contours are recovered from.
+    IndexedTriMesh prepared = result.Reference;
+    for (int v = 0; v < prepared.VertexCount; v++)
+        reference.WriteLine(string.Create(CultureInfo.InvariantCulture, $"v {prepared.Vertices[v * 3]} {prepared.Vertices[v * 3 + 1]} {prepared.Vertices[v * 3 + 2]}"));
+    for (int f = 0; f < prepared.FaceCount; f++)
+        reference.WriteLine($"f {prepared.Faces[f * 3] + 1} {prepared.Faces[f * 3 + 1] + 1} {prepared.Faces[f * 3 + 2] + 1}");
+}
 if (!args.Contains("--no-recovery"))
 {
     var recovery = TerrainCurveRecovery.Recover(result.Reference, new()
@@ -130,7 +142,9 @@ if (!args.Contains("--no-recovery"))
             FixedBreaklines = result.FixedBreaklines,
             Region = result.Region
         }) : null;
-    File.WriteAllText(Path.Combine(folder, "contours.json"), JsonSerializer.Serialize(new { recovery.MaximumDeviation, recovery.OriginalMaximumDeviation, recovery.AreaOutsideTolerance, recovery.ExcessErrorVolume, recovery.PrunedInputCount, recovery.RejectedCandidateCount, Termination = recovery.Termination.ToString(), Contours = recovery.Contours, recovery.SpotPoints }));
+    File.WriteAllText(Path.Combine(folder, "contours.json"), JsonSerializer.Serialize(new { recovery.MaximumDeviation, recovery.OriginalMaximumDeviation, recovery.AreaOutsideTolerance, recovery.ExcessErrorVolume, recovery.PrunedInputCount, recovery.RejectedCandidateCount, recovery.UncoveredArea, recovery.Misses, Termination = recovery.Termination.ToString(), Contours = recovery.Contours, recovery.SpotPoints }, new JsonSerializerOptions { NumberHandling = System.Text.Json.Serialization.JsonNumberHandling.AllowNamedFloatingPointLiterals }));
+    foreach (var miss in recovery.Misses.Take(12))
+        Console.WriteLine(string.Create(CultureInfo.InvariantCulture, $"  miss {miss.Deviation:F2} m ({miss.SignedDeviation:+0.00;-0.00}) at {miss.X:F1}, {miss.Y:F1}: {miss.Area:F1} m2, {(miss.IsSecondary ? "secondary" : "primary")}"));
     Console.WriteLine($"{timer.Elapsed.TotalSeconds:F1}s Contours {recovery.Contours.Count}, spots {recovery.SpotPointCount}, residual {recovery.MaximumDeviation}, paved {recovery.SecondaryMaximumDeviation}, {recovery.Termination}: {recovery.Diagnostic}");
 }
 

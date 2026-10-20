@@ -72,19 +72,32 @@ public static partial class ScanBuildings
     private static List<PlaneRegion> FindRoofPlanes(List<RoofSample> samples, Options options)
     {
         var remaining = Enumerable.Repeat(true, samples.Count).ToArray();
-        var smoothed = new RoofPlane[samples.Count];
+        var smoothed = samples.Select(sample => sample.FacePlane).ToArray();
         double cosine = Math.Cos(options.PlaneAngleDegrees * Math.PI / 180);
-        for (int i = 0; i < samples.Count; i++)
+        // Normals are averaged over about the footprint tolerance, however finely the scan is triangulated: a
+        // full-detail export's 10 cm triangles each tilt with the scan's centimetre noise (±20 degrees on a
+        // corrugated roof), and over one ring a third of a plain roof failed the plane angle, so its houses were
+        // rejected as unplanar. Neighbours that noisy differ by more than the plane angle too, so the guard that
+        // keeps a ridge out of the average is twice it: a ridge between two pitched planes is sharper still.
+        double crease = Math.Cos(Math.Min(options.PlaneAngleDegrees * 2, 60) * Math.PI / 180);
+        double edge = samples.Select(sample => Math.Sqrt(sample.Weight * 2)).Order().ElementAtOrDefault(samples.Count / 2);
+        int rings = edge > 0 ? Math.Clamp((int)Math.Round(options.FootprintTolerance / edge), 1, 8) : 1;
+        for (int ring = 0; ring < rings; ring++)
         {
-            double x = samples[i].FacePlane.X * samples[i].Weight, y = samples[i].FacePlane.Y * samples[i].Weight, w = samples[i].Weight;
-            foreach (int neighbour in samples[i].Neighbours)
-                // Normal smoothing must not erase a ridge before plane detection sees it.
-                if (neighbour >= 0 && NormalDot(samples[i].FacePlane, samples[neighbour].FacePlane) >= cosine)
-                {
-                    RoofSample s = samples[neighbour];
-                    x += s.FacePlane.X * s.Weight; y += s.FacePlane.Y * s.Weight; w += s.Weight;
-                }
-            smoothed[i] = new RoofPlane(x / w, y / w, 0);
+            var next = new RoofPlane[samples.Count];
+            for (int i = 0; i < samples.Count; i++)
+            {
+                double x = smoothed[i].X * samples[i].Weight, y = smoothed[i].Y * samples[i].Weight, w = samples[i].Weight;
+                foreach (int neighbour in samples[i].Neighbours)
+                    // Normal smoothing must not erase a ridge before plane detection sees it.
+                    if (neighbour >= 0 && NormalDot(smoothed[i], smoothed[neighbour]) >= crease)
+                    {
+                        RoofSample s = samples[neighbour];
+                        x += smoothed[neighbour].X * s.Weight; y += smoothed[neighbour].Y * s.Weight; w += s.Weight;
+                    }
+                next[i] = new RoofPlane(x / w, y / w, 0);
+            }
+            smoothed = next;
         }
         var random = new Random(1729);
         var regions = new List<PlaneRegion>();

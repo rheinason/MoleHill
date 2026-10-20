@@ -188,6 +188,12 @@ internal static partial class ScanAlignmentFitter
             }
             if (sampled.Count >= 2) profile = sampled.ToArray();
         }
+        else
+        {
+            // Neighbouring ranges share their end samples. Samples beyond an end project onto it, and averaged
+            // in they gave each range its own height there: a wall's pieces then failed to meet.
+            profile = profile.Where(p => p.T > 0 && p.T < 1).Prepend((0, raw[first * 3 + 2])).Append((1, raw[last * 3 + 2])).ToArray();
+        }
         double Height(double t)
         {
             int j = Array.FindIndex(profile, p => p.T >= t);
@@ -199,11 +205,15 @@ internal static partial class ScanAlignmentFitter
         {
             double[] xyz = profile.SelectMany(p => new[] { p.T * plan.Length, 0.0, p.Z }).ToArray();
             var fitted = RouteCurveFitter.Fit(new IReadOnlyList<double>[] { xyz }, Math.Min(cell, planTolerance) * .01, heightTolerance, 0, 0, 0);
-            foreach (var piece in fitted.Pieces)
+            for (int k = 0; k < fitted.Pieces.Count; k++)
             {
+                var piece = fitted.Pieces[k];
                 var points = (double[])piece.ControlPoints.Clone();
                 for (int i = 0; i < points.Length; i += 3)
                 { var p = plan.At(points[i] / plan.Length); points[i] = p.X; points[i + 1] = p.Y; }
+                // The fit holds its ends within tolerance; the next range needs them exactly.
+                if (k == 0) points[2] = profile[0].Z;
+                if (k == fitted.Pieces.Count - 1) points[^1] = profile[^1].Z;
                 yield return new ScanCurvePiece(piece.Degree, piece.Knots, points);
             }
             yield break;

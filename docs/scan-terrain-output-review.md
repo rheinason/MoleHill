@@ -313,3 +313,37 @@ touch were not cut and their steps twisted. With touching parts cut, all 52 buil
 (`.artifacts/scan-build3/`, Core `6a602b39-66d1-42a7-a8f1-7487c7fd3828`): 12 fallbacks, preview 18.0 s,
 588 contours and 579 spots as before. Remaining: the twelve-face budget stops L-shaped and cross roofs
 (#9, #27) that fit at fourteen; shaded green-less bushes beside #30 stay in its footprint.
+
+Second reference, 2026-10-20: `Vardalag_6_Torshavn_LOD0.obj`, a full-detail RealityCapture export (7.6 M
+triangles over about 320 x 365 m, ten times Grønalid's density). Run offline into `.artifacts/vardalag/`.
+It found two faults Grønalid never reached. Wall rails split at a corner lifted each leg's heights
+separately, and samples overshooting the corner were averaged into each leg's end, so the legs did not
+meet and the run threw; range ends now take the shared vertex's height. A paving outline traced 6 cm
+inside the scan's west edge left the reference border touching itself, so recovery gave no contours at all;
+fixed breaklines within the plan tolerance of the border are now left out of the triangulation. Roof
+normals are now averaged over about the footprint tolerance rather than one ring of triangles, with the
+ridge guard at twice the plane angle: on 10 cm triangles a corrugated roof's normals scatter by ±20°.
+Buildings rose from 51 to 71 of 134 raised candidates (Grønalid 52 to 53, its fit unchanged). Still open on
+Vardalag: recovery spends the 2,000-input cap (545 contours, 1,455 spots) with green ground worst 0.34 m
+against 0.25 and paving worst 3.86 m against 0.5; 53 candidates, mostly plain houses, still fail the 70%
+planar share (85-96% of them lies within tolerance of their planes, trees 48-71%, but accepting on that
+admitted scan-edge blobs on Grønalid); the building stage takes 17 s here.
+
+Where Vardalag misses, 2026-10-20. Interval recovery now reports its misses as regions (worst vertex, signed miss,
+area; a step missed on both sides is two regions) and the measured area its rebuild does not reach, which was
+silently scored as no error (about 1 m² here). The twelve worst are all paved or rough ground, and all lie beside
+an abrupt, fully observed rise of 2 to 7 m within 1.5 m, where the reference matches the raw ground to a few
+centimetres. They are not caused by cleaning after the paving is draped: those steps are never lowered or cleaned.
+Seen in the orthophoto, most are houses cut into the slope (dark slate, a white gutter along the drop) and a few are
+compact tall blobs of 6 to 16 m² (small trees or sheds). The ground filter keeps both as ground. A region counts as
+an object only when it stands up along half its edge, and a house whose uphill eave meets the hill counts as a terrace.
+Anything under the 20 m² minimum object is ground too, and standing-object lowering refuses anything taller than
+2.5 m. None of these sites is a building candidate, because candidates come from the filter's objects. Spot heights
+then spend the input cap trying to rebuild walls of houses.
+
+Tried and rejected: tracing those rises as walls. At 12 cm cells a smeared step is owned by alternating edges, so
+the wall tracer's strict chains break into one-cell fragments. Chaining across a corner gap with a least-turn
+continuation, and splitting chains the alignment rejects, raised Vardalag from 26 to 180 walls and Grønalid from
+11 to 52. Paved worst stayed at 3.86 m and green worst went from 0.34 to 0.36 m. The wall stage took 65 s instead
+of 5 s. Most of the rises are not walls, so the fix belongs in ground interpretation.
+

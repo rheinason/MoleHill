@@ -127,7 +127,23 @@ public static partial class TerrainCurveRecovery
 
         /// <summary>The worst miss in <see cref="Options.SecondaryRegion"/>, when one was measured.</summary>
         public double? SecondaryMaximumDeviation { get; init; }
+
+        /// <summary>
+        /// Measured area the rebuild does not cover at all (its simplified border left it out). It is not counted as a
+        /// miss, so it is reported: a vertex the rebuild cannot be read at has no error to measure.
+        /// </summary>
+        public double UncoveredArea { get; init; }
+
+        /// <summary>The connected regions still outside their tolerance, worst first (interval recovery only).</summary>
+        public IReadOnlyList<MissRegion> Misses { get; init; } = Array.Empty<MissRegion>();
     }
+
+    /// <summary>
+    /// A connected patch of reference vertices the rebuild misses by more than their tolerance: where the worst
+    /// vertex is, how far it misses, which way (positive: the reference stands above the rebuild), and the area.
+    /// </summary>
+    public sealed record MissRegion(double X, double Y, double Z, double Deviation, double SignedDeviation, double Area,
+        int VertexCount, bool IsSecondary);
 
     public static Result Recover(IndexedTriMesh terrain, Options options)
     {
@@ -731,7 +747,7 @@ public static partial class TerrainCurveRecovery
         foreach (double[] border in borders)
             AddChain(border, closed: true);
         if (fixedBreaklines != null)
-            foreach (double[] line in fixedBreaklines)
+            foreach (double[] line in ClearOfBorders(fixedBreaklines, borders, planTolerance))
                 AddChain(line, closed: false);
         foreach (double[] line in landformLines)
             AddChain(line, closed: false);
@@ -745,8 +761,57 @@ public static partial class TerrainCurveRecovery
             useConvexHull: false, includeEdgeTopology: false);
     }
 
-    /// <summary>The rebuild's vertical miss at every terrain vertex; 0 where the simplified border left it outside.</summary>
-    private static double[] Deviations(double[] vertices, int vertexCount, TinResult rebuild, double tolerance, ITerrainRecoveryRegion? region = null)
+    /// <summary>
+    /// The fixed lines less their stretches within the plan tolerance of the border, where a line is the border.
+    /// A paving outline traced along the scan's edge ran 6 cm inside it; the sliver strip between them did not
+    /// triangulate, and the line became border, touching it at one vertex, so the border was no longer simple.
+    /// </summary>
+    private static List<double[]> ClearOfBorders(IReadOnlyList<double[]> lines, List<double[]> borders, double clearance)
+    {
+        var xy = new List<double>();
+        var segments = new List<int>();
+        foreach (double[] border in borders)
+        {
+            int start = xy.Count / 2, count = border.Length / 3;
+            for (int i = 0; i < count; i++)
+            {
+                xy.Add(border[i * 3]);
+                xy.Add(border[i * 3 + 1]);
+                segments.Add(start + i);
+                segments.Add(start + (i + 1) % count);
+            }
+        }
+        SegmentProximityIndex? index = SegmentProximityIndex.TryCreateForSegments(xy.ToArray(), segments.ToArray(), segments.Count / 2);
+        if (index == null)
+            return lines.ToList();
+        var query = new SegmentProximityIndex.QueryState(segments.Count / 2);
+        var result = new List<double[]>();
+        foreach (double[] line in lines)
+        {
+            var run = new List<double>();
+            for (int i = 0; i < line.Length; i += 3)
+            {
+                if (index.NearestDistance(line[i], line[i + 1], query) > clearance)
+                {
+                    run.Add(line[i]); run.Add(line[i + 1]); run.Add(line[i + 2]);
+                    continue;
+                }
+                if (run.Count >= 6)
+                    result.Add(run.ToArray());
+                run.Clear();
+            }
+            if (run.Count >= 6)
+                result.Add(run.Count == line.Length ? line : run.ToArray());
+        }
+        return result;
+    }
+
+    /// <summary>
+    /// The rebuild's vertical miss at every terrain vertex; 0 where the simplified border left it outside, and those
+    /// vertices are flagged in <paramref name="uncovered"/> when given.
+    /// </summary>
+    private static double[] Deviations(double[] vertices, int vertexCount, TinResult rebuild, double tolerance, ITerrainRecoveryRegion? region = null,
+        bool[]? uncovered = null)
     {
         var projector = new MeshHeightProjector(rebuild.Vertices, rebuild.VertexCount, rebuild.Faces, rebuild.FaceCount);
         var deviations = new double[vertexCount];
@@ -759,6 +824,8 @@ public static partial class TerrainCurveRecovery
             // A vertex the simplified border left outside is the border's plan tolerance at work, not a miss.
             if (projector.TryGetHeightExtremes(x, y, lookup, out double low, out double high))
                 deviations[v] = Math.Max(Math.Abs(zRef - low), Math.Abs(zRef - high));
+            else if (uncovered != null)
+                uncovered[v] = true;
         }
 
         return deviations;

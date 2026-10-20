@@ -35,6 +35,34 @@ public sealed class TerrainCurveRecoveryTests
     }
 
     [Fact]
+    public void ConstrainReference_OutlineHuggingTheBorder_KeepsTheBorderSimple()
+    {
+        // The reference scan's paving outline ran down its west edge 6 cm inside the 0.987 m ground mesh,
+        // with 8.7 m between vertices, then turned into the terrain (coordinates from that scan, shifted).
+        const double spacing = .98697;
+        int columns = 12, rows = 24;
+        var vertices = new List<double>();
+        for (int j = 0; j < rows; j++)
+            for (int i = 0; i < columns; i++)
+                vertices.AddRange(new[] { i * spacing, j * spacing, .03 * j + .02 * i });
+        var faces = new List<int>();
+        for (int j = 0; j + 1 < rows; j++)
+            for (int i = 0; i + 1 < columns; i++)
+            {
+                int a = j * columns + i, b = a + 1, c = a + columns + 1, d = a + columns;
+                faces.AddRange(new[] { a, b, c, a, c, d });
+            }
+        var terrain = new IndexedTriMesh(vertices.ToArray(), columns * rows, faces.ToArray(), faces.Count / 3);
+        double[] outline = { 1.474, 1.707, .3, 1.143, 1.578, .3, .786, 1.514, .3, .422, 1.521, .3, .062, 1.598, .3,
+            .062, 10.872, .3, .062, 20.145, .3, .336, 20.037, .3, .600, 19.872, .3, .838, 19.654, .3 };
+        IndexedTriMesh? constrained = TerrainCurveRecovery.ConstrainReference(terrain, new[] { outline }, .5, out string? error);
+        Assert.True(constrained.HasValue, error);
+        Assert.True(MoleHill.Core.Grading.MeshBoundaryLoopBuilder.TryBuildBoundaryLoopsIndexed(
+            constrained.Value.Faces, constrained.Value.FaceCount, out List<int[]> loops), "The border touches itself.");
+        Assert.Single(loops);
+    }
+
+    [Fact]
     public void Recover_TiltedPlane_NeedsOnlyItsBorder()
     {
         TerrainCurveRecovery.Result result = TerrainCurveRecovery.Recover(
