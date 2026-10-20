@@ -196,6 +196,25 @@ public sealed class ScanGroundTests
     }
 
     [Fact]
+    public void Build_TreeOnAKnoll_RemovesTheTreeAndKeepsTheKnoll()
+    {
+        // The filter shaves a knoll's top off as raised, and that region runs out into the slope: a step, kept as
+        // ground. A tree standing on it was part of the same region, took its verdict and stayed as ground too.
+        static double Knoll(double x, double y) => 10 * Math.Max(0, 1 - Math.Sqrt((x - 40) * (x - 40) + (y - 40) * (y - 40)) / 15);
+        static double Site(double x, double y) =>
+            Knoll(x, y) + ((x - 41) * (x - 41) + (y - 40) * (y - 40) < 4 ? 6.0 : 0.0);
+        ScanGround.Result result = ScanGround.Build(HeightField(80, 80, 0.25, Site), Metric);
+        ScanGrid ground = result.Ground;
+        int Node(double x, double y) => (int)Math.Round(y / ground.CellSize) * ground.Columns + (int)Math.Round(x / ground.CellSize);
+
+        Assert.False(result.IsGround[Node(41, 40)]);
+        // The fill cannot rebuild the knoll's peak under the tree, but the 6 m tree is gone.
+        Assert.InRange(ground.Values[Node(41, 40)] - Knoll(41, 40), -1.5, 0.5);
+        foreach ((double x, double y) in new[] { (40.0, 46.0), (34.0, 40.0), (40.0, 34.0) })
+            Assert.True(result.IsGround[Node(x, y)], $"the knoll at {x}, {y} was taken away");
+    }
+
+    [Fact]
     public void Build_SteepPlainSlope_IsAllGround()
     {
         ScanGround.Result result = ScanGround.Build(HeightField(60, 40, 0.25, (x, y) => 0.5 * x), Metric);

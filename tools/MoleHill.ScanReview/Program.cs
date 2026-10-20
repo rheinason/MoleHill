@@ -10,6 +10,7 @@ double interval = double.TryParse(args.FirstOrDefault(a => a.StartsWith("--inter
 double? neck = double.TryParse(args.FirstOrDefault(a => a.StartsWith("--neck="))?.Split('=')[1], NumberStyles.Float, CultureInfo.InvariantCulture, out double requestedNeck) ? requestedNeck > 0 ? requestedNeck : null : 3;
 int inputCap = int.TryParse(args.FirstOrDefault(a => a.StartsWith("--max-inputs="))?.Split('=')[1], out int requestedCap) ? requestedCap : 2000;
 bool withBuildings = args.Contains("--buildings");
+double partDrop = double.TryParse(args.FirstOrDefault(a => a.StartsWith("--part-drop="))?.Split('=')[1], NumberStyles.Float, CultureInfo.InvariantCulture, out double requestedDrop) ? requestedDrop : 1.5;
 int roofFaces = int.TryParse(args.FirstOrDefault(a => a.StartsWith("--roof-faces="))?.Split('=')[1], out int requestedFaces) ? requestedFaces : 12;
 if (inputCap < 1) throw new ArgumentOutOfRangeException(nameof(args), "Maximum inputs must be positive.");
 var folder = args[2]; Directory.CreateDirectory(folder);
@@ -28,7 +29,7 @@ using var bitmap = new BinaryReader(File.OpenRead(args[1]));
 int w = bitmap.ReadInt32(), h = bitmap.ReadInt32(); var colours = new ScanColourSource(new ScanTexture(w, h, bitmap.ReadBytes(w * h * 3)), uv.ToArray());
 var result = ScanTerrainPipeline.Build(mesh, colours, new()
 {
-    Ground = new() { SmallestObject = 2, LargestObject = 48, InitialThreshold = .3, MaximumThreshold = 4, Margin = .5, MinimumObjectArea = 20 },
+    Ground = new() { SmallestObject = 2, LargestObject = 48, InitialThreshold = .3, MaximumThreshold = 4, Margin = .5, MinimumObjectArea = 20, PartDrop = partDrop },
     GroundSpacing = 1,
     PlanTolerance = .5,
     Walls = new() { MinimumHeight = .6, MinimumLength = 3, PlanTolerance = .25, VerticalTolerance = .1, BorderMargin = 2, MaximumWidth = 1 },

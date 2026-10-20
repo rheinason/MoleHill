@@ -46,6 +46,12 @@ public static class ScanGround
         /// <summary>An object is kept only if it stands above its surroundings along this share of its edge.</summary>
         public double RaisedPerimeterShare { get; init; } = 0.5;
 
+        /// <summary>
+        /// A drop this tall inside a raised region that failed as a whole parts it, and each part is judged on its
+        /// own; zero judges regions whole.
+        /// </summary>
+        public double PartDrop { get; init; } = 1.5;
+
         /// <summary>How far each object grows before the ground is filled under it.</summary>
         public required double Margin { get; init; }
 
@@ -152,6 +158,8 @@ public static class ScanGround
         var objects = new bool[top.Length];
         for (int node = 0; node < top.Length; node++)
             objects[node] = labels[node] >= 0 && isObject[labels[node]];
+        if (options.PartDrop > 0)
+            objectCount += StandingParts(top, covered, labels, isObject, objects, columns, rows, minimumNodes, options);
         int marginNodes = Math.Max(0, (int)Math.Round(options.Margin / cell));
         objects = GridMorphology.DilateMask(objects, columns, rows, marginNodes);
 
@@ -282,6 +290,7 @@ public static class ScanGround
             !double.IsFinite(options.MaximumThreshold) || options.MaximumThreshold < options.InitialThreshold ||
             !double.IsFinite(options.GroundSlope) || options.GroundSlope < 0 ||
             !double.IsFinite(options.RaisedPerimeterShare) || options.RaisedPerimeterShare < 0 || options.RaisedPerimeterShare > 1 ||
+            !double.IsFinite(options.PartDrop) || options.PartDrop < 0 ||
             !double.IsFinite(options.Margin) || options.Margin < 0 ||
             !double.IsFinite(options.MinimumObjectArea) || options.MinimumObjectArea < 0)
             throw new ArgumentOutOfRangeException(nameof(options), "Scan lengths and thresholds must be finite and nonnegative, object widths ordered and positive, and perimeter share between 0 and 1.");
@@ -291,6 +300,71 @@ public static class ScanGround
     /// The progressive morphological filter: true where a node stands on the ground rather than being it.
     /// Windows are half-widths in nodes, doubling from the smallest object's to the largest's.
     /// </summary>
+    /// <summary>
+    /// Raised regions judged steps, parted at every drop of <see cref="Options.PartDrop"/>: a part standing up along
+    /// its edge (over the ground, or over the rest of its region) is an object. Judged whole, a tree or shed touching
+    /// a terrace took the terrace's verdict: a raised region on a hillside runs on for hundreds of square metres, and
+    /// an 8 m tree on Vardalag was kept as ground inside 574 m2 raised along a third of its edge.
+    /// </summary>
+    private static int StandingParts(double[] top, bool[] covered, int[] labels, bool[] isObject, bool[] objects,
+        int columns, int rows, int minimumNodes, Options options)
+    {
+        var part = new int[top.Length];
+        Array.Fill(part, -1);
+        var queue = new Queue<int>();
+        var members = new List<int>();
+        int found = 0;
+        for (int seed = 0; seed < top.Length; seed++)
+        {
+            if (labels[seed] < 0 || isObject[labels[seed]] || part[seed] >= 0)
+                continue;
+            options.CancellationToken.ThrowIfCancellationRequested();
+            int label = labels[seed];
+            members.Clear();
+            part[seed] = seed;
+            queue.Enqueue(seed);
+            while (queue.TryDequeue(out int node))
+            {
+                members.Add(node);
+                int i = node % columns, j = node / columns;
+                if (i > 0) Join(node - 1);
+                if (i < columns - 1) Join(node + 1);
+                if (j > 0) Join(node - columns);
+                if (j < rows - 1) Join(node + columns);
+
+                void Join(int next)
+                {
+                    if (labels[next] == label && part[next] < 0 && Math.Abs(top[next] - top[node]) < options.PartDrop)
+                    { part[next] = seed; queue.Enqueue(next); }
+                }
+            }
+            int edges = 0, raisedEdges = 0;
+            foreach (int node in members)
+            {
+                int i = node % columns, j = node / columns;
+                if (i > 0) Compare(node - 1);
+                if (i < columns - 1) Compare(node + 1);
+                if (j > 0) Compare(node - columns);
+                if (j < rows - 1) Compare(node + columns);
+
+                void Compare(int next)
+                {
+                    if (part[next] == seed || !covered[next])
+                        return;
+                    edges++;
+                    if (top[node] - top[next] > options.InitialThreshold)
+                        raisedEdges++;
+                }
+            }
+            if (edges == 0 || raisedEdges < options.RaisedPerimeterShare * edges)
+                continue;
+            foreach (int node in members)
+                objects[node] = true;
+            if (members.Count >= minimumNodes) found++;
+        }
+        return found;
+    }
+
     private static bool[] FilterObjects(double[] top, int columns, int rows, double cell, Options options)
     {
         var halfWidths = new List<double>();

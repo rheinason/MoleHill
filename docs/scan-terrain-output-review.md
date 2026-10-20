@@ -347,3 +347,12 @@ continuation, and splitting chains the alignment rejects, raised Vardalag from 2
 11 to 52. Paved worst stayed at 3.86 m and green worst went from 0.34 to 0.36 m. The wall stage took 65 s instead
 of 5 s. Most of the rises are not walls, so the fix belongs in ground interpretation.
 
+Raised regions parted at their drops, 2026-10-20. The filter judged each raised region whole, and a hillside
+region runs on for hundreds of square metres: Vardalag's worst tree (8 m) sat in 574 m² raised along a third of its
+edge, and was kept as ground with it. A region judged a step is now parted at every drop of 1.5 m within it, and
+a part standing up along half its edge is an object. Regions that pass whole are not parted, so roofs are not split.
+Grønalid: a house the filter had kept as ground is now removed (its two eave "walls" went with it), buildings 52 to
+54, tolerances still met. Vardalag: the three worst misses went, paved worst 3.86 to 3.52 m, buildings 71 to 74.
+With the input cap lifted both versions meet both tolerances. Before parting it took 2,341 inputs, after it 2,220,
+so the 2,000 cap was what left the misses. Still open: slope-cut houses with no drop inside them (45 to 49% raised).
+
