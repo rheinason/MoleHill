@@ -68,8 +68,10 @@ were loaded from `src/MoleHill.Rhino/bin/Debug/net7.0/` in owned slot `aardvark`
 Rhino 8.35.26251.13001. `run_csharp` loaded the exact plugin and checked its path and module IDs,
 imported the UV-preserving reference mesh, selected it, armed Eto timers, then `run_command`
 invoked `_mhScanToTerrain`. Timers set the controls, asserted source-only document state and
-captured the viewport with Show source off/on. Buildings now shade in `PostDrawObjects`; source
-suppression uses `PreDrawObject`. Both captures were nonblank and inspected. The source-off view
+captured the viewport with Show source off/on. Buildings shade in `PostDrawObjects` with the source
+hidden and draw as crease lines over it when shown; source suppression uses `PreDrawObject`. A modal
+dialog blocks later `run_csharp` calls until it closes, so screenshots during the preview come from the
+armed timer (`CaptureToBitmap`), not a second script. Both captures were nonblank and inspected. The source-off view
 shows roofs and linework without selection highlight. The real dialog was captured at PID-filtered
 GetWindowRect bounds, including the road controls and contour/area explanation.
 

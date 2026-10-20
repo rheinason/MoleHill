@@ -1,7 +1,7 @@
 namespace MoleHill.Core.Scan;
 
 /// <summary>
-/// Square-window grey morphology and connected components on row-major lattices. Min and max filters are
+/// Square-window grey morphology, disc openings by exact distance and connected components on row-major lattices. Min and max filters are
 /// separable (rows, then columns) and run in time independent of the window, with a monotonic queue per
 /// line, so the 48 m windows of the ground filter cost what a 1 m one does. NaN is no data: it never wins
 /// a min or a max, and a window with no data at all gives NaN.
@@ -178,5 +178,75 @@ internal static class GridMorphology
         }
 
         return result;
+    }
+
+    /// <summary>
+    /// Opening by a disc of <paramref name="radius"/> nodes: drops true parts narrower than its diameter in any
+    /// direction (a square window passes a diagonal strip 1.4 times wider). The lattice edge does not erode.
+    /// </summary>
+    public static bool[] OpenMaskDisc(bool[] mask, int columns, int rows, double radius, CancellationToken token = default)
+    {
+        double squared = radius * radius;
+        float[] gap = SquaredDistance(node => !mask[node], columns, rows, token);
+        float[] core = SquaredDistance(node => gap[node] > squared, columns, rows, token);
+        var opened = new bool[mask.Length];
+        for (int node = 0; node < mask.Length; node++) opened[node] = mask[node] && core[node] <= squared;
+        return opened;
+    }
+
+    /// <summary>Exact squared Euclidean distance in cells to the nearest feature node (Felzenszwalb-Huttenlocher).</summary>
+    public static float[] SquaredDistance(Func<int, bool> feature, int columns, int rows, CancellationToken token)
+    {
+        const float Far = 1e20f;
+        var distance = new float[columns * rows];
+        for (int node = 0; node < distance.Length; node++) distance[node] = feature(node) ? 0 : Far;
+        var options = new ParallelOptions { CancellationToken = token };
+        Parallel.For(0, rows, options, () => new Scratch(Math.Max(columns, rows)), (row, _, scratch) =>
+        {
+            Pass(distance, row * columns, 1, columns, scratch);
+            return scratch;
+        }, _ => { });
+        Parallel.For(0, columns, options, () => new Scratch(Math.Max(columns, rows)), (column, _, scratch) =>
+        {
+            Pass(distance, column, columns, rows, scratch);
+            return scratch;
+        }, _ => { });
+        return distance;
+    }
+
+    private sealed class Scratch(int length)
+    {
+        public readonly double[] F = new double[length], Z = new double[length + 1];
+        public readonly int[] V = new int[length];
+    }
+
+    /// <summary>One lower envelope of parabolas along a row or column, in place; nodes with no feature in reach add none.</summary>
+    private static void Pass(float[] values, int start, int stride, int count, Scratch s)
+    {
+        int k = -1;
+        for (int q = 0; q < count; q++)
+        {
+            s.F[q] = values[start + q * stride];
+            if (s.F[q] >= 1e20) continue;
+            double cut = double.NegativeInfinity;
+            while (k >= 0)
+            {
+                int v = s.V[k];
+                cut = (s.F[q] + (double)q * q - (s.F[v] + (double)v * v)) / (2.0 * (q - v));
+                if (cut > s.Z[k]) break;
+                k--;
+            }
+            if (k < 0) cut = double.NegativeInfinity;
+            k++;
+            s.V[k] = q; s.Z[k] = cut; s.Z[k + 1] = double.PositiveInfinity;
+        }
+        if (k < 0) return;
+        k = 0;
+        for (int q = 0; q < count; q++)
+        {
+            while (s.Z[k + 1] < q) k++;
+            int v = s.V[k];
+            values[start + q * stride] = (float)((q - v) * (double)(q - v) + s.F[v]);
+        }
     }
 }

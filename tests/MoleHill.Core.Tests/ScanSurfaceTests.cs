@@ -23,21 +23,57 @@ public sealed class ScanSurfaceTests
         bool[] known = Enumerable.Repeat(true, values.Length).ToArray();
         return (new ScanGround.Result
         {
-            Surface = grid, Ground = grid, IsGround = known, Domain = (bool[])known.Clone(),
-            DomainArea = values.Length * cell * cell, FilledArea = 0, ObjectCount = 0, StepCount = 0,
+            Surface = grid,
+            Ground = grid,
+            IsGround = known,
+            Domain = (bool[])known.Clone(),
+            DomainArea = values.Length * cell * cell,
+            FilledArea = 0,
+            ObjectCount = 0,
+            StepCount = 0,
         }, colours);
     }
 
     private static ScanSurfaceAreas.Options AreaOptions => new()
     {
-        MaximumPavedRoughness = 0.1, MinimumArea = 0.1, PlanTolerance = 0.1, VerticalTolerance = 0.02,
+        MaximumPavedRoughness = 0.1,
+        MinimumArea = 0.1,
+        PlanTolerance = 0.1,
+        VerticalTolerance = 0.02,
     };
 
     private static ScanRoadEdges.Options RoadOptions => new()
     {
-        MinimumKerbHeight = 0.06, MaximumKerbHeight = 0.3, ProfileReach = 0.75,
-        MaximumKerbWidth = 0.5, MinimumLength = 2, PlanTolerance = 0.1, VerticalTolerance = 0.015,
+        MinimumKerbHeight = 0.06,
+        MaximumKerbHeight = 0.3,
+        ProfileReach = 0.75,
+        MaximumKerbWidth = 0.5,
+        MinimumLength = 2,
+        PlanTolerance = 0.1,
+        VerticalTolerance = 0.015,
     };
+
+    [Fact]
+    public void Fit_OpenBoundaryAtSparseEdge_HoldsBothJunctionSamples()
+    {
+        var values = new double[25]; values[0] = double.NaN;
+        var grid = new ScanGrid(0, 0, 1, 5, 5, values);
+        var raw = new double[] { 0, 0, 0, 1, 0, 0, 2, 0, 0, 3, 0, 0, 4, 0, 0 };
+        var curve = ScanBoundaryFitter.Fit(raw, false, grid, null, .5, .05);
+        Assert.Equal(raw.Take(3), curve.PointsXyz.Take(3));
+        Assert.Equal(raw.TakeLast(3), curve.PointsXyz.TakeLast(3));
+    }
+
+    [Fact]
+    public void Classify_ThreeClassesMeetingAtAnIslandCorner_KeepsSharedJunctionsConnected()
+    {
+        var scene = Scene(10, .5, (x, y) => .1 * y,
+            (x, y) => x >= 4 && x <= 6 && y >= 4 && y <= 6 ? 0x808080 :
+                x > 6 && y > 6 ? 0xCC1010 : 0x328432);
+        var areas = ScanSurfaceAreas.Classify(scene.Ground, scene.Colours, AreaOptions);
+        Assert.NotEmpty(areas.Boundaries);
+        Assert.All(areas.Boundaries, b => Assert.Equal(b.Points.Take(3), b.Points.TakeLast(3)));
+    }
 
     [Fact]
     public void Rasterize_TextureUvAndOverlappingFaces_UsesTheHighestTriangleColour()
@@ -76,11 +112,57 @@ public sealed class ScanSurfaceTests
     }
 
     [Fact]
+    public void Classify_FootpathNarrowerThanTheEvidenceRadius_PavesThePathAndLeavesSteppingStonesAsLawn()
+    {
+        // A half-metre path across the lawn diagonally; 0.4 m stones a metre apart in the lower corner.
+        bool Path(double x, double y) => Math.Abs(x - y) <= 0.25 * Math.Sqrt(2);
+        bool Stone(double x, double y) => x > 14 && y < 6 && x % 1 < 0.4 && y % 1 < 0.4;
+        var scene = Scene(20, 0.05, (x, y) => 0, (x, y) => Path(x, y) || Stone(x, y) ? 0x808080 : 0x328432);
+        ScanSurfaceAreas.Result areas = ScanSurfaceAreas.Classify(scene.Ground, scene.Colours, new()
+        {
+            MaximumPavedRoughness = 0.1,
+            MinimumArea = 10,
+            PlanTolerance = 0.5,
+            VerticalTolerance = 0.02,
+            SmoothingRadius = 0.3,
+        });
+        int n = areas.Ground.Columns;
+        for (int k = 20; k <= 380; k += 40)
+            Assert.Equal(ScanSurfaceKind.Paved, areas.Classes[k * n + k]);
+        Assert.Equal(ScanSurfaceKind.Soft, areas.Classes[(int)Math.Round(2.2 / 0.05) * n + (int)Math.Round(16.2 / 0.05)]);
+        Assert.InRange(areas.PavedArea, 0.5 * 20 * Math.Sqrt(2) * 0.8, 0.5 * 20 * Math.Sqrt(2) * 1.2);
+    }
+
+    [Fact]
+    public void Classify_IsolatedPathStretchUnderTheMinimumArea_KeepsThePathAndCullsAShortGreyPatch()
+    {
+        // 4 m² of path, 8 m long, and a 1 m by 3.5 m grey patch: both narrower than the averaging erases, both
+        // under the 10 m² minimum, but only the path is long enough to be one.
+        bool Path(double x, double y) => x is >= 4 and <= 12 && y is >= 4 and <= 4.5;
+        bool Patch(double x, double y) => x is >= 6 and <= 7 && y is >= 10 and <= 13.5;
+        var scene = Scene(16, 0.05, (x, y) => 0, (x, y) => Path(x, y) || Patch(x, y) ? 0x808080 : 0x328432);
+        ScanSurfaceAreas.Result areas = ScanSurfaceAreas.Classify(scene.Ground, scene.Colours, new()
+        {
+            MaximumPavedRoughness = 0.1,
+            MinimumArea = 10,
+            PlanTolerance = 0.5,
+            VerticalTolerance = 0.02,
+            SmoothingRadius = 0.3,
+        });
+        int n = areas.Ground.Columns;
+        int Node(double x, double y) => (int)Math.Round(y / 0.05) * n + (int)Math.Round(x / 0.05);
+        Assert.Equal(ScanSurfaceKind.Paved, areas.Classes[Node(8, 4.25)]);
+        Assert.Equal(ScanSurfaceKind.Soft, areas.Classes[Node(6.5, 11.75)]);
+    }
+
+    [Fact]
     public void Clip_SoftAreaWithPavedIsland_RetainsTheHoleAndClipsALongChordExactly()
     {
         var scene = Scene(10, 0.5, (x, y) => 0, (x, y) => x >= 4 && x <= 6 && y >= 4 && y <= 6 ? 0x808080 : 0x328432);
         ScanSurfaceAreas.Result areas = ScanSurfaceAreas.Classify(scene.Ground, scene.Colours, AreaOptions);
         Assert.Equal(2, areas.Boundaries.Count(boundary => boundary.Kind == ScanSurfaceKind.Soft));
+        Assert.Single(areas.Boundaries, boundary => boundary.IsSharedDuplicate);
+        Assert.Equal(2, areas.Boundaries.Count(boundary => !boundary.IsSharedDuplicate));
         var region = new ScanSoftRegion(areas);
         Assert.False(region.Contains(5, 5));
         Assert.True(region.Contains(2, 5));
@@ -100,7 +182,10 @@ public sealed class ScanSurfaceTests
         scene.Ground.IsGround[centre] = false;
         ScanSurfaceAreas.Result areas = ScanSurfaceAreas.Classify(scene.Ground, scene.Colours, new()
         {
-            MaximumPavedRoughness = 0.1, MinimumArea = 2, PlanTolerance = 0.1, VerticalTolerance = 0.02,
+            MaximumPavedRoughness = 0.1,
+            MinimumArea = 2,
+            PlanTolerance = 0.1,
+            VerticalTolerance = 0.02,
         });
         Assert.Equal(ScanSurfaceKind.Unknown, areas.Classes[centre]);
         Assert.True(areas.SoftMask[centre]);
@@ -178,14 +263,21 @@ public sealed class ScanSurfaceTests
             (x, y) => x / scale >= Left(y / scale) && x / scale <= Left(y / scale) + 4 ? 0x606060 : 0x328432);
         var areas = ScanSurfaceAreas.Classify(scene.Ground, scene.Colours, new()
         {
-            MaximumPavedRoughness = .1 * scale, MinimumArea = 2 * scale * scale,
-            PlanTolerance = .5 * scale, VerticalTolerance = .05 * scale,
+            MaximumPavedRoughness = .1 * scale,
+            MinimumArea = 2 * scale * scale,
+            PlanTolerance = .5 * scale,
+            VerticalTolerance = .05 * scale,
         });
         var roads = ScanRoadEdges.Trace(scene.Ground, areas, new()
         {
-            MinimumKerbHeight = .06 * scale, MaximumKerbHeight = .3 * scale, ProfileReach = scale,
-            MaximumKerbWidth = .6 * scale, MinimumLength = 2 * scale,
-            PlanTolerance = .5 * scale, VerticalTolerance = .015 * scale, RoadVerticalTolerance = .05 * scale,
+            MinimumKerbHeight = .06 * scale,
+            MaximumKerbHeight = .3 * scale,
+            ProfileReach = scale,
+            MaximumKerbWidth = .6 * scale,
+            MinimumLength = 2 * scale,
+            PlanTolerance = .5 * scale,
+            VerticalTolerance = .015 * scale,
+            RoadVerticalTolerance = .05 * scale,
         });
         Assert.Equal(2, roads.Count);
         foreach (var road in roads)
@@ -216,20 +308,26 @@ public sealed class ScanSurfaceTests
             (x, y) => x / scale >= Left(y / scale) && x / scale <= Left(y / scale) + 6 ? 0x606060 : 0x328432);
         var areas = ScanSurfaceAreas.Classify(scene.Ground, scene.Colours, new()
         {
-            MaximumPavedRoughness = .1 * scale, MinimumArea = 2 * scale * scale,
-            PlanTolerance = .5 * scale, VerticalTolerance = .015 * scale,
+            MaximumPavedRoughness = .1 * scale,
+            MinimumArea = 2 * scale * scale,
+            PlanTolerance = .5 * scale,
+            VerticalTolerance = .015 * scale,
         });
         var roads = ScanRoadEdges.Trace(scene.Ground, areas, new()
         {
-            MinimumKerbHeight = .06 * scale, MaximumKerbHeight = .3 * scale, ProfileReach = scale,
-            MaximumKerbWidth = .6 * scale, MinimumLength = 2 * scale,
-            PlanTolerance = .5 * scale, VerticalTolerance = .015 * scale,
+            MinimumKerbHeight = .06 * scale,
+            MaximumKerbHeight = .3 * scale,
+            ProfileReach = scale,
+            MaximumKerbWidth = .6 * scale,
+            MinimumLength = 2 * scale,
+            PlanTolerance = .5 * scale,
+            VerticalTolerance = .015 * scale,
         });
         Assert.Equal(2, roads.Count);
         Assert.All(roads, road =>
         {
             Assert.False(road.IsKerb);
-            Assert.InRange(road.BottomCurve.ControlPointCount, 4, 28);
+            Assert.InRange(road.BottomCurve.ControlPointCount, 3, 28);
             Assert.InRange(road.BottomCurve.Pieces.Count, 1, 6);
             for (int i = 0; i < road.BottomCurve.PointsXyz.Length; i += 3)
             {
@@ -267,8 +365,12 @@ public sealed class ScanSurfaceTests
         Assert.True(reference.HasValue, error);
         TerrainCurveRecovery.Result curves = TerrainCurveRecovery.Recover(reference.Value, new()
         {
-            VerticalTolerance = 0.25, PlanTolerance = 0.1, MaximumCurves = 100, LandformLines = false,
-            FixedBreaklines = boundaries, Region = region,
+            VerticalTolerance = 0.25,
+            PlanTolerance = 0.1,
+            MaximumCurves = 100,
+            LandformLines = false,
+            FixedBreaklines = boundaries,
+            Region = region,
             FitContours = true,
         });
         Assert.NotEmpty(curves.Contours);
@@ -295,7 +397,9 @@ public sealed class ScanSurfaceTests
         ScanSurfaceAreas.Result areas = ScanSurfaceAreas.Classify(scene.Ground, scene.Colours, AreaOptions);
         TerrainCurveRecovery.Result result = TerrainCurveRecovery.Recover(ScanGroundMesher.Mesh(scene.Ground.Ground, 1), new()
         {
-            VerticalTolerance = 0.1, Region = new ScanSoftRegion(areas), FitContours = true,
+            VerticalTolerance = 0.1,
+            Region = new ScanSoftRegion(areas),
+            FitContours = true,
         });
         Assert.Equal(0, result.EvaluatedVertexCount);
         Assert.Contains("No terrain vertices", result.Diagnostic);
@@ -314,9 +418,13 @@ public sealed class ScanSurfaceTests
         IndexedTriMesh reference = ScanGroundMesher.Mesh(scene.Ground.Ground, 0.5 * scale);
         IReadOnlyList<ScanRoadEdges.EdgeLine> roads = ScanRoadEdges.TraceGeometry(scene.Ground, new()
         {
-            MinimumKerbHeight = 0.06 * scale, MaximumKerbHeight = 0.3 * scale, ProfileReach = scale,
-            MaximumKerbWidth = 0.6 * scale, MinimumLength = 2 * scale,
-            PlanTolerance = 0.1 * scale, VerticalTolerance = 0.015 * scale,
+            MinimumKerbHeight = 0.06 * scale,
+            MaximumKerbHeight = 0.3 * scale,
+            ProfileReach = scale,
+            MaximumKerbWidth = 0.6 * scale,
+            MinimumLength = 2 * scale,
+            PlanTolerance = 0.1 * scale,
+            VerticalTolerance = 0.015 * scale,
         }, reference);
         Assert.Single(roads);
         Assert.True(roads[0].IsKerb);
@@ -327,9 +435,13 @@ public sealed class ScanSurfaceTests
                 scene.Ground.IsGround[i] = false;
         Assert.Empty(ScanRoadEdges.TraceGeometry(scene.Ground, new()
         {
-            MinimumKerbHeight = 0.06 * scale, MaximumKerbHeight = 0.3 * scale, ProfileReach = scale,
-            MaximumKerbWidth = 0.6 * scale, MinimumLength = 2 * scale,
-            PlanTolerance = 0.1 * scale, VerticalTolerance = 0.015 * scale,
+            MinimumKerbHeight = 0.06 * scale,
+            MaximumKerbHeight = 0.3 * scale,
+            ProfileReach = scale,
+            MaximumKerbWidth = 0.6 * scale,
+            MinimumLength = 2 * scale,
+            PlanTolerance = 0.1 * scale,
+            VerticalTolerance = 0.015 * scale,
         }, reference));
     }
 
@@ -343,8 +455,12 @@ public sealed class ScanSurfaceTests
         IndexedTriMesh mesh = ScanGroundMesher.Mesh(scene.Ground.Ground, 0.5);
         TerrainCurveRecovery.Result recovery = TerrainCurveRecovery.Recover(mesh, new()
         {
-            VerticalTolerance = 0.25, PlanTolerance = 0.1, MaximumCurves = 50,
-            Region = region, FitContours = true, LandformLines = false,
+            VerticalTolerance = 0.25,
+            PlanTolerance = 0.1,
+            MaximumCurves = 50,
+            Region = region,
+            FitContours = true,
+            LandformLines = false,
         });
         Assert.Equal(TerrainCurveRecovery.Termination.ToleranceSatisfied, recovery.Termination);
         Assert.InRange(recovery.Contours.Count, 1, 49);

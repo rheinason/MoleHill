@@ -38,6 +38,8 @@ public static partial class ScanBuildings
         for (int i = 0; i < model.Planes.Count; i++)
             for (int j = i + 1; j < model.Planes.Count; j++)
             {
+                if (model.Meets != null && !model.Meets(i, j))
+                    continue;
                 RoofPlane p = model.Planes[i], q = model.Planes[j];
                 double a = p.X - q.X, b = p.Y - q.Y, c = p.Z - q.Z;
                 double length = Math.Sqrt(a * a + b * b);
@@ -116,8 +118,9 @@ public static partial class ScanBuildings
             }
         if (model.ExtraCuts.Count > 0 || model.Kind == ScanRoofKind.PlaneArrangement && options.MinimumRoofDetail > 0)
         {
+            // A composite's parts already respect the roof detail; a narrow gable half within one is no detail.
             SimplifySpatialPatches(cells, edgeUses, model, options.MinimumArea * .03,
-                options.CancellationToken, options.MinimumRoofDetail);
+                options.CancellationToken, model.Kind == ScanRoofKind.Composite ? 0 : options.MinimumRoofDetail);
             RegularizeRoofJunctions(cells, cellXy, xyPoints, edgeUses, model, baseZ, epsilon, options.CancellationToken);
         }
         for (int cellIndex = 0; cellIndex < cells.Count; cellIndex++)

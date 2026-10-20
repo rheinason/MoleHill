@@ -123,7 +123,7 @@ internal static partial class ScanToTerrainCommandService
         for (int i = 0; i < result.Buildings.Count; i++)
         {
             ScanBuildings.Building building = result.Buildings[i];
-            ObjectAttributes attributes = onLayer("Buildings", Color.FromArgb(170, 135, 110), $"Building {building.RoofKind}");
+            ObjectAttributes attributes = onLayer(TerrainCurveExtractionStyle.Buildings.Layer, TerrainCurveExtractionStyle.Buildings.Colour, $"Building {building.RoofKind}");
             attributes.SetUserString("MoleHill.Scan.RoofKind", building.RoofKind.ToString());
             attributes.SetUserString("MoleHill.Scan.RoofFallback", building.IsFallback ? "Yes" : "No");
             attributes.SetUserString("MoleHill.Scan.GroundHeight", Format(building.GroundHeight));

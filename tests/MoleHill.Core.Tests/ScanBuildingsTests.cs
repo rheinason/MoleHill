@@ -288,11 +288,11 @@ public sealed class ScanBuildingsTests
     }
 
     [Fact]
-    public void Extract_TwoRoofLevels_ReconstructsTheirStepAsAClosedArrangement()
+    public void Extract_TwoRoofLevels_ReconstructsTheirStepAsTwoClosedParts()
     {
         var scene = Scene((u, v) => u < 4 ? 6 : 9 + .4 * v);
         var building = Assert.Single(ScanBuildings.Extract(scene.Scan, scene.Ground, null, Options()).Buildings);
-        Assert.Equal(ScanRoofKind.PlaneArrangement, building.RoofKind);
+        Assert.Equal(ScanRoofKind.Composite, building.RoofKind);
         Assert.InRange(building.RoofRms, 0, .05);
         AssertWatertight(building.Solid);
         var projector = new MeshHeightProjector(building.Solid.Vertices, building.Solid.VertexCount, building.Solid.Faces, building.Solid.FaceCount);
@@ -300,6 +300,71 @@ public sealed class ScanBuildingsTests
         Assert.Equal(6, lowRoof, 6);
         Assert.True(projector.TryGetHeightExtremes(15, 10, .001, out _, out double highRoof));
         Assert.Equal(9, highRoof, 6);
+    }
+
+    private static ScanBuildings.Options NativeOptions() => new()
+    {
+        MinimumArea = 20, MinimumHeight = 2, FootprintTolerance = .5, RoofTolerance = .2,
+        MinimumRoofDetail = 2, MaximumRoofFaces = 12,
+    };
+
+    private static void AssertRoof(ScanBuildings.Building building, Func<double, double, double> roof, Func<double, double, bool> footprint)
+    {
+        var projector = new MeshHeightProjector(building.Solid.Vertices, building.Solid.VertexCount, building.Solid.Faces, building.Solid.FaceCount);
+        var bad = new List<string>();
+        for (double u = -5.75; u <= 5.75; u += .5)
+            for (double v = -3.75; v <= 3.75; v += .5)
+                // Where the roof steps, the scan's own triangles straddle the step; probe either side of it.
+                if (footprint(u, v) && new[] { (.3, 0.0), (-.3, 0.0), (0.0, .3), (0.0, -.3) }.All(d => Math.Abs(roof(u + d.Item1, v + d.Item2) - roof(u, v)) < .3))
+                {
+                    Assert.True(projector.TryGetHeightExtremes(u + 10, v + 10, .001, out _, out double high));
+                    if (Math.Abs(high - roof(u, v)) > .05) bad.Add($"({u}, {v}) {high:F2}/{roof(u, v):F2}");
+                }
+        Assert.True(bad.Count == 0, building.Diagnostic + " Wrong heights at " + string.Join(", ", bad));
+    }
+
+    [Fact]
+    public void Extract_GableHouseWithLowerFlatAnnex_GivesEachPartItsOwnRoof()
+    {
+        // The main roof used to run on over the annex: one simple roof per building, flagged approximate.
+        double Roof(double u, double v) => u < 2 ? 6 + .5 * (4 - Math.Abs(v)) : 4.5;
+        bool Footprint(double u, double v) => Math.Abs(u) <= 6 && Math.Abs(v) <= 4;
+        var scene = Scene(Roof, Footprint);
+        var building = Assert.Single(ScanBuildings.Extract(scene.Scan, scene.Ground, null, NativeOptions()).Buildings);
+        Assert.Equal(ScanRoofKind.Composite, building.RoofKind);
+        Assert.False(building.IsFallback, building.Diagnostic);
+        Assert.InRange(building.RoofRms, 0, .05);
+        AssertWatertight(building.Solid);
+        AssertRoof(building, Roof, Footprint);
+    }
+
+    [Fact]
+    public void Extract_LShapedHippedHouseAroundALowerFlatBlock_JoinsTheWingsInValleys()
+    {
+        // The leg's roof reaches into the main wing up to its ridge, where the higher roof wins; the flat
+        // block in the inner corner is what no single arrangement of the measured planes explains.
+        double Main(double u, double v) => 6 + .5 * Math.Min(2 - Math.Abs(v + 2), 6 - Math.Abs(u));
+        double Leg(double u, double v) => 6 + .5 * Math.Min(2 - Math.Abs(u - 4), 4 - v);
+        double Roof(double u, double v) => v > 0 && u < 2 ? 4.5 :
+            Math.Max(v <= 0 ? Main(u, v) : double.NegativeInfinity, u >= 2 && v >= -2 ? Leg(u, v) : double.NegativeInfinity);
+        bool Footprint(double u, double v) => Math.Abs(u) <= 6 && Math.Abs(v) <= 4;
+        var scene = Scene(Roof, Footprint);
+        var building = Assert.Single(ScanBuildings.Extract(scene.Scan, scene.Ground, null, NativeOptions()).Buildings);
+        Assert.Equal(ScanRoofKind.Composite, building.RoofKind);
+        Assert.False(building.IsFallback, building.Diagnostic);
+        AssertRoof(building, Roof, Footprint);
+        Assert.InRange(building.RoofRms, 0, .05);
+        AssertWatertight(building.Solid);
+        // Valleys, not walls: a step between the wings would be a face without plan area standing on the eaves.
+        var walls = building.PlanarFaces.Where(face => face.Loops[0].Where((_, k) => k % 3 == 2).Min() > 5.5 &&
+            Math.Abs(Enumerable.Range(0, face.Loops[0].Length / 3).Sum(i =>
+            {
+                double[] loop = face.Loops[0];
+                int a = i * 3, b = (a + 3) % loop.Length;
+                return loop[a] * loop[b + 1] - loop[b] * loop[a + 1];
+            })) <= 1e-6).ToArray();
+        Assert.True(walls.Length == 0, building.Diagnostic + " Steps: " + string.Join(" / ", walls.Select(face =>
+            string.Join(" ", Enumerable.Range(0, face.Loops[0].Length / 3).Select(i => $"({face.Loops[0][i * 3] - 10:F2},{face.Loops[0][i * 3 + 1] - 10:F2},{face.Loops[0][i * 3 + 2]:F2})")))));
     }
 
     [Theory]
@@ -356,7 +421,7 @@ public sealed class ScanBuildingsTests
             MaximumRoofFaces = budget,
         }).Buildings);
         Assert.Equal(fallback, building.IsFallback);
-        if (!fallback) Assert.Equal(ScanRoofKind.PlaneArrangement, building.RoofKind);
+        if (!fallback) Assert.Equal(ScanRoofKind.Composite, building.RoofKind);
         AssertWatertight(building.Solid);
     }
 

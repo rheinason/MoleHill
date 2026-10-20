@@ -173,7 +173,14 @@ TriangleNet (vendored)  ←  MoleHill.Core  ←  MoleHill.Grasshopper (GH host)
   a completed preview. Tolerance is checked against inferred ground vertices, not hidden surveyed
   ground. A spent curve budget is reported with the residual error. Phase 2's `ScanWalls` combines narrow
   bands of unexplained rises into paired measured top/toe rails, rejecting short fragments, broad ramps
-  and fits outside the footprint. The route fitter supplies light NURBS on `Walls and edges`.
+  and fits outside the footprint. `ScanAlignmentFitter` supplies paired supported line/arc plans with
+  independent height profiles; `ScanCurveGeometry` retains rational pieces and inferred intervals.
+  `ScanCurveBuilder` builds identical editable NURBS for preview and Keep on `Walls and edges`.
+  Walls require observed ground; original mesh/cloud samples establish kerb evidence. Short compatible
+  gaps may be bridged, with explicit inferred intervals. `ScanSurfaceGraph` fits shared class interfaces
+  once; duplicate complete loops are drawn once while remaining in clipping topology. Shared junction
+  endpoints remain held through sparse height sampling. `ScanMaskCleaner` removes local raster spurs
+  without changing observation flags.
   `TerrainCurveRecovery.ConstrainReference` inserts their sampled lines before contouring, excluding
   old averages on the lines, and `FixedBreaklines` holds them through every rebuild, including landform
   trials. `TerrainCurveRecovery.Breaklines.cs` owns reference preparation; the root partial owns recovery.
@@ -181,12 +188,23 @@ TriangleNet (vendored)  ←  MoleHill.Core  ←  MoleHill.Grasshopper (GH host)
   `ScanMeshReader` captures diffuse bitmap bytes and face-corner UVs on the UI thread, preserving scan
   seams; vertex colours are the fallback. Pure `ScanTerrainPipeline` builds the wall-constrained
   reference before `ScanSurfaceAreas` classifies observed ground from chromaticity, slope and roughness.
-  Drawing masks close only sub-minimum-area holes; unknown roofs remain unobserved. Closed paved/soft
-  boundaries follow the clean reference. `ScanBoundaryFitter` first removes raster steps in plan at the
-  physical tolerance, then drapes/fits their height; height changes on slopes cannot pin grid corners.
+  Classification runs on a colour lattice up to four times finer than the height grid
+  (`ScanColourLattice`, rasterised from the texture): `ScanSurfaceClassifier` scores paved/vegetated per
+  node, averages the scores over a physical radius (0.6 x plan tolerance) and then decides, so outlines
+  never trace texel noise or the height raster's staircase; paved strips narrower than the average can
+  see (footpaths) are added back from a third-width average. Small enclosed objects (cars, shrubs) take the
+  surrounding class in drawing masks only; unknown roofs remain unobserved. `ScanSurfaceGraph` traces the
+  fine partition once per shared interface (soft ground split at necks by `ScanSoftNecks`);
+  `ScanOutlineFitter` finds and squares corners, smooths between them, holds long straights on every
+  outline, adds arcs (paved) or quadratic splines (natural) between, then drapes heights from the clean
+  reference. Crossing or cusped interfaces fall back to lines (`Geometry/PolylineCrossings`).
+  `ScanGroundCleaner.Lower` removes small standing objects (cars, bushes) from the reference.
   `ScanRoadEdges` confirms narrow persistent measured steps as
   kerb top/bottom pairs, otherwise writes a single colour edge; without colour it traces measured steps
-  only. Paved boundaries and kerb rails join `FixedBreaklines`. `ScanSoftRegion` clips contours, spots
+  only; with area outlines drawn it traces kerbs alone. Kerb rails and paved outlines join
+  `FixedBreaklines` (paving is carried by its draped edges); soft outlines are drawings. Recovery contours
+  smooth soft ground at an interval and measures paving and rough soft ground at a looser accuracy with
+  spot heights only (`ScanRecoveryRegion`, `TerrainCurveRecovery.Interval.cs`). `ScanSoftRegion` clips contours, spots
   and deviation to fitted soft-area outlines through row-indexed edges, retaining holes. The panel's
   physical minimum patch area controls small components/drawing holes (default 10 m²). Each error pick adds only its nearest clipped fragment.
   `.Region.cs` owns clipping; `.Fitting.cs` fits contours before reconstruction, with a linear fallback
@@ -194,7 +212,8 @@ TriangleNet (vendored)  ←  MoleHill.Core  ←  MoleHill.Grasshopper (GH host)
   area/road curves; `TerrainCurveExtractionGeometry` builds identical fitted contours for preview and output.
   Phase 4's `ScanBuildings` consumes raised surface regions and original upward scan faces; it does not
   modify terrain inputs. Its footprint/plane/roof/solid/junction partials regularise outlines, reject
-  vegetation using colour plus coherent planes, fit roof templates and general arrangements, and
+  vegetation using colour plus coherent planes, fit roof templates, composites of parts under simple
+  roofs (`.Parts`) and general arrangements, and
   validate closed shells. Plan-only footprint thinning and combined facade supports suppress raster
   teeth before wall construction. Every chosen shell is measured against roof samples before output,
   with explicit robust fit, coverage and fallback metadata. `ScanBuildingFaces` coalesces planar regions in
@@ -214,13 +233,20 @@ TriangleNet (vendored)  ←  MoleHill.Core  ←  MoleHill.Grasshopper (GH host)
   `TerrainCurveExtractionPreview` owns disposable native display
   geometry. Preview changes no document objects or source visibility. Keep validates building Breps
   before the existing shared output writer creates the fresh root/group. See [Scan to Terrain](scan-to-terrain.md).
-  The picked source is deselected and its drawing is suppressed in `PreDrawObject` until Show source
-  is checked; `ObjectCulling` must not remove the last document object because it can skip foreground
+  The picked source is deselected; Show source (on by default) toggles drawing it via `PreDrawObject`,
+  with buildings drawn as crease lines over it and shaded without it; `ObjectCulling` must not remove the last document object because it can skip foreground
   output. Classification sample points are opt-in. Dark green contours have exactly level control Z;
   muted draped classification outlines carry ground heights and explain that role in the panel.
-  Unpaired roads use `ScanBoundaryFitter.Profile`: bounded plan cleanup chooses straight XY segments,
-  then a station/elevation fit adds height controls on those segments. Independent host road alignment
-  and height tolerances do not alter measured kerb accuracy. Roof detail suppression and the face
+  Built edges share the line/arc fitter at the physical built-edge tolerance; natural boundaries use
+  bounded plan cleanup and continuous profile fitting. Colour-only paving edges are suppressed when
+  area outlines already supply them. `ScanGroundCleaner` bounds isolated height-noise changes away
+  from accepted lines, preserving both original and filtered references and reporting displacement.
+  Scan recovery's `TerrainRecoveryPolicy` selects interval mode: contours every Contour interval on smooth
+  soft ground, redundant ones removed by local trials, then spot heights only where ground misses its own
+  accuracy, up to 2,000 inputs. The `.Informative` partial (error-driven selection) remains for policy
+  callers without an interval; other callers retain legacy budget behavior. Both residual and termination are explicit.
+  The scan panel shows outputs, preview and terrain accuracy first, with detailed controls collapsed
+  under Advanced. Built-edge default is 0.25 m, natural plan 0.5 m, bridge limit 1 m; all scale by units. Roof detail suppression and the face
   budget are independent. The budget counts actual coalesced roof facets including internal step
   walls. Simple pitched fallbacks compete with the median extrusion on measured final-shell RMS;
   approximate templates require 50% within tolerance and 85% coverage, remain explicitly marked, and
@@ -423,7 +449,8 @@ conform's 8x snap (`ConformToTerrain`, still the default) put one seam vertex in
 its curve on a 0.2 m remesh, up to 7 cm. Wall faces, narrower in plan than that conform radius, take no
 cut of their own; they only follow the splits their neighbours make, so the seam crosses a wall within
 the wall's own plan width.
-Rhino's zone stage orders boundaries through Core `ZonePriorityResolver` using stack position, source
+Rhino's zone stage reads closed curves, horizontal planar surfaces and hatches; a surface or hatch
+zones by its outer loops only. It orders boundaries through Core `ZonePriorityResolver` using stack position, source
 order, and optional input elevation. Stack-priority zones separate elevation-sorted runs; this makes
 mixed priority modes deterministic where the former pairwise comparator could cycle. GH does not yet
 carry the complete priority metadata or invoke that ordering; this is part of B7c.

@@ -19,8 +19,7 @@ internal static partial class ScanBoundaryFitter
             flat[i] = 0;
         if (closed && flat.Length >= 6 && flat[0] == flat[^3] && flat[1] == flat[^2])
             flat = flat[..^3];
-        if (straightPlan)
-            flat = SmoothPlan(flat, closed, ground.CellSize, planTolerance);
+        flat = SmoothPlan(flat, closed, ground.CellSize, planTolerance);
         double thinning = straightPlan ? .55 : .65;
         double[] light = closed
             ? TerrainCurveRecovery.SimplifyClosed(flat, planTolerance * thinning, double.PositiveInfinity)
@@ -40,8 +39,7 @@ internal static partial class ScanBoundaryFitter
         }
         if (straightPlan)
             return FitStraightPlan(light, ground, projector, planTolerance, verticalTolerance, cancellationToken);
-        FittedRouteCurve plan = RouteCurveFitter.Fit(new IReadOnlyList<double>[] { light },
-            planTolerance * .25, verticalTolerance, 0, 0, 0);
+        FittedRouteCurve plan = RouteCurveFitter.FitContinuous(light, planTolerance * .25, verticalTolerance, cancellationToken);
         double[] outline = plan.PointsXyz;
         if (closed && Intersects(outline[..^3]))
             outline = light;
@@ -56,16 +54,30 @@ internal static partial class ScanBoundaryFitter
         }
         if (outline.Length >= 3)
             Add(outline[^3], outline[^2]);
+        if (!closed)
+        {
+            // Sparse reference coverage may omit a draped sample. It must never move a
+            // shared graph junction: its original height sample remains the held endpoint.
+            HoldEndpoint(0, false);
+            HoldEndpoint(raw.Length - 3, true);
+        }
         cancellationToken.ThrowIfCancellationRequested();
-        FittedRouteCurve result = RouteCurveFitter.Fit(new IReadOnlyList<double>[] { draped },
-            planTolerance * .1, verticalTolerance, 0, 0, 0);
+        FittedRouteCurve result = RouteCurveFitter.FitContinuous(draped, planTolerance * .1, verticalTolerance, cancellationToken);
         if (!closed || result.PointsXyz.Length < 6 || !Intersects(result.PointsXyz[..^3]))
             return result;
         // Preserve the simple draped plan when smoothing a very narrow loop would cross itself.
-        var segments = new List<IReadOnlyList<double>>();
-        for (int i = 0; i + 5 < draped.Count; i += 3)
-            segments.Add(draped.Skip(i).Take(6).ToArray());
-        return RouteCurveFitter.Fit(segments, planTolerance * .1, verticalTolerance, 0, 0, 0);
+        return FitStraightPlan(light, ground, projector, planTolerance, verticalTolerance, cancellationToken);
+
+        void HoldEndpoint(int source, bool last)
+        {
+            int target = last ? draped.Count - 3 : 0;
+            if (draped.Count >= 3 && Math.Abs(draped[target] - raw[source]) < ground.CellSize * 1e-8 &&
+                Math.Abs(draped[target + 1] - raw[source + 1]) < ground.CellSize * 1e-8)
+            {
+                draped[target] = raw[source]; draped[target + 1] = raw[source + 1]; draped[target + 2] = raw[source + 2];
+            }
+            else draped.InsertRange(last ? draped.Count : 0, raw.Skip(source).Take(3));
+        }
 
         void Add(double x, double y)
         {

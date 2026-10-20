@@ -70,7 +70,17 @@ public static class RouteCurveFitter
         double verticalTolerance,
         double maxGrade,
         double minimumRadius,
-        double referenceRadius)
+        double referenceRadius) => FitCore(legsXyz, planTolerance, verticalTolerance, maxGrade,
+            minimumRadius, referenceRadius, KinkAngleDegrees, default);
+
+    /// <summary>Scan boundaries already distinguish supported corners from raster turns.</summary>
+    internal static FittedRouteCurve FitContinuous(IReadOnlyList<double> xyz, double planTolerance,
+        double verticalTolerance, CancellationToken token) =>
+        FitCore(new[] { xyz }, planTolerance, verticalTolerance, 0, 0, 0, 160, token);
+
+    private static FittedRouteCurve FitCore(IReadOnlyList<IReadOnlyList<double>> legsXyz,
+        double planTolerance, double verticalTolerance, double maxGrade, double minimumRadius,
+        double referenceRadius, double kinkAngle, CancellationToken token)
     {
         if (!(planTolerance > 0.0) || !(verticalTolerance > 0.0))
             throw new ArgumentOutOfRangeException(nameof(planTolerance), "Tolerances must be positive.");
@@ -80,8 +90,9 @@ public static class RouteCurveFitter
         double planDeviation = 0.0, verticalDeviation = 0.0;
         foreach (IReadOnlyList<double> leg in legsXyz)
         {
-            foreach ((int first, int last) in SplitAtKinks(leg))
+            foreach ((int first, int last) in SplitAtKinks(leg, kinkAngle))
             {
+                token.ThrowIfCancellationRequested();
                 Samples? samples = Samples.Create(leg, first, last, limits);
                 if (samples == null)
                     continue;
@@ -108,7 +119,7 @@ public static class RouteCurveFitter
                     curve = new RouteSplineCurve(Degree, new double[] { 0, 0, 0, 0, 1, 1, 1, 1 }, controls);
                 }
                 else
-                    curve = FitPiece(samples, pieceLimits, out plan, out vertical);
+                    curve = FitPiece(samples, pieceLimits, out plan, out vertical, token);
                 pieces.Add(curve);
                 planDeviation = Math.Max(planDeviation, plan);
                 verticalDeviation = Math.Max(verticalDeviation, vertical);
@@ -132,14 +143,14 @@ public static class RouteCurveFitter
     }
 
     /// <summary>Index ranges of a leg's vertices between its ends and every corner sharper than the kink angle.</summary>
-    internal static List<(int First, int Last)> SplitAtKinks(IReadOnlyList<double> xyz)
+    internal static List<(int First, int Last)> SplitAtKinks(IReadOnlyList<double> xyz, double angle = KinkAngleDegrees)
     {
         int count = xyz.Count / 3;
         var ranges = new List<(int, int)>();
         if (count < 2)
             return ranges;
 
-        double cosine = Math.Cos(KinkAngleDegrees * Math.PI / 180.0);
+        double cosine = Math.Cos(angle * Math.PI / 180.0);
         int first = 0;
         int previous = 0;
         for (int i = 1; i < count - 1; i++)
@@ -171,12 +182,13 @@ public static class RouteCurveFitter
         return ranges;
     }
 
-    private static RouteSplineCurve FitPiece(Samples samples, Limits limits, out double planDeviation, out double verticalDeviation)
+    private static RouteSplineCurve FitPiece(Samples samples, Limits limits, out double planDeviation, out double verticalDeviation, CancellationToken token = default)
     {
         var interior = new List<double>();
         Attempt best = Solve(samples, interior, limits);
         for (int round = 0; round < MaximumRefinements; round++)
         {
+            token.ThrowIfCancellationRequested();
             List<(int Span, double Where)> broken = OutsideTolerance(best, samples, limits, interior);
             if (broken.Count == 0)
                 break;

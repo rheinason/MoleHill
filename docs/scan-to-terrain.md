@@ -11,24 +11,64 @@ selection lives in Core and follows the same tolerance/count rules for either so
 
 ## Review and Keep
 
-Each output has an output checkbox and an independent Preview checkbox. Ground/filter controls,
-building size and roof tolerance, wall height/length, colour thresholds, kerb heights, contour
-accuracy/budget and ridge/valley mode are together in the scrollable panel. Ground slope accepts the
-user's preferred slope unit and typed alternatives such as `60%`, `1:3` or `14deg`. Lengths and areas
-show model units; accepted settings retain their physical values when document units change.
+The everyday controls are output/preview checkboxes and Terrain accuracy. Advanced starts collapsed
+and holds ground filtering, built-edge/natural plan tolerances, bridge length, classification, building
+context, recovery limits and ridge/valley mode. Ground slope accepts the user's preferred unit and typed
+alternatives such as `60%`, `1:3` or `14deg`. Accepted lengths/areas retain physical values across units.
 
-Plan tolerance controls the physical detail of area outlines and building footprints. Raster
-steps are removed in plan before boundary heights are sampled, so a tight height tolerance on sloping
-ground does not lock in the grid. Footprints combine facade supports instead of extruding every small
-step. Genuine wings and courtyards are retained. Minimum patch area (default 10 m²) removes smaller
-paved/soft components and fills smaller enclosed gaps in the drawing mask; observed-ground flags stay
-unchanged. Lower it to retain small planted islands. Roads have their own alignment tolerance (default
-1 m) and height tolerance (default 0.2 m, capped by the overall vertical tolerance). Bounded plan
-denoising and thinning choose a small sequence of straight XY segments; height controls stay on those
-segments. Measured kerbs retain their separate 0.015 m profile tolerance.
+Paved/soft classification uses the texture at up to four times the height grid's resolution, with
+class evidence averaged over about 0.3 m before deciding, so outlines follow real edges rather than
+texel noise. Paved outlines are straight runs and circular arcs; natural outlines are smooth splines.
+Built edges prefer supported straight sections and circular arcs (default plan tolerance 0.25 m).
+Their height profiles are fitted separately, so rolling ground cannot bend the plan. Natural boundaries
+use 0.5 m plan tolerance. Walls/kerbs need measured evidence; unsupported complicated candidates are
+omitted and counted. Compatible short gaps can be joined up to 1 m, with observed share and inferred
+station intervals on the output attributes. Paving-class outlines do not establish road or kerb identity.
+When closed area boundaries are enabled, duplicate colour-only paving curves are suppressed.
+
+Minimum patch area (10 m²) removes small components and fills small drawing holes. Local pixel-spur
+cleanup preserves observation flags. Minimum noise feature (0.5 m, zero disables) allows only small
+isolated ground corrections, capped at 0.1 m or half the terrain accuracy, away from accepted lines.
+Before that, small standing objects the ground filter kept as ground (cars, bushes, narrow hedges: up
+to 2.5 m standing 0.4 m above a 3 m opening of the surface, not beside a building or tree) are lowered
+and filled from the ground round them, so paving takes no spot heights on car roofs and lawns no contour
+rings round bushes. The status reports the lowered area, the noise displacement, and both
+filtered-reference and original-reference reconstruction error (the original is after lowering).
+
+The terrain is described the way a designer would draw it. Paving is close to planar between its edges:
+its simplified outlines, draped on the ground, are its breaklines. Soft ground is contoured every
+Contour interval (default 0.5 m); contours that the reconstruction does not need are removed. Spot
+heights are added only where ground still misses its accuracy: Terrain accuracy (0.25 m) on smooth soft
+ground, Paved accuracy (0.5 m) on paving and on rough soft ground (bushes, hedges, bed edges departing
+0.2 m from their surroundings), where contours would otherwise chase scan clutter. Maximum recovery
+inputs (2,000 contours and spots) caps the result. A cap or no-progress result reports its remaining
+error; it does not mean the requested accuracy was achieved. Accuracy is checked at inferred reference
+vertices on classified ground; unknown ground (under buildings and trees) is excluded. It is not an
+overlay-wide or surveyed accuracy certificate. On the reference scan the preview is ready in about 18 s
+in Rhino: 588 contours and 582 spots, smooth soft ground within 0.25 m and paving within 0.5 m. Looser
+accuracy or a wider interval trades accuracy for fewer curves.
+
+Outlines are drawn the way they would be traced by hand: corners found at about 1 to 2 m and kept sharp
+at the crossing of the edges either side, long straight runs held as lines on paved and soft outlines
+alike, splines only between them. Soft ground joined only by strips narrower than 3 m is outlined as
+separate areas. No outline or contour crosses itself or another: a crossing one falls back to straight
+lines. A car between a lawn and a drive carries both edges on through it instead of being outlined.
+Footpaths down to about half a metre wide are paved areas, outlined along both sides, even a stretch
+smaller than the minimum area that moss or grass cuts off from the rest. Where the path itself is green
+enough to read as lawn it is lawn, and a path whose ground the filter removed with a bush beside it is
+not drawn.
+
+Paved and soft areas are also filled as flat solid hatches on Paved zones and Soft zones, a metre below
+the source mesh so they never cover it, as input for MoleHill zones: give a zone the layer and it takes
+the hatches' outer loops. An area inside another (a patio in a lawn) sits a centimetre above it, so with
+Priority by elevation (the default) the inner area wins where the outer loop covers it.
 
 Roof fitting remains a context approximation. A red preview and fallback metadata identify roofs
 that could not be reconstructed reliably; a cleaner footprint does not establish a reliable roof.
+A house with a lower annex, porch or second wing is split along its facades into parts, each under its
+own simple roof (roof kind Composite); a wing's roof may reach into the main house, the higher roof
+winning, so an L of two hipped wings meets in valleys. Canopy and hedges touching a building are trimmed
+from its footprint where the colour is green and no measured roof plane is near.
 Minimum roof detail (default 2 m; zero disables size suppression) removes narrow arrangement patches.
 Maximum roof faces (default 12) applies independently and includes interior vertical roof steps,
 excluding the floor and exterior facades. An over-complex roof can become a simpler flagged pitched
@@ -37,13 +77,17 @@ at least 50% within tolerance, and stay below the measured height bound; the fin
 them against the median extrusion. They retain actual fit errors and do not inherit the 90% fit claim.
 
 Changes debounce, cancel superseded work and recompute asynchronously. Ground, buildings, walls,
-surface classes and the final curves appear as their stages complete. The paved/soft split is drawn
-with optional grey/green sample points (off by default, at most about 50,000). Dark green curves are
-horizontal contours: every control has the contour's single Z value. Muted closed area outlines are
-classification boundaries draped onto the ground; paved outlines also constrain the terrain rebuild.
+surface classes and the final curves appear as their stages complete. The source is shown by default:
+preview curves and points draw over everything, and buildings draw as their crease edges over it (a
+shaded solid would z-fight with the scanned roof). Preview and kept layers share one colour per output
+(`TerrainCurveExtractionStyle`). The paved/soft split is drawn with optional sample points (off by
+default, at most about 50,000). Green curves are horizontal contours: every control has the contour's
+single Z value. Closed area outlines are classification boundaries draped onto the ground: paved
+outlines (dark slate, heaviest) are the paving breaklines; soft outlines (ochre) are drawings. Runs of
+straight pieces keep as one polyline segment of the kept polycurve, editable with PointsOn.
 They carry elevation data and are not horizontal contours. Red roofs identify approximate pitched or
 median-extrusion fallbacks. Preview visibility changes are immediate and do not recompute. The source
-is deselected and suppressed during drawing by default; Show source restores its display. Its document
+is deselected and shown by default (curves draw over it); clearing Show source suppresses it during drawing. Its document
 visibility and geometry stay unchanged, and closing the panel removes this drawing-only suppression.
 
 Keep is disabled until the current settings have a completed preview. Keep validates every native
@@ -65,11 +109,12 @@ quality diagnostics, not a claim of surveyed accuracy or measured performance im
 | Output layer | Meaning |
 |---|---|
 | Border | Outer/inner loops of the retained ground footprint |
-| Contours / Spot heights | Fitted, editable ground inputs; clipped to soft areas when classified |
+| Contours / Spot heights | Fitted, editable ground inputs; clipped to paved and soft ground when classified |
 | Ridges and valleys | Optional lines offered to reduce the recovery curve count |
 | Walls and edges | Paired measured top/toe breaklines, held in every contour reconstruction |
-| Paved areas / Soft areas | Closed draped classification boundaries carrying ground elevation; paved boundaries also constrain recovery |
-| Kerbs / Road edges | Persistent measured narrow steps as pairs; otherwise one colour edge |
+| Paved areas / Soft areas | Closed draped outlines; paved outlines are breaklines in every rebuild, soft outlines are drawings |
+| Paved zones / Soft zones | Flat solid hatches of the same areas beneath the source, as MoleHill zone input |
+| Kerbs / Paving edges | Persistent measured narrow steps as pairs; otherwise one colour edge, when area output is disabled |
 | Buildings | Closed roof context Breps with fit and fallback metadata; never terrain inputs |
 | Ground (check) | Opt-in internal reference mesh |
 
@@ -89,7 +134,7 @@ records roof kind, fallback, RMS, tolerance share, coverage, planar share, plane
 ground/eave/ridge heights and diagnostics. Green complex roofs, low buildings and occluded/noisy scans
 remain recognition limits.
 
-Contour accuracy is vertex-sampled against inferred ground (soft ground when classified), not hidden
+Contour accuracy is vertex-sampled against inferred ground (paved and soft ground when classified), not hidden
 surveyed ground or every point between triangles. Budget exhaustion reports the remaining residual.
 More contours can be necessary than the default 300. There is no automatic promise that a chosen
 budget meets the requested tolerance.
@@ -172,6 +217,11 @@ changes must be established with `validate.ps1 hosted-perf`, not these single di
 
 ## Reconstruction improvements still open
 
+The [terrain output review](scan-terrain-output-review.md) records a fresh textured-reference run
+with the current panel defaults. Wall rails still retain raster steps and backtracking; area curves
+remain too heavy to edit, and colour edges do not establish road/kerb identity. Its correction order
+starts with supported plan alignments and coupled rails before reconstructing from those same curves.
+
 The 2026-10-18 upstream roof correction fixes three causes before reconstruction: triangle-count
 rejection of sparse facets, normal averaging across ridges, and a height guard based on centroids
 instead of the observed vertices. Plane fits integrate projected triangle area, including second
@@ -190,11 +240,21 @@ alignments, and retain other paving loops as area boundaries. Simplifying each l
 resolve that semantic ambiguity. Each emitted run now meets the minimum length independently,
 including runs split by intermittent kerb evidence.
 
-Complex roofs need decomposition into wings or subvolumes before fitting. A global small-plane
+Complex roofs are now decomposed into parts before fitting (2026-10-20, below). A global small-plane
 template can be clean but inaccurate; the face cap is a drawing-complexity control, not a promise of
 survey accuracy. On the diagnostic reference, the reviewed Core run reduced total planar building
 faces from 3,028 to 792, while approximate pitched roofs still had median RMS about 0.52 m at a
 0.30 m fitting tolerance. Keep the approximate designation and actual error when comparing outputs.
+
+The 2026-10-20 composite roofs answer "high complexity but low accuracy": composite buildings (a main
+house with a lower annex, porch or wing, or an L or cross plan) had one simple roof stretched over all
+of them. On the Core textured reference at the native settings (0.3 m roof tolerance, 2 m detail, twelve
+faces) fallbacks fell from 33 to 15 and the area-weighted share of roof within tolerance rose from 71% to
+90%, median RMS 0.46 m to 0.26 m, at about 4.3 rather than 2.5 roof facets per building; one more
+building is kept (its roof samples had run off the outline). The face budget is now the main limit: an
+L-shaped hip beside a flat block needs about fourteen counted faces. At sixteen faces 9 fallbacks remain
+and 92% is within tolerance; unbounded, 5 and 93%. Natively 52 buildings were kept as closed Breps (12
+fallbacks), with an 18.0 s preview, and terrain output unchanged (588 contours, 579 spots).
 
 Recovered contours already have one exact elevation per curve, including all fitted controls.
 An optional fixed interval drawing mode would make level spacing more familiar; the current adaptive

@@ -158,8 +158,7 @@ public static partial class ScanBuildings
                 if (rgb < 0)
                     continue;
                 coloured++;
-                int r = rgb >> 16 & 255, g = rgb >> 8 & 255, b = rgb & 255;
-                if (g > r && g > b && (2.0 * g - r - b) / Math.Max(1, r + g + b) > 0.08)
+                if (IsGreen(rgb))
                     green++;
             }
             bool greenCandidate = coloured > candidate.Nodes.Count * 0.5 && green > coloured * options.MaximumGreenShare;
@@ -189,8 +188,17 @@ public static partial class ScanBuildings
                 vegetation++;
                 continue;
             }
-            List<List<P2>> footprints = BuildFootprints(candidate, labels, surface, options, originX, originY);
+            HashSet<int> roofed = RoofedNodes(candidate, samples, planes, surface, options, originX, originY, surfaceColours, surfaceClasses);
+            List<List<P2>> footprints = BuildFootprints(candidate, labels, surface, options, originX, originY, roofed,
+                out double facadeAngle, out HashSet<int> kept);
             if (footprints.Count == 0)
+            {
+                geometry++;
+                continue;
+            }
+            // Samples over trimmed canopy, or over a scrap the outline left out, are no part of this roof.
+            (samples, planes) = KeepSamples(samples, planes, sample => kept.Contains(NodeAt(surface, sample.X + originX, sample.Y + originY)));
+            if (samples.Count == 0 || planes.Count == 0)
             {
                 geometry++;
                 continue;
@@ -201,13 +209,35 @@ public static partial class ScanBuildings
             IndexedTriMesh solid = IndexedTriMesh.Empty;
             var failed = new List<string>();
             var approximations = new List<(RoofModel Model, IndexedTriMesh Solid)>();
-            foreach (RoofModel attempted in ChooseRoofs(samples, planes, footprints, options))
+            // An approximate twin shares its model's planes, selection and cuts, and so its shell.
+            var built = new Dictionary<(object, object), (IndexedTriMesh Solid, int Faces, RoofModel Measured)>();
+            foreach (RoofModel attempted in ChooseRoofs(samples, planes, footprints, facadeAngle, baseZ, options))
             {
-                IndexedTriMesh candidateSolid = BuildSolid(footprints, attempted, baseZ, options);
-                bool fits = !candidateSolid.IsEmpty && MeasureSolid(candidateSolid, samples, attempted, options);
-                bool tooComplex = options.MaximumRoofFaces > 0 && !candidateSolid.IsEmpty &&
-                    CountRoofFaces(ScanBuildingFaces.Coalesce(candidateSolid, options.RoofTolerance * 1e-4,
-                        options.CancellationToken), footprints, options.RoofTolerance * 1e-4) > options.MaximumRoofFaces;
+                IndexedTriMesh candidateSolid;
+                int roofFaces;
+                if (built.TryGetValue((attempted.Select, attempted.ExtraCuts), out var twin))
+                {
+                    (candidateSolid, roofFaces) = (twin.Solid, twin.Faces);
+                    attempted.Rms = twin.Measured.Rms; attempted.WithinShare = twin.Measured.WithinShare;
+                    attempted.CoveredShare = twin.Measured.CoveredShare; attempted.Bounded = twin.Measured.Bounded;
+                    if (candidateSolid.IsEmpty)
+                        attempted.Diagnostic = twin.Measured.Diagnostic;
+                }
+                else
+                {
+                    candidateSolid = BuildSolid(footprints, attempted, baseZ, options);
+                    // A shell whose roof comes down to the ground is one failed attempt, not a lost building.
+                    if (!candidateSolid.IsEmpty && RoofHeights(candidateSolid, baseZ, options).Eave < baseZ + options.MinimumHeight * 0.25)
+                        candidateSolid = EmptyShell(attempted, "The roof came down to the ground");
+                    if (!candidateSolid.IsEmpty)
+                        MeasureSolid(candidateSolid, samples, attempted, options);
+                    roofFaces = options.MaximumRoofFaces > 0 && !candidateSolid.IsEmpty ?
+                        CountRoofFaces(ScanBuildingFaces.Coalesce(candidateSolid, options.RoofTolerance * 1e-4,
+                            options.CancellationToken), footprints, options.RoofTolerance * 1e-4) : 0;
+                    built[(attempted.Select, attempted.ExtraCuts)] = (candidateSolid, roofFaces, attempted);
+                }
+                bool fits = !candidateSolid.IsEmpty && Fits(attempted);
+                bool tooComplex = roofFaces > options.MaximumRoofFaces;
                 bool fallback = attempted.Kind == ScanRoofKind.ExtrusionFallback || attempted.Approximate;
                 if (!candidateSolid.IsEmpty && !tooComplex && fallback && attempted.Bounded && attempted.CoveredShare >= .85 &&
                     (attempted.Kind == ScanRoofKind.ExtrusionFallback || attempted.WithinShare >= .5))
@@ -221,7 +251,7 @@ public static partial class ScanBuildings
                     model = attempted;
                     break;
                 }
-                failed.Add(FormattableString.Invariant($"Attempted {attempted.Kind}: {(tooComplex ? "roof face budget exceeded" : candidateSolid.IsEmpty ? attempted.Diagnostic : $"shell RMS {attempted.Rms:F3}, {attempted.WithinShare:P1} within tolerance, {attempted.CoveredShare:P1} coverage")}."));
+                failed.Add(FormattableString.Invariant($"Attempted {attempted.Kind}: {(tooComplex ? $"roof face budget exceeded ({roofFaces} faces)" : candidateSolid.IsEmpty ? attempted.Diagnostic : $"shell RMS {attempted.Rms:F3}, {attempted.WithinShare:P1} within tolerance, {attempted.CoveredShare:P1} coverage")}."));
             }
             if (model == null && approximations.Count > 0)
             {
@@ -239,14 +269,7 @@ public static partial class ScanBuildings
                 geometry++;
                 continue;
             }
-            double eave = double.PositiveInfinity, ridge = double.NegativeInfinity;
-            for (int i = 2; i < solid.VertexCount * 3; i += 3)
-            {
-                if (solid.Vertices[i] <= baseZ + options.RoofTolerance * 1e-6)
-                    continue;
-                eave = Math.Min(eave, solid.Vertices[i]);
-                ridge = Math.Max(ridge, solid.Vertices[i]);
-            }
+            (double eave, double ridge) = RoofHeights(solid, baseZ, options);
             if (!double.IsFinite(baseZ + eave + ridge) || eave < baseZ + options.MinimumHeight * 0.25)
             {
                 geometry++;
@@ -268,13 +291,99 @@ public static partial class ScanBuildings
                 Diagnostic = model.Kind == ScanRoofKind.ExtrusionFallback
                     ? FormattableString.Invariant($"Median-height extrusion fallback. {model.Diagnostic} Nearest plane explains {nearestWithin:P1}.")
                     : model.Approximate ? model.Diagnostic
-                    : $"{model.Kind} fitted to upward scan triangles; accuracy describes observed roof samples.",
+                    : $"{model.Kind} fitted to upward scan triangles; accuracy describes observed roof samples." +
+                        (model.Kind == ScanRoofKind.Composite ? " " + model.Diagnostic : ""),
             });
         }
         return new Result { Buildings = buildings, CandidateCount = candidates.Count, RejectedVegetation = vegetation, RejectedGeometry = geometry };
     }
 
     private static bool Positive(double value) => double.IsFinite(value) && value > 0;
+
+    /// <summary>The candidate's nodes, less the vegetation more than two plan tolerances from any measured
+    /// roof plane. A canopy or hedge touching a building is raised too; left in, it became a blocky part.
+    /// Only green or vegetation-classed ground is let go: a roof part no plane was found for stays.</summary>
+    private static HashSet<int> RoofedNodes(Candidate candidate, List<RoofSample> samples, List<PlaneRegion> planes,
+        ScanGrid surface, Options options, double originX, double originY, int[]? colours, byte[]? classes)
+    {
+        var roofed = candidate.Nodes.Where(node => !(colours != null && IsGreen(colours[node]) || classes != null && classes[node] is >= 3 and <= 5)).ToHashSet();
+        if (roofed.Count == candidate.Nodes.Count)
+            return roofed;
+        var inside = candidate.Nodes.ToHashSet();
+        double cell = surface.CellSize;
+        foreach (int i in planes.SelectMany(region => region.Samples))
+        {
+            // A sample's triangle reaches about twice its RMS radius from its centroid.
+            RoofSample sample = samples[i];
+            double reach = 2 * Math.Sqrt(Math.Max(sample.XX + sample.YY, 0)) + options.FootprintTolerance * 2;
+            int centre = NodeAt(surface, sample.X + originX, sample.Y + originY), steps = (int)Math.Ceiling(reach / cell);
+            if (centre < 0)
+                continue;
+            int column = centre % surface.Columns, row = centre / surface.Columns;
+            for (int dy = -steps; dy <= steps; dy++)
+                for (int dx = -steps; dx <= steps; dx++)
+                {
+                    int c = column + dx, r = row + dy, node = r * surface.Columns + c;
+                    if ((dx * dx + dy * dy) * cell * cell <= reach * reach && c >= 0 && r >= 0 && c < surface.Columns && r < surface.Rows && inside.Contains(node))
+                        roofed.Add(node);
+                }
+        }
+        return roofed;
+    }
+
+    private static bool IsGreen(int rgb)
+    {
+        if (rgb < 0)
+            return false;
+        int r = rgb >> 16 & 255, g = rgb >> 8 & 255, b = rgb & 255;
+        return g > r && g > b && (2.0 * g - r - b) / Math.Max(1, r + g + b) > 0.08;
+    }
+
+    private static int NodeAt(ScanGrid grid, double x, double y)
+    {
+        int column = (int)Math.Round((x - grid.OriginX) / grid.CellSize), row = (int)Math.Round((y - grid.OriginY) / grid.CellSize);
+        return column >= 0 && row >= 0 && column < grid.Columns && row < grid.Rows ? row * grid.Columns + column : -1;
+    }
+
+    private static (List<RoofSample> Samples, List<PlaneRegion> Planes) KeepSamples(List<RoofSample> samples, List<PlaneRegion> planes, Func<RoofSample, bool> keep)
+    {
+        var index = new int[samples.Count];
+        var kept = new List<RoofSample>(samples.Count);
+        for (int i = 0; i < samples.Count; i++)
+        {
+            index[i] = keep(samples[i]) ? kept.Count : -1;
+            if (index[i] >= 0)
+                kept.Add(samples[i]);
+        }
+        if (kept.Count == samples.Count)
+            return (samples, planes);
+        // Neighbour links and plane membership follow the samples to their new places.
+        List<RoofSample> renumbered = kept.Select(s => new RoofSample
+        {
+            X = s.X, Y = s.Y, Z = s.Z, MaximumZ = s.MaximumZ, Weight = s.Weight,
+            XX = s.XX, XY = s.XY, YY = s.YY, XZ = s.XZ, YZ = s.YZ, FacePlane = s.FacePlane, Vertices = s.Vertices,
+            Neighbours = s.Neighbours.Select(n => n >= 0 ? index[n] : -1).ToArray(),
+        }).ToList();
+        List<PlaneRegion> regions = planes.Select(region =>
+        {
+            List<int> members = region.Samples.Where(i => index[i] >= 0).Select(i => index[i]).ToList();
+            return region with { Samples = members, Area = members.Sum(i => renumbered[i].Weight) };
+        }).Where(region => region.Samples.Count > 0).ToList();
+        return (renumbered, regions);
+    }
+
+    private static (double Eave, double Ridge) RoofHeights(IndexedTriMesh solid, double baseZ, Options options)
+    {
+        double eave = double.PositiveInfinity, ridge = double.NegativeInfinity;
+        for (int i = 2; i < solid.VertexCount * 3; i += 3)
+        {
+            if (solid.Vertices[i] <= baseZ + options.RoofTolerance * 1e-6)
+                continue;
+            eave = Math.Min(eave, solid.Vertices[i]);
+            ridge = Math.Max(ridge, solid.Vertices[i]);
+        }
+        return (eave, ridge);
+    }
 
     private static int CountRoofFaces(IReadOnlyList<ScanBuildingFaces.Face> faces, List<List<P2>> footprints, double tolerance)
     {
@@ -330,8 +439,10 @@ public static partial class ScanBuildings
         double highest = solid.Vertices.Where((_, i) => i % 3 == 2).Max();
         bool bounded = highest <= samples.Max(sample => sample.MaximumZ) + options.RoofTolerance * 2;
         model.Bounded = bounded;
-        return model.WithinShare >= 0.9 && model.CoveredShare >= 0.85 && bounded;
+        return Fits(model);
     }
+
+    private static bool Fits(RoofModel model) => model.WithinShare >= 0.9 && model.CoveredShare >= 0.85 && model.Bounded;
     private static double SignedArea(IReadOnlyList<P2> loop) =>
         Geometry2D.SignedArea(loop.SelectMany(p => new[] { p.X, p.Y }).ToArray(), loop.Count);
 }

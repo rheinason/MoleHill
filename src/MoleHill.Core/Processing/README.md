@@ -6,7 +6,24 @@ Pure, unit-tested.
 `TerrainCurveRecovery.Breaklines.cs` prepares a scan reference with measured wall rails before recovering
 its curves: original borders remain, and coarse averages on a rail are excluded instead of becoming
 conflicting heights along it. `FixedBreaklines` on recovery options holds the same lines in every
-rebuild and landform trial. The root `TerrainCurveRecovery.cs` partial owns recovery and simplification.
+rebuild and landform trial. The root `TerrainCurveRecovery.cs` partial owns legacy recovery and simplification.
+Scan callers opt into `TerrainRecoveryPolicy` and `.Informative.cs`: benefit-ranked contour/spot trials,
+area-weighted error, redundant-input pruning, a preferred contour checkpoint and a combined safety cap.
+Trials are local (`.Window.cs`): an input can only re-triangulate the reconstruction faces its box
+touches, so a trial rebuilds that neighbourhood plus one ring of context, with and without the input.
+Each round tries up to 16 error regions whose windows do not overlap and confirms them with one global
+rebuild; pruning batches likewise and is undone if the global measure got worse. Candidates are scored
+on their traced polylines; only accepted contours are fitted.
+With `ContourInterval` set, `.Interval.cs` replaces error-driven selection: contours at the interval within
+`Region`, simplified against the terrain, pieces shorter than eight plan tolerances dropped; redundant
+ones removed shortest first by local trials (each sweep confirmed globally); kept contours fitted; then
+spot heights at the worst vertex of each separated error region until every measured vertex is within
+its own tolerance. `SecondaryRegion` vertices are measured at `SecondaryTolerance` and take spots only.
+Landform lines do not apply, so `RecoverBest` runs once. A simplified contour that crosses itself or another (a
+hairpin, a close neighbour) is simplified again at half the plan tolerance, and at worst kept as traced.
+Kept contours are fitted in parallel; a fitted curve that crosses another keeps the polyline it was
+measured with (`Geometry/PolylineCrossings`).
+Fixed measured inputs are never pruned; original-reference error can be measured independently.
 `ITerrainRecoveryRegion` scopes deviation and spot selection. `.Region.cs` clips each contour and picks
 the fragment nearest its selected error; `.Fitting.cs` fits light curves before rebuilding, checking
 the region and reference height and retaining an unfitted fallback when necessary. Ordinary terrain

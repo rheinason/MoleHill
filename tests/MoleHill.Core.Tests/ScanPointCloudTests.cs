@@ -112,6 +112,7 @@ public class ScanPointCloudTests
         });
         Assert.True(snapshots.Count >= 3);
         Assert.Same(result, snapshots[^1]);
+        // Paved outlines are the paving's breaklines; nothing is fixed before areas exist.
         Assert.NotEmpty(result.FixedBreaklines);
         Assert.All(snapshots.Where(snapshot => snapshot.Areas == null), snapshot => Assert.Empty(snapshot.FixedBreaklines));
     }

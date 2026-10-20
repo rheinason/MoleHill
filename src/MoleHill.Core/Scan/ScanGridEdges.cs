@@ -1,15 +1,21 @@
 namespace MoleHill.Core.Scan;
 
-/// <summary>Directed dual-grid boundaries with the mask on the left; diagonal contacts form separate loops.</summary>
+/// <summary>
+/// Directed dual-grid boundaries with the mask on the left; diagonal contacts form separate loops. With
+/// <c>regions</c>, a boundary also runs between masked nodes of different regions.
+/// </summary>
 internal static class ScanGridEdges
 {
     public readonly record struct Edge(int Start, int End, int Inside, int Outside);
     public sealed record Chain(IReadOnlyList<Edge> Edges, bool Closed);
 
     public static List<Chain> Trace(bool[] mask, ScanGrid grid, Func<int, int, bool>? include = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) => Trace(mask, grid.Columns, grid.Rows, include, null, cancellationToken);
+
+    public static List<Chain> Trace(bool[] mask, int columns, int rows, Func<int, int, bool>? include = null,
+        int[]? regions = null, CancellationToken cancellationToken = default)
     {
-        int columns = grid.Columns, rows = grid.Rows, corners = columns + 1;
+        int corners = columns + 1;
         var edges = new List<Edge>();
         for (int row = 0; row < rows; row++)
         {
@@ -26,7 +32,7 @@ internal static class ScanGridEdges
                 Add(tl, bl, column > 0 ? node - 1 : -1);
                 void Add(int start, int end, int other)
                 {
-                    if ((other < 0 || !mask[other]) && (include == null || include(node, other)))
+                    if ((other < 0 || !mask[other] || regions != null && regions[other] != regions[node]) && (include == null || include(node, other)))
                         edges.Add(new Edge(start, end, node, other));
                 }
             }
@@ -70,7 +76,8 @@ internal static class ScanGridEdges
                 double dx = edge.End % corners - edge.Start % corners, dy = edge.End / corners - edge.Start / corners;
                 foreach (int candidate in next)
                 {
-                    if (visited[candidate])
+                    // A loop keeps to its own region; the next region's boundary can leave the same corner.
+                    if (visited[candidate] || regions != null && regions[edges[candidate].Inside] != regions[edge.Inside])
                         continue;
                     Edge n = edges[candidate];
                     double nx = n.End % corners - n.Start % corners, ny = n.End / corners - n.Start / corners;

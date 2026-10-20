@@ -3,7 +3,11 @@ using MoleHill.Core.Geometry;
 
 namespace MoleHill.Core.Scan;
 
-/// <summary>Clips to the fitted soft-area outlines, retaining paved/unknown islands as holes.</summary>
+/// <summary>
+/// Clips to fitted area outlines, retaining excluded islands as holes. By default only soft areas; the scan
+/// pipeline passes paved and soft, which never overlap and share identical interface geometry, so one
+/// even-odd test over both families is exactly "observed ground, not unknown".
+/// </summary>
 public sealed class ScanSoftRegion : ITerrainRecoveryRegion
 {
     private readonly ScanSurfaceAreas.Result _areas;
@@ -12,13 +16,14 @@ public sealed class ScanSoftRegion : ITerrainRecoveryRegion
     private readonly double _bottom;
     private readonly double _rowHeight;
 
-    public ScanSoftRegion(ScanSurfaceAreas.Result areas)
+    public ScanSoftRegion(ScanSurfaceAreas.Result areas, params ScanSurfaceKind[] kinds)
     {
+        if (kinds.Length == 0) kinds = new[] { ScanSurfaceKind.Soft };
         _areas = areas ?? throw new ArgumentNullException(nameof(areas));
         _bottom = areas.Ground.OriginY - areas.Ground.CellSize;
         _rowHeight = Math.Max(areas.Ground.CellSize, areas.Ground.Rows * areas.Ground.CellSize / 128);
         _rows = Enumerable.Range(0, 130).Select(_ => new List<int>()).ToArray();
-        foreach (var boundary in areas.Boundaries.Where(b => b.Kind == ScanSurfaceKind.Soft))
+        foreach (var boundary in areas.Boundaries.Where(b => kinds.Contains(b.Kind)))
             for (int i = 0; i + 5 < boundary.Points.Length; i += 3)
             {
                 var p = boundary.Points;

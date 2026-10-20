@@ -9,7 +9,7 @@ namespace MoleHill.Core.Scan;
 /// <summary>Measures profiles across paved edges: persistent kerb steps become pairs, other edges one line.</summary>
 public static class ScanRoadEdges
 {
-    public sealed class Options
+    public sealed record Options
     {
         public required double MinimumKerbHeight { get; init; }
         public required double MaximumKerbHeight { get; init; }
@@ -21,6 +21,9 @@ public static class ScanRoadEdges
         /// <summary>Height tolerance for colour-only edges; null uses the measured kerb tolerance.</summary>
         public double? RoadVerticalTolerance { get; init; }
         public double EvidenceShare { get; init; } = 0.65;
+        /// <summary>Skips colour-only edges, which are already drawn as paved area outlines.</summary>
+        public bool KerbsOnly { get; init; }
+        public Action<string>? ReportRejected { get; init; }
         public CancellationToken CancellationToken { get; init; }
     }
 
@@ -28,8 +31,8 @@ public static class ScanRoadEdges
     {
         public required bool IsKerb { get; init; }
         public required bool IsClosed { get; init; }
-        public required FittedRouteCurve BottomCurve { get; init; }
-        public FittedRouteCurve? TopCurve { get; init; }
+        public required ScanCurveGeometry BottomCurve { get; init; }
+        public ScanCurveGeometry? TopCurve { get; init; }
         public required double[] Bottom { get; init; }
         public double[]? Top { get; init; }
         public required double MeanStep { get; init; }
@@ -61,6 +64,7 @@ public static class ScanRoadEdges
             PlanTolerance = options.PlanTolerance,
             VerticalTolerance = options.VerticalTolerance,
             CancellationToken = options.CancellationToken,
+            ReportRejected = options.ReportRejected,
         }, reference);
         return steps.Where(step => step.MinimumHeight >= options.MinimumKerbHeight && step.MaximumHeight <= options.MaximumKerbHeight).Select(step => new EdgeLine
         {
@@ -76,7 +80,7 @@ public static class ScanRoadEdges
     }
 
     public static IReadOnlyList<EdgeLine> Trace(ScanGround.Result ground, ScanSurfaceAreas.Result areas, Options options,
-        IndexedTriMesh? reference = null)
+        IndexedTriMesh? reference = null, Func<double, double, double?>? observedHeight = null)
     {
         ArgumentNullException.ThrowIfNull(ground);
         ArgumentNullException.ThrowIfNull(areas);
@@ -123,6 +127,8 @@ public static class ScanRoadEdges
             void AddRun(int first, int last, bool paired)
             {
                 options.CancellationToken.ThrowIfCancellationRequested();
+                if (!paired && options.KerbsOnly)
+                    return;
                 bool closed = chain.Closed && first == 0 && last == chain.Edges.Count;
                 var bottom = new List<double>();
                 var top = new List<double>();
@@ -131,8 +137,8 @@ public static class ScanRoadEdges
                     for (int i = first; i < last; i++)
                     {
                         Profile p = profiles[i];
-                        Append(bottom, p.BottomX, p.BottomY, p.BottomZ);
-                        Append(top, p.TopX, p.TopY, p.TopZ);
+                        bottom.AddRange(new[] { p.BottomX, p.BottomY, p.BottomZ });
+                        top.AddRange(new[] { p.TopX, p.TopY, p.TopZ });
                     }
                     if (closed)
                     {
@@ -156,15 +162,21 @@ public static class ScanRoadEdges
                 }
                 if (bottom.Count < 6 || paired && top.Count < 6)
                     return;
-                double plan = Math.Min(options.PlanTolerance, grid.CellSize * 0.1);
-                FittedRouteCurve Fit(List<double> points)
+                double plan = options.PlanTolerance;
+                ScanCurveGeometry bottomCurve;
+                ScanCurveGeometry? topCurve = null;
+                if (paired)
                 {
-                    double[] light = TerrainCurveRecovery.SimplifyOpen(points.ToArray(), grid.CellSize * 0.65, options.VerticalTolerance);
-                    return RouteCurveFitter.Fit(new IReadOnlyList<double>[] { light }, plan, options.VerticalTolerance, 0, 0, 0);
+                    if (!ScanAlignmentFitter.FitPair(top.ToArray(), bottom.ToArray(), closed, grid.CellSize,
+                        plan, options.VerticalTolerance, options.CancellationToken, out var high, out var low, options.ReportRejected)) return;
+                    bottomCurve = low; topCurve = high;
                 }
-                FittedRouteCurve bottomCurve = paired ? Fit(bottom) : ScanBoundaryFitter.Fit(bottom.ToArray(), closed,
-                    grid, projector, options.PlanTolerance, options.RoadVerticalTolerance ?? options.VerticalTolerance, options.CancellationToken, straightPlan: true);
-                FittedRouteCurve? topCurve = paired ? Fit(top) : null;
+                else
+                    bottomCurve = ScanAlignmentFitter.Fit(bottom.ToArray(), closed, grid.CellSize, plan,
+                        options.RoadVerticalTolerance ?? options.VerticalTolerance, options.CancellationToken, CleanHeight)
+                        ?? ScanCurveGeometry.FromFitted(ScanBoundaryFitter.Fit(bottom.ToArray(), closed,
+                            grid, projector, plan, options.RoadVerticalTolerance ?? options.VerticalTolerance,
+                            options.CancellationToken, straightPlan: true), plan, options.RoadVerticalTolerance ?? options.VerticalTolerance);
                 if (bottomCurve.Pieces.Count == 0 || paired && topCurve!.Pieces.Count == 0)
                     return;
                 double runLength = 0;
@@ -188,6 +200,10 @@ public static class ScanRoadEdges
         }
         return result;
 
+        double? CleanHeight(double x, double y) => projector != null &&
+            projector.TryGetHeightExtremes(x, y, grid.CellSize * 1e-7, out _, out double z) ? z :
+            ScanGridSampling.TryHeight(grid, x, y, out z) ? z : null;
+
         Profile Measure(ScanGridEdges.Edge edge)
         {
             int a = edge.Inside, b = edge.Outside;
@@ -207,13 +223,14 @@ public static class ScanRoadEdges
             double bottomT = -reach, topT = reach;
             bool foundBottom = false, foundTop = false;
             double tolerance = Math.Max(options.VerticalTolerance, step * 0.15);
-            for (double t = -reach; t <= reach + grid.CellSize * 0.01; t += grid.CellSize * 0.5)
+            double stepSize = Math.Min(grid.CellSize * .5, options.MaximumKerbWidth / 8);
+            for (double t = -reach; t <= reach + stepSize * .01; t += stepSize)
             {
                 if (!Known(t, out double z))
                     return new(false, step, px, py, grid.Values[a], qx, qy, grid.Values[b]);
                 if (!foundBottom && Math.Abs(z - (lowAtEdge + slopeLow * t)) > tolerance)
                 {
-                    bottomT = Math.Max(-reach, t - grid.CellSize * 0.5);
+                    bottomT = Math.Max(-reach, t - stepSize);
                     foundBottom = true;
                 }
                 if (foundBottom && !foundTop && Math.Abs(z - (highAtEdge + slopeHigh * t)) <= tolerance)
@@ -235,7 +252,13 @@ public static class ScanRoadEdges
                 int column = (int)Math.Round((x - grid.OriginX) / grid.CellSize), row = (int)Math.Round((y - grid.OriginY) / grid.CellSize);
                 z = double.NaN;
                 return column >= 0 && row >= 0 && column < grid.Columns && row < grid.Rows &&
-                    ground.IsGround[row * grid.Columns + column] && ScanGridSampling.TryHeight(grid, x, y, out z);
+                    ground.IsGround[row * grid.Columns + column] && Observed(x, y, out z);
+            }
+            bool Observed(double x, double y, out double z)
+            {
+                if (observedHeight == null) return ScanGridSampling.TryHeight(grid, x, y, out z);
+                z = observedHeight(x, y) ?? double.NaN;
+                return double.IsFinite(z);
             }
         }
     }

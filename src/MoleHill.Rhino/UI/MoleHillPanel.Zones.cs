@@ -303,9 +303,9 @@ public sealed partial class MoleHillPanel
             "Zone Area",
             zone.Boundaries,
             apply => MutateZone(terrain.TerrainId, zone.ZoneId, z => apply(z.Boundaries)),
-            RhinoObjectType.Curve,
+            RhinoObjectType.Curve | RhinoObjectType.Hatch,
             doc => _controller.GetSelectedLayerPaths(doc),
-            "Assign the curves and layers that define this zone's area."));
+            "Assign the closed curves, hatches and layers that define this zone's area."));
         layout.AddSeparateRow(useInputElevationCheck, null);
         return layout;
     }

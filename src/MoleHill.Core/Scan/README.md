@@ -17,11 +17,25 @@ triangle count and centroid locations do not substitute for geometric support. N
 does not cross the plane-angle crease threshold. Even one large triangle can support a plane, while
 the minimum measured area still applies. The upper-height guard uses observed triangle vertices,
 so a ridge is not rejected for lying above its face centroids. Colour supports vegetation rejection; coherent planar turf roofs remain
-eligible, and colour-free input requires stronger dominant-plane evidence.
+eligible, and colour-free input requires stronger dominant-plane evidence. Green or vegetation-classed
+cells more than two footprint tolerances from every measured roof plane are trimmed from the footprint
+(a canopy touching a building is raised too), and samples over trimmed cells or over scraps the outline
+leaves out drop out of the roof's sample set. Uncoloured, unclassified cells are never trimmed, so a
+roof part no plane was found for stays.
 
 `.Roofs` ranks flat/shed, gable, hip/half-hip and crossing-gable templates by measured error and facet
-count. It then tries continuous plane lattices and spatial plane arrangements before a flagged
-median-height extrusion. Each spatial arrangement uses the configured simplification once; it does
+count. It then tries the convex and lattice plane arrangements, then `.Parts` composites, then the
+spatial plane arrangement, before a flagged median-height extrusion. A composite (`ScanRoofKind.Composite`)
+splits the plan along the facade axes into parts (best-first, while a split buys back a tenth of the
+roof tolerance over the whole roof), each under the cheapest lower envelope of up to four measured
+planes, or a local flat or pitched plane, that stays above the base. Split positions are ranked for every
+gap between samples with prefix sums, and only the best two per axis are fitted exactly. Parts then
+overlap where that lowers the error, the higher roof winning, so wings meet in valleys rather than in a
+wall standing on an eave; an overlap edge reaches on while it costs nothing and snaps to a facade-parallel
+ridge or valley within a sample row, and halves that overlaps made redundant are joined again. The
+composite is offered at every part count from the most to two, because the face budget is only known
+once a shell is built. Its plane-pair cuts are limited to planes of one part or of parts that overlap
+or touch: touching parts whose roofs cross on their shared edge need the step there cut where it turns. Each spatial arrangement uses the configured simplification once; it does
 not retry progressively weaker settings. `.Solid` partitions the footprint by plane intersections and spatial patch
 cuts, closes roof steps, walls and the level base, and checks every directed shell edge. `.Junctions`
 removes alternating spatial labels that would make four walls share one vertical edge; every edit
@@ -57,22 +71,94 @@ trend-corrected cross profiles along paved edges: persistent narrow steps produc
 kerb pairs, otherwise one draped edge. Without colour, only geometry-supported kerb-sized steps are
 available. These are measured steps, not semantic guarantees that every line is a built kerb.
 
-`ScanBoundaryFitter` cleans area boundaries and colour-only road edges in plan at the requested physical
-tolerance, then samples heights on the clean ground and fits the draped profile. Height variation on a
-slope cannot preserve a pixel corner. Thinning/plan fitting/profile fitting share the plan budget;
-closed outlines are checked for crossings. Measured kerb pairs retain their tighter coupled evidence
-tolerances; `RoadVerticalTolerance` can separately relax the colour-only profile. `Boundary.Points`
-is a light approximation of the fitted output, used for reference breaklines and region clipping.
-For unpaired roads, `.Profile.cs` uses bounded plan denoising/thinning followed by a station/elevation
-spline mapped back onto held straight XY segments. Height refinement cannot move controls sideways.
-The host exposes independent physical road alignment/height tolerances. Paired kerb fitting is unchanged.
 
-`ScanSoftRegion` clips contours at the fitted soft outlines, preserving paved islands and joining
-adjacent intervals without densifying straight lines. Recovery evaluates soft-ground vertices and
-keeps only the fragment nearest each selected error point, rather than spending the budget across
-every disconnected lawn at that height. Paved boundaries and measured rails stay in every rebuild.
-Contours are fitted before reconstruction, with an explicit polyline fallback where a smooth fit cannot
-respect the region or vertical tolerance. Unknown areas are excluded from soft-ground accuracy claims.
+Scan terrain outputs use one canonical `ScanCurveGeometry`: rational B-spline pieces plus a sampled
+approximation. `ScanAlignmentFitter` chooses supported line/arc plans and fits height separately;
+height refinement cannot bend a straight plan or change an arc's radius. Top/toe rails share alignment
+ranges, retain their side, and reject unsupported complexity. Closed terraces retain rolling profiles.
+`ScanCurveBuilder` creates the same ordinary Rhino NURBS for preview and Keep.
+
+Wall evidence requires observed ground on both sides. `ScanSourceSampler` measures kerb profiles
+against original triangles or nearby original cloud observations, excluding supplied vegetation/building
+classes; interpolated cloud gaps cannot establish evidence. `ScanFeatureBridge` joins only compatible
+accepted pairs across short gaps, checking direction, height, obstacles and crossing rails. Observed
+share and inferred station intervals travel with the canonical geometry and baked attributes.
+
+Area classification does not run on the height grid. A texture is rasterised a second time onto a
+`ScanColourLattice` up to four times finer (point clouds and per-face colours use factor one).
+`ScanSurfaceClassifier` gives every lattice node logistic paved and vegetated scores around the
+configured thresholds, gated by height-grid slope and roughness, and averages them over
+`SmoothingRadius` (default 0.6 x plan tolerance, three box passes) before the larger score wins. Hard
+thresholds on single texel samples made every speck of colour noise an outline detail. Averaging also
+erased footpaths narrower than about four radii (a 0.6 m path lost to the lawn either side), so the same
+scores averaged a third as wide add back paved strips that a disc opening of two radii removes, when a
+strip covers at least twenty squared radii; stepping stones stay lawn. A strip five times longer than wide is
+exempt from the minimum area, so a stretch of path that moss cuts off from the drive is kept; shorter
+blobs (shadows and dark fringes beside buildings) are not. Ground standing
+more than four paved roughnesses above an opening of the surface about 3 m across gives no class evidence:
+the ground filter keeps cars and bushes smaller than its minimum object as ground, and "rough ground is
+soft" outlined every parked car. Components below the minimum area become unknown. `Classes` stays
+unknown wherever ground was removed.
+
+`ScanSurfaceGraph` traces that fine partition, fits each shared class interface once and reuses reversed
+geometry in adjacent loops; junction endpoints stay shared. A short moving average turns lattice steps
+into a sub-node line, resampled at a fixed spacing. `ScanOutlineFitter` then builds each interface
+directly. It first finds corners at four plan tolerances (two cells at least): a turn of 50 degrees, the
+sharpest nearby. Each corner moves to where lines fitted to the trace beyond its rounding cross, and the
+rounded samples move onto those lines, never past the corner. Each run between corners is smoothed by
+a Gaussian at half that scale. A classified edge wanders by about the plan tolerance, so fitting it raw
+drew every wander as a wobble or zig-zag while still rounding real corners. Then Douglas-Peucker at half
+the plan tolerance; paved interfaces become maximal straight runs, long ones held, with circular arcs
+only across the shorter runs between them, heights draped onto lines by subdivision. Natural interfaces
+hold straight runs of eight plan tolerances as lines too (a lawn ends at a facade or a bed edge as often
+as at paving), with clamped quadratic splines on the thinned vertices between them, or one spline seamed
+at a leg midpoint when there is no straight. A spline is tightened before a polyline fallback. After
+fitting, any interface that crosses itself or another, or folds back at a cusp, falls back to lines
+through its thinned trace and then to the trace itself (`PolylineCrossings`, checked on 32 samples per
+span). Loops of no area are dropped. On the reference scan the fitted stage carries about 6,500 outline
+controls. Outline heights need only the terrain accuracy. Paved outlines join
+`FixedBreaklines`: paving is close to planar between its edges, so they carry it. Soft outlines are
+drawings. Complete duplicate closed interfaces are drawn only once.
+
+Enclosed unknown pockets up to six minimum areas are filled in drawing masks, each node from the class
+it reaches first through the pocket. A car between a lawn and a drive carries both edges on through it.
+A three-quarter majority left such cars and their shadows outlined as holes. With
+`MaximumFilledObjectHeight` (host: 2.5 m) only low raised objects qualify, opened at about half a metre
+so the ground filter's thin margin band around a building does not join a car parked against it to the
+building.
+
+With `SoftNeckWidth` (host: 3 m), soft ground joined only by narrower strips is outlined as separate areas
+(`ScanSoftNecks`): cores are what a disc opening of that width leaves, and every other soft node joins
+the core its soft ground reaches first. One soft outline had run 4.2 km round nearly every garden as a
+single curve of 3,241 controls. A square window would split diagonal strips 1.4 times wider, and the
+reference streets run diagonally.
+
+`ScanBoundaryFitter` remains for colour-only paving edges, which are traced only when area outlines are
+off; with outlines drawn, `ScanRoadEdges` traces kerbs alone (`KerbsOnly`). Colour edges are labelled
+paving edges, not confirmed kerbs.
+
+`ScanGroundCleaner.Lower` (pipeline `StandingObjectWidth`/`Height`/`MaximumHeight`, host 3 m / 0.4 m /
+2.5 m) lowers small standing objects the ground filter kept as ground. These are ground standing over
+0.4 m above a 3 m opening, no taller than 2.5 m, and not beside a taller removed object (a building, a
+tree). Each is filled harmonically from the ground round it, with a half-metre rim. Without it the
+reference rose over every parked car: paving took spot heights on car roofs, and lawns took contour
+rings round bushes. A flat opening keeps anything wider than its window, so terrace edges and bank
+crests stay. Without the height and building rules it had also flattened building margin bands and
+narrow wall tops up to 4 m tall. The original reference is taken after lowering.
+`ScanGroundCleaner.Clean` then only adjusts small connected residuals within a height allowance, away
+from accepted breaklines. The original and filtered references remain available, with changed-node
+count and maximum displacement. This does not smooth away sustained terrace steps.
+
+Scan recovery uses interval mode (`TerrainRecoveryPolicy.ContourInterval`, `.Interval.cs`); other terrain
+recovery callers keep their behaviour. `ScanRecoveryRegion` decides what is measured how. `Region` is
+smooth soft ground, contoured at the terrain accuracy; contours are clipped to the whole soft outline, so
+they run through rough patches. `SecondaryRegion` is paving plus rough soft ground (`RoughGround`: within
+about half a ground spacing of a node departing `RoughGroundHeight` from its neighbourhood mean), measured
+at the paved accuracy with spot heights only. On the reference scan 62% of spot heights had sat on the
+roughest 19% of ground; relaxing it cut spots from 1,225 to 671. Error-driven selection (`.Informative.cs`)
+left slopes covered in short contour fragments; interval contours met both tolerances in about 25 s.
+Measured rails and paved outlines stay in every rebuild. Hitting the cap or making no progress never
+claims tolerance success. Unknown areas are excluded from accuracy claims.
 All lengths use the input coordinate unit; the host converts physical defaults.
 Row-indexed outline edges serve containment and segment clipping, so recovery does not end on the
 obsolete raster stairs after the visible boundary has been cleaned.
@@ -98,15 +184,10 @@ Ground under an object is inferred, especially uncertain where it meets a terrac
 is geometric only: raised regions include vegetation and cars, and the object count is not a building
 count. Roof, surface and kerb classification are separate stages over that inferred ground.
 
-`ScanWalls` traces Phase 2 top/toe pairs from narrow bands of unexplained rises, with the ground trend
-measured outside the band. It merges a wall spread over multiple cells, rejects broad ramps and short
-fragments, splits at branches/gaps, and uses `RouteCurveFitter` for the editable curves. Fitting stays
-within a fraction of a cell so top and toe do not drift across each other. Prepared rails are checked
-against the contouring footprint. Their light polylines feed `TerrainCurveRecovery.ConstrainReference`,
-which inserts them before recovery and excludes old coarse heights on a measured segment. Pass those
-same lines through `FixedBreaklines` to hold them during every contour rebuild. `ScanWallsTests` covers
-height, orientation, scaling, multi-cell steps and constrained reconstruction, including heights between
-rail vertices. Set `MOLEHILL_SCAN_WALLS=1` to opt the reference measurement into Phase 2.
+`ScanWalls` finds narrow measured rise bands after removing the surrounding ground trend, rejecting
+broad ramps, short fragments and unobserved endpoints. Its coupled alignment fitter replaces the old
+fraction-of-cell independent fits. Light rail samples enter `TerrainCurveRecovery.ConstrainReference`
+before recovery and remain mandatory through every reconstruction.
 
 `ScanGroundTests` covers sparse/overlapping triangles, houses and trees on a terraced slope, planar fill,
 empty scans, raster overflow, border topology and recovery. Opt into `ScanGroundMeasurementTests` with

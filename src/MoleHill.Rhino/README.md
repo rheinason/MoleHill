@@ -33,18 +33,22 @@ Supports NURBS curves, polylines and lines; convert other curve types to NURBS f
 ## Folders
 
 `mhScanToTerrain` takes a Z-up photogrammetry mesh or Rhino point cloud. One floating panel holds
-all settings, output and preview toggles; it recomputes asynchronously as settings change. Enter keeps
+outputs, preview and terrain accuracy, with detailed controls collapsed under Advanced; it recomputes
+asynchronously as settings change. Enter keeps
 a ready preview, Esc/Cancel discards it. Keep validates native building solids before adding ordinary
 editable curves, spots and context Breps under a fresh `Scan {source}` layer root, in one group and one
 command Undo. Ground mesh output is an opt-in check. Length/area defaults and accepted settings stay
 physical across model-unit changes; ground slope accepts the user's slope units.
 
 The inferred ground excludes raised objects and harmonically fills beneath them. Walls contribute
-measured top/toe breaklines; colour and geometry produce closed paved/soft boundaries and measured
+measured top/toe breaklines with supported straight/arc plans and separately fitted heights. Short
+inferred links retain evidence attributes. Colour and geometry produce shared paved/soft interfaces and measured
 kerb pairs or single road edges. Contours are fitted within soft areas when colour classification is
 available. Building roof shapes are closed context Breps with explicit fit evidence and flagged
 median-height extrusion fallbacks; they do not become terrain inputs. Tolerance is measured against
-inferred ground, and budget exhaustion reports its remaining residual. See
+inferred ground. Scan recovery prunes redundant generated inputs and can continue past the preferred
+300 contours, with a combined 2,000-input cap and explicit residual/termination. Bounded isolated-noise
+cleanup reports its displacement and the recovery also measures the original reference. See
 [Scan to Terrain](../../docs/scan-to-terrain.md) for the workflow, classification contract, validation
 figures and known limits.
 

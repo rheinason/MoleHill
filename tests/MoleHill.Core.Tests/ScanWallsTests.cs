@@ -26,6 +26,7 @@ public sealed class ScanWallsTests
         PlanTolerance = 0.1 * scale,
         VerticalTolerance = 0.05 * scale,
         BorderMargin = 1 * scale,
+        ReportRejected = Console.WriteLine,
     };
 
     [Theory]
@@ -105,6 +106,15 @@ public sealed class ScanWallsTests
         Assert.Equal(wall.Toe.Take(3), wall.Toe.TakeLast(3));
         Assert.All(wall.Top.Where((_, i) => i % 3 == 2), z => Assert.InRange(z, 1.99, 2.01));
         Assert.All(wall.Toe.Where((_, i) => i % 3 == 2), z => Assert.InRange(z, -0.01, 0.01));
+    }
+
+    [Fact]
+    public void Trace_ClosedTerraceWithRollingProfile_RetainsLongitudinalHeightVariation()
+    {
+        double Ground(double x, double y) => .12 * Math.Sin(y * .8) + .08 * Math.Sin(x * .6);
+        var wall = Assert.Single(ScanWalls.Trace(Grid((x, y) => Ground(x, y) + (x >= 8 && x <= 22 && y >= 8 && y <= 22 ? 2 : 0)), Options()));
+        foreach (var piece in wall.TopCurve.Pieces)
+            for (int i = 0; i <= 30; i++) { var p = piece.PointAt(i / 30.0); Assert.InRange(Math.Abs(p.Z - Ground(p.X, p.Y) - 2), 0, .055); }
     }
 
     [Fact]

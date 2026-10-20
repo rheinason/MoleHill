@@ -9,13 +9,11 @@ namespace MoleHill.Rhino.Services;
 /// <summary>One layer/group/Undo writer for every curve extraction source, including optional scan extras.</summary>
 internal static class TerrainCurveExtractionOutput
 {
-    internal static readonly (string Name, System.Drawing.Color Color)[] OutputLayers =
+    internal static readonly (string Name, System.Drawing.Color Color)[] OutputLayers = new[]
     {
-        ("Border", System.Drawing.Color.FromArgb(35, 31, 32)),
-        ("Ridges and valleys", System.Drawing.Color.FromArgb(178, 34, 34)),
-        ("Contours", System.Drawing.Color.ForestGreen),
-        ("Spot heights", System.Drawing.Color.FromArgb(25, 157, 73)),
-    };
+        TerrainCurveExtractionStyle.Border, TerrainCurveExtractionStyle.RidgesValleys,
+        TerrainCurveExtractionStyle.Contours, TerrainCurveExtractionStyle.Spots,
+    }.Select(style => (style.Layer, style.Colour)).ToArray();
 
     /// <summary>
     /// Adds the curves and points on their layers under a fresh root named <paramref name="rootName"/> (" 2",
@@ -47,7 +45,13 @@ internal static class TerrainCurveExtractionOutput
                     layers[kind] = index;
                 }
 
-                return new ObjectAttributes { Name = name, LayerIndex = index };
+                var attributes = new ObjectAttributes { Name = name, LayerIndex = index };
+                attributes.SetUserString("MoleHill.Recovery.MaximumDeviation", recovery.MaximumDeviation.ToString("G17", CultureInfo.InvariantCulture));
+                attributes.SetUserString("MoleHill.Recovery.Termination", recovery.Termination.ToString());
+                attributes.SetUserString("MoleHill.Recovery.PrunedInputs", recovery.PrunedInputCount.ToString(CultureInfo.InvariantCulture));
+                if (recovery.OriginalMaximumDeviation is double original)
+                    attributes.SetUserString("MoleHill.Recovery.OriginalMaximumDeviation", original.ToString("G17", CultureInfo.InvariantCulture));
+                return attributes;
             }
 
             ObjectAttributes On(string kind, string name) =>

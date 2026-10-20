@@ -10,8 +10,30 @@ internal static partial class ScanBoundaryFitter
         int count = raw.Length / 3;
         var result = (double[])raw.Clone();
         int reach = (int)Math.Min(count / 2, Math.Min(128, Math.Ceiling(3 * tolerance / cell)));
+        var held = new bool[count];
+        int support = Math.Min(4, count / 4);
+        if (support >= 2)
+            for (int corner = 0; corner < count; corner++)
+            {
+                if (!closed && (corner < support || corner + support >= count)) continue;
+                int a = (corner - support + count) % count, b = (corner + support) % count;
+                double ax = raw[corner * 3] - raw[a * 3], ay = raw[corner * 3 + 1] - raw[a * 3 + 1];
+                double bx = raw[b * 3] - raw[corner * 3], by = raw[b * 3 + 1] - raw[corner * 3 + 1];
+                double la = Math.Sqrt(ax * ax + ay * ay), lb = Math.Sqrt(bx * bx + by * by);
+                if (la < cell * (support - .1) || lb < cell * (support - .1) ||
+                    (ax * bx + ay * by) > .8 * la * lb) continue;
+                bool straight = true;
+                for (int j = 1; j < support; j++)
+                {
+                    int p = (corner - j + count) % count, q = (corner + j) % count;
+                    straight &= Math.Abs((raw[p * 3] - raw[corner * 3]) * ay - (raw[p * 3 + 1] - raw[corner * 3 + 1]) * ax) < cell * la * 1e-6;
+                    straight &= Math.Abs((raw[q * 3] - raw[corner * 3]) * by - (raw[q * 3 + 1] - raw[corner * 3 + 1]) * bx) < cell * lb * 1e-6;
+                }
+                if (straight) for (int j = -reach; j <= reach; j++) held[(corner + j + count) % count] = true;
+            }
         for (int i = closed ? 0 : 1; i < (closed ? count : count - 1); i++)
         {
+            if (held[i]) continue;
             double x = 0, y = 0, weight = 0;
             for (int offset = -reach; offset <= reach; offset++)
             {
@@ -71,7 +93,8 @@ internal static partial class ScanBoundaryFitter
                 for (int k = 0; k < xyz.Length; k += 3)
                 {
                     double t = xyz[k] / length;
-                    xyz[k] = x + dx * t; xyz[k + 1] = y + dy * t;
+                    xyz[k] = t >= 1 ? plan[i + 3] : t <= 0 ? x : x + dx * t;
+                    xyz[k + 1] = t >= 1 ? plan[i + 4] : t <= 0 ? y : y + dy * t;
                 }
                 return xyz;
             }

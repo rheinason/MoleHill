@@ -66,10 +66,12 @@ internal static partial class ScanToTerrainCommandService
         catch (InvalidOperationException error)
         { RhinoApp.WriteLine($"Scan to terrain: {error.Message} No output was added."); return Result.Failure; }
         int added; string root;
+        // Zone fills go beneath the whole source, whose skirts and fringes reach below the ground found in it.
+        double? sourceBottom = source?.Geometry?.GetBoundingBox(true) is { IsValid: true } box ? box.Min.Z : null;
         try
         {
             added = TerrainCurveExtractionOutput.Add(doc, recovery, $"Scan {sourceName}", "Scan to Terrain",
-                onLayer => AddExtras(doc, pipeline, solids, accepted.AddGroundMesh, onLayer), out root);
+                onLayer => AddExtras(doc, pipeline, solids, accepted.AddGroundMesh, sourceBottom, onLayer), out root);
         }
         finally { foreach (Brep solid in solids) solid.Dispose(); }
         if (added > 0) accepted.Save(units);
@@ -107,27 +109,28 @@ internal static partial class ScanToTerrainCommandService
         for (int f = 0; f < groundMesh.FaceCount; f++)
             mesh.Faces.AddFace(faces[f * 3], faces[(f * 3) + 1], faces[(f * 3) + 2]);
         MeshNormalOrientation.UnifyAndComputeNormalsWelded(mesh);
-        return doc.Objects.AddMesh(mesh, onLayer("Ground (check)", System.Drawing.Color.FromArgb(160, 160, 160), "Scan ground"));
+        return doc.Objects.AddMesh(mesh, onLayer(TerrainCurveExtractionStyle.Ground.Layer, TerrainCurveExtractionStyle.Ground.Colour, "Scan ground"));
     }
 
     private static IEnumerable<Guid> AddExtras(RhinoDoc doc, ScanTerrainPipeline.Result pipeline,
-        IReadOnlyList<Brep> buildingSolids, bool showGround, Func<string, System.Drawing.Color, string, ObjectAttributes> onLayer)
+        IReadOnlyList<Brep> buildingSolids, bool showGround, double? sourceBottom, Func<string, System.Drawing.Color, string, ObjectAttributes> onLayer)
     {
         foreach (ScanWalls.Wall wall in pipeline.Walls)
         {
-            using Curve top = RouteCurveBuilder.FromFitted(wall.TopCurve);
-            using Curve toe = RouteCurveBuilder.FromFitted(wall.ToeCurve);
+            using Curve top = ScanCurveBuilder.Build(wall.TopCurve);
+            using Curve toe = ScanCurveBuilder.Build(wall.ToeCurve);
             ObjectAttributes Attributes(string side)
             {
-                ObjectAttributes attributes = onLayer("Walls and edges", System.Drawing.Color.FromArgb(110, 85, 65), $"Wall {side}");
+                ObjectAttributes attributes = onLayer(TerrainCurveExtractionStyle.Walls.Layer, TerrainCurveExtractionStyle.Walls.Colour, $"Wall {side}");
                 attributes.SetUserString("MoleHill.Scan.MeanStep", Format(wall.MeanHeight));
                 attributes.SetUserString("MoleHill.Scan.MeasuredLength", Format(wall.Length));
+                ScanCurveBuilder.StampEvidence(attributes, side == "top" ? wall.TopCurve : wall.ToeCurve);
                 return attributes;
             }
             yield return doc.Objects.AddCurve(top, Attributes("top"));
             yield return doc.Objects.AddCurve(toe, Attributes("toe"));
         }
-        foreach (Guid id in AddSurfaceOutput(doc, pipeline, onLayer))
+        foreach (Guid id in AddSurfaceOutput(doc, pipeline, sourceBottom, onLayer))
             yield return id;
         foreach (Guid id in AddBuildingOutput(doc, pipeline.Buildings, buildingSolids, onLayer))
             yield return id;

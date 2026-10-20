@@ -14,12 +14,15 @@ public static partial class ScanBuildings
         public string Diagnostic { get; set; } = "";
         public double CoveredShare { get; set; } = 1;
         public IReadOnlyList<Cut> ExtraCuts { get; set; } = Array.Empty<Cut>();
+        /// <summary>The plane pairs whose meeting can bound a roof cell; null means every pair.</summary>
+        public Func<int, int, bool>? Meets { get; init; }
         public bool Approximate { get; init; }
         public bool Bounded { get; set; }
         public double Height(double x, double y) => Planes[Select(x, y)].Height(x, y);
     }
 
-    private static List<RoofModel> ChooseRoofs(List<RoofSample> samples, List<PlaneRegion> regions, List<List<P2>> footprints, Options options)
+    private static List<RoofModel> ChooseRoofs(List<RoofSample> samples, List<PlaneRegion> regions, List<List<P2>> footprints,
+        double facadeAngle, double baseZ, Options options)
     {
         var choices = new List<RoofModel>();
         int[] all = Enumerable.Range(0, samples.Count).ToArray();
@@ -134,6 +137,13 @@ public static partial class ScanBuildings
         Evaluate(lattice);
         if (Accept(lattice))
             models.Add(lattice);
+        // Parts under simple roofs come before the spatial arrangement: fewer faces for the same measured fit.
+        List<RoofModel> composites = CompositeRoofs(samples, regions, footprints, facadeAngle, baseZ, options);
+        foreach (RoofModel composite in composites)
+        {
+            Evaluate(composite);
+            models.Add(composite);
+        }
         // Non-convex arrangements assign cells to the spatially nearest measured plane patch. Every
         // pairwise plane intersection splits the shell; genuine roof steps receive vertical faces.
         P2[][] representatives = regions.Select(region => region.Samples
@@ -177,6 +187,12 @@ public static partial class ScanBuildings
                     Kind = simple.Kind, Planes = simple.Planes, Select = simple.Select, Approximate = true,
                     Diagnostic = $"Simplified {simple.Kind} fallback: small roof details/complex arrangements omitted; fit is approximate.",
                 });
+        foreach (RoofModel composite in composites)
+            models.Add(new RoofModel
+            {
+                Kind = composite.Kind, Planes = composite.Planes, Select = composite.Select, ExtraCuts = composite.ExtraCuts, Meets = composite.Meets, Approximate = true,
+                Diagnostic = composite.Diagnostic + " Fit is approximate.",
+            });
         RoofModel fallback = ExtrusionFallback(samples);
         Evaluate(fallback);
         RoofModel closest = choices.Concat(new[] { envelope, lattice, general }).OrderBy(model => model.Score).First();

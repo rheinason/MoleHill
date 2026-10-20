@@ -11,7 +11,8 @@ internal sealed record TerrainCurveExtractionPrepared(IndexedTriMesh Reference,
 {
     public IReadOnlyList<double[]> FixedBreaklines { get; init; } = Array.Empty<double[]>();
     public ITerrainRecoveryRegion? Region { get; init; }
+    public ITerrainRecoveryRegion? SecondaryRegion { get; init; }
 
     public static TerrainCurveExtractionPrepared FromScan(ScanTerrainPipeline.Result scan) =>
-        new(scan.Reference, Scan: scan) { FixedBreaklines = scan.FixedBreaklines, Region = scan.Region };
+        new(scan.Reference, Scan: scan) { FixedBreaklines = scan.FixedBreaklines, Region = scan.Region, SecondaryRegion = scan.SecondaryRegion };
 }

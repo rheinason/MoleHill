@@ -20,8 +20,9 @@ public static partial class TerrainCurveRecovery
             bool fits = true;
             for (int i = 0; i < samples.Length; i += 3)
             {
-                if (terrainAt(samples[i], samples[i + 1]) is not double height || Math.Abs(height - contour.Level) > verticalTolerance ||
-                    region != null && !region.Contains(samples[i], samples[i + 1]))
+                // Region membership is checked by clipping below: a region may measure less ground than it
+                // clips to (scan contours run through rough patches that are measured loosely).
+                if (terrainAt(samples[i], samples[i + 1]) is not double height || Math.Abs(height - contour.Level) > verticalTolerance)
                 {
                     fits = false;
                     break;
@@ -46,6 +47,63 @@ public static partial class TerrainCurveRecovery
         // A tight corner beside a mask edge can be impossible to smooth without crossing the excluded
         // area. Keep its exact clipped polyline; the host can express it as a degree-one NURBS.
         return contour;
+    }
+
+    /// <summary>
+    /// One quadratic B-spline whose controls are the simplified contour's own vertices: as many controls as the
+    /// polyline, smooth everywhere, one piece. A closed contour is seamed at the midpoint of its last leg so it
+    /// stays smooth across the seam. Fitting a general spline to the simplified polyline instead spent a control
+    /// on every corner and joined many pieces. Null when a corner cut leaves the plan tolerance, the level's
+    /// vertical tolerance or the region.
+    /// </summary>
+    private static RecoveredContour? SmoothContour(RecoveredContour contour, double planTolerance, double verticalTolerance,
+        Func<double, double, double?> terrainAt, ITerrainRecoveryRegion? region)
+    {
+        double[] p = contour.PointsXyz; int n = p.Length / 3;
+        if (n < 3) return null;
+        var xy = new List<(double X, double Y)>();
+        if (contour.IsClosed)
+        {
+            var seam = ((p[^3] + p[0]) * .5, (p[^2] + p[1]) * .5);
+            xy.Add(seam);
+            for (int i = 0; i < n; i++) xy.Add((p[i * 3], p[i * 3 + 1]));
+            xy.Add(seam);
+        }
+        else
+            for (int i = 0; i < n; i++) xy.Add((p[i * 3], p[i * 3 + 1]));
+        int controls = xy.Count, spans = controls - 2;
+        var knots = new double[controls + 3];
+        for (int i = 0; i < knots.Length; i++) knots[i] = Math.Clamp(i - 2, 0, spans) / (double)spans;
+        var points = new double[controls * 3];
+        for (int i = 0; i < controls; i++) { points[i * 3] = xy[i].X; points[i * 3 + 1] = xy[i].Y; points[i * 3 + 2] = contour.Level; }
+        var spline = new RouteSplineCurve(2, knots, points);
+        var samples = new List<double>();
+        double deviation = 0;
+        int count = spans * 8;
+        for (int i = 0; i <= count; i++)
+        {
+            var (x, y, _) = spline.PointAt(i / (double)count);
+            deviation = Math.Max(deviation, PlanDistanceToPolyline(p, contour.IsClosed, x, y));
+            if (deviation > planTolerance || terrainAt(x, y) is not double height || Math.Abs(height - contour.Level) > verticalTolerance)
+                return null;
+            samples.Add(x); samples.Add(y); samples.Add(contour.Level);
+        }
+        double[] sampled = samples.ToArray();
+        if (region != null)
+        {
+            double kept = region.Clip(sampled, false).Sum(part => PlanLength(part.Points));
+            if (PlanLength(sampled) - kept > planTolerance * 1e-4) return null;
+        }
+        double[] distinct = contour.IsClosed ? sampled[..^3] : sampled;
+        double[] light = contour.IsClosed
+            ? SimplifyClosed(distinct, planTolerance * .05, verticalTolerance * .05, terrainAt)
+            : SimplifyOpen(distinct, planTolerance * .05, verticalTolerance * .05, terrainAt);
+        for (int i = 2; i < light.Length; i += 3) light[i] = contour.Level;
+        return new RecoveredContour
+        {
+            Level = contour.Level, PointsXyz = light, IsClosed = contour.IsClosed,
+            Curve = new FittedRouteCurve(new[] { spline }, sampled, deviation, 0, 0, null, default)
+        };
     }
 
     private static FittedRouteCurve AtElevation(FittedRouteCurve curve, double level)

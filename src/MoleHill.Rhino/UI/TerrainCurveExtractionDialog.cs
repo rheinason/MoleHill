@@ -48,7 +48,9 @@ internal sealed partial class TerrainCurveExtractionDialog : Dialog<bool>
         body.AddRow(new Label { Text = "Adjust settings to update the preview. Keep writes a fresh layer tree; Cancel discards it.", Wrap = WrapMode.Word, Width = 460 });
         if (sourceId.HasValue)
         {
-            var showSource = new CheckBox { Text = "Show source", Checked = false };
+            // Preview curves draw over everything, so the source is context, never in the way.
+            var showSource = new CheckBox { Text = "Show source", Checked = true };
+            _preview.ShowSource = true;
             showSource.CheckedChanged += (_, _) => { _preview.ShowSource = showSource.Checked == true; _doc.Views.Redraw(); };
             body.AddRow(showSource);
         }
@@ -63,21 +65,37 @@ internal sealed partial class TerrainCurveExtractionDialog : Dialog<bool>
         }
         var contours = Section(body, "Horizontal contours and spot heights"); Output(contours, "Contours and spots", nameof(settings.Contours));
         if (scan) contours.AddRow(new Label { Text = "Dark green: horizontal contours, one elevation per curve. Muted area outlines carry ground height.", Wrap = WrapMode.Word, Width = 460 });
-        Number(contours, "Vertical tolerance · " + length, nameof(settings.Tolerance));
-        Number(contours, "Plan tolerance · " + length, nameof(settings.PlanTolerance));
-        Number(contours, "Contour budget", nameof(settings.MaxContours), 1, 100000, 0);
-        var lines = new DropDown { DataStore = TerrainCurveExtractionSettings.LandformLabels, SelectedIndex = Math.Clamp(settings.RidgesValleys, 0, 2) };
-        lines.SelectedIndexChanged += (_, _) => { Settings.RidgesValleys = lines.SelectedIndex; Schedule(); };
-        contours.AddRow(new Label { Text = "Ridges and valleys" }, lines);
-        var linePreview = new CheckBox { Text = "Preview ridges and valleys", Checked = true };
-        _visibility[nameof(settings.RidgesValleys)] = linePreview;
-        linePreview.CheckedChanged += (_, _) => UpdatePreview(); contours.AddRow(linePreview);
+        Number(contours, scan ? "Terrain accuracy · " + length : "Vertical tolerance · " + length, nameof(settings.Tolerance));
+        var detail = scan ? Section(_scanAdvanced, "Recovery details") : contours;
+        Number(detail, scan ? "Natural-boundary plan tolerance · " + length : "Plan tolerance · " + length, nameof(settings.PlanTolerance));
+        if (settings is ScanToTerrainSettings scanSettings)
+        {
+            // Soft ground is contoured at an interval; paving is carried by its outline breaklines.
+            Number(contours, "Contour interval · " + length, nameof(scanSettings.ContourInterval), _units.FromMeters(.01));
+            Number(contours, "Paved accuracy · " + length, nameof(scanSettings.PavedTolerance), _units.FromMeters(.01));
+            Number(detail, "Maximum recovery inputs", nameof(scanSettings.MaximumRecoveryInputs), 1, 100000, 0);
+        }
+        else
+        {
+            Number(detail, "Contour budget", nameof(settings.MaxContours), 1, 100000, 0);
+            var lines = new DropDown { DataStore = TerrainCurveExtractionSettings.LandformLabels, SelectedIndex = Math.Clamp(settings.RidgesValleys, 0, 2) };
+            lines.SelectedIndexChanged += (_, _) => { Settings.RidgesValleys = lines.SelectedIndex; Schedule(); };
+            detail.AddRow(new Label { Text = "Ridges and valleys" }, lines);
+            var linePreview = new CheckBox { Text = "Preview ridges and valleys", Checked = true };
+            _visibility[nameof(settings.RidgesValleys)] = linePreview;
+            linePreview.CheckedChanged += (_, _) => UpdatePreview(); detail.AddRow(linePreview);
+        }
         body.AddRow(new Label { Text = scan ? "Tolerance describes the inferred ground, not surveyed ground beneath removed objects. Roof fallbacks remain marked for review." : "Tolerance is measured at the reference terrain vertices. A spent curve budget reports the remaining error.", Wrap = WrapMode.Word, Width = 460 });
+        if (scan) body.AddRow(new Expander { Header = "Advanced", Content = _scanAdvanced, Expanded = false });
         var shell = new DynamicLayout { Spacing = new Size(8, 8) };
         shell.Add(new Scrollable { Content = body, ExpandContentWidth = true }, yscale: true);
         shell.AddRow(_status);
-        shell.AddRow(new StackLayout { Orientation = Orientation.Horizontal, Spacing = 8,
-            Items = { _refresh, new StackLayoutItem(null, true), _cancel, _keep } });
+        shell.AddRow(new StackLayout
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 8,
+            Items = { _refresh, new StackLayoutItem(null, true), _cancel, _keep }
+        });
         Content = shell;
         DefaultButton = _keep; AbortButton = _cancel;
         _keep.Click += (_, _) => { if (Prepared != null && !_dirty && !_running && _inputError == null) Close(true); };
@@ -104,9 +122,15 @@ internal sealed partial class TerrainCurveExtractionDialog : Dialog<bool>
         var property = Settings.GetType().GetProperty(propertyName)!;
         double value = Convert.ToDouble(property.GetValue(Settings));
         double min = minimum ?? _doc.ModelAbsoluteTolerance;
-        var number = new NumericStepper { DecimalPlaces = decimals, MinValue = min, MaxValue = maximum,
-            Value = Math.Clamp(value, min, maximum), Width = 140,
-            Increment = increment ?? (decimals == 0 ? 1 : Math.Max(min, _units.FromMeters(.05))) };
+        var number = new NumericStepper
+        {
+            DecimalPlaces = decimals,
+            MinValue = min,
+            MaxValue = maximum,
+            Value = Math.Clamp(value, min, maximum),
+            Width = 140,
+            Increment = increment ?? (decimals == 0 ? 1 : Math.Max(min, _units.FromMeters(.05)))
+        };
         if (property.PropertyType == typeof(int)) property.SetValue(Settings, (int)number.Value);
         else property.SetValue(Settings, number.Value);
         number.ValueChanged += (_, _) =>
@@ -155,8 +179,9 @@ internal sealed partial class TerrainCurveExtractionDialog : Dialog<bool>
             if (_closed || generation != _generation || cancellation.IsCancellationRequested) return;
             Prepared = result; _previewState = result; UpdatePreview(); _keep.Enabled = true;
             var recovery = result.Recovery!;
-            _status.Text = "Ready: " + PreparationSummary(result) +
-                $"{Count(recovery.Contours.Count, "contour")}, {Count(recovery.SpotPointCount, "spot")}. " + recovery.Diagnostic;
+            _status.Text = "Ready: " + PreparationSummary(result, _units.Abbreviation) +
+                $"{Count(recovery.Contours.Count, "contour")}, {Count(recovery.SpotPointCount, "spot")}. " + recovery.Diagnostic +
+                (recovery.OriginalMaximumDeviation is double original ? $" Original ground miss {original:G4} {_units.Abbreviation}." : string.Empty);
         }
         catch (OperationCanceledException) { if (!_closed && generation == _generation) _status.Text = "Preview cancelled."; }
         catch (Exception error) { if (!_closed && generation == _generation) { _status.Text = error.Message; Prepared = null; _keep.Enabled = false; } }

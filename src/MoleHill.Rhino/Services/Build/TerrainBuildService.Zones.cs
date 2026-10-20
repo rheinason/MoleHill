@@ -50,7 +50,7 @@ internal sealed partial class TerrainBuildService
             var zoneEntries = ResolveZoneBoundaries(snapshot, zone, zoneIndex, tolerance, gradePathLookup);
             if (zone.Boundaries.HasReferences && zoneEntries.Count == 0)
             {
-                build.Diagnostics.Add($"Zone '{zone.Name}' has no valid closed curves or horizontal planar surfaces.");
+                build.Diagnostics.Add($"Zone '{zone.Name}' has no valid closed curves, hatches or horizontal planar surfaces.");
             }
 
             entries.AddRange(zoneEntries);
@@ -247,6 +247,28 @@ internal sealed partial class TerrainBuildService
                     break;
                 case Brep brep:
                     AppendPlanarBrepBoundaries(result, zone, zoneOrder, ref sourceOrder, brep, tolerance, inputLayerPath ?? obj.LayerPath);
+                    break;
+                case Hatch hatch:
+                    // Like a planar surface, a hatch zones by its outer loops; its holes are left to the zones
+                    // drawn inside them.
+                    foreach (Curve outer in hatch.Get3dCurves(true))
+                    {
+                        if (TryCreateAreaBoundary(outer, tolerance, out MeshAreaSplitter.AreaBoundary hatchBoundary))
+                        {
+                            result.Add(new ZoneBoundaryEntry
+                            {
+                                Zone = zone,
+                                Boundary = hatchBoundary,
+                                ZoneOrder = zoneOrder,
+                                SourceOrder = sourceOrder++,
+                                PriorityZ = GetCurvePriorityZ(outer),
+                                InputLayerPath = inputLayerPath ?? obj.LayerPath
+                            });
+                        }
+
+                        outer.Dispose();
+                    }
+
                     break;
                 case Extrusion extrusion:
                     var extrusionBrep = extrusion.ToBrep();

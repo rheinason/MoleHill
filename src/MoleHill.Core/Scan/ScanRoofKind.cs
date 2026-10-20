@@ -9,5 +9,7 @@ public enum ScanRoofKind
     HalfHip,
     CrossGable,
     PlaneArrangement,
+    /// <summary>Parts split along the facades, each under its own simple roof.</summary>
+    Composite,
     ExtrusionFallback,
 }

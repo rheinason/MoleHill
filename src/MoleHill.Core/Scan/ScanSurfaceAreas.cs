@@ -18,10 +18,21 @@ public static class ScanSurfaceAreas
         public required double MinimumArea { get; init; }
         public required double PlanTolerance { get; init; }
         public required double VerticalTolerance { get; init; }
+        public double? BuiltEdgePlanTolerance { get; init; }
+        /// <summary>Radius over which class evidence is averaged before deciding; null uses 0.6 x plan tolerance.</summary>
+        public double? SmoothingRadius { get; init; }
+        /// <summary>Raised objects up to this height (cars, shrubs) may be filled by the class around them; null fills by size alone.</summary>
+        public double? MaximumFilledObjectHeight { get; init; }
+        /// <summary>Soft ground joined only by strips narrower than this is outlined as separate areas; null keeps it whole.</summary>
+        public double? SoftNeckWidth { get; init; }
         public CancellationToken CancellationToken { get; init; }
     }
 
-    public sealed record Boundary(ScanSurfaceKind Kind, double[] Points, FittedRouteCurve Curve);
+    public sealed record Boundary(ScanSurfaceKind Kind, double[] Points, ScanCurveGeometry Curve)
+    {
+        /// <summary>Retained for region topology, but its complete interface is already drawn by another family.</summary>
+        public bool IsSharedDuplicate { get; init; }
+    }
     public sealed class Result
     {
         public required ScanGrid Ground { get; init; }
@@ -40,124 +51,54 @@ public static class ScanSurfaceAreas
         ScanGrid grid = ground.Ground;
         if (colours != null && colours.Length != grid.NodeCount)
             throw new ArgumentException("Colours must align with the ground lattice.", nameof(colours));
-        if (!double.IsFinite(options.ExcessGreen) || options.ExcessGreen < 0 || options.ExcessGreen > 2 ||
-            !double.IsFinite(options.MaximumPavedSaturation) || options.MaximumPavedSaturation < 0 || options.MaximumPavedSaturation > 1 ||
-            !Positive(options.MaximumPavedRoughness) || !Positive(options.MaximumPavedSlope) ||
-            !Positive(options.MinimumArea) || !Positive(options.PlanTolerance) || !Positive(options.VerticalTolerance))
-            throw new ArgumentOutOfRangeException(nameof(options));
+        Validate(options);
         var classes = new ScanSurfaceKind[grid.NodeCount];
         if (colours == null)
             return new Result { Ground = grid, Classes = classes, PavedMask = new bool[classes.Length], SoftMask = new bool[classes.Length], Boundaries = Array.Empty<Boundary>() };
+        return Classify(ground, ScanColourLattice.FromGround(grid, colours), options, footprint);
+    }
+
+    /// <summary>Classifies on a colour lattice that may be finer than the ground grid; classes are reported per ground node.</summary>
+    internal static Result Classify(ScanGround.Result ground, ScanColourLattice lattice, Options options, IndexedTriMesh? footprint = null)
+    {
+        ArgumentNullException.ThrowIfNull(ground);
+        Validate(options);
+        ScanGrid grid = ground.Ground;
         var projector = footprint is IndexedTriMesh mesh ? new MeshHeightProjector(mesh.Vertices, mesh.VertexCount, mesh.Faces, mesh.FaceCount) : null;
+        byte[] labels = ScanSurfaceClassifier.Classify(ground, lattice, options, projector, options.SmoothingRadius ?? options.PlanTolerance * .6);
+        bool[] pavedFine = labels.Select(value => value == (byte)ScanSurfaceKind.Paved).ToArray();
+        bool[] softFine = labels.Select(value => value == (byte)ScanSurfaceKind.Soft).ToArray();
+        // Drawing masks pass over small enclosed objects; observed classes never claim ground that was removed.
+        var classes = new ScanSurfaceKind[grid.NodeCount];
+        bool[] pavedMask = new bool[grid.NodeCount], softMask = new bool[grid.NodeCount];
         for (int row = 0; row < grid.Rows; row++)
-        {
-            options.CancellationToken.ThrowIfCancellationRequested();
             for (int column = 0; column < grid.Columns; column++)
             {
                 int node = row * grid.Columns + column;
-                if (!ground.IsGround[node] || !ground.Domain[node] || colours[node] < 0 || !double.IsFinite(grid.Values[node]))
-                    continue;
-                if (projector != null && !FitsFootprint(column, row))
-                    continue;
-                int rgb = colours[node], r = rgb >> 16 & 255, g = rgb >> 8 & 255, b = rgb & 255;
-                if (r + g + b < 6)
-                    continue;
-                double exg = (2.0 * g - r - b) / (r + g + b);
-                double maximum = Math.Max(r, Math.Max(g, b)), minimum = Math.Min(r, Math.Min(g, b));
-                double saturation = maximum > 0 ? (maximum - minimum) / maximum : 0;
-                (double slope, double roughness) = Geometry(column, row);
-                if (exg >= options.ExcessGreen && g > r && g > b)
-                    classes[node] = ScanSurfaceKind.Soft;
-                else if (saturation <= options.MaximumPavedSaturation && slope <= options.MaximumPavedSlope && roughness <= options.MaximumPavedRoughness)
-                    classes[node] = ScanSurfaceKind.Paved;
-                else if (roughness > options.MaximumPavedRoughness)
-                    classes[node] = ScanSurfaceKind.Soft;
+                var kind = (ScanSurfaceKind)labels[row * lattice.Factor * lattice.Columns + column * lattice.Factor];
+                pavedMask[node] = kind == ScanSurfaceKind.Paved;
+                softMask[node] = kind == ScanSurfaceKind.Soft;
+                classes[node] = ground.IsGround[node] && ground.Domain[node] ? kind : ScanSurfaceKind.Unknown;
             }
-        }
-        CullSmall(ScanSurfaceKind.Paved);
-        CullSmall(ScanSurfaceKind.Soft);
-        bool[] pavedMask = AreaMask(ScanSurfaceKind.Paved), softMask = AreaMask(ScanSurfaceKind.Soft);
-        var boundaries = new List<Boundary>();
-        foreach (ScanSurfaceKind kind in new[] { ScanSurfaceKind.Paved, ScanSurfaceKind.Soft })
-        {
-            bool[] mask = kind == ScanSurfaceKind.Paved ? pavedMask : softMask;
-            foreach (ScanGridEdges.Chain chain in ScanGridEdges.Trace(mask, grid, cancellationToken: options.CancellationToken))
-            {
-                options.CancellationToken.ThrowIfCancellationRequested();
-                if (!chain.Closed || chain.Edges.Count < 4)
-                    continue;
-                var raw = new List<double>();
-                foreach (ScanGridEdges.Edge edge in chain.Edges)
-                {
-                    (double x, double y, double z) = ScanGridEdges.Corner(grid, edge.Start);
-                    if (projector != null && projector.TryGetHeightExtremes(x, y, grid.CellSize * 1e-7, out _, out double clean))
-                        z = clean;
-                    raw.Add(x); raw.Add(y); raw.Add(z);
-                }
-                FittedRouteCurve curve = ScanBoundaryFitter.Fit(raw.ToArray(), true, grid, projector,
-                    options.PlanTolerance, options.VerticalTolerance, options.CancellationToken);
-                if (curve.Pieces.Count > 0)
-                    boundaries.Add(new Boundary(kind, TerrainCurveRecovery.SimplifyOpen(curve.PointsXyz,
-                        options.PlanTolerance * .05, options.VerticalTolerance * .1), curve));
-            }
-        }
+        int[]? softRegions = options.SoftNeckWidth is double neck
+            ? ScanSoftNecks.Regions(softFine, lattice.Columns, lattice.Rows, neck * .5 / lattice.CellSize,
+                Math.Max(1, (int)Math.Ceiling(options.MinimumArea / (lattice.CellSize * lattice.CellSize))), options.CancellationToken)
+            : null;
+        var boundaries = ScanSurfaceGraph.Build(grid, lattice, pavedFine, softFine, options, projector, softRegions);
         return new Result { Ground = grid, Classes = classes, PavedMask = pavedMask, SoftMask = softMask, Boundaries = boundaries };
+    }
 
-        bool[] AreaMask(ScanSurfaceKind kind)
-        {
-            bool[] mask = classes.Select(value => value == kind).ToArray();
-            int[] holes = GridMorphology.Label(mask.Select(value => !value).ToArray(), grid.Columns, grid.Rows,
-                out List<int> sizes, out List<bool> touchesEdge);
-            double minimumNodes = options.MinimumArea / grid.NodeArea;
-            for (int node = 0; node < mask.Length; node++)
-                if (holes[node] >= 0 && !touchesEdge[holes[node]] && sizes[holes[node]] < minimumNodes)
-                    mask[node] = true;
-            return mask;
-        }
-
-        bool FitsFootprint(int column, int row)
-        {
-            for (int sx = -1; sx <= 1; sx += 2)
-            {
-                for (int sy = -1; sy <= 1; sy += 2)
-                {
-                    double x = grid.OriginX + Math.Clamp(column + sx * 0.5, 0, grid.Columns - 1) * grid.CellSize;
-                    double y = grid.OriginY + Math.Clamp(row + sy * 0.5, 0, grid.Rows - 1) * grid.CellSize;
-                    if (!projector!.TryGetHeightExtremes(x, y, grid.CellSize * 1e-7, out _, out _))
-                        return false;
-                }
-            }
-            return true;
-        }
-
-        (double Slope, double Roughness) Geometry(int column, int row)
-        {
-            double z = grid[column, row], slope = 0, roughness = 0;
-            Check(column - 1, row, column + 1, row);
-            Check(column, row - 1, column, row + 1);
-            return (slope, roughness);
-            void Check(int x0, int y0, int x1, int y1)
-            {
-                if (x0 < 0 || y0 < 0 || x1 >= grid.Columns || y1 >= grid.Rows)
-                    return;
-                double before = grid[x0, y0], after = grid[x1, y1];
-                if (!double.IsFinite(before + after))
-                    return;
-                // A kerb beside a paved node is a height jump, not the pavement's crossfall.
-                slope = Math.Max(slope, Math.Min(Math.Abs(z - before), Math.Abs(after - z)) / grid.CellSize);
-                roughness = Math.Max(roughness, Math.Abs(z - (before + after) * 0.5));
-            }
-        }
-
-        void CullSmall(ScanSurfaceKind kind)
-        {
-            bool[] mask = classes.Select(value => value == kind).ToArray();
-            int[] labels = GridMorphology.Label(mask, grid.Columns, grid.Rows, out List<int> sizes, out _);
-            double minimumNodes = options.MinimumArea / grid.NodeArea;
-            for (int node = 0; node < classes.Length; node++)
-                if (labels[node] >= 0 && sizes[labels[node]] < minimumNodes)
-                    classes[node] = ScanSurfaceKind.Unknown;
-        }
+    private static void Validate(Options options)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        if (!double.IsFinite(options.ExcessGreen) || options.ExcessGreen < 0 || options.ExcessGreen > 2 ||
+            !double.IsFinite(options.MaximumPavedSaturation) || options.MaximumPavedSaturation < 0 || options.MaximumPavedSaturation > 1 ||
+            !Positive(options.MaximumPavedRoughness) || !Positive(options.MaximumPavedSlope) || !Positive(options.MinimumArea) ||
+            options.BuiltEdgePlanTolerance.HasValue && !Positive(options.BuiltEdgePlanTolerance.Value) ||
+            options.SmoothingRadius is double radius && (!double.IsFinite(radius) || radius < 0) ||
+            options.SoftNeckWidth.HasValue && !Positive(options.SoftNeckWidth.Value) ||
+            !Positive(options.PlanTolerance) || !Positive(options.VerticalTolerance))
+            throw new ArgumentOutOfRangeException(nameof(options));
     }
 
     private static bool Positive(double value) => double.IsFinite(value) && value > 0;

@@ -40,6 +40,8 @@ public static partial class TerrainCurveRecovery
         /// <summary>Stop after adding this many contours, met tolerance or not.</summary>
         public int MaximumCurves { get; init; } = 200;
 
+        public TerrainRecoveryPolicy? Policy { get; init; }
+
         /// <summary>A peak or pit must be the highest (lowest) vertex this many rings out to seed a spot point.</summary>
         public int ExtremumRings { get; init; } = 3;
 
@@ -54,6 +56,14 @@ public static partial class TerrainCurveRecovery
 
         /// <summary>Null measures the full terrain; otherwise contours, spots and deviation stay in this region.</summary>
         public ITerrainRecoveryRegion? Region { get; init; }
+
+        /// <summary>
+        /// Ground measured at <see cref="SecondaryTolerance"/> where only spot heights may be added: scan paving,
+        /// which its draped outline breaklines already describe. Interval recovery only.
+        /// </summary>
+        public ITerrainRecoveryRegion? SecondaryRegion { get; init; }
+
+        public double SecondaryTolerance { get; init; }
 
         /// <summary>Fit light curves before reconstruction so the measured result describes their sampled geometry.</summary>
         public bool FitContours { get; init; }
@@ -109,6 +119,14 @@ public static partial class TerrainCurveRecovery
         public int EvaluatedVertexCount { get; init; }
 
         public int SpotPointCount => SpotPoints.Length / 3;
+        public double ExcessErrorVolume { get; init; }
+        public double? OriginalMaximumDeviation { get; set; }
+        public double AreaOutsideTolerance { get; init; }
+        public int PrunedInputCount { get; init; }
+        public int RejectedCandidateCount { get; init; }
+
+        /// <summary>The worst miss in <see cref="Options.SecondaryRegion"/>, when one was measured.</summary>
+        public double? SecondaryMaximumDeviation { get; init; }
     }
 
     public static Result Recover(IndexedTriMesh terrain, Options options)
@@ -121,6 +139,8 @@ public static partial class TerrainCurveRecovery
     {
         ArgumentNullException.ThrowIfNull(options);
         ValidateBreaklines(options.FixedBreaklines);
+        if (options.Policy is { ContourInterval: > 0 }) return RecoverInterval(terrain, options);
+        if (options.Policy != null) return RecoverInformative(terrain, options, useLandforms);
         (double[] vertices, int vertexCount, int[] faces, int faceCount) = terrain;
         double verticalTolerance = options.VerticalTolerance;
         if (!double.IsFinite(verticalTolerance) || verticalTolerance <= 0.0 || vertexCount < 3 || faceCount < 1)
@@ -155,9 +175,14 @@ public static partial class TerrainCurveRecovery
             if (evaluated == 0)
                 return new Result
                 {
-                    Borders = borders, Contours = Array.Empty<RecoveredContour>(), LandformLines = Array.Empty<double[]>(),
-                    SpotPoints = Array.Empty<double>(), MaximumDeviation = 0, Rounds = 0,
-                    Termination = Termination.ToleranceSatisfied, Diagnostic = "No terrain vertices fall in the requested region; no contours or spots were requested.",
+                    Borders = borders,
+                    Contours = Array.Empty<RecoveredContour>(),
+                    LandformLines = Array.Empty<double[]>(),
+                    SpotPoints = Array.Empty<double>(),
+                    MaximumDeviation = 0,
+                    Rounds = 0,
+                    Termination = Termination.ToleranceSatisfied,
+                    Diagnostic = "No terrain vertices fall in the requested region; no contours or spots were requested.",
                     EvaluatedVertexCount = 0,
                 };
         }

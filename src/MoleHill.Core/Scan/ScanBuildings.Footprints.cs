@@ -7,14 +7,16 @@ namespace MoleHill.Core.Scan;
 public static partial class ScanBuildings
 {
     private static List<List<P2>> BuildFootprints(Candidate candidate, int[] labels, ScanGrid surface, Options options,
-        double originX, double originY)
+        double originX, double originY, HashSet<int> roofed, out double angle, out HashSet<int> kept)
     {
-        List<P2> points = candidate.Nodes.Select(n => new P2(surface.NodeX(n % surface.Columns) - originX,
+        angle = 0;
+        kept = new HashSet<int>();
+        List<P2> points = candidate.Nodes.Where(roofed.Contains).Select(n => new P2(surface.NodeX(n % surface.Columns) - originX,
             surface.NodeY(n / surface.Columns) - originY)).ToList();
         List<P2> hull = ConvexHull(points);
         if (hull.Count < 3)
             return new();
-        double bestArea = double.PositiveInfinity, angle = 0;
+        double bestArea = double.PositiveInfinity;
         for (int i = 0; i < hull.Count; i++)
         {
             P2 a = hull[i], b = hull[(i + 1) % hull.Count];
@@ -50,7 +52,7 @@ public static partial class ScanBuildings
                 double x = originX + u * cos - v * sin, y = originY + u * sin + v * cos;
                 int c = (int)Math.Round((x - surface.OriginX) / cell), r = (int)Math.Round((y - surface.OriginY) / cell);
                 mask[row * columns + column] = c >= 0 && r >= 0 && c < surface.Columns && r < surface.Rows &&
-                    labels[r * surface.Columns + c] == candidate.Label;
+                    labels[r * surface.Columns + c] == candidate.Label && roofed.Contains(r * surface.Columns + c);
             }
         }
         int[] components = GridMorphology.Label(mask, columns, rows, out List<int> sizes, out _);
@@ -65,6 +67,13 @@ public static partial class ScanBuildings
             if (holes[i] >= 0 && !edge[holes[i]] && holeSizes[holes[i]] * cell * cell < Math.Max(options.MinimumArea * 0.1, cell * cell * 4))
                 mask[i] = true;
         CloseDiagonalContacts(mask, columns, rows);
+        for (int row = 0; row < rows; row++)
+            for (int column = 0; column < columns; column++)
+                if (mask[row * columns + column])
+                {
+                    double u = left + column * cell, v = bottom + row * cell;
+                    kept.Add(NodeAt(surface, originX + u * cos - v * sin, originY + u * sin + v * cos));
+                }
         var grid = new ScanGrid(left, bottom, cell, columns, rows, new double[mask.Length]);
         var rawLoops = new List<List<P2>>();
         foreach (ScanGridEdges.Chain chain in ScanGridEdges.Trace(mask, grid, cancellationToken: options.CancellationToken))

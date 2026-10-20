@@ -133,6 +133,69 @@ public static class ScanRasterizer
             new ScanGrid(minX, minY, cellSize, columns, rows, lowest)) { Colours = rgb };
     }
 
+    /// <summary>
+    /// The colour of the highest triangle at each node of a lattice <paramref name="factor"/> times finer than
+    /// <paramref name="ground"/>. Only colour is kept; a single-precision depth picks the top surface.
+    /// </summary>
+    internal static ScanColourLattice RasterizeColours(IndexedTriMesh mesh, ScanGrid ground, int factor,
+        ScanColourSource colours, CancellationToken cancellationToken = default)
+    {
+        colours.Validate(mesh.FaceCount);
+        int columns = ground.Columns == 0 ? 0 : (ground.Columns - 1) * factor + 1;
+        int rows = ground.Rows == 0 ? 0 : (ground.Rows - 1) * factor + 1;
+        var rgb = new int[columns * rows];
+        Array.Fill(rgb, -1);
+        var depth = new float[rgb.Length];
+        Array.Fill(depth, float.NegativeInfinity);
+        double cellSize = ground.CellSize / factor, inverse = 1.0 / cellSize, minX = ground.OriginX, minY = ground.OriginY;
+        double[] vertices = mesh.Vertices;
+        int[] faces = mesh.Faces;
+        const double edgeTolerance = -1e-9;
+        for (int face = 0; face < mesh.FaceCount; face++)
+        {
+            if ((face & 0x3FFF) == 0)
+                cancellationToken.ThrowIfCancellationRequested();
+            int a = faces[face * 3], b = faces[(face * 3) + 1], c = faces[(face * 3) + 2];
+            double ax = vertices[a * 3], ay = vertices[(a * 3) + 1], az = vertices[(a * 3) + 2];
+            double bx = vertices[b * 3], by = vertices[(b * 3) + 1], bz = vertices[(b * 3) + 2];
+            double cx = vertices[c * 3], cy = vertices[(c * 3) + 1], cz = vertices[(c * 3) + 2];
+            double area = Geometry2D.Orient(ax, ay, bx, by, cx, cy);
+            double scale = Math.Max(Math.Max(Math.Abs(bx - ax), Math.Abs(by - ay)), Math.Max(Math.Abs(cx - ax), Math.Abs(cy - ay)));
+            if (!(Math.Abs(area) > scale * scale * 1e-12))
+                continue;
+            int c0 = Math.Max(0, (int)Math.Ceiling(((Math.Min(ax, Math.Min(bx, cx)) - minX) * inverse) - 1e-9));
+            int c1 = Math.Min(columns - 1, (int)Math.Floor(((Math.Max(ax, Math.Max(bx, cx)) - minX) * inverse) + 1e-9));
+            int r0 = Math.Max(0, (int)Math.Ceiling(((Math.Min(ay, Math.Min(by, cy)) - minY) * inverse) - 1e-9));
+            int r1 = Math.Min(rows - 1, (int)Math.Floor(((Math.Max(ay, Math.Max(by, cy)) - minY) * inverse) + 1e-9));
+            double inverseArea = 1.0 / area;
+            for (int row = r0; row <= r1; row++)
+            {
+                double y = minY + (row * cellSize);
+                int offset = row * columns;
+                for (int column = c0; column <= c1; column++)
+                {
+                    double x = minX + (column * cellSize);
+                    double wa = Geometry2D.Orient(bx, by, cx, cy, x, y) * inverseArea;
+                    if (wa < edgeTolerance)
+                        continue;
+                    double wb = Geometry2D.Orient(cx, cy, ax, ay, x, y) * inverseArea;
+                    if (wb < edgeTolerance)
+                        continue;
+                    double wc = 1.0 - wa - wb;
+                    if (wc < edgeTolerance)
+                        continue;
+                    float z = (float)((wa * az) + (wb * bz) + (wc * cz));
+                    if (z > depth[offset + column])
+                    {
+                        depth[offset + column] = z;
+                        rgb[offset + column] = colours.Sample(face, wa, wb, wc);
+                    }
+                }
+            }
+        }
+        return new ScanColourLattice(ground, factor, rgb);
+    }
+
     private static (double MinX, double MinY, double MaxX, double MaxY) PlanExtent(IndexedTriMesh mesh)
     {
         double minX = double.PositiveInfinity, minY = double.PositiveInfinity;

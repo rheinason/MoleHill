@@ -27,8 +27,20 @@ public class TerrainCurveExtractionTests
     [Fact]
     public async Task RecoverAsync_PreparedScanAndDirectTerrainWithSameReference_ProduceIdenticalCurves()
     {
-        var scan = ScanTerrainPipeline.Build(Mound(), null, new() { Ground = new() { CellSize = 1, SmallestObject = 1,
-            LargestObject = 4, InitialThreshold = .3, MaximumThreshold = 4, Margin = 0 }, GroundSpacing = 1, PlanTolerance = .1 });
+        var scan = ScanTerrainPipeline.Build(Mound(), null, new()
+        {
+            Ground = new()
+            {
+                CellSize = 1,
+                SmallestObject = 1,
+                LargestObject = 4,
+                InitialThreshold = .3,
+                MaximumThreshold = 4,
+                Margin = 0
+            },
+            GroundSpacing = 1,
+            PlanTolerance = .1
+        });
         var fromScan = TerrainCurveExtractionPrepared.FromScan(scan);
         var direct = new TerrainCurveExtractionPrepared(scan.Reference) { FixedBreaklines = fromScan.FixedBreaklines, Region = fromScan.Region };
         var a = await TerrainCurveExtractionService.RecoverAsync(fromScan, Settings(), Units, default, _ => { });
@@ -94,8 +106,11 @@ public class TerrainCurveExtractionTests
         var units = ModelUnitContext.FromUnitSystem(system);
         var settings = ScanToTerrainSettings.Load(units) with
         {
-            SurfaceArea = 12 * scale * scale, PlanTolerance = 1.2 * scale, Tolerance = .2 * scale,
-            RoadPlanTolerance = 2 * scale, RoadHeightTolerance = .08 * scale,
+            SurfaceArea = 12 * scale * scale,
+            PlanTolerance = 1.2 * scale,
+            Tolerance = .2 * scale,
+            BuiltEdgeTolerance = 2 * scale,
+            RoadHeightTolerance = .08 * scale,
         };
         var pipeline = settings.Pipeline(units, default, _ => { }, _ => { });
         Assert.Equal(12 * scale * scale, pipeline.Areas!.MinimumArea);

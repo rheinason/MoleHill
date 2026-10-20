@@ -13,7 +13,8 @@ public static partial class TerrainCurveRecovery
     {
         ArgumentNullException.ThrowIfNull(options);
         if (!Enum.IsDefined(typeof(LandformMode), mode)) throw new ArgumentOutOfRangeException(nameof(mode));
-        if (mode != LandformMode.Auto) return Recover(terrain, options, mode == LandformMode.Yes);
+        // Interval contours take no landform lines; there is nothing to compare.
+        if (mode != LandformMode.Auto || options.Policy is { ContourInterval: > 0 }) return Recover(terrain, options, mode == LandformMode.Yes);
         Result with = Recover(terrain, options, true);
         if (with.Termination == Termination.Cancelled || options.ShouldCancel?.Invoke() == true) return with;
         Result without = Recover(terrain, options, false);
@@ -21,6 +22,13 @@ public static partial class TerrainCurveRecovery
         bool withMet = with.Termination == Termination.ToleranceSatisfied;
         bool withoutMet = without.Termination == Termination.ToleranceSatisfied;
         if (withMet != withoutMet) return withMet ? with : without;
+        if (options.Policy != null && !withMet && !withoutMet)
+        {
+            if (Math.Abs(with.MaximumDeviation - without.MaximumDeviation) > options.VerticalTolerance * .01)
+                return with.MaximumDeviation < without.MaximumDeviation ? with : without;
+            if (Math.Abs(with.ExcessErrorVolume - without.ExcessErrorVolume) > options.VerticalTolerance * 1e-6)
+                return with.ExcessErrorVolume < without.ExcessErrorVolume ? with : without;
+        }
         int withCount = with.Contours.Count + with.LandformLines.Count;
         int withoutCount = without.Contours.Count + without.LandformLines.Count;
         if (withCount != withoutCount) return withCount < withoutCount ? with : without;

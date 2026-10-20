@@ -11,7 +11,7 @@ namespace MoleHill.Core.Scan;
 /// </summary>
 public static class ScanWalls
 {
-    public sealed class Options
+    public sealed record Options
     {
         public required double MinimumHeight { get; init; }
         public required double MinimumLength { get; init; }
@@ -22,12 +22,13 @@ public static class ScanWalls
         /// <summary>Largest plan width over which a step may be smeared; zero uses four raster cells.</summary>
         public double MaximumWidth { get; init; }
         public CancellationToken CancellationToken { get; init; }
+        public Action<string>? ReportRejected { get; init; }
     }
 
     public sealed class Wall
     {
-        public required FittedRouteCurve TopCurve { get; init; }
-        public required FittedRouteCurve ToeCurve { get; init; }
+        public required ScanCurveGeometry TopCurve { get; init; }
+        public required ScanCurveGeometry ToeCurve { get; init; }
         /// <summary>Light polylines of the fitted output curves, used as fixed TIN edges.</summary>
         public required double[] Top { get; init; }
         public required double[] Toe { get; init; }
@@ -39,7 +40,13 @@ public static class ScanWalls
 
     private readonly record struct Crossing(int Start, int End, int Top, int Toe, double Height);
 
-    public static IReadOnlyList<Wall> Trace(ScanGrid ground, Options options, IndexedTriMesh? contouringMesh = null)
+    public static IReadOnlyList<Wall> Trace(ScanGround.Result ground, Options options, IndexedTriMesh? contouringMesh = null) =>
+        Trace(ground.Ground, options, contouringMesh, ground.IsGround);
+
+    public static IReadOnlyList<Wall> Trace(ScanGrid ground, Options options, IndexedTriMesh? contouringMesh = null) =>
+        Trace(ground, options, contouringMesh, null);
+
+    private static IReadOnlyList<Wall> Trace(ScanGrid ground, Options options, IndexedTriMesh? contouringMesh, bool[]? observed)
     {
         ArgumentNullException.ThrowIfNull(ground);
         ArgumentNullException.ThrowIfNull(options);
@@ -95,6 +102,7 @@ public static class ScanWalls
         void Add(int a, int b, int stride, int start, int end)
         {
             double za = ground.Values[a], zb = ground.Values[b];
+            if (observed != null && (!observed[a] || !observed[b])) return;
             // Estimate the trend beyond the whole allowed transition, not within a partly rasterised
             // wall. Then follow its adjacent rises as one band, keeping the actual outer top/toe nodes.
             double before = ground.Values[a - band * stride], before2 = ground.Values[a - (band + 1) * stride];
@@ -122,6 +130,7 @@ public static class ScanWalls
             if (width == band && following * first > 0 && Math.Abs(following) >= noise)
                 return; // A broader ramp is not a measured wall.
             zb = ground.Values[last];
+            if (observed != null && !observed[last]) return;
             double residual = zb - za - slope * width;
             if (Math.Abs(residual) < options.MinimumHeight || residual * (zb - za) <= 0)
                 return;
@@ -162,19 +171,9 @@ public static class ScanWalls
             }
             if (top.Count < 6 || toe.Count < 6)
                 return;
-            // Each rail must stay on its own side of a one-cell step. Applying a full-cell smoothing
-            // tolerance independently to top and toe can make their plan curves overlap or cross.
-            double plan = Math.Min(options.PlanTolerance, ground.CellSize * 0.15);
-            FittedRouteCurve Fit(List<double> points)
-            {
-                double[] simple = TerrainCurveRecovery.SimplifyOpen(points.ToArray(), plan, options.VerticalTolerance);
-                return RouteCurveFitter.Fit(new IReadOnlyList<double>[] { simple }, plan, options.VerticalTolerance, 0, 0, 0);
-            }
-            FittedRouteCurve topCurve = Fit(top), toeCurve = Fit(toe);
-            if (topCurve.Pieces.Count == 0 || toeCurve.Pieces.Count == 0)
-                return;
-            if (topCurve.MaxPlanDeviation > plan * 1.01 || toeCurve.MaxPlanDeviation > plan * 1.01 ||
-                topCurve.MaxVerticalDeviation > options.VerticalTolerance * 1.01 || toeCurve.MaxVerticalDeviation > options.VerticalTolerance * 1.01)
+            double plan = options.PlanTolerance;
+            if (!ScanAlignmentFitter.FitPair(top.ToArray(), toe.ToArray(), closed, ground.CellSize,
+                plan, options.VerticalTolerance, options.CancellationToken, out var topCurve, out var toeCurve, options.ReportRejected))
                 return;
             if (!Inside(topCurve.PointsXyz) || !Inside(toeCurve.PointsXyz))
                 return;
@@ -207,8 +206,6 @@ public static class ScanWalls
         void Append(List<double> points, int node)
         {
             double x = ground.NodeX(node % columns), y = ground.NodeY(node / columns);
-            if (points.Count > 0 && points[^3] == x && points[^2] == y)
-                return;
             points.Add(x);
             points.Add(y);
             points.Add(ground.Values[node]);
