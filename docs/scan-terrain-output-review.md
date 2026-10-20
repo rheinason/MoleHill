@@ -365,3 +365,11 @@ edge (up to 5,066 m²), and a slope-cut house inside one failed because its regi
 pitched 5°. A house has to be separated from its region first: roof-plane patches grown within the region and judged
 one by one.
 
+What the remaining Vardalag misses stand on, 2026-10-20. A roof-facet prototype (local planes over 0.9 m, facets grown
+against their own refitted plane) found no house to separate around (-40, 210): a hillshade of the scan's top surface
+shows it, and the area round (-101, 126), made of large flat triangles in fans, textured with stretched flat colour.
+These are the reconstruction's gap fills, not roofs or ground. Elsewhere on the same scan, roofs, walls and paving are
+crisp (the sawtooth building at (60, 138), the houses at (0, -20)). The 6 m "steps" there are seams between measured
+surface and fill, and spot heights spend the input cap reproducing fill triangles. Roof-patch separation cannot fix
+that; the scan's own triangle size (observation support) can tell these areas apart.
+
