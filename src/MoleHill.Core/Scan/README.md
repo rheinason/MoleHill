@@ -166,7 +166,11 @@ obsolete raster stairs after the visible boundary has been cleaned.
 `ScanRasterizer` samples triangle interiors in plan into top and lowest `ScanGrid` heights. Either
 winding is accepted; vertical faces contribute no plan area. NaN denotes no data. Automatic spacing
 comes from plan area/face count and is enlarged if necessary to stay within 16 million nodes; explicit
-cells exceeding that cap are rejected before integer conversion/allocation.
+cells exceeding that cap are rejected before integer conversion/allocation. With a texture it also marks
+`Filled` nodes, whose top face is textured below 1% of the scan's median texel density: the
+reconstruction's gap fills (stretched flat triangles, a texel or two each; 8-13% of both reference scans,
+mostly on their outskirts). `ScanTerrainPipeline.Result.Unmeasured` hands them to recovery, which
+follows them with contours but counts no miss and spends no spot height there.
 
 `ScanGround` progressively opens the top raster from the smallest to largest object width, with a
 slope allowance. A region raised around enough of its perimeter is removed; terrace steps are returned

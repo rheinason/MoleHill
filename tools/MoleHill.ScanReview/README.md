@@ -21,7 +21,8 @@ command's defaults (`--roof-faces=N` changes the face budget, 0 lifts it). It th
 `buildings.json` (kind, roof error and face counts per building), `buildings.obj`, the planar faces a
 host joins into each solid as `building-faces.json`, and the scan's top surface as `surface.bin` (the
 `ground.bin` header, then float32 heights) to compare roofs against. Every run also writes the prepared reference
-mesh contours are recovered from as `reference.obj`, and its fixed breaklines as `fixed.json`. Physical settings are explicit
+mesh contours are recovered from as `reference.obj`, its fixed breaklines as `fixed.json`, and the gap-fill mask
+as `fill.pgm` (white = filled). `--measure-fills` measures fills like the rest, as before. Physical settings are explicit
 in `Program.cs`. `terrain.json` includes rational pieces, controls, sample points, observation/inference
 metadata and filtering/rejection counts. `orthophoto.ppm` records raster colour placement.
 `contours.json` records contours/spots, termination, filtered/original-reference residuals, the uncovered

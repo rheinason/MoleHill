@@ -75,6 +75,24 @@ public sealed class IntervalRecoveryTests
     }
 
     [Fact]
+    public void Recover_StepOnUnmeasuredGround_CountsNoMissAndSpendsNoSpot()
+    {
+        // The same block, where the source measured nothing: followed, not chased.
+        var mesh = Mesh((x, y) => x >= 10 && x <= 12 && y >= 6 && y <= 9 ? 3 : 0);
+        var result = TerrainCurveRecovery.Recover(mesh, new TerrainCurveRecovery.Options
+        {
+            VerticalTolerance = .1, PlanTolerance = .1, LandformLines = false, FitContours = false,
+            Policy = new() { ContourInterval = .5, MaximumInputs = 500 },
+            Region = new HalfPlane(left: true), SecondaryRegion = new HalfPlane(left: false), SecondaryTolerance = .3,
+            Unmeasured = (x, y) => x >= 9 && x <= 13 && y >= 5 && y <= 10,
+        });
+        Assert.Equal(TerrainCurveRecovery.Termination.ToleranceSatisfied, result.Termination);
+        Assert.Empty(result.Misses);
+        Assert.Equal(0, result.SpotPointCount);
+        Assert.InRange(result.UnmeasuredArea, 20, 30 + 1e-9); // the 4 x 5 m box, counted by vertex on a 1 m grid
+    }
+
+    [Fact]
     public void RecoverBest_IntervalMode_RunsOnceWithoutLandformLines()
     {
         int runs = 0;

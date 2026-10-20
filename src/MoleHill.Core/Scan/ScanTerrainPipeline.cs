@@ -55,6 +55,17 @@ public static class ScanTerrainPipeline
         public int RejectedFeatureCount { get; init; }
         public double InferredFeatureLength { get; init; }
         public required IReadOnlyList<double[]> FixedBreaklines { get; init; }
+        /// <summary>Ground nodes whose surface the reconstruction filled rather than measured; null when unknown.</summary>
+        public bool[]? Filled { get; init; }
+
+        /// <summary>Where the scan measured nothing: recovery follows it but counts no miss there.</summary>
+        public Func<double, double, bool>? Unmeasured => Filled is not bool[] filled ? null : (x, y) =>
+        {
+            ScanGrid grid = Ground.Ground;
+            int column = (int)Math.Round((x - grid.OriginX) / grid.CellSize), row = (int)Math.Round((y - grid.OriginY) / grid.CellSize);
+            return column >= 0 && row >= 0 && column < grid.Columns && row < grid.Rows && filled[row * grid.Columns + column];
+        };
+
         /// <summary>Rough soft ground on the ground grid; null when not separated.</summary>
         public bool[]? RoughGround { get; init; }
 
@@ -83,7 +94,7 @@ public static class ScanTerrainPipeline
                 ? ScanRasterizer.RasterizeColours(scan, rasters.Top, factor, colours, options.Ground.CancellationToken)
                 : ScanColourLattice.FromGround(rasters.Top, rasters.Colours);
         }
-        return BuildRasters(scan, rasters.Top, rasters.Colours, options, source: new ScanSourceSampler(scan), lattice: lattice);
+        return BuildRasters(scan, rasters.Top, rasters.Colours, options, source: new ScanSourceSampler(scan), lattice: lattice, filled: rasters.Filled);
     }
 
     public static Result Build(ScanPointCloud cloud, Options options)
@@ -113,7 +124,8 @@ public static class ScanTerrainPipeline
     }
 
     private static Result BuildRasters(IndexedTriMesh scan, ScanGrid top, int[]? colours, Options options,
-        ScanGrid? classifiedGround = null, byte[]? classes = null, ScanSourceSampler? source = null, ScanColourLattice? lattice = null)
+        ScanGrid? classifiedGround = null, byte[]? classes = null, ScanSourceSampler? source = null, ScanColourLattice? lattice = null,
+        bool[]? filled = null)
     {
         options.ReportProgress?.Invoke("Finding and filling the ground");
         ScanGround.Result ground = ScanGround.FromSurface(top, options.Ground);
@@ -138,6 +150,7 @@ public static class ScanTerrainPipeline
             Roads = roads,
             Areas = areas,
             RoughGround = rough,
+            Filled = filled,
             Buildings = buildings,
             FixedBreaklines = fixedLines.ToArray(),
             SurfaceColours = colours,

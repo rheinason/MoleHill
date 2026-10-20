@@ -373,3 +373,12 @@ crisp (the sawtooth building at (60, 138), the houses at (0, -20)). The 6 m "ste
 surface and fill, and spot heights spend the input cap reproducing fill triangles. Roof-patch separation cannot fix
 that; the scan's own triangle size (observation support) can tell these areas apart.
 
+Gap fills marked, 2026-10-20. The fill faces have a signature on both references: texel density about a
+thousandth of the scan's (Vardalag 0.06 against a median of 90 per m², Grønalid 0.02 against 420) and no colour
+variation across the face. A face under 1% of the median is a fill. That marks 8.5% of Vardalag's surface and 12.6% of
+Grønalid's, mostly on their outskirts; Grønalid's car park and roads, decimated into large triangles, stay measured.
+Recovery now follows fills with contours but counts no miss there. To meet both tolerances Grønalid takes 1,046
+inputs (was 1,153) and Vardalag 2,055 (was 2,220). Under the 2,000 cap Vardalag's paved worst is 2.76 m (was
+3.52). Its worst remaining misses are real boulders, 6 m high, beside a pond. Not tried: taking fills out of the
+ground evidence; the seams no longer drive the misses.
+

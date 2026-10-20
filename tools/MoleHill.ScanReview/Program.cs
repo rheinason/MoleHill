@@ -108,6 +108,20 @@ if (result.Buildings is ScanBuildings.Result buildings)
     Console.WriteLine($"{buildings.Buildings.Count} buildings, {buildings.Buildings.Count(b => b.IsFallback)} fallbacks, median roof RMS {buildings.Buildings.Select(b => b.RoofRms).OrderBy(r => r).ElementAtOrDefault(buildings.Buildings.Count / 2):F3} m");
 }
 Console.WriteLine($"{result.Walls.Count} wall pairs; {result.Roads.Count(x => x.IsKerb)} kerb pairs; {result.Roads.Count(x => !x.IsKerb)} colour edges; {result.Areas.Boundaries.Count} areas; cell={grid.CellSize}");
+if (result.Filled is bool[] filledNodes)
+{
+    // Where the reconstruction filled gaps rather than measured (fill.pgm, white = filled, grey = measured).
+    int covered = result.Ground.Surface.Values.Count(double.IsFinite), fills = filledNodes.Count(f => f);
+    Console.WriteLine($"Gap fill: {fills * 100.0 / Math.Max(1, covered):F1}% of covered nodes");
+    using var pgm = File.Create(Path.Combine(folder, "fill.pgm"));
+    pgm.Write(System.Text.Encoding.ASCII.GetBytes($"P5 {grid.Columns} {grid.Rows} 255 "));
+    for (int row = grid.Rows - 1; row >= 0; row--)
+        for (int column = 0; column < grid.Columns; column++)
+        {
+            int node = row * grid.Columns + column;
+            pgm.WriteByte(filledNodes[node] ? (byte)255 : double.IsFinite(result.Ground.Surface.Values[node]) ? (byte)90 : (byte)0);
+        }
+}
 // The breaklines the reference was constrained with and the rebuild keeps.
 File.WriteAllText(Path.Combine(folder, "fixed.json"), JsonSerializer.Serialize(result.FixedBreaklines));
 using (var reference = new StreamWriter(Path.Combine(folder, "reference.obj")))
@@ -132,6 +146,7 @@ if (!args.Contains("--no-recovery"))
         FixedBreaklines = result.FixedBreaklines,
         Region = result.Region,
         SecondaryRegion = result.SecondaryRegion,
+        Unmeasured = args.Contains("--measure-fills") ? null : result.Unmeasured,
         SecondaryTolerance = .5,
         FitContours = true
     });
@@ -143,10 +158,10 @@ if (!args.Contains("--no-recovery"))
             FixedBreaklines = result.FixedBreaklines,
             Region = result.Region
         }) : null;
-    File.WriteAllText(Path.Combine(folder, "contours.json"), JsonSerializer.Serialize(new { recovery.MaximumDeviation, recovery.OriginalMaximumDeviation, recovery.AreaOutsideTolerance, recovery.ExcessErrorVolume, recovery.PrunedInputCount, recovery.RejectedCandidateCount, recovery.UncoveredArea, recovery.Misses, Termination = recovery.Termination.ToString(), Contours = recovery.Contours, recovery.SpotPoints }, new JsonSerializerOptions { NumberHandling = System.Text.Json.Serialization.JsonNumberHandling.AllowNamedFloatingPointLiterals }));
+    File.WriteAllText(Path.Combine(folder, "contours.json"), JsonSerializer.Serialize(new { recovery.MaximumDeviation, recovery.OriginalMaximumDeviation, recovery.AreaOutsideTolerance, recovery.ExcessErrorVolume, recovery.PrunedInputCount, recovery.RejectedCandidateCount, recovery.UncoveredArea, recovery.UnmeasuredArea, recovery.Misses, Termination = recovery.Termination.ToString(), Contours = recovery.Contours, recovery.SpotPoints }, new JsonSerializerOptions { NumberHandling = System.Text.Json.Serialization.JsonNumberHandling.AllowNamedFloatingPointLiterals }));
     foreach (var miss in recovery.Misses.Take(12))
         Console.WriteLine(string.Create(CultureInfo.InvariantCulture, $"  miss {miss.Deviation:F2} m ({miss.SignedDeviation:+0.00;-0.00}) at {miss.X:F1}, {miss.Y:F1}: {miss.Area:F1} m2, {(miss.IsSecondary ? "secondary" : "primary")}"));
-    Console.WriteLine($"{timer.Elapsed.TotalSeconds:F1}s Contours {recovery.Contours.Count}, spots {recovery.SpotPointCount}, residual {recovery.MaximumDeviation}, paved {recovery.SecondaryMaximumDeviation}, {recovery.Termination}: {recovery.Diagnostic}");
+    Console.WriteLine($"{timer.Elapsed.TotalSeconds:F1}s Contours {recovery.Contours.Count}, spots {recovery.SpotPointCount}, residual {recovery.MaximumDeviation}, paved {recovery.SecondaryMaximumDeviation}, unmeasured {recovery.UnmeasuredArea:F0} m2, {recovery.Termination}: {recovery.Diagnostic}");
 }
 
 string Hash(string path)

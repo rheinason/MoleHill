@@ -40,11 +40,20 @@ public static partial class TerrainCurveRecovery
             weights[a / 3] += area; weights[b / 3] += area; weights[c / 3] += area;
         }
         int evaluated = 0;
-        double low = double.PositiveInfinity, high = double.NegativeInfinity;
+        double low = double.PositiveInfinity, high = double.NegativeInfinity, unmeasured = 0;
         for (int v = 0; v < count; v++)
         {
             double x = vertices[v * 3], y = vertices[v * 3 + 1];
             tolerances[v] = tolerance;
+            if (options.Unmeasured?.Invoke(x, y) == true && (options.Region == null || options.Region.Contains(x, y) ||
+                options.SecondaryRegion?.Contains(x, y) == true))
+            {
+                // Contours still cover it, so its heights still set the levels traced.
+                if (options.Region == null || options.Region.Contains(x, y))
+                { low = Math.Min(low, vertices[v * 3 + 2]); high = Math.Max(high, vertices[v * 3 + 2]); }
+                unmeasured += weights[v]; weights[v] = 0;
+                continue;
+            }
             if (options.Region == null || options.Region.Contains(x, y))
             { evaluated++; low = Math.Min(low, vertices[v * 3 + 2]); high = Math.Max(high, vertices[v * 3 + 2]); }
             else if (options.SecondaryRegion?.Contains(x, y) == true) { secondary[v] = true; tolerances[v] = options.SecondaryTolerance; evaluated++; }
@@ -218,6 +227,7 @@ public static partial class TerrainCurveRecovery
             AreaOutsideTolerance = outside,
             PrunedInputCount = pruned,
             UncoveredArea = uncoveredArea,
+            UnmeasuredArea = unmeasured,
             Misses = MissRegions(),
         };
 

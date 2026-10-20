@@ -65,6 +65,12 @@ public static partial class TerrainCurveRecovery
 
         public double SecondaryTolerance { get; init; }
 
+        /// <summary>
+        /// Ground the source never measured (a scan's gap fills): followed by contours like the rest, but no miss is
+        /// counted and no spot height spent there. Its area is reported. Interval recovery only.
+        /// </summary>
+        public Func<double, double, bool>? Unmeasured { get; init; }
+
         /// <summary>Fit light curves before reconstruction so the measured result describes their sampled geometry.</summary>
         public bool FitContours { get; init; }
 
@@ -133,6 +139,9 @@ public static partial class TerrainCurveRecovery
         /// miss, so it is reported: a vertex the rebuild cannot be read at has no error to measure.
         /// </summary>
         public double UncoveredArea { get; init; }
+
+        /// <summary>Area left out of measurement as <see cref="Options.Unmeasured"/>.</summary>
+        public double UnmeasuredArea { get; init; }
 
         /// <summary>The connected regions still outside their tolerance, worst first (interval recovery only).</summary>
         public IReadOnlyList<MissRegion> Misses { get; init; } = Array.Empty<MissRegion>();

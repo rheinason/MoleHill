@@ -23,6 +23,7 @@ internal static class TerrainCurveExtractionService
             FixedBreaklines = prepared.FixedBreaklines,
             Region = prepared.Region,
             SecondaryRegion = prepared.SecondaryRegion,
+            Unmeasured = prepared.Unmeasured,
             SecondaryTolerance = settings is ScanToTerrainSettings paved ? paved.PavedTolerance : 0,
             FitContours = true,
             ShouldCancel = () => token.IsCancellationRequested,

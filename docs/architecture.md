@@ -184,6 +184,8 @@ TriangleNet (vendored)  ←  MoleHill.Core  ←  MoleHill.Grasshopper (GH host)
   `TerrainCurveRecovery.ConstrainReference` inserts their sampled lines before contouring, excluding
   old averages on the lines, and `FixedBreaklines` holds them through every rebuild, including landform
   trials. `TerrainCurveRecovery.Breaklines.cs` owns reference preparation; the root partial owns recovery.
+  A scan's gap fills (faces textured far below its median texel density) are `Unmeasured`: interval
+  recovery reports their area and its remaining `Misses`, but measures neither tolerance nor spots there.
   Wall controls live on the floating panel; physical defaults use document units.
   `ScanMeshReader` captures diffuse bitmap bytes and face-corner UVs on the UI thread, preserving scan
   seams; vertex colours are the fallback. Pure `ScanTerrainPipeline` builds the wall-constrained

@@ -95,6 +95,32 @@ public sealed class ScanSurfaceTests
     }
 
     [Fact]
+    public void Rasterize_FaceTexturedFromAStretchedTexel_IsMarkedFilled()
+    {
+        // Eight 1 m cells of measured surface, each textured over a 64-texel patch, and one 4 m cell beside
+        // them, a reconstruction's gap fill: its corners map to one texel's worth of the bitmap.
+        var vertices = new List<double>(); var faces = new List<int>(); var uv = new List<float>();
+        void Square(double x, double size, float u, float span)
+        {
+            int start = vertices.Count / 3;
+            vertices.AddRange(new[] { x, 0, 0, x + size, 0, 0, x + size, size, 0, x, size, 0 });
+            faces.AddRange(new[] { start, start + 1, start + 2, start, start + 2, start + 3 });
+            uv.AddRange(new[] { u, 0, u + span, 0, u + span, span, u, 0, u + span, span, u, span });
+        }
+        for (int i = 0; i < 8; i++) Square(i, 1, i / 8f, 1 / 8f);
+        Square(8, 4, .5f, 1 / 64f);
+        var texture = new ScanTexture(64, 64, new byte[64 * 64 * 3]);
+        var mesh = IndexedTriMesh.FromArrays(vertices.ToArray(), faces.ToArray());
+        ScanRasterizer.Rasters raster = ScanRasterizer.Rasterize(mesh, .25, colours: new ScanColourSource(texture, uv.ToArray()));
+        ScanGrid top = raster.Top;
+        bool Filled(double x, double y) => raster.Filled![(int)Math.Round(y / top.CellSize) * top.Columns + (int)Math.Round(x / top.CellSize)];
+        Assert.False(Filled(3.5, .5));
+        Assert.True(Filled(10, 2));
+        // Per-face colours carry no texture density: unknown, not measured.
+        Assert.Null(ScanRasterizer.Rasterize(mesh, .25, colours: new ScanColourSource(new int[faces.Count / 3])).Filled);
+    }
+
+    [Fact]
     public void Classify_DarkRoadAndShadedGrass_UsesChromaticityAndExcludesRemovedRoofs()
     {
         var scene = Scene(10, 0.5, (x, y) => 0.1 * y,

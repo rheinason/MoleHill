@@ -18,6 +18,9 @@ public static class ScanRasterizer
     {
         /// <summary>Colour of the highest triangle at each node, packed RGB; -1 means no colour.</summary>
         public int[]? Colours { get; init; }
+
+        /// <summary>Nodes whose highest triangle the reconstruction filled rather than measured; null when unknown.</summary>
+        public bool[]? Filled { get; init; }
     }
 
     /// <summary>
@@ -26,6 +29,9 @@ public static class ScanRasterizer
     /// loses the steps the later stages look for. Never so fine that the raster passes
     /// <see cref="MaximumNodeCount"/>.
     /// </summary>
+    /// <summary>A face textured below this share of the scan's median texel density is a reconstruction's gap fill.</summary>
+    public const double FilledTextureShare = 0.01;
+
     public static double AutomaticCellSize(IndexedTriMesh mesh)
     {
         if (mesh.IsEmpty)
@@ -66,6 +72,8 @@ public static class ScanRasterizer
         var top = new double[columns * rows];
         var lowest = new double[columns * rows];
         int[]? rgb = colours == null ? null : new int[top.Length];
+        bool[]? filledFaces = colours?.FilledFaces(mesh, FilledTextureShare);
+        bool[]? filled = filledFaces == null ? null : new bool[top.Length];
         if (rgb != null)
             Array.Fill(rgb, -1);
         Array.Fill(top, double.NaN);
@@ -120,6 +128,8 @@ public static class ScanRasterizer
                         high = z;
                         if (rgb != null)
                             rgb[offset + column] = colours!.Sample(face, wa, wb, wc);
+                        if (filled != null)
+                            filled[offset + column] = filledFaces![face];
                     }
                     ref double low = ref lowest[offset + column];
                     if (double.IsNaN(low) || z < low)
@@ -130,7 +140,7 @@ public static class ScanRasterizer
 
         return new Rasters(
             new ScanGrid(minX, minY, cellSize, columns, rows, top),
-            new ScanGrid(minX, minY, cellSize, columns, rows, lowest)) { Colours = rgb };
+            new ScanGrid(minX, minY, cellSize, columns, rows, lowest)) { Colours = rgb, Filled = filled };
     }
 
     /// <summary>
