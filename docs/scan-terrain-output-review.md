@@ -356,3 +356,12 @@ Grønalid: a house the filter had kept as ground is now removed (its two eave "w
 With the input cap lifted both versions meet both tolerances. Before parting it took 2,341 inputs, after it 2,220,
 so the 2,000 cap was what left the misses. Still open: slope-cut houses with no drop inside them (45 to 49% raised).
 
+Tried and rejected, 2026-10-20: roof evidence for the filter's step regions. Each one-sided region of at least the
+minimum building area that dropped by a building's height, was not green, lay on few planes, the largest pitched
+10° or more, and stayed clear of the scan's edge was taken out of the ground and refilled. Grønalid gave three, one an
+edge blob (hence the edge rule). Vardalag gave two, and inputs needed to meet tolerance fell only from 2,220 to 2,209.
+The step regions are not houses. They are houses merged with the hillside round them, the largest running to the scan
+edge (up to 5,066 m²), and a slope-cut house inside one failed because its region's largest plane covered only 22%,
+pitched 5°. A house has to be separated from its region first: roof-plane patches grown within the region and judged
+one by one.
+
