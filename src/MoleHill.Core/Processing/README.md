@@ -7,7 +7,8 @@ Pure, unit-tested.
 its curves: original borders remain, and coarse averages on a rail are excluded instead of becoming
 conflicting heights along it. `FixedBreaklines` on recovery options holds the same lines in every
 rebuild and landform trial. The root `TerrainCurveRecovery.cs` partial owns legacy recovery and simplification.
-Scan callers opt into `TerrainRecoveryPolicy` and `.Informative.cs`: benefit-ranked contour/spot trials,
+Both curve commands use interval recovery (`.Interval.cs`); a terrain also holds its creases and leaves its
+walls unmeasured (`.Creases.cs`). Policy callers without an interval use `.Informative.cs`: benefit-ranked contour/spot trials,
 area-weighted error, redundant-input pruning, a preferred contour checkpoint and a combined safety cap.
 Trials are local (`.Window.cs`): an input can only re-triangulate the reconstruction faces its box
 touches, so a trial rebuilds that neighbourhood plus one ring of context, with and without the input.

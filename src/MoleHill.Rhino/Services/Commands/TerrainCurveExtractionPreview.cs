@@ -83,8 +83,8 @@ internal sealed class TerrainCurveExtractionPreview(uint documentSerial, Guid? s
                 Add(TerrainCurveExtractionGeometry.Contour(contour), TerrainCurveExtractionStyle.Contours);
             _points.Add((Points(recovery.SpotPoints), TerrainCurveExtractionStyle.Spots.Colour, TerrainCurveExtractionStyle.Spots.Weight));
         }
-        if (show.Contains(nameof(TerrainCurveExtractionSettings.RidgesValleys)))
-            foreach (double[] line in recovery.LandformLines) Add(Polyline(line, false), TerrainCurveExtractionStyle.RidgesValleys);
+        if (show.Contains("Creases"))
+            foreach (double[] line in recovery.CreaseLines) Add(Polyline(line, false), TerrainCurveExtractionStyle.Creases);
     }
 
     private void Add(Curve curve, TerrainCurveExtractionStyle.Style style) => _curves.Add((curve, style.Colour, style.Weight));

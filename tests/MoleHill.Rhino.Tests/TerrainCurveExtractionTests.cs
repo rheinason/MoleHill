@@ -21,11 +21,11 @@ public class TerrainCurveExtractionTests
         }
         return IndexedTriMesh.FromArrays(xyz, faces.ToArray());
     }
-    private static TerrainCurveExtractionSettings Settings() => new() { Tolerance = .25, PlanTolerance = .1, MaxContours = 50, RidgesValleys = 2 };
+    private static TerrainCurveExtractionSettings Settings() => new() { Tolerance = .25, PlanTolerance = .1, ContourInterval = .5 };
     private static ModelUnitContext Units => ModelUnitContext.FromUnitSystem(UnitSystem.Meters);
 
     [Fact]
-    public async Task RecoverAsync_PreparedScanAndDirectTerrainWithSameReference_ProduceIdenticalCurves()
+    public async Task RecoverAsync_PreparedScanAndDirectTerrainWithSameReference_OnlyTheTerrainHoldsItsCreases()
     {
         var scan = ScanTerrainPipeline.Build(Mound(), null, new()
         {
@@ -45,10 +45,12 @@ public class TerrainCurveExtractionTests
         var direct = new TerrainCurveExtractionPrepared(scan.Reference) { FixedBreaklines = fromScan.FixedBreaklines, Region = fromScan.Region };
         var a = await TerrainCurveExtractionService.RecoverAsync(fromScan, Settings(), Units, default, _ => { });
         var b = await TerrainCurveExtractionService.RecoverAsync(direct, Settings(), Units, default, _ => { });
+        // A scan's walls are its measured rails and its folds noise; a terrain's folds are design, held as creases.
         Assert.NotEmpty(a.Recovery!.Contours);
-        Assert.Equal(a.Recovery.MaximumDeviation, b.Recovery!.MaximumDeviation);
-        Assert.Equal(a.Recovery.Contours.SelectMany(c => c.PointsXyz), b.Recovery.Contours.SelectMany(c => c.PointsXyz));
-        Assert.Equal(a.Recovery.SpotPoints, b.Recovery.SpotPoints);
+        Assert.Empty(a.Recovery.CreaseLines);
+        Assert.NotEmpty(b.Recovery!.CreaseLines);
+        Assert.InRange(a.Recovery.MaximumDeviation, 0, .25);
+        Assert.InRange(b.Recovery.MaximumDeviation, 0, .25);
         Assert.Contains(b.Recovery.Contours, c => c.Curve != null);
         foreach (var contour in b.Recovery.Contours)
         {
@@ -65,8 +67,8 @@ public class TerrainCurveExtractionTests
         var mesh = Mound(); var before = (double[])mesh.Vertices.Clone();
         var result = await TerrainCurveExtractionService.RecoverAsync(new(mesh), Settings(), Units, default, _ => { });
         Assert.Null(result.Scan); Assert.Equal(before, result.Reference.Vertices);
+        // Unfiltered, the peak is measured like the rest of the terrain.
         Assert.InRange(result.Recovery!.MaximumDeviation, 0, .25);
-        Assert.True(result.Recovery.SpotPoints.Where((_, i) => i % 3 == 2).Max() > 6.9);
     }
 
     [Fact]
@@ -77,15 +79,16 @@ public class TerrainCurveExtractionTests
     }
 
     [Fact]
-    public void Settings_CacheNamespacesAndModelUnits_PreservePhysicalAccuracyWithoutSharingBudgets()
+    public void Settings_CacheNamespacesAndModelUnits_PreservePhysicalAccuracyWithoutSharingCaps()
     {
         string key = "ExtractionTest." + Guid.NewGuid() + ".";
         var settings = TerrainCurveExtractionSettings.Load(Units, key);
-        settings.Tolerance = .2; settings.PlanTolerance = .4; settings.MaxContours = 77; settings.Save(Units, key);
+        settings.Tolerance = .2; settings.PlanTolerance = .4; settings.ContourInterval = .3; settings.InputsPerHectare = 77; settings.Save(Units, key);
         var millimetres = TerrainCurveExtractionSettings.Load(ModelUnitContext.FromUnitSystem(UnitSystem.Millimeters), key);
-        Assert.Equal(200, millimetres.Tolerance); Assert.Equal(400, millimetres.PlanTolerance); Assert.Equal(77, millimetres.MaxContours);
+        Assert.Equal(200, millimetres.Tolerance); Assert.Equal(400, millimetres.PlanTolerance);
+        Assert.Equal(300, millimetres.ContourInterval, 9); Assert.Equal(77, millimetres.InputsPerHectare);
         var other = TerrainCurveExtractionSettings.Load(Units, key + "Other.");
-        Assert.Equal(.1, other.Tolerance); Assert.Equal(200, other.MaxContours);
+        Assert.Equal(.1, other.Tolerance); Assert.Equal(.25, other.ContourInterval); Assert.Equal(1000, other.InputsPerHectare);
     }
 
     [Fact]

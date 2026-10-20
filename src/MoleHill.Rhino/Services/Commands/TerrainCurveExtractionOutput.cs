@@ -11,7 +11,7 @@ internal static class TerrainCurveExtractionOutput
 {
     internal static readonly (string Name, System.Drawing.Color Color)[] OutputLayers = new[]
     {
-        TerrainCurveExtractionStyle.Border, TerrainCurveExtractionStyle.RidgesValleys,
+        TerrainCurveExtractionStyle.Border, TerrainCurveExtractionStyle.Creases,
         TerrainCurveExtractionStyle.Contours, TerrainCurveExtractionStyle.Spots,
     }.Select(style => (style.Layer, style.Colour)).ToArray();
 
@@ -60,8 +60,8 @@ internal static class TerrainCurveExtractionOutput
             foreach (double[] border in recovery.Borders)
                 ids.Add(doc.Objects.AddPolyline(ToPoints(border, close: true), On("Border", "Border")));
 
-            foreach (double[] line in recovery.LandformLines)
-                ids.Add(doc.Objects.AddPolyline(ToPoints(line, close: false), On("Ridges and valleys", "Ridge or valley")));
+            foreach (double[] line in recovery.CreaseLines)
+                ids.Add(doc.Objects.AddPolyline(ToPoints(line, close: false), On("Creases", "Crease")));
 
             foreach (TerrainCurveRecovery.RecoveredContour contour in recovery.Contours)
             {

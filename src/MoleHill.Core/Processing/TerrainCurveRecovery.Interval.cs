@@ -19,6 +19,7 @@ public static partial class TerrainCurveRecovery
         double interval = policy.ContourInterval, tolerance = options.VerticalTolerance;
         double plan = options.PlanTolerance > 0 ? options.PlanTolerance : tolerance;
         if (!double.IsFinite(interval) || policy.MaximumInputs < 1 || !double.IsFinite(policy.InputsPerArea) || policy.InputsPerArea < 0 ||
+            !(policy.CreaseAngleDegrees is >= 0 and < 180) || !(policy.WallSlopeDegrees is >= 0 and < 90) ||
             options.SecondaryRegion != null &&
             !(double.IsFinite(options.SecondaryTolerance) && options.SecondaryTolerance > 0))
             throw new ArgumentOutOfRangeException(nameof(options), "Interval recovery needs a finite interval, a positive cap and a positive secondary tolerance.");
@@ -30,6 +31,11 @@ public static partial class TerrainCurveRecovery
         var borders = loops.Select(loop => SimplifyClosed(loop.SelectMany(v => new[] {
             vertices[v * 3], vertices[v * 3 + 1], vertices[v * 3 + 2] }).ToArray(), plan, tolerance)).Where(p => p.Length >= 9).ToList();
         if (borders.Count == 0) return Unsupported("The terrain border collapsed.");
+
+        List<double[]> creases = policy.CreaseAngleDegrees > 0
+            ? CreaseLines(terrain, policy.CreaseAngleDegrees, plan * 12, plan, tolerance) : new List<double[]>();
+        IReadOnlyList<double[]> held = creases.Count == 0 ? options.FixedBreaklines : options.FixedBreaklines.Concat(creases).ToList();
+        bool[]? onWall = policy.WallSlopeDegrees > 0 ? WallVertices(terrain, policy.WallSlopeDegrees) : null;
 
         // Each measured vertex carries its own tolerance; unmeasured vertices weigh nothing.
         var weights = new double[count]; var tolerances = new double[count]; var secondary = new bool[count];
@@ -46,7 +52,7 @@ public static partial class TerrainCurveRecovery
         {
             double x = vertices[v * 3], y = vertices[v * 3 + 1];
             tolerances[v] = tolerance;
-            if (options.Unmeasured?.Invoke(x, y) == true && (options.Region == null || options.Region.Contains(x, y) ||
+            if ((onWall?[v] == true || options.Unmeasured?.Invoke(x, y) == true) && (options.Region == null || options.Region.Contains(x, y) ||
                 options.SecondaryRegion?.Contains(x, y) == true))
             {
                 // Contours still cover it, so its heights still set the levels traced.
@@ -231,19 +237,20 @@ public static partial class TerrainCurveRecovery
             PrunedInputCount = pruned,
             UncoveredArea = uncoveredArea,
             UnmeasuredArea = unmeasured,
+            CreaseLines = creases,
             Misses = MissRegions(),
         };
 
         IEnumerable<(double[] Points, bool Closed)> Chains(int skipContour = -1)
         {
             foreach (double[] border in borders) yield return (border, true);
-            foreach (double[] line in options.FixedBreaklines) yield return (line, false);
+            foreach (double[] line in held) yield return (line, false);
             for (int i = 0; i < contours.Count; i++) if (i != skipContour) yield return (contours[i].PointsXyz, contours[i].IsClosed);
         }
 
         bool Evaluate()
         {
-            var tin = Rebuild(borders, new List<double[]>(), contours, spots, plan, out _, options.FixedBreaklines);
+            var tin = Rebuild(borders, new List<double[]>(), contours, spots, plan, out _, held);
             if (tin == null) return false;
             last = tin;
             Array.Clear(uncovered);

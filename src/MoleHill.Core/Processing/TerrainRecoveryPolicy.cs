@@ -21,6 +21,16 @@ public sealed record TerrainRecoveryPolicy
     /// </summary>
     public double ContourInterval { get; init; }
 
+    /// <summary>
+    /// Above zero, interval recovery holds the terrain's folds of at least this many degrees (batter crests and toes,
+    /// pad edges, wall tops and toes) as breaklines, returned in <see cref="TerrainCurveRecovery.Result.CreaseLines"/>.
+    /// Folds shorter than twelve plan tolerances are left to contours and spots.
+    /// </summary>
+    public double CreaseAngleDegrees { get; init; }
+
+    /// <summary>Above zero, vertices of faces steeper than this are a wall's and are not measured (interval only).</summary>
+    public double WallSlopeDegrees { get; init; }
+
     /// <summary>Contour pieces shorter than this are dropped before pruning; zero uses eight plan tolerances.</summary>
     public double MinimumContourLength { get; init; }
     public Action<string>? ReportActivity { get; init; }

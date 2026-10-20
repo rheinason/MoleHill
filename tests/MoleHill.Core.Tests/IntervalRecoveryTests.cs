@@ -110,6 +110,52 @@ public sealed class IntervalRecoveryTests
     }
 
     [Fact]
+    public void Recover_PadWithBatter_HoldsItsCreasesInsteadOfSpots()
+    {
+        // A level pad at 2 m with a 1:2 batter down to the plain: its crest and toe are folds a contour cannot carry.
+        static double Pad(double x, double y) => Math.Clamp(2 - .5 * Math.Max(Math.Abs(x - 8) - 3, Math.Abs(y - 8) - 3), 0, 2);
+        TerrainCurveRecovery.Result Run(double creases) => TerrainCurveRecovery.Recover(Mesh(Pad), new TerrainCurveRecovery.Options
+        {
+            VerticalTolerance = .05, PlanTolerance = .1, LandformLines = false, FitContours = false,
+            Policy = new() { ContourInterval = .5, MaximumInputs = 500, CreaseAngleDegrees = creases },
+        });
+        var plain = Run(0); var creased = Run(20);
+        Assert.Empty(plain.CreaseLines);
+        Assert.NotEmpty(creased.CreaseLines);
+        Assert.Equal(TerrainCurveRecovery.Termination.ToleranceSatisfied, creased.Termination);
+        Assert.True(creased.SpotPointCount < plain.SpotPointCount, $"{creased.SpotPointCount} spots with creases, {plain.SpotPointCount} without");
+    }
+
+    [Fact]
+    public void Recover_Wall_IsCarriedByItsCreasesAndNotMeasured()
+    {
+        // A vertical 3 m wall, its toe and top at the same plan position: no 2.5D rebuild can hold both.
+        double[] columns = Enumerable.Range(0, 9).Select(i => (double)i).Append(8.0).Concat(Enumerable.Range(9, 8).Select(i => (double)i)).ToArray();
+        var vertices = new List<double>(); var faces = new List<int>();
+        for (int row = 0; row < 17; row++)
+            foreach (double x in columns)
+                vertices.AddRange(new[] { x, row, (vertices.Count / 3 % columns.Length > 8 ? 3 : 0) + .05 * row });
+        int n = columns.Length;
+        for (int row = 0; row < 16; row++)
+            for (int c = 0; c + 1 < n; c++)
+            {
+                int a = row * n + c;
+                faces.AddRange(new[] { a, a + 1, a + n + 1, a, a + n + 1, a + n });
+            }
+        var mesh = IndexedTriMesh.FromArrays(vertices.ToArray(), faces.ToArray());
+        TerrainCurveRecovery.Result Run(double wall) => TerrainCurveRecovery.Recover(mesh, new TerrainCurveRecovery.Options
+        {
+            VerticalTolerance = .1, PlanTolerance = .1, LandformLines = false, FitContours = false,
+            Policy = new() { ContourInterval = .5, MaximumInputs = 200, CreaseAngleDegrees = 20, WallSlopeDegrees = wall },
+        });
+        var walled = Run(70);
+        Assert.Equal(TerrainCurveRecovery.Termination.ToleranceSatisfied, walled.Termination);
+        Assert.InRange(walled.MaximumDeviation, 0, .1);
+        Assert.True(walled.UnmeasuredArea > 0);
+        Assert.True(Run(0).MaximumDeviation > 1, "Measured, the wall's own vertices miss by its height.");
+    }
+
+    [Fact]
     public void RecoverBest_IntervalMode_RunsOnceWithoutLandformLines()
     {
         int runs = 0;

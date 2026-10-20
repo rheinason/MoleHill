@@ -140,6 +140,9 @@ public static partial class TerrainCurveRecovery
         /// </summary>
         public double UncoveredArea { get; init; }
 
+        /// <summary>The terrain's own folds held as breaklines (<see cref="TerrainRecoveryPolicy.CreaseAngleDegrees"/>).</summary>
+        public IReadOnlyList<double[]> CreaseLines { get; init; } = Array.Empty<double[]>();
+
         /// <summary>Area left out of measurement as <see cref="Options.Unmeasured"/>.</summary>
         public double UnmeasuredArea { get; init; }
 

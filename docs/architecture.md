@@ -154,10 +154,15 @@ TriangleNet (vendored)  ←  MoleHill.Core  ←  MoleHill.Grasshopper (GH host)
   with the same XY; a profile that doubles back is refused, and points beyond its ends keep their elevation.
   A polyline (or `Fit=Exact`) takes the profile exactly as a polyline; a smooth curve by default moves only its
   edit points and reports its stray. Re-extracting redraws in place; `Ground` may be any picked targets.
-- **`mhTerrainToCurves` turns a terrain back into input.** `Core/Processing/TerrainCurveRecovery` returns
-  borders, peak/pit spot points, ridge/valley lines that earn their length, and the fewest contours that
-  rebuild the terrain within a vertical tolerance (vertex-sampled); `RidgesValleys=Auto` runs with and
-  without the lines and keeps the smaller result; the command adds them under a fresh `Terrain to Curves {source}`
+- **`mhTerrainToCurves` turns a terrain back into input.** It runs interval recovery like the scan command:
+  contours every Contour interval (0.25 m), redundant ones removed, then spot heights only where the rebuild
+  misses its vertical tolerance (vertex-sampled). The terrain's own folds of 20° or more (batter crests and
+  toes, pad edges, wall tops and toes) are held as crease breaklines (`TerrainRecoveryPolicy.CreaseAngleDegrees`),
+  and vertices of faces steeper than 70° are a wall's, carried by its creases and not measured
+  (`WallSlopeDegrees`): a 2.5D rebuild cannot stand a wall up, and measured they missed by the wall's height.
+  The error-driven contours and ridge/valley lines it replaced missed tolerance on a 12 ha survey after an
+  hour; interval recovery with creases met it in 90 s and used 25-60% fewer inputs on graded terrain.
+  The cap is Recovery inputs per hectare (1,000). The command adds them under a fresh `Terrain to Curves {source}`
   layer root, grouped and named by role. Both commands use `TerrainCurveExtractionService`, the same
   fitted contour builder, preview conduit, output writer and `TerrainCurveExtractionDialog`.
   A picked DEM or the active terrain's final built mesh goes straight to recovery; only scan input

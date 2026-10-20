@@ -14,12 +14,16 @@ internal static class TerrainCurveExtractionService
         {
             VerticalTolerance = settings.Tolerance,
             PlanTolerance = settings.PlanTolerance,
-            MaximumCurves = settings.Contours ? settings.MaxContours : 0,
-            Policy = settings is ScanToTerrainSettings scan && settings.Contours ? new TerrainRecoveryPolicy
+            // Without contours only the border is wanted: no policy, no curves.
+            MaximumCurves = 0,
+            Policy = !settings.Contours ? null : new TerrainRecoveryPolicy
             {
-                PreferredContours = settings.MaxContours, InputsPerArea = scan.RecoveryInputsPerHectare * units.ToSquareMeters(1) / 10000,
-                ContourInterval = scan.ContourInterval, ReportActivity = progress
-            } : null,
+                InputsPerArea = settings.InputsPerHectare * units.ToSquareMeters(1) / 10000,
+                ContourInterval = settings.ContourInterval, ReportActivity = progress,
+                // A terrain's folds and walls are its own; a scan's walls are measured rails, and its creases noise.
+                CreaseAngleDegrees = prepared.Scan == null ? 20 : 0,
+                WallSlopeDegrees = prepared.Scan == null ? 70 : 0,
+            },
             FixedBreaklines = prepared.FixedBreaklines,
             Region = prepared.Region,
             SecondaryRegion = prepared.SecondaryRegion,
@@ -28,7 +32,7 @@ internal static class TerrainCurveExtractionService
             FitContours = true,
             ShouldCancel = () => token.IsCancellationRequested,
             ReportProgress = (round, miss) => progress($"Curves, round {round}: {miss:G4} {units.Abbreviation} miss"),
-        }, (TerrainCurveRecovery.LandformMode)settings.RidgesValleys), token);
+        }, TerrainCurveRecovery.LandformMode.No), token);
         token.ThrowIfCancellationRequested();
         if (recovery.Termination is TerrainCurveRecovery.Termination.UnsupportedInput or TerrainCurveRecovery.Termination.TriangulationFailed)
             throw new InvalidOperationException(recovery.Diagnostic);

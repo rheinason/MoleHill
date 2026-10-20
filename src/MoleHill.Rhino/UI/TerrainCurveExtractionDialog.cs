@@ -68,24 +68,19 @@ internal sealed partial class TerrainCurveExtractionDialog : Dialog<bool>
         Number(contours, scan ? "Terrain accuracy · " + length : "Vertical tolerance · " + length, nameof(settings.Tolerance));
         var detail = scan ? Section(_scanAdvanced, "Recovery details") : contours;
         Number(detail, scan ? "Natural-boundary plan tolerance · " + length : "Plan tolerance · " + length, nameof(settings.PlanTolerance));
+        // Contours at an interval, then spot heights where the rebuild still misses.
+        Number(contours, "Contour interval · " + length, nameof(settings.ContourInterval), _units.FromMeters(.01));
         if (settings is ScanToTerrainSettings scanSettings)
-        {
-            // Soft ground is contoured at an interval; paving is carried by its outline breaklines.
-            Number(contours, "Contour interval · " + length, nameof(scanSettings.ContourInterval), _units.FromMeters(.01));
+            // Paving is carried by its outline breaklines.
             Number(contours, "Paved accuracy · " + length, nameof(scanSettings.PavedTolerance), _units.FromMeters(.01));
-            Number(detail, "Recovery inputs per hectare", nameof(scanSettings.RecoveryInputsPerHectare), 1, 100000, 0);
-        }
         else
         {
-            Number(detail, "Contour budget", nameof(settings.MaxContours), 1, 100000, 0);
-            var lines = new DropDown { DataStore = TerrainCurveExtractionSettings.LandformLabels, SelectedIndex = Math.Clamp(settings.RidgesValleys, 0, 2) };
-            lines.SelectedIndexChanged += (_, _) => { Settings.RidgesValleys = lines.SelectedIndex; Schedule(); };
-            detail.AddRow(new Label { Text = "Ridges and valleys" }, lines);
-            var linePreview = new CheckBox { Text = "Preview ridges and valleys", Checked = true };
-            _visibility[nameof(settings.RidgesValleys)] = linePreview;
-            linePreview.CheckedChanged += (_, _) => UpdatePreview(); detail.AddRow(linePreview);
+            var creasePreview = new CheckBox { Text = "Preview creases", Checked = true };
+            _visibility["Creases"] = creasePreview;
+            creasePreview.CheckedChanged += (_, _) => UpdatePreview(); detail.AddRow(creasePreview);
         }
-        body.AddRow(new Label { Text = scan ? "Tolerance describes the inferred ground, not surveyed ground beneath removed objects. Roof fallbacks remain marked for review." : "Tolerance is measured at the reference terrain vertices. A spent curve budget reports the remaining error.", Wrap = WrapMode.Word, Width = 460 });
+        Number(detail, "Recovery inputs per hectare", nameof(settings.InputsPerHectare), 1, 100000, 0);
+        body.AddRow(new Label { Text = scan ? "Tolerance describes the inferred ground, not surveyed ground beneath removed objects. Roof fallbacks remain marked for review." : "Tolerance is measured at the reference terrain vertices; walls are carried by their crease lines and not measured. A spent input cap reports the remaining error.", Wrap = WrapMode.Word, Width = 460 });
         if (scan) body.AddRow(new Expander { Header = "Advanced", Content = _scanAdvanced, Expanded = false });
         var shell = new DynamicLayout { Spacing = new Size(8, 8) };
         shell.Add(new Scrollable { Content = body, ExpandContentWidth = true }, yscale: true);

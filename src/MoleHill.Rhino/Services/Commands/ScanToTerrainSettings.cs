@@ -28,10 +28,6 @@ internal sealed record ScanToTerrainSettings : TerrainCurveExtractionSettings
     public double BuiltEdgeTolerance { get; set; }
     public double MaximumBridgeLength { get; set; }
     public double NoiseFeatureSize { get; set; }
-    /// <summary>Recovery's runaway guard: contours and spots allowed per hectare of measured ground.</summary>
-    public int RecoveryInputsPerHectare { get; set; } = 500;
-    /// <summary>Height between soft-ground contours; redundant ones are removed.</summary>
-    public double ContourInterval { get; set; }
     /// <summary>How far paving may sit from its outline breaklines before a spot height is added.</summary>
     public double PavedTolerance { get; set; }
     public double RoadHeightTolerance { get; set; }
@@ -52,13 +48,13 @@ internal sealed record ScanToTerrainSettings : TerrainCurveExtractionSettings
         (nameof(BuildingHeight), 2), (nameof(RoofTolerance), .3), (nameof(RoofDetail), 2),
         (nameof(BuiltEdgeTolerance), .25), (nameof(MaximumBridgeLength), 1), (nameof(NoiseFeatureSize), .5),
         (nameof(RoadPlanTolerance), 1), (nameof(RoadHeightTolerance), .2),
-        (nameof(ContourInterval), .5), (nameof(PavedTolerance), .5),
+        (nameof(PavedTolerance), .5),
     };
     private static readonly string[] Toggles = { nameof(Walls), nameof(Surfaces), nameof(RoadEdges), nameof(Buildings), nameof(AddGroundMesh) };
 
     public static ScanToTerrainSettings Load(ModelUnitContext units)
     {
-        var result = Read(new ScanToTerrainSettings(), units, Prefix, .25, .5, 300, 0);
+        var result = Read(new ScanToTerrainSettings(), units, Prefix, .25, .5, .5, 500);
         foreach (var entry in Lengths)
             typeof(ScanToTerrainSettings).GetProperty(entry.Name)!.SetValue(result, CommandOptionCache.GetLength(Prefix + entry.Name, units, entry.Metres));
         foreach (string name in Toggles)
@@ -71,7 +67,6 @@ internal sealed record ScanToTerrainSettings : TerrainCurveExtractionSettings
         result.GreenThreshold = CommandOptionCache.GetValue(Prefix + nameof(GreenThreshold), .08);
         result.PavingSaturation = CommandOptionCache.GetValue(Prefix + nameof(PavingSaturation), .25);
         result.GroundSlope = CommandOptionCache.GetValue(Prefix + nameof(GroundSlope), .6);
-        result.RecoveryInputsPerHectare = CommandOptionCache.GetValue(Prefix + "RecoveryPolicy.InputsPerHectare", 500);
         result.RoofFaces = CommandOptionCache.GetValue(Prefix + nameof(RoofFaces), 12);
         return result;
     }
@@ -89,7 +84,6 @@ internal sealed record ScanToTerrainSettings : TerrainCurveExtractionSettings
         CommandOptionCache.SetValue(Prefix + nameof(PavingSaturation), PavingSaturation);
         CommandOptionCache.SetValue(Prefix + nameof(GroundSlope), GroundSlope);
         CommandOptionCache.SetValue(Prefix + nameof(RoofFaces), RoofFaces);
-        CommandOptionCache.SetValue(Prefix + "RecoveryPolicy.InputsPerHectare", RecoveryInputsPerHectare);
     }
 
     public ScanTerrainPipeline.Options Pipeline(ModelUnitContext units, CancellationToken token,

@@ -14,7 +14,8 @@ internal static class TerrainCurveExtractionStyle
     public readonly record struct Style(string Layer, Color Colour, int Weight);
 
     public static readonly Style Border = new("Border", Color.FromArgb(35, 31, 32), 1);
-    public static readonly Style RidgesValleys = new("Ridges and valleys", Color.FromArgb(178, 34, 34), 2);
+    /// <summary>The terrain's own folds (batter crests and toes, pad edges, wall tops and toes), held as breaklines.</summary>
+    public static readonly Style Creases = new("Creases", Color.FromArgb(178, 34, 34), 2);
     public static readonly Style Contours = new("Contours", Color.ForestGreen, 2);
     public static readonly Style Spots = new("Spot heights", Color.FromArgb(25, 157, 73), 6);
     public static readonly Style PavedAreas = new("Paved areas", Color.FromArgb(60, 70, 95), 3);
