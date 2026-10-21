@@ -320,6 +320,20 @@ $designs = @{
         Draw-Dot $g $s 0.50 0.49 0.07 $ink
     }
 
+    # A drone scan made into terrain input: the scan's scattered points above, a building it keeps as a
+    # block, and the green ground line recovered beneath them.
+    'mhScanToTerrain' = {
+        param($g, $s)
+        foreach ($pt in @(@(0.10, 0.20), @(0.30, 0.12), @(0.20, 0.40), @(0.42, 0.32))) {
+            Draw-Dot $g $s $pt[0] $pt[1] 0.07 $ink
+        }
+        $roof = @((PtF ($s * 0.54) ($s * 0.34)), (PtF ($s * 0.74) ($s * 0.10)), (PtF ($s * 0.94) ($s * 0.34)), (PtF ($s * 0.94) ($s * 0.66)), (PtF ($s * 0.54) ($s * 0.66)))
+        $b = Brush $paper; $g.FillPolygon($b, $roof); $b.Dispose()
+        $p = InkPen $s 0.08; $g.DrawPolygon($p, $roof); $p.Dispose()
+        $pa = AccentPen $s 0.11
+        $g.DrawBezier($pa, ($s * 0.04), ($s * 0.82), ($s * 0.30), ($s * 0.60), ($s * 0.50), ($s * 0.86), ($s * 0.96), ($s * 0.72)); $pa.Dispose()
+    }
+
     # Two curves crossing, opened up where they meet.
     'mhSplitAtIntersections' = {
         param($g, $s)
@@ -431,6 +445,33 @@ $designs = @{
         $g.DrawLine($p, ($s * 0.08), ($s * 0.86), ($s * 0.92), ($s * 0.86)); $p.Dispose()
         $pa = AccentPen $s 0.13; $g.DrawLine($pa, ($s * 0.10), ($s * 0.80), ($s * 0.82), ($s * 0.22))
         Draw-Arrowhead $g $s $pa ($s * 0.82) ($s * 0.22) (1) (-0.8); $pa.Dispose()
+    }
+    # The selected control points set on one grade: the green control polygon climbs at its slope, its
+    # points square handles so it reads as point editing, not as the Slope Curve arrow beside it.
+    'mhSlopeControlPoints' = {
+        param($g, $s)
+        $p = InkPen $s 0.05; $p.DashStyle = [System.Drawing.Drawing2D.DashStyle]::Dash
+        $g.DrawLine($p, ($s * 0.08), ($s * 0.88), ($s * 0.92), ($s * 0.88)); $p.Dispose()
+        $pa = AccentPen $s 0.10; $g.DrawLine($pa, ($s * 0.14), ($s * 0.76), ($s * 0.86), ($s * 0.20)); $pa.Dispose()
+        $b = Brush $ink; $h = $s * 0.09
+        foreach ($t in 0.0, 0.5, 1.0) {
+            $x = $s * (0.14 + 0.72 * $t); $y = $s * (0.76 - 0.56 * $t)
+            $g.FillRectangle($b, ($x - $h), ($y - $h), ($h * 2), ($h * 2))
+        }
+        $b.Dispose()
+    }
+    # Two control points drawn together into one: ink handles either side, arrows in, the green merged point.
+    'mhMergeControlPoints' = {
+        param($g, $s)
+        $b = Brush $ink; $h = $s * 0.09
+        $g.FillRectangle($b, ($s * 0.14 - $h), ($s * 0.24 - $h), ($h * 2), ($h * 2))
+        $g.FillRectangle($b, ($s * 0.14 - $h), ($s * 0.80 - $h), ($h * 2), ($h * 2)); $b.Dispose()
+        # Plain converging lines: arrowheads this close to the handles are mud at 16 px.
+        $p = InkPen $s 0.08
+        $g.DrawLine($p, ($s * 0.14), ($s * 0.24), ($s * 0.62), ($s * 0.52))
+        $g.DrawLine($p, ($s * 0.14), ($s * 0.80), ($s * 0.62), ($s * 0.52)); $p.Dispose()
+        $bg = Brush $green; $hg = $s * 0.14
+        $g.FillRectangle($bg, ($s * 0.74 - $hg), ($s * 0.52 - $hg), ($hg * 2), ($hg * 2)); $bg.Dispose()
     }
     # Stacked contours read off where one picked line crosses them.
     'mhLiftCurvesWithLine' = {
