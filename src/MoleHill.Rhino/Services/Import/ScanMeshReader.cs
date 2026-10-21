@@ -76,7 +76,7 @@ internal static class ScanMeshReader
                         uv[corner * 2 + 1] = (float)p.Y;
                     }
                     colours = new ScanColourSource(image, uv);
-                    diagnostic = $"Diffuse colour: {bitmap.Width:N0} × {bitmap.Height:N0} bitmap sampled through triangle UVs.";
+                    diagnostic = FormattableString.Invariant($"Diffuse colour: {bitmap.Width} × {bitmap.Height} bitmap sampled through triangle UVs.");
                     return true;
                 }
                 diagnostic = "The scan's diffuse bitmap could not be located; using available vertex colours or geometry only.";

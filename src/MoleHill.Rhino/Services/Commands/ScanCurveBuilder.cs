@@ -25,8 +25,15 @@ internal static class ScanCurveBuilder
         {
             if (piece.Degree == 1 && piece.Weights.All(weight => weight == 1))
             {
-                for (int i = run.Count == 0 ? 0 : 1; i < piece.ControlPointCount; i++)
-                    run.Add(piece.ControlPoints[i * 3], piece.ControlPoints[i * 3 + 1], piece.ControlPoints[i * 3 + 2]);
+                // A repeated vertex makes a zero-length segment, and Rhino calls the whole curve invalid
+                // (found live: one paved outline of 54 repeated a corner). Pieces meet end to start, and a
+                // degenerate piece can repeat its own point.
+                for (int i = 0; i < piece.ControlPointCount; i++)
+                {
+                    var point = new Point3d(piece.ControlPoints[i * 3], piece.ControlPoints[i * 3 + 1], piece.ControlPoints[i * 3 + 2]);
+                    if (run.Count == 0 || run[run.Count - 1].DistanceTo(point) > DuplicateDistance(point))
+                        run.Add(point);
+                }
                 continue;
             }
             Flush();
@@ -42,6 +49,9 @@ internal static class ScanCurveBuilder
             Curve single = joined.SegmentCurve(0).DuplicateCurve(); joined.Dispose(); return single;
         }
         return joined;
+
+        static double DuplicateDistance(Point3d point) =>
+            1e-9 * Math.Max(1.0, Math.Max(Math.Abs(point.X), Math.Max(Math.Abs(point.Y), Math.Abs(point.Z))));
 
         void Flush()
         {

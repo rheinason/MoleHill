@@ -92,6 +92,51 @@ public sealed class IntervalRecoveryTests
         Assert.InRange(result.UnmeasuredArea, 20, 30 + 1e-9); // the 4 x 5 m box, counted by vertex on a 1 m grid
     }
 
+    [Fact]
+    public void MeasureMaximumDeviation_OriginalGroundUnderGapFill_CountsNoMiss()
+    {
+        // Recovered from flat ground; the original carries a 3 m block where the scan measured nothing.
+        // The scan's "original ground miss" read 5.4 m live because it measured the gap fills recovery skips.
+        var options = new TerrainCurveRecovery.Options
+        {
+            VerticalTolerance = .1, PlanTolerance = .1, LandformLines = false, FitContours = false,
+            Policy = new() { ContourInterval = .5, MaximumInputs = 50 },
+        };
+        var recovered = TerrainCurveRecovery.Recover(Mesh((x, y) => 0), options);
+        var original = Mesh((x, y) => x >= 10 && x <= 12 && y >= 6 && y <= 9 ? 3 : 0);
+
+        Assert.Equal(3, TerrainCurveRecovery.MeasureMaximumDeviation(recovered, original, options), 9);
+        var masked = new TerrainCurveRecovery.Options
+        {
+            VerticalTolerance = .1, PlanTolerance = .1,
+            Unmeasured = (x, y) => x >= 9 && x <= 13 && y >= 5 && y <= 10,
+        };
+        Assert.Equal(0, TerrainCurveRecovery.MeasureMaximumDeviation(recovered, original, masked), 9);
+    }
+
+    [Fact]
+    public void Recover_Diagnostic_IsCultureInvariantAndCarriesTheUnit()
+    {
+        var previous = System.Globalization.CultureInfo.CurrentCulture;
+        System.Globalization.CultureInfo.CurrentCulture = new System.Globalization.CultureInfo("nb-NO");
+        try
+        {
+            var result = TerrainCurveRecovery.Recover(Mesh((x, y) => 3 * Math.Exp(-((x - 8) * (x - 8) + (y - 8) * (y - 8)) / 20)),
+                new TerrainCurveRecovery.Options
+                {
+                    VerticalTolerance = .1, PlanTolerance = .1, LandformLines = false, LengthUnit = "m",
+                    Policy = new() { ContourInterval = .25, MaximumInputs = 500 },
+                });
+            Assert.Contains("contours every 0.25 m", result.Diagnostic);
+            Assert.Contains("within 0.1 m", result.Diagnostic);
+            Assert.DoesNotContain(",", result.Diagnostic.Replace(", ", " "));
+        }
+        finally
+        {
+            System.Globalization.CultureInfo.CurrentCulture = previous;
+        }
+    }
+
     [Theory]
     [InlineData(1)]
     [InlineData(1000)]

@@ -77,7 +77,7 @@ public static partial class TerrainCurveRecovery
         // Contours at the interval, clipped to the region, simplified against the terrain below them. Each contour
         // simplifies alone against read-only terrain, so they simplify in parallel: on a 548k-face terrain this
         // took 84 s on one core, with no point at which the run could be stopped.
-        policy.ReportActivity?.Invoke($"Tracing contours every {interval:G4}");
+        policy.ReportActivity?.Invoke($"Tracing contours every {options.Length(interval)}");
         var pieces = new List<(double Level, RegionInputClipper.InputPolyline Part)>();
         double minimumLength = policy.MinimumContourLength > 0 ? policy.MinimumContourLength : plan * 8;
         if (high >= low)
@@ -259,8 +259,9 @@ public static partial class TerrainCurveRecovery
             if (weights[v] > 0 && deviations[v] > tolerances[v]) outside += weights[v];
             if (weights[v] > 0 && uncovered[v]) uncoveredArea += weights[v];
         }
-        string accuracy = $"within {tolerance:G4}: worst {primaryMaximum:G4}" +
-            (secondaryMaximum is double s ? $"; secondary within {options.SecondaryTolerance:G4}: worst {s:G4}" : string.Empty);
+        string accuracy = $"within {options.Length(tolerance)}: worst {options.Length(primaryMaximum)}" +
+            (secondaryMaximum is double s
+                ? $"; paved within {options.Length(options.SecondaryTolerance)}: worst {options.Length(s)}" : string.Empty);
         return new Result
         {
             Borders = borders,
@@ -271,7 +272,7 @@ public static partial class TerrainCurveRecovery
             SecondaryMaximumDeviation = secondaryMaximum,
             Rounds = round,
             Termination = termination,
-            Diagnostic = $"{(termination == Termination.ToleranceSatisfied ? "Met" : termination.ToString())} (cap {cap}): contours every {interval:G4} " +
+            Diagnostic = $"{Describe(termination)} (cap {cap} inputs): contours every {options.Length(interval)} " +
                 $"({pruned} of {tracedCount} redundant removed), {accuracy}.",
             EvaluatedVertexCount = evaluated,
             ExcessErrorVolume = excess,

@@ -36,7 +36,7 @@ internal static partial class ScanToTerrainCommandService
             if (source?.Geometry is PointCloud points)
             {
                 cloud = ScanPointCloudReader.Read(points);
-                diagnostic = $"{cloud.Count:N0} cloud observations; " + (cloud.Colours == null ? "no colour" : "point colours") +
+                diagnostic = FormattableString.Invariant($"{cloud.Count:N0} cloud observations; ") + (cloud.Colours == null ? "no colour" : "point colours") +
                     (cloud.Classes == null ? "." : "; retained LAS classes.");
             }
             else if (get.Object(0).Mesh() is Mesh picked)
@@ -79,8 +79,8 @@ internal static partial class ScanToTerrainCommandService
             $"{pipeline.Walls.Count} walls, {pipeline.Roads.Count} road/kerb stretches; " +
             $"{recovery.Contours.Count} contours and {recovery.SpotPointCount} spots. " + recovery.Diagnostic);
         if (pipeline.Ground.ClassifiedGroundNodes > 0)
-            RhinoApp.WriteLine($"Used {pipeline.Ground.ClassifiedGroundNodes:N0} supplied ground cells; " +
-                $"{pipeline.Ground.ClassifiedGroundDisagreements:N0} differ from the independent filter by more than its initial allowance.");
+            RhinoApp.WriteLine(FormattableString.Invariant($"Used {pipeline.Ground.ClassifiedGroundNodes:N0} supplied ground cells; ") +
+                FormattableString.Invariant($"{pipeline.Ground.ClassifiedGroundDisagreements:N0} differ from the independent filter by more than its initial allowance."));
         if (added > 0) RhinoApp.WriteLine($"Added to the layers under '{root}'.");
         doc.Views.Redraw(); return added > 0 ? Result.Success : Result.Failure;
     }

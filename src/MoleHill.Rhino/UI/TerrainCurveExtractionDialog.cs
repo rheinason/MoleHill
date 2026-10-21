@@ -24,6 +24,7 @@ internal sealed partial class TerrainCurveExtractionDialog : Dialog<bool>
     private readonly Label _status = new() { Text = "Preparing preview…", Wrap = WrapMode.Word, Width = 460 };
     private readonly Dictionary<string, CheckBox> _visibility = new();
     private readonly Dictionary<string, NumericStepper> _numbers = new();
+    private readonly Dictionary<DynamicLayout, DynamicLayout> _noteHosts = new();
     private CancellationTokenSource? _cancellation;
     private TerrainCurveExtractionPrepared? _previewState;
     private readonly bool _manual;
@@ -44,7 +45,9 @@ internal sealed partial class TerrainCurveExtractionDialog : Dialog<bool>
         Title = title + " — " + sourceName;
         Resizable = true; Padding = 12; Size = new Size(660, 790); MinimumSize = new Size(540, 520);
         this.UseRhinoStyle();
-        var body = new DynamicLayout { Spacing = new Size(8, 7), Padding = 4 };
+        // The scrollable carries the margin, not the body: ExpandContentWidth stretches the body to the viewport
+        // and then adds the body's own padding outside it, which scrolled sideways by that much (found live).
+        var body = new DynamicLayout { Spacing = new Size(8, 7) };
         body.AddRow(new Label { Text = summary, Wrap = WrapMode.Word, Width = 460 });
         body.AddRow(new Label { Text = manualRecompute
             ? "Large terrain: a preview can take minutes. Adjust settings, then Recompute; Stop ends a run. Keep writes a fresh layer tree; Cancel discards it."
@@ -67,7 +70,7 @@ internal sealed partial class TerrainCurveExtractionDialog : Dialog<bool>
             referencePreview.CheckedChanged += (_, _) => UpdatePreview(); body.AddRow(referencePreview);
         }
         var contours = Section(body, "Horizontal contours and spot heights"); Output(contours, "Contours and spots", nameof(settings.Contours));
-        if (scan) contours.AddRow(new Label { Text = "Dark green: horizontal contours, one elevation per curve. Muted area outlines carry ground height.", Wrap = WrapMode.Word, Width = 460 });
+        if (scan) Note(contours, "Dark green: horizontal contours, one elevation per curve. Muted area outlines carry ground height.");
         Number(contours, scan ? "Terrain accuracy · " + length : "Vertical tolerance · " + length, nameof(settings.Tolerance));
         var detail = scan ? Section(_scanAdvanced, "Recovery details") : contours;
         Number(detail, scan ? "Natural-boundary plan tolerance · " + length : "Plan tolerance · " + length, nameof(settings.PlanTolerance));
@@ -86,7 +89,9 @@ internal sealed partial class TerrainCurveExtractionDialog : Dialog<bool>
         body.AddRow(new Label { Text = scan ? "Tolerance describes the inferred ground, not surveyed ground beneath removed objects. Roof fallbacks remain marked for review." : "Tolerance is measured at the reference terrain vertices; walls are carried by their crease lines and not measured. A spent input cap reports the remaining error.", Wrap = WrapMode.Word, Width = 460 });
         if (scan) body.AddRow(new Expander { Header = "Advanced", Content = _scanAdvanced, Expanded = false });
         var shell = new DynamicLayout { Spacing = new Size(8, 8) };
-        shell.Add(new Scrollable { Content = body, ExpandContentWidth = true }, yscale: true);
+        var scroll = new Scrollable { Content = body, ExpandContentWidth = true, Padding = 4 };
+        UiControls.DisableHorizontalScrolling(scroll);
+        shell.Add(scroll, yscale: true);
         shell.AddRow(_status);
         shell.AddRow(new StackLayout
         {
@@ -109,11 +114,26 @@ internal sealed partial class TerrainCurveExtractionDialog : Dialog<bool>
         };
     }
 
+    /// <summary>
+    /// A titled section. Returns the label/field grid; <see cref="Note"/> writes below it, outside the grid.
+    /// </summary>
     private DynamicLayout Section(DynamicLayout body, string title)
     {
-        var layout = new DynamicLayout { Spacing = new Size(8, 5), Padding = 8 };
-        body.AddRow(new GroupBox { Text = title, Content = layout }); return layout;
+        var host = new DynamicLayout { Spacing = new Size(8, 5), Padding = 8 };
+        var grid = new DynamicLayout { Spacing = new Size(8, 5) };
+        host.AddRow(grid);
+        _noteHosts[grid] = host;
+        body.AddRow(new GroupBox { Text = title, Content = host }); return grid;
     }
+
+    /// <summary>
+    /// A wrapped note below a section's fields. Inside the grid, even as a separate row, it sat in the label
+    /// column and widened it by its own width, pushing the steppers past the dialog's edge (found live: the
+    /// scan dialog clipped its spinners and grew a horizontal scrollbar at its default size).
+    /// </summary>
+    private void Note(DynamicLayout section, string text) =>
+        (_noteHosts.TryGetValue(section, out DynamicLayout? host) ? host : section)
+            .AddRow(new Label { Text = text, Wrap = WrapMode.Word, Width = 440 });
 
     private void Number(DynamicLayout layout, string label, string propertyName, double? minimum = null, double maximum = 1e12, int decimals = 3, double? increment = null)
     {
@@ -196,7 +216,8 @@ internal sealed partial class TerrainCurveExtractionDialog : Dialog<bool>
             var recovery = result.Recovery!;
             _status.Text = $"Ready in {Elapsed(clock)}: " + PreparationSummary(result, _units.Abbreviation) +
                 $"{Count(recovery.Contours.Count, "contour")}, {Count(recovery.SpotPointCount, "spot")}. " + recovery.Diagnostic +
-                (recovery.OriginalMaximumDeviation is double original ? $" Original ground miss {original:G4} {_units.Abbreviation}." : string.Empty);
+                (recovery.OriginalMaximumDeviation is double original
+                    ? FormattableString.Invariant($" Original ground miss {original:G4} {_units.Abbreviation}.") : string.Empty);
         }
         catch (OperationCanceledException) { if (!_closed && generation == _generation) _status.Text = "Preview stopped."; }
         catch (Exception error) { if (!_closed && generation == _generation) { _status.Text = error.Message; Prepared = null; _keep.Enabled = false; } }
@@ -215,7 +236,9 @@ internal sealed partial class TerrainCurveExtractionDialog : Dialog<bool>
     }
 
     private static string Elapsed(System.Diagnostics.Stopwatch clock) =>
-        clock.Elapsed.TotalMinutes >= 1 ? $"{(int)clock.Elapsed.TotalMinutes}:{clock.Elapsed.Seconds:00} min" : $"{clock.Elapsed.TotalSeconds:F0} s";
+        clock.Elapsed.TotalMinutes >= 1
+            ? FormattableString.Invariant($"{(int)clock.Elapsed.TotalMinutes}:{clock.Elapsed.Seconds:00} min")
+            : FormattableString.Invariant($"{clock.Elapsed.TotalSeconds:F0} s");
 
-    private static string Count(int count, string noun) => $"{count:N0} {noun}{(count == 1 ? string.Empty : "s")}";
+    private static string Count(int count, string noun) => FormattableString.Invariant($"{count:N0} {noun}{(count == 1 ? string.Empty : "s")}");
 }

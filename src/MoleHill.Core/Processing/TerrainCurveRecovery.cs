@@ -79,6 +79,14 @@ public static partial class TerrainCurveRecovery
 
         /// <summary>Called after each round with (round, worst deviation).</summary>
         public Action<int, double>? ReportProgress { get; init; }
+
+        /// <summary>The model length unit's abbreviation ("m"), written after every length in the messages.</summary>
+        public string LengthUnit { get; init; } = string.Empty;
+
+        /// <summary>A length for a message: culture-invariant, so "0.25 m" reads the same on every machine.</summary>
+        internal string Length(double value) =>
+            value.ToString("G4", System.Globalization.CultureInfo.InvariantCulture) +
+            (LengthUnit.Length == 0 ? string.Empty : " " + LengthUnit);
     }
 
     public enum Termination
@@ -90,6 +98,16 @@ public static partial class TerrainCurveRecovery
         Cancelled,
         UnsupportedInput
     }
+
+    private static string Describe(Termination termination) => termination switch
+    {
+        Termination.ToleranceSatisfied => "Met",
+        Termination.CurveBudgetSpent => "Input cap reached",
+        Termination.NoProgress => "No further progress",
+        Termination.TriangulationFailed => "Triangulation failed",
+        Termination.Cancelled => "Cancelled",
+        _ => "Unsupported input"
+    };
 
     public sealed class RecoveredContour
     {
@@ -284,15 +302,15 @@ public static partial class TerrainCurveRecovery
             {
                 termination = Termination.ToleranceSatisfied;
                 diagnostic = options.Region == null
-                    ? FormattableString.Invariant($"Within {verticalTolerance:G4} at every terrain vertex.")
-                    : FormattableString.Invariant($"Within {verticalTolerance:G4} at every terrain vertex in the requested region.");
+                    ? $"Within {options.Length(verticalTolerance)} at every terrain vertex."
+                    : $"Within {options.Length(verticalTolerance)} at every terrain vertex in the requested region.";
                 break;
             }
 
             if (contours.Count >= options.MaximumCurves)
             {
                 termination = Termination.CurveBudgetSpent;
-                diagnostic = FormattableString.Invariant($"Stopped at {contours.Count} contours with a {worstDeviation:G4} miss left.");
+                diagnostic = $"Stopped at {contours.Count} contours with a {options.Length(worstDeviation)} miss left.";
                 break;
             }
 
@@ -334,7 +352,7 @@ public static partial class TerrainCurveRecovery
             if (added == 0)
             {
                 termination = Termination.NoProgress;
-                diagnostic = FormattableString.Invariant($"The worst vertices could not be captured; a {worstDeviation:G4} miss is left.");
+                diagnostic = $"The worst vertices could not be captured; a {options.Length(worstDeviation)} miss is left.";
                 break;
             }
         }

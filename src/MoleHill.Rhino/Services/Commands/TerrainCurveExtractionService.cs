@@ -31,7 +31,8 @@ internal static class TerrainCurveExtractionService
             SecondaryTolerance = settings is ScanToTerrainSettings paved ? paved.PavedTolerance : 0,
             FitContours = true,
             ShouldCancel = () => token.IsCancellationRequested,
-            ReportProgress = (round, miss) => progress($"Curves, round {round}: {miss:G4} {units.Abbreviation} miss"),
+            ReportProgress = (round, miss) => progress(FormattableString.Invariant($"Curves, round {round}: {miss:G4} {units.Abbreviation} miss")),
+            LengthUnit = units.Abbreviation,
         }, TerrainCurveRecovery.LandformMode.No), token);
         token.ThrowIfCancellationRequested();
         if (recovery.Termination is TerrainCurveRecovery.Termination.UnsupportedInput or TerrainCurveRecovery.Termination.TriangulationFailed)
@@ -43,7 +44,8 @@ internal static class TerrainCurveExtractionService
                     VerticalTolerance = settings.Tolerance,
                     PlanTolerance = settings.PlanTolerance,
                     FixedBreaklines = prepared.FixedBreaklines,
-                    Region = prepared.Region
+                    Region = prepared.Region,
+                    Unmeasured = prepared.Unmeasured
                 }), token);
         token.ThrowIfCancellationRequested();
         if (!settings.Contours)

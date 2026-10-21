@@ -75,7 +75,7 @@ internal static class TerrainToCurvesCommandService
             const string prefix = "MoleHill.TerrainToCurves.";
             var settings = TerrainCurveExtractionSettings.Load(unitContext, prefix);
             using var panel = new TerrainCurveExtractionDialog(doc, unitContext, "Terrain to Curves", sourceName,
-                $"{terrainMesh.VertexCount:N0} vertices from the final terrain mesh. Accuracy is measured against this surface.", settings,
+                FormattableString.Invariant($"{terrainMesh.VertexCount:N0} {(terrainMesh.VertexCount == 1 ? "vertex" : "vertices")} from the final terrain mesh. Accuracy is measured against this surface."), settings,
                 async (current, token, progress, preview) =>
                 {
                     var reference = new TerrainCurveExtractionPrepared(terrainMesh);

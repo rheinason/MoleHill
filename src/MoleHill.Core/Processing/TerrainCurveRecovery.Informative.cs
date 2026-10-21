@@ -6,13 +6,22 @@ namespace MoleHill.Core.Processing;
 
 public static partial class TerrainCurveRecovery
 {
-    /// <summary>Measures the accepted output against another reference using the same fixed inputs.</summary>
+    /// <summary>
+    /// Measures the accepted output against another reference using the same fixed inputs. Ground in
+    /// <see cref="Options.Unmeasured"/> counts no miss, as in the recovery itself: a scan's gap fills were
+    /// never measured, so the original ground there is the fill's guess, not a height to be within.
+    /// </summary>
     public static double MeasureMaximumDeviation(Result recovered, IndexedTriMesh reference, Options options)
     {
         var rebuilt = Rebuild(recovered.Borders.ToList(), recovered.LandformLines.ToList(), recovered.Contours.ToList(),
             recovered.SpotPoints.ToList(), options.PlanTolerance, out _, options.FixedBreaklines);
-        return rebuilt == null ? double.NaN : Deviations(reference.Vertices, reference.VertexCount, rebuilt,
-            options.VerticalTolerance, options.Region).DefaultIfEmpty(0).Max();
+        if (rebuilt == null) return double.NaN;
+        double[] deviations = Deviations(reference.Vertices, reference.VertexCount, rebuilt, options.VerticalTolerance, options.Region);
+        double maximum = 0;
+        for (int v = 0; v < deviations.Length; v++)
+            if (options.Unmeasured?.Invoke(reference.Vertices[v * 3], reference.Vertices[v * 3 + 1]) != true)
+                maximum = Math.Max(maximum, deviations[v]);
+        return maximum;
     }
 
     private readonly record struct RecoveryError(double Maximum, double Excess, double Area);
@@ -166,8 +175,9 @@ public static partial class TerrainCurveRecovery
         if (Cancelled()) termination = Termination.Cancelled;
         Evaluate();
         string diagnostic = termination == Termination.ToleranceSatisfied
-            ? $"Within {tolerance:G4} at reference vertices; removed {pruned} redundant inputs."
-            : $"{termination}: {contours.Count} contours, {spotIds.Count} spots; {error.Maximum:G4} miss remains. Removed {pruned} redundant inputs.";
+            ? $"Within {options.Length(tolerance)} at reference vertices; removed {pruned} redundant inputs."
+            : $"{Describe(termination)}: {contours.Count} contours, {spotIds.Count} spots; {options.Length(error.Maximum)} miss remains. " +
+              $"Removed {pruned} redundant inputs.";
         return new Result
         {
             Borders = borders,
