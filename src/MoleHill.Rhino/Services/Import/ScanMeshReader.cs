@@ -7,6 +7,10 @@ using Rhino;
 using Rhino.DocObjects;
 using Rhino.Geometry;
 
+// System.Drawing is Windows-only, and so is Rhino: the plug-in suppresses CA1416 project-wide, but the
+// plain net8.0 test project compiles this file as linked source too.
+#pragma warning disable CA1416
+
 namespace MoleHill.Rhino.Services;
 
 /// <summary>Captures scan triangles and diffuse UV colours without normalising away texture seams.</summary>

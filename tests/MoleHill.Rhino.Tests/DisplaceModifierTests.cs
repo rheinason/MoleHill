@@ -9,6 +9,9 @@ using Rhino.Geometry;
 using Xunit;
 using RhinoPoint = Rhino.Geometry.Point;
 
+// The heightmap fixtures are written with System.Drawing, which is Windows-only like the plug-in it tests.
+#pragma warning disable CA1416
+
 namespace MoleHill.Rhino.Tests;
 
 /// <summary>
