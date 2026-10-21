@@ -14,6 +14,9 @@ public enum RouteRelaxIssueKind
 
     /// <summary>The whole route is too short for the height between its ends at the grade limit.</summary>
     TooShort,
+
+    /// <summary>The route crosses itself in plan, at the issue's point. A road cannot cross itself at grade.</summary>
+    Crossing,
 }
 
 /// <summary>

@@ -158,7 +158,7 @@ internal sealed class RouteRelaxConduit : DisplayConduit
 
     private static Color IssueColor(RouteRelaxIssueKind kind) => kind switch
     {
-        RouteRelaxIssueKind.Climb or RouteRelaxIssueKind.TooShort => ClimbColor,
+        RouteRelaxIssueKind.Climb or RouteRelaxIssueKind.TooShort or RouteRelaxIssueKind.Crossing => ClimbColor,
         RouteRelaxIssueKind.Cut => CutColor,
         _ => FillColor,
     };

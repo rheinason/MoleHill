@@ -1,3 +1,4 @@
+using MoleHill.Core.Engine;
 using MoleHill.Core.Geometry;
 
 namespace MoleHill.Core.Routing;
@@ -544,6 +545,11 @@ public sealed class RouteRelaxer
         RouteMetrics metrics = RouteSuggester.MeasureOnGrid(_grid, request, points);
         double cost = RouteLegBuilder.PolylineCost(_grid, _price, points);
         List<RouteRelaxIssue> issues = FindIssues(stations, xs, ys, ground, profile);
+        // Relaxing never ties the band into a loop, but a drag can pull one stretch over another.
+        var crossings = new List<(double X, double Y, double Station)>();
+        SelfCrossings(crossings);
+        issues.InsertRange(0, crossings.Select(c => new RouteRelaxIssue(
+            RouteRelaxIssueKind.Crossing, c.Station, c.Station, c.X, c.Y, 0.0, 0.0, 0.0)));
         if (!fits)
         {
             double length = stations[^1];
@@ -672,6 +678,7 @@ public sealed class RouteRelaxer
         if (largest > 1e-15)
         {
             double energy = Energy();
+            int crossings = SelfCrossings();
             var x0 = _x.ToArray();
             var y0 = _y.ToArray();
             double step = _step[level];
@@ -683,7 +690,9 @@ public sealed class RouteRelaxer
                     _y[i] = y0[i] - (step * gy[i] / largest);
                 }
 
-                if (Energy() < energy - (1e-12 * Math.Abs(energy)))
+                // A move may untangle the band but never tie it: a route crossing itself is no road, and the
+                // energy alone let a hairpin swing over its own other leg (found live).
+                if (Energy() < energy - (1e-12 * Math.Abs(energy)) && SelfCrossings() <= crossings)
                 {
                     moved = step;
                     _step[level] = Math.Min(step * 1.5, StepCaps[level] * Spacing);
@@ -725,6 +734,75 @@ public sealed class RouteRelaxer
                 return (centre - minus) / delta;
             return 0.0;
         }
+    }
+
+    /// <summary>
+    /// How many times the band crosses itself in plan: pairs of non-adjacent segments that cross strictly.
+    /// Segments are bucketed on a grid one spacing wide, so this is linear in the stations.
+    /// </summary>
+    internal int SelfCrossings() => SelfCrossings(null);
+
+    /// <summary>As <see cref="SelfCrossings()"/>, also collecting each crossing's plan point and station.</summary>
+    private int SelfCrossings(List<(double X, double Y, double Station)>? at)
+    {
+        int segments = _x.Count - 1;
+        if (segments < 3)
+            return 0;
+
+        double cell = Spacing;
+        var buckets = new Dictionary<long, List<int>>(segments * 2, IndexedMeshTools.CellKeyComparer.Instance);
+        long Key(long cx, long cy) => (cx << 32) ^ (cy & 0xFFFFFFFFL);
+        for (int i = 0; i < segments; i++)
+        {
+            long x0 = (long)Math.Floor(Math.Min(_x[i], _x[i + 1]) / cell), x1 = (long)Math.Floor(Math.Max(_x[i], _x[i + 1]) / cell);
+            long y0 = (long)Math.Floor(Math.Min(_y[i], _y[i + 1]) / cell), y1 = (long)Math.Floor(Math.Max(_y[i], _y[i + 1]) / cell);
+            for (long cx = x0; cx <= x1; cx++)
+            {
+                for (long cy = y0; cy <= y1; cy++)
+                {
+                    long key = Key(cx, cy);
+                    if (!buckets.TryGetValue(key, out List<int>? bucket))
+                        buckets[key] = bucket = new List<int>(4);
+                    bucket.Add(i);
+                }
+            }
+        }
+
+        // A pair sharing several cells is counted once: only by the lower segment, and only the first time.
+        var lastTested = new int[segments];
+        Array.Fill(lastTested, -1);
+        int crossings = 0;
+        for (int i = 0; i < segments; i++)
+        {
+            long x0 = (long)Math.Floor(Math.Min(_x[i], _x[i + 1]) / cell), x1 = (long)Math.Floor(Math.Max(_x[i], _x[i + 1]) / cell);
+            long y0 = (long)Math.Floor(Math.Min(_y[i], _y[i + 1]) / cell), y1 = (long)Math.Floor(Math.Max(_y[i], _y[i + 1]) / cell);
+            for (long cx = x0; cx <= x1; cx++)
+            {
+                for (long cy = y0; cy <= y1; cy++)
+                {
+                    foreach (int j in buckets[Key(cx, cy)])
+                    {
+                        if (j <= i + 1 || lastTested[j] == i)
+                            continue;
+                        lastTested[j] = i;
+                        if (!Geometry2D.SegmentsCrossStrictly(_x[i], _y[i], _x[i + 1], _y[i + 1], _x[j], _y[j], _x[j + 1], _y[j + 1]))
+                            continue;
+                        crossings++;
+                        if (at == null)
+                            continue;
+                        double ex = _x[i + 1] - _x[i], ey = _y[i + 1] - _y[i], fx = _x[j + 1] - _x[j], fy = _y[j + 1] - _y[j];
+                        double denominator = (ex * fy) - (ey * fx);
+                        double t = denominator == 0.0 ? 0.5 : (((_x[j] - _x[i]) * fy) - ((_y[j] - _y[i]) * fx)) / denominator;
+                        double station = 0.0;
+                        for (int k = 0; k < i; k++)
+                            station += StationGap(k, k + 1);
+                        at.Add((_x[i] + (t * ex), _y[i] + (t * ey), station + (t * StationGap(i, i + 1))));
+                    }
+                }
+            }
+        }
+
+        return crossings;
     }
 
     /// <summary>The scales the gradient is smoothed at, as shares of the band, cycled sweep by sweep.</summary>

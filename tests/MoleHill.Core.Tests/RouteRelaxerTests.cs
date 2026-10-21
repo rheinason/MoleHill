@@ -231,4 +231,36 @@ public sealed class RouteRelaxerTests
             worst = Math.Max(worst, Math.Abs(plan[(i * 2) + 1] - y));
         return worst;
     }
+    [Fact]
+    public void SelfCrossings_FigureEight_CountsTheCrossingOnce()
+    {
+        // A sketch that loops back over itself: one crossing, however the segments fall on the grid.
+        RouteRelaxer relaxer = Create(Hill(), new[] { (30.0, 30.0), (150.0, 150.0), (150.0, 30.0), (30.0, 150.0) }, Settings());
+        Assert.Equal(1, relaxer.SelfCrossings());
+        Assert.Equal(0, Create(Hill(), new[] { (30.0, 150.0), (270.0, 150.0) }, Settings()).SelfCrossings());
+    }
+
+    [Fact]
+    public void Evaluate_BandCrossingItself_ReportsWhere()
+    {
+        RouteRelaxer relaxer = Create(Hill(), new[] { (30.0, 30.0), (150.0, 150.0), (150.0, 30.0), (30.0, 150.0) }, Settings());
+        RouteRelaxIssue crossing = Assert.Single(relaxer.Evaluate(fitCurve: false).Issues, issue => issue.Kind == RouteRelaxIssueKind.Crossing);
+        Assert.Equal(90.0, crossing.X, 6);
+        Assert.Equal(90.0, crossing.Y, 6);
+    }
+
+    [Fact]
+    public void Step_NeverTiesTheBandIntoALoop()
+    {
+        // An invariant, not a reproduction: relaxing may untangle a band but never add a crossing. The live
+        // crossing came from a drag; 48 relaxed hairpins without the guard never crossed.
+        RouteRelaxer relaxer = Create(Hill(),
+            new[] { (40.0, 150.0), (150.0, 210.0), (230.0, 150.0), (150.0, 175.0), (60.0, 140.0) }, Settings(fidelity: 0.0));
+        int crossings = relaxer.SelfCrossings();
+        for (int round = 0; round < 60 && !relaxer.IsSettled; round++)
+        {
+            relaxer.Step(10);
+            Assert.True(relaxer.SelfCrossings() <= crossings, $"round {round}: {relaxer.SelfCrossings()} crossings, started with {crossings}");
+        }
+    }
 }

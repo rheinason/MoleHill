@@ -17,7 +17,7 @@ internal static class RouteRelaxReadout
         improvement > 0.005
             ? string.Format(CultureInfo.InvariantCulture, "{0:0}% better than your sketch", improvement * 100.0)
             : improvement < -0.005
-                ? string.Format(CultureInfo.InvariantCulture, "{0:0}% dearer than your sketch", -improvement * 100.0)
+                ? string.Format(CultureInfo.InvariantCulture, "{0:0}% worse than your sketch", -improvement * 100.0)
                 : "as your sketch";
 
     /// <summary>The figures line: length, grades, cut and fill.</summary>
@@ -37,6 +37,7 @@ internal static class RouteRelaxReadout
         RouteRelaxIssueKind.Climb => $"Climb: +{units.FormatLength(issue.ExtraLength, "F0")} route",
         RouteRelaxIssueKind.TooShort => $"Too short: +{units.FormatLength(issue.ExtraLength, "F0")}",
         RouteRelaxIssueKind.Cut => $"Cut {units.FormatLength(issue.Depth, "F1")}",
+        RouteRelaxIssueKind.Crossing => "Crosses itself",
         _ => $"Fill {units.FormatLength(issue.Depth, "F1")}",
     };
 
@@ -55,6 +56,8 @@ internal static class RouteRelaxReadout
                 $"or about {units.FormatLength(issue.ExtraLength, "F0")} more route. Help me can find switchbacks.",
             RouteRelaxIssueKind.Cut =>
                 $"{where}: cuts up to {units.FormatLength(issue.Depth, "F1")} into the ground.",
+            RouteRelaxIssueKind.Crossing =>
+                $"At {units.FormatLength(issue.StartStation, "F0")} the route crosses itself. Drag it apart, or Reset to start again from your sketch.",
             _ => $"{where}: fills up to {units.FormatLength(issue.Depth, "F1")} over the ground.",
         };
     }
