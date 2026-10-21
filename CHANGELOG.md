@@ -3,7 +3,7 @@
 Released through Rhino's Package Manager (Yak) as `MoleHill`. Versions before 1.0.0 were
 beta prereleases. Earlier versions are recorded only in the git history.
 
-## Unreleased
+## 1.5.0-beta — 2026-10-21
 
 **Terrain shaping**
 - Smooth has a new **Round Creases** mode. It rounds batter crests, toes and slope breaks with a vertical
