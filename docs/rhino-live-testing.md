@@ -12,20 +12,10 @@ genuine pointer gestures only — they are blind, focus-dependent, and cannot re
 ## 0. Pending live checks
 
 Run these at the next live session, then delete each line once it has passed (say so in the commit).
-`mhSlopeControlPoints`: re-check after the 2026-10-21 rework, with the mouse: picking control points
-after the command starts (and picking a whole curve to show its points), the preview following the
-mouse without a camera move, and the Offset-style slope (mouse sets it until one is typed, then picks
-rise or fall; Through hands it back). The first mouse check that day found all three broken.
-(`mhMergeControlPoints` mouse picks passed live on 2026-10-21.)
-
-On 2026-10-15, all nine `ControlPointSlopeEditTests` bodies passed inside a disposable
-Rhino (the ordinary `dotnet test` host skipped them). The registered command accepted a preselected
-grip and a typed slope. After explicitly reading selected subobjects, a script invoked the revised
-command service with a preselected polyline segment: its two endpoints changed, other vertices stayed
-put, and one Undo restored the curve. The temporary green preview was rendered and inspected (it is now
-drawn entirely in the overlay, so it follows the mouse). Final clean build used
-`dotnet build src/MoleHill.Rhino/MoleHill.Rhino.csproj --no-restore -p:OutDir=C:\Users\hbxma\Dropbox\TopoTest\.artifacts\control-point-slope-release\ -v minimal`
-because an open Rhino held the normal output. Slope-unit preferences were restored after testing.
+None open. On 2026-10-21 the mouse checks passed live: `mhMergeControlPoints` ordered picks (First/Last),
+and `mhSlopeControlPoints` after its rework (picking control points or a whole curve after the command
+starts, the preview following the mouse, the Offset-style slope with Through). `mhRelaxRoute` dragging,
+loop untangling on release and the reordered buttons passed in the same session.
 
 The 2026-10-07 list (GH quad meshes, GH Remesh Mode, Ponding with model units) passed live
 on 2026-10-07.
