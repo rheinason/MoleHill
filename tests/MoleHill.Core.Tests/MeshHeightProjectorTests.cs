@@ -31,6 +31,48 @@ public class MeshHeightProjectorTests
     }
 
     [Fact]
+    public void TryGetHeightExtremes_LongSliver_HoldsTheToleranceAcrossItsLongEdge()
+    {
+        // A 2.8 m sliver 14 mm tall, its long edge on the diagonal so points just outside it stay in its
+        // bounding box: the tolerance is a distance, so 0.5 mm out is in and 5 mm out is not.
+        double[] vertices =
+        {
+            0.0, 0.0, 0.0,
+            2.0, 2.0, 0.0,
+            0.99, 1.01, 0.0
+        };
+        var projector = new MeshHeightProjector(vertices, 3, new[] { 0, 1, 2 }, 1);
+        static (double X, double Y) Outside(double distance) =>
+            (1.0 + distance / Math.Sqrt(2.0), 1.0 - distance / Math.Sqrt(2.0));
+
+        (double x, double y) = Outside(0.0005);
+        Assert.True(projector.TryGetHeightExtremes(x, y, 0.001, out _, out _));
+        (x, y) = Outside(0.005);
+        Assert.False(projector.TryGetHeightExtremes(x, y, 0.001, out _, out _));
+    }
+
+    [Fact]
+    public void TryGetHeightExtremes_BeyondAShortEdge_HoldsTheTolerance()
+    {
+        // A 2 m triangle with a 0.3 m edge, turned 30 degrees so points past that edge stay in its bounding box.
+        // One barycentric tolerance taken from the smallest altitude, applied across the short edge whose
+        // altitude is seven times larger, accepted points 6.7 mm beyond it for a 1 mm tolerance (live: Drape
+        // Split ends landed up to 14 mm past the terrain border, whose triangles meet it with their short edges).
+        double c = Math.Cos(Math.PI / 6), s = Math.Sin(Math.PI / 6);
+        (double X, double Y) Turn(double x, double y) => ((x * c) - (y * s), (x * s) + (y * c));
+        var (bx, by) = Turn(2.0, 0.0);
+        var (cx, cy) = Turn(2.0, 0.3);
+        double[] vertices = { 0.0, 0.0, 0.0, bx, by, 0.0, cx, cy, 0.0 };
+        var projector = new MeshHeightProjector(vertices, 3, new[] { 0, 1, 2 }, 1);
+        (double X, double Y) Beyond(double distance) => ((bx + cx) / 2 + distance * c, (by + cy) / 2 + distance * s);
+
+        (double x, double y) = Beyond(0.0005);
+        Assert.True(projector.TryGetHeightExtremes(x, y, 0.001, out _, out _));
+        (x, y) = Beyond(0.005);
+        Assert.False(projector.TryGetHeightExtremes(x, y, 0.001, out _, out _));
+    }
+
+    [Fact]
     public void TryProjectZ_OverlappingDistinctHeights_RequiresFallback()
     {
         double[] vertices =

@@ -140,8 +140,7 @@ public sealed class MeshHeightProjector
                 if (!TryGetBarycentric(x, y, triangle, out double w0, out double w1, out double w2))
                     continue;
 
-                double barycentricTolerance = BarycentricTolerance(triangle, insideTolerance);
-                if (w0 < -barycentricTolerance || w1 < -barycentricTolerance || w2 < -barycentricTolerance)
+                if (!IsWithin(triangle, w0, w1, w2, insideTolerance))
                     continue;
 
                 double faceZ = (w0 * triangle.Z0) + (w1 * triangle.Z1) + (w2 * triangle.Z2);
@@ -196,8 +195,7 @@ public sealed class MeshHeightProjector
             if (!TryGetBarycentric(x, y, triangle, out double w0, out double w1, out double w2))
                 continue;
 
-            double barycentricTolerance = BarycentricTolerance(triangle, insideTolerance);
-            if (w0 < -barycentricTolerance || w1 < -barycentricTolerance || w2 < -barycentricTolerance)
+            if (!IsWithin(triangle, w0, w1, w2, insideTolerance))
                 continue;
 
             double faceZ = (w0 * triangle.Z0) + (w1 * triangle.Z1) + (w2 * triangle.Z2);
@@ -328,19 +326,37 @@ public sealed class MeshHeightProjector
         return Math.Abs(nz) / normalLength < NearVerticalNormalZRatio;
     }
 
-    private static double BarycentricTolerance(Triangle triangle, double lengthTolerance)
+    /// <summary>
+    /// Whether a point with these barycentric weights lies inside the triangle or within
+    /// <paramref name="lengthTolerance"/> of it in plan. Each weight is converted with its own vertex's
+    /// altitude: a weight of -w is a distance of w times that altitude outside the opposite edge. One
+    /// tolerance taken from the smallest altitude scaled up by every larger one, so a border triangle accepted
+    /// points several millimetres beyond its short border edge for a 1 mm tolerance (found live: Drape Split
+    /// runs ended up to 14 mm past the terrain border).
+    /// </summary>
+    private static bool IsWithin(Triangle triangle, double w0, double w1, double w2, double lengthTolerance)
     {
-        double maxEdgeLength = MaxXyEdgeLength(triangle);
-        if (!(maxEdgeLength > 0.0) || !double.IsFinite(maxEdgeLength))
-            return 1e-12;
-
         double doubleArea = Math.Abs(
             ((triangle.Y1 - triangle.Y2) * (triangle.X0 - triangle.X2)) +
             ((triangle.X2 - triangle.X1) * (triangle.Y0 - triangle.Y2)));
-        double minimumAltitude = doubleArea / maxEdgeLength;
+        double maxEdgeLength = MaxXyEdgeLength(triangle);
+        if (!(doubleArea > 0.0) || !double.IsFinite(doubleArea) || !(maxEdgeLength > 0.0) || !double.IsFinite(maxEdgeLength))
+            return w0 >= -1e-12 && w1 >= -1e-12 && w2 >= -1e-12;
+
         double altitudeFloor = Engine.ScaleAwareTolerance.LengthFloor(maxEdgeLength);
-        return Math.Clamp(lengthTolerance / Math.Max(minimumAltitude, altitudeFloor), 1e-12, 1e-2);
+        return w0 >= -WeightTolerance(EdgeLength(triangle.X1, triangle.Y1, triangle.X2, triangle.Y2)) &&
+               w1 >= -WeightTolerance(EdgeLength(triangle.X2, triangle.Y2, triangle.X0, triangle.Y0)) &&
+               w2 >= -WeightTolerance(EdgeLength(triangle.X0, triangle.Y0, triangle.X1, triangle.Y1));
+
+        // The vertex's altitude is twice the area over the opposite edge. Per vertex the conversion is exact,
+        // so a sliver's short altitude no longer needs the old cap of 1e-2 (which held a 14 mm sliver to a
+        // fraction of a millimetre); a weight below -1 would only describe a point past the far vertex.
+        double WeightTolerance(double oppositeEdge) =>
+            Math.Clamp(lengthTolerance / Math.Max(doubleArea / oppositeEdge, altitudeFloor), 1e-12, 1.0);
     }
+
+    private static double EdgeLength(double ax, double ay, double bx, double by) =>
+        Math.Sqrt(((bx - ax) * (bx - ax)) + ((by - ay) * (by - ay)));
 
     private static double MaxXyEdgeLength(Triangle triangle)
     {
