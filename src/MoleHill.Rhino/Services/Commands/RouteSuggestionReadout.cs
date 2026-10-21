@@ -32,9 +32,10 @@ internal static class RouteSuggestionReadout
         double requestedRadius,
         ModelUnitContext units,
         SlopeAnalyzer.SlopeUnit unit,
-        RouteComplexity? complexity = null) =>
+        RouteComplexity? complexity = null,
+        double gradeLimit = 0.0) =>
         $"Route {rank}: {units.FormatLength(metrics.PlanLength)}, " +
-        $"max grade {Slope(metrics.MaxGrade, unit)}, mean {Slope(metrics.MeanGrade, unit)}, " +
+        $"max grade {Slope(metrics.MaxGrade, unit)}{OverGrade(metrics.MaxGrade, gradeLimit, unit)}, mean {Slope(metrics.MeanGrade, unit)}, " +
         $"cut {units.FormatVolume(metrics.CutVolume, "F1")}, fill {units.FormatVolume(metrics.FillVolume, "F1")}" +
         (complexity is { } score ? $", complexity {Complexity(score)}" : string.Empty) +
         DescribeRadius(fillet, requestedRadius, units);
@@ -49,13 +50,36 @@ internal static class RouteSuggestionReadout
         FittedRouteCurve curve,
         double requestedRadius,
         ModelUnitContext units,
-        SlopeAnalyzer.SlopeUnit unit) =>
+        SlopeAnalyzer.SlopeUnit unit,
+        double gradeLimit = 0.0) =>
         $"Route {rank}: {units.FormatLength(metrics.PlanLength)}, " +
-        $"max grade {Slope(metrics.MaxGrade, unit)}, mean {Slope(metrics.MeanGrade, unit)}, " +
+        $"max grade {Slope(metrics.MaxGrade, unit)}{OverGrade(metrics.MaxGrade, gradeLimit, unit)}, mean {Slope(metrics.MeanGrade, unit)}, " +
         $"cut {units.FormatVolume(metrics.CutVolume, "F1")}, fill {units.FormatVolume(metrics.FillVolume, "F1")}, " +
         $"complexity {Complexity(curve.Complexity)}" +
-        (requestedRadius > 0.0 && curve.SmallestRadius is double tightest ? $", tightest bend {units.FormatLength(tightest)}" : string.Empty) +
+        (requestedRadius > 0.0 && curve.SmallestRadius is double tightest
+            ? $", tightest bend {units.FormatLength(tightest)}" + UnderRadius(tightest, requestedRadius, units)
+            : string.Empty) +
         $", {curve.ControlPointCount} control points";
+
+    /// <summary>
+    /// " (under the 10.00 m minimum …)" for a fitted bend tighter than asked. The fitter allows 10% where an
+    /// arc meets a straight (<see cref="RouteCurveFitter"/>), so a 9.2 m bend under a 10 m minimum is by
+    /// design, but the readout must still say so (found live). Compared at the printed precision.
+    /// </summary>
+    private static string UnderRadius(double tightest, double requestedRadius, ModelUnitContext units) =>
+        tightest < requestedRadius && units.FormatLength(tightest) != units.FormatLength(requestedRadius)
+            ? $" (under the {units.FormatLength(requestedRadius)} minimum: a smooth curve eases into its bends)"
+            : string.Empty;
+
+    /// <summary>
+    /// " (over the 12.0% limit)" when a route is steeper than the limit it was searched under: a route too
+    /// short for its climb is graded at the grade it needs, and a fitted curve may take 3% over its line.
+    /// Compared at the printed precision, so a route that prints as the limit is not called over it.
+    /// </summary>
+    public static string OverGrade(double maxGrade, double gradeLimit, SlopeAnalyzer.SlopeUnit unit) =>
+        gradeLimit > 0.0 && maxGrade > gradeLimit && Slope(maxGrade, unit) != Slope(gradeLimit, unit)
+            ? $" (over the {Slope(gradeLimit, unit)} limit)"
+            : string.Empty;
 
     /// <summary>A fitted curve's radius as a fillet summary, for the user text it shares with the exact route.</summary>
     public static RouteFilletSummary CurveFillet(FittedRouteCurve curve) => new(curve.SmallestRadius, 0);

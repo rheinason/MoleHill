@@ -157,6 +157,19 @@ public sealed class RouteSuggestionCommandTests
     }
 
     [Fact]
+    public void Describe_RouteOverItsGradeLimit_SaysSo()
+    {
+        // Live: a route at 12.4% was listed under "within 12.0%" with nothing to say it was over.
+        var steep = Sample with { MaxGrade = 0.124 };
+        Assert.Contains("max grade 12.4% (over the 12.0% limit)",
+            RouteSuggestionReadout.Describe(2, steep, RouteFilletSummary.None, 0.0, Metres, SlopeAnalyzer.SlopeUnit.Percent, gradeLimit: 0.12));
+        Assert.DoesNotContain("over the",
+            RouteSuggestionReadout.Describe(1, Sample, RouteFilletSummary.None, 0.0, Metres, SlopeAnalyzer.SlopeUnit.Percent, gradeLimit: 0.12));
+        // A grade that prints as the limit is not called over it.
+        Assert.Equal(string.Empty, RouteSuggestionReadout.OverGrade(0.12004, 0.12, SlopeAnalyzer.SlopeUnit.Percent));
+    }
+
+    [Fact]
     public void Settings_MinimumRadius_DefaultsToTenMetresInAnyUnit()
     {
         RouteSuggestionSettings inMillimetres = RouteSuggestionSettings.Load(Millimetres);

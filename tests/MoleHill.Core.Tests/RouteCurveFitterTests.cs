@@ -35,6 +35,20 @@ public sealed class RouteCurveFitterTests
     }
 
     [Fact]
+    public void MeasureSmallestRadius_StraightWithRoundingNoise_IsNoBend()
+    {
+        // Control points a micrometre off the line: the curvature is noise, not a 200,000 km bend (read live as
+        // "tightest bend 102935701.4 m" on a straight sketch).
+        var straight = new RouteSplineCurve(3, new double[] { 0, 0, 0, 0, 1, 1, 1, 1 },
+            new double[] { 0, 0, 0, 33, 1e-6, 0, 66, -1e-6, 0, 100, 0, 0 });
+        Assert.Null(RouteCurveFitter.MeasureSmallestRadius(straight));
+
+        var bend = new RouteSplineCurve(3, new double[] { 0, 0, 0, 0, 1, 1, 1, 1 },
+            new double[] { 0, 0, 0, 33, 10, 0, 66, 10, 0, 100, 0, 0 });
+        Assert.InRange(RouteCurveFitter.MeasureSmallestRadius(bend) ?? 0, 10, 1000);
+    }
+
+    [Fact]
     public void Fit_TwoPointPieceAtSurveyCoordinates_IsExactlyLinearAndKeepsItsEndpoints()
     {
         double[] line = { 500000, 6200000, 17, 500030, 6200040, 22 };

@@ -59,6 +59,9 @@ public static class RouteCurveFitter
 
     private const int CorrectionRounds = 3;
 
+    /// <summary>A plan radius this many times a piece's length is read as straight, not as its tightest bend.</summary>
+    private const double StraightRadiusLengths = 1000.0;
+
     /// <summary>
     /// Fits each leg's dense XYZ line. The grade is held when <paramref name="maxGrade"/> is positive;
     /// complexity is scored at
@@ -1049,8 +1052,14 @@ public static class RouteCurveFitter
                 largest = Math.Max(largest, Math.Abs(curve.PlanCurvatureAt(knots[s] + ((knots[s + 1] - knots[s]) * c / ChecksPerSpan))));
         }
 
-        // Curvature this small is the rounding of a straight, not a bend.
-        return largest > 1e-9 ? 1.0 / largest : null;
+        // A radius a thousand times the piece's own length turns it less than a tenth of a degree: that is
+        // a straight's rounding noise, not a bend. An absolute floor read a straight sketch as a
+        // "tightest bend 102935701.4 m" (found live).
+        double length = 0.0;
+        double[] points = curve.ControlPoints;
+        for (int i = 1; i < curve.ControlPointCount; i++)
+            length += Math.Sqrt(Geometry2D.DistanceSquared(points[(i - 1) * 3], points[((i - 1) * 3) + 1], points[i * 3], points[(i * 3) + 1]));
+        return largest > 0.0 && 1.0 / largest < StraightRadiusLengths * length ? 1.0 / largest : null;
     }
 
     private readonly record struct Limits(double Plan, double Vertical, double MaxGrade, double MinimumRadius);

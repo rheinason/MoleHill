@@ -23,7 +23,11 @@ internal sealed class RouteRelaxForm : Form
     private const int ContentWidth = PanelWidth - 20;
     private const int CaptionWidth = 96;
     private const int ValueWidth = 40;
+    // The slider's value needs more room than its text: at 40 px the right-aligned "1.0" beside "Keep to
+    // sketch" rendered clipped (found live), so the slider gives the value label 10 px.
+    private const int SliderOverhang = 10;
     private const int ControlWidth = ContentWidth - CaptionWidth - ValueWidth - 12;
+    private const int SliderWidth = ControlWidth - SliderOverhang;
 
     private readonly Label _score;
     private readonly ScoreSparkline _history = new();
@@ -85,7 +89,7 @@ internal sealed class RouteRelaxForm : Form
                 RhinoApp.SetFocusToMainWindow();
         };
 
-        _fidelity = new Slider { MinValue = 0, MaxValue = 100, Width = ControlWidth, ToolTip = "How firmly the route keeps to your sketch. Loose lets it find its own way between the pins." };
+        _fidelity = new Slider { MinValue = 0, MaxValue = 100, Width = SliderWidth, ToolTip = "How firmly the route keeps to your sketch. Loose lets it find its own way between the pins." };
         _fidelityValue = MakeValueLabel();
         _fidelity.ValueChanged += (_, _) =>
         {
@@ -97,7 +101,7 @@ internal sealed class RouteRelaxForm : Form
             RhinoApp.SetFocusToMainWindow();
         };
 
-        _simplicity = new Slider { MinValue = 0, MaxValue = 20, Width = ControlWidth, ToolTip = "Plainer: fewer, broader bends and longer grades, for more earthwork." };
+        _simplicity = new Slider { MinValue = 0, MaxValue = 20, Width = SliderWidth, ToolTip = "Plainer: fewer, broader bends and longer grades, for more earthwork." };
         _simplicityValue = MakeValueLabel();
         _simplicity.ValueChanged += (_, _) =>
         {
@@ -382,7 +386,7 @@ internal sealed class RouteRelaxForm : Form
         TextColor = UiTheme.PrimaryText,
         VerticalAlignment = VerticalAlignment.Center,
         TextAlignment = TextAlignment.Right,
-        Width = ValueWidth,
+        Width = ValueWidth + SliderOverhang,
     };
 
     private static Control MakeSeparator() => new Panel

@@ -297,14 +297,14 @@ internal static class RouteSuggestionCommandService
 
     private static void PrintRoutes(RouteSuggestionResult result, double gradeLimit, double radius, ModelUnitContext units, bool smooth)
     {
-        RhinoApp.WriteLine($"Suggested routes within {RouteSuggestionReadout.Slope(gradeLimit, SlopeUnitPreference.Current)}" +
+        RhinoApp.WriteLine($"Suggested routes for MaxGrade {RouteSuggestionReadout.Slope(gradeLimit, SlopeUnitPreference.Current)}" +
             (smooth ? " (smooth curves; Curve=Exact keeps the exact arcs):" : " (exact arcs):"));
         for (int i = 0; i < result.Alternatives.Count; i++)
         {
             RouteAlternative route = result.Alternatives[i];
             RhinoApp.WriteLine("  " + (smooth
-                ? RouteSuggestionReadout.DescribeCurve(i + 1, route.CurveMetrics, route.Curve, radius, units, SlopeUnitPreference.Current)
-                : RouteSuggestionReadout.Describe(i + 1, route.Metrics, route.Fillet, radius, units, SlopeUnitPreference.Current, route.Complexity)));
+                ? RouteSuggestionReadout.DescribeCurve(i + 1, route.CurveMetrics, route.Curve, radius, units, SlopeUnitPreference.Current, gradeLimit)
+                : RouteSuggestionReadout.Describe(i + 1, route.Metrics, route.Fillet, radius, units, SlopeUnitPreference.Current, route.Complexity, gradeLimit)));
         }
     }
 
