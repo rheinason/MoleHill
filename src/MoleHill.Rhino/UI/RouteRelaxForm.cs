@@ -286,12 +286,12 @@ internal sealed class RouteRelaxForm : Form
     }
 
     /// <summary>Busy while Help me searches or Keep fits: the actions wait (but Cancel), the panel says why.</summary>
-    public void SetBusy(string? message)
+    public void SetBusy(string? message, bool allowCancel = true)
     {
         if (message != null)
             _status.Text = message;
         foreach (Button button in _actions)
-            button.Enabled = message == null || button == _cancel;
+            button.Enabled = message == null || (allowCancel && button == _cancel);
     }
 
     // Fidelity is logarithmic: 0 is off, then 0.01 to 100 across the slider, 1 in the middle-right.

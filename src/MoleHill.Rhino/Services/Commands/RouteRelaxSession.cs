@@ -42,6 +42,8 @@ internal sealed class RouteRelaxSession : IDisposable
     private readonly List<Task> _workers = new();
     private RouteRelaxForm? _form;
     private RelaxGetPoint? _getter;
+    private CancellationTokenSource? _busyCancellation;
+    private bool _settingsPending;
     private volatile bool _paused;
     private volatile bool _disposed;
     private volatile RouteRelaxSnapshot? _snapshot;
@@ -201,6 +203,16 @@ internal sealed class RouteRelaxSession : IDisposable
             return;
         }
 
+        // The search holds the gate for its whole run; waiting on it here would freeze the UI thread that
+        // pumps the search's message loop. Apply once it has finished.
+        if (_paused)
+        {
+            _settingsPending = true;
+            if (save)
+                Settings.Save(_units);
+            return;
+        }
+
         RouteRelaxSettings settings = Settings.ToRelaxSettings(Math.Abs(_options.MaxGrade.Ratio), _tolerance, _units);
         lock (_gate)
         {
@@ -260,6 +272,7 @@ internal sealed class RouteRelaxSession : IDisposable
         _form?.SetBusy("Searching for a route near your sketch. Esc cancels");
         RhinoApp.SetCommandPrompt("Searching for a route near your sketch. Press Esc to cancel");
         using var cancellation = new CancellationTokenSource();
+        _busyCancellation = cancellation;
         void OnEscape(object? sender, EventArgs e) => cancellation.Cancel();
         RhinoApp.EscapeKeyPressed += OnEscape;
         try
@@ -288,11 +301,17 @@ internal sealed class RouteRelaxSession : IDisposable
         {
             RhinoApp.WriteLine("Help me cancelled; the route is as it was.");
         }
+        catch (Exception error) when (error is not OperationCanceledException)
+        {
+            RhinoApp.WriteLine("Help me could not search: " + (error is AggregateException aggregate ? aggregate.GetBaseException().Message : error.Message));
+        }
         finally
         {
             RhinoApp.EscapeKeyPressed -= OnEscape;
+            _busyCancellation = null;
             _paused = false;
             _form?.SetBusy(null);
+            ApplyPendingSettings();
             Publish();
         }
     }
@@ -301,7 +320,7 @@ internal sealed class RouteRelaxSession : IDisposable
     private RouteRelaxEvaluation? Keep()
     {
         _paused = true;
-        _form?.SetBusy("Fitting the curve…");
+        _form?.SetBusy("Fitting the curve…", allowCancel: false);
         RhinoApp.SetCommandPrompt("Fitting the curve");
         try
         {
@@ -318,10 +337,24 @@ internal sealed class RouteRelaxSession : IDisposable
 
             return work.Result;
         }
+        catch (AggregateException error)
+        {
+            RhinoApp.WriteLine("Could not fit the route: " + error.GetBaseException().Message);
+            return null;
+        }
         finally
         {
             _form?.SetBusy(null);
+            ApplyPendingSettings();
         }
+    }
+
+    private void ApplyPendingSettings()
+    {
+        if (!_settingsPending)
+            return;
+        _settingsPending = false;
+        ApplySettings(save: false);
     }
 
     // ── Pins (called on the UI thread by the getter) ──────────────────────
@@ -600,6 +633,8 @@ internal sealed class RouteRelaxSession : IDisposable
     {
         if (_getter != null)
             GetBaseClass.PostCustomMessage(request);
+        else if (request == Request.Cancel)
+            _busyCancellation?.Cancel();
     }
 
     /// <summary>
