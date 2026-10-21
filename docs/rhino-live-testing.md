@@ -12,25 +12,18 @@ genuine pointer gestures only — they are blind, focus-dependent, and cannot re
 ## 0. Pending live checks
 
 Run these at the next live session, then delete each line once it has passed (say so in the commit).
-`mhMergeControlPoints`: manually check ordered mouse picks (First/Last). Verified on 2026-10-16 in
-a disposable Rhino with the exact normal Debug plugin (`bd64fcee-3aa8-4b8f-8910-036545c1bffb`): native
-preselected grips on separate NURBS curves merged AtCenter through the registered command, retaining
-IDs, names, point counts, unselected points and selected grips; one Undo restored both curves.
-Changing Mode to ByDistance and Distance to 5 left the points unchanged; cancelling AtCenter with a
-Rhino macro also left them unchanged. The actual preview conduit was captured and visually inspected
-(`.artifacts/merge-control-points/preview.png`). All twelve merge/slope geometry test bodies passed
-inside Rhino; ordinary `dotnet test` skipped those native tests. Eight Core merge tests passed without
-skips. Commands: `dotnet build src/MoleHill.Rhino/MoleHill.Rhino.csproj --no-restore -p:CopyRetryCount=0 -v minimal`,
-`dotnet test tests/MoleHill.Core.Tests/MoleHill.Core.Tests.csproj --no-restore --filter FullyQualifiedName~PointMergeTests -v minimal`,
-and `dotnet test tests/MoleHill.Rhino.Tests/MoleHill.Rhino.Tests.csproj --no-restore --filter "FullyQualifiedName~ControlPointMergeEditTests|FullyQualifiedName~ControlPointSlopeEditTests" -v minimal`.
+`mhSlopeControlPoints`: re-check after the 2026-10-21 rework, with the mouse: picking control points
+after the command starts (and picking a whole curve to show its points), the preview following the
+mouse without a camera move, and the Offset-style slope (mouse sets it until one is typed, then picks
+rise or fall; Through hands it back). The first mouse check that day found all three broken.
+(`mhMergeControlPoints` mouse picks passed live on 2026-10-21.)
 
-`mhSlopeControlPoints`: manually check Ctrl+Shift post-selection and vertical mouse picking with
-the latest build. On 2026-10-15, all nine `ControlPointSlopeEditTests` bodies passed inside a disposable
+On 2026-10-15, all nine `ControlPointSlopeEditTests` bodies passed inside a disposable
 Rhino (the ordinary `dotnet test` host skipped them). The registered command accepted a preselected
 grip and a typed slope. After explicitly reading selected subobjects, a script invoked the revised
 command service with a preselected polyline segment: its two endpoints changed, other vertices stayed
-put, and one Undo restored the curve. The temporary green preview was rendered and inspected; the
-final display splits foreground geometry from overlay labels. Final clean build used
+put, and one Undo restored the curve. The temporary green preview was rendered and inspected (it is now
+drawn entirely in the overlay, so it follows the mouse). Final clean build used
 `dotnet build src/MoleHill.Rhino/MoleHill.Rhino.csproj --no-restore -p:OutDir=C:\Users\hbxma\Dropbox\TopoTest\.artifacts\control-point-slope-release\ -v minimal`
 because an open Rhino held the normal output. Slope-unit preferences were restored after testing.
 

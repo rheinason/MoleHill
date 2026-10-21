@@ -44,6 +44,7 @@ beta prereleases. Earlier versions are recorded only in the git history.
     more route than the sketch has. **Help me** then searches near your sketch and through your pins, and
     finds the switchbacks.
   - **Keep** adds the route as a light curve, ready to edit and assign to a Grade Path.
+  - Relaxing never ties the route into a loop, and a route dragged across itself is marked where it crosses.
 - **Suggest Route** keeps each route as a light curve with only the control points it needs (typically
   10-40, where the exact arcs needed about a hundred), so it edits like a hand-drawn one. The grade limit
   still holds; the readout gives the control points and the tightest bend as drawn. `Curve=Exact` keeps
@@ -79,8 +80,10 @@ beta prereleases. Earlier versions are recorded only in the git history.
   the card grades.
   - Select several pads to balance them `Together` (one move for the set) or `Each` on its own.
 - New **Slope Control Points** sets the selected control points of a curve on one grade from a reference
-  point, and **Merge Control Points** pulls selected control points together, with a preview before
-  either applies.
+  point. As with Offset, the mouse sets the slope until you type one; then the mouse only picks whether it
+  rises or falls, and `Through` hands the slope back to the mouse. Pick control points before or after
+  starting it, or pick a curve to show its points.
+- New **Merge Control Points** pulls selected control points together, with a preview before it applies.
 - **Extract Profile / Apply Profile** (prototype): draw a curve as a flat long section with the ground
   under it, edit the design line with any Rhino tool, and apply it back. The curve keeps its plan; a
   profile that doubles back is refused.
