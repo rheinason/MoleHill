@@ -82,6 +82,7 @@ public static partial class TerrainCurveRecovery
         private readonly PlanBuckets _reference;
         private PlanBuckets? _faces;
         private TinResult? _tin;
+        private double[]? _deviations;
 
         public LocalTrials(double[] vertices, int count, double[] weights, double tolerance, double planTolerance)
             : this(vertices, count, weights, Enumerable.Repeat(tolerance, count).ToArray(), planTolerance) { }
@@ -96,9 +97,9 @@ public static partial class TerrainCurveRecovery
         }
 
         /// <summary>Indexes the current global reconstruction's faces; windows are drawn from them.</summary>
-        public void SetReconstruction(TinResult tin)
+        public void SetReconstruction(TinResult tin, double[]? deviations = null)
         {
-            _tin = tin;
+            _tin = tin; _deviations = deviations;
             Box extent = Box.Of(tin.Vertices[..(tin.VertexCount * 3)]);
             double cell = Math.Sqrt(Math.Max((extent.MaxX - extent.MinX) * (extent.MaxY - extent.MinY), 1e-12) / Math.Max(tin.FaceCount, 1)) * 4;
             _faces = new PlanBuckets(extent, cell, tin.FaceCount, Face);
@@ -128,6 +129,21 @@ public static partial class TerrainCurveRecovery
                 largest = Math.Max(largest, Math.Max(face.MaxX - face.MinX, face.MaxY - face.MinY));
             }
             return (measured, measured.Grow(largest));
+        }
+
+        /// <summary>The global reconstruction's own measure over a window, without rebuilding it.</summary>
+        public LocalError Current(Box measured)
+        {
+            double maximum = 0, excess = 0, ratio = 0;
+            foreach (int v in _reference.Query(measured))
+            {
+                if (_weights[v] <= 0 || !measured.Contains(_vertices[v * 3], _vertices[v * 3 + 1])) continue;
+                double miss = _deviations![v];
+                maximum = Math.Max(maximum, miss);
+                excess += _weights[v] * Math.Max(0, miss - _tolerances[v]);
+                ratio = Math.Max(ratio, miss / _tolerances[v]);
+            }
+            return new LocalError(maximum, excess, ratio);
         }
 
         public LocalError? Measure(Box measured, Box context, IEnumerable<(double[] Points, bool Closed)> chains, IEnumerable<double> spots)

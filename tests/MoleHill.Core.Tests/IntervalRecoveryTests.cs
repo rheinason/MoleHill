@@ -127,6 +127,26 @@ public sealed class IntervalRecoveryTests
     }
 
     [Fact]
+    public void Recover_SquareContours_AreFittedWithSharpCornersWithinAQuarterOfThePlanTolerance()
+    {
+        // A square bowl: every contour is a square, whose corners one smooth spline would cut by metres.
+        var result = TerrainCurveRecovery.Recover(Mesh((x, y) => .03 * Math.Pow(Math.Max(Math.Abs(x - 8), Math.Abs(y - 8)), 2)),
+            new TerrainCurveRecovery.Options
+            {
+                VerticalTolerance = .05, PlanTolerance = .1, LandformLines = false, FitContours = true,
+                Policy = new() { ContourInterval = .5, MaximumInputs = 500 },
+            });
+        var squares = result.Contours.Where(c => c.IsClosed).ToList();
+        Assert.NotEmpty(squares);
+        Assert.All(squares, square =>
+        {
+            Assert.NotNull(square.Curve);
+            Assert.True(square.Curve!.Pieces.Count >= 4, $"level {square.Level}: {square.Curve.Pieces.Count} pieces");
+            Assert.InRange(square.Curve.MaxPlanDeviation, 0, .1 * .25 + 1e-9);
+        });
+    }
+
+    [Fact]
     public void Recover_Wall_IsCarriedByItsCreasesAndNotMeasured()
     {
         // A vertical 3 m wall, its toe and top at the same plan position: no 2.5D rebuild can hold both.

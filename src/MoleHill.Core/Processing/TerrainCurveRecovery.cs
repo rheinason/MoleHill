@@ -1,4 +1,5 @@
 // Recovers a small set of editable curves and spot points that rebuild a terrain within a tolerance.
+using System.Collections.Concurrent;
 using MoleHill.Core.Analysis;
 using MoleHill.Core.Engine;
 using MoleHill.Core.Grading;
@@ -828,17 +829,21 @@ public static partial class TerrainCurveRecovery
         var projector = new MeshHeightProjector(rebuild.Vertices, rebuild.VertexCount, rebuild.Faces, rebuild.FaceCount);
         var deviations = new double[vertexCount];
         double lookup = tolerance * 1e-3;
-        for (int v = 0; v < vertexCount; v++)
+        // Every vertex is measured alone against the read-only rebuild.
+        Parallel.ForEach(Partitioner.Create(0, vertexCount, 4096), range =>
         {
-            double x = vertices[v * 3], y = vertices[v * 3 + 1], zRef = vertices[v * 3 + 2];
-            if (region != null && !region.Contains(x, y))
-                continue;
-            // A vertex the simplified border left outside is the border's plan tolerance at work, not a miss.
-            if (projector.TryGetHeightExtremes(x, y, lookup, out double low, out double high))
-                deviations[v] = Math.Max(Math.Abs(zRef - low), Math.Abs(zRef - high));
-            else if (uncovered != null)
-                uncovered[v] = true;
-        }
+            for (int v = range.Item1; v < range.Item2; v++)
+            {
+                double x = vertices[v * 3], y = vertices[v * 3 + 1], zRef = vertices[v * 3 + 2];
+                if (region != null && !region.Contains(x, y))
+                    continue;
+                // A vertex the simplified border left outside is the border's plan tolerance at work, not a miss.
+                if (projector.TryGetHeightExtremes(x, y, lookup, out double low, out double high))
+                    deviations[v] = Math.Max(Math.Abs(zRef - low), Math.Abs(zRef - high));
+                else if (uncovered != null)
+                    uncovered[v] = true;
+            }
+        });
 
         return deviations;
     }

@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using MoleHill.Core.Analysis;
 using MoleHill.Core.Engine;
 using MoleHill.Core.Geometry;
@@ -73,10 +74,11 @@ public static partial class TerrainCurveRecovery
         double? Height(double x, double y) => projector.TryGetHeightExtremes(x, y, tolerance * 1e-3, out _, out double z) ? z : null;
         bool Cancelled() => options.ShouldCancel?.Invoke() == true;
 
-        // Contours at the interval, clipped to the region, simplified against the terrain below them.
+        // Contours at the interval, clipped to the region, simplified against the terrain below them. Each contour
+        // simplifies alone against read-only terrain, so they simplify in parallel: on a 548k-face terrain this
+        // took 84 s on one core, with no point at which the run could be stopped.
         policy.ReportActivity?.Invoke($"Tracing contours every {interval:G4}");
-        var contours = new List<RecoveredContour>();
-        var traced = new List<double[]>();
+        var pieces = new List<(double Level, RegionInputClipper.InputPolyline Part)>();
         double minimumLength = policy.MinimumContourLength > 0 ? policy.MinimumContourLength : plan * 8;
         if (high >= low)
         {
@@ -93,16 +95,24 @@ public static partial class TerrainCurveRecovery
                     var parts = options.Region == null
                         ? new[] { new RegionInputClipper.InputPolyline(points, points.Length / 3, polyline.IsClosed) }
                         : options.Region.Clip(points, polyline.IsClosed);
-                    foreach (var part in parts)
-                    {
-                        double[] simple = part.IsClosed ? SimplifyClosed(part.Points, plan, tolerance, Height) : SimplifyOpen(part.Points, plan, tolerance, Height);
-                        if (simple.Length / 3 < (part.IsClosed ? 3 : 2) || ChainLength(simple, part.IsClosed) < minimumLength) continue;
-                        for (int k = 2; k < simple.Length; k += 3) simple[k] = levelZ;
-                        contours.Add(new RecoveredContour { Level = levelZ, PointsXyz = simple, IsClosed = part.IsClosed });
-                        traced.Add(part.Points);
-                    }
+                    foreach (var part in parts) pieces.Add((levelZ, part));
                 }
             }
+        }
+        if (Cancelled()) return Stopped();
+        policy.ReportActivity?.Invoke($"Simplifying {pieces.Count} contours");
+        double[]?[] simplified = Simplify(pieces.Select(p => (p.Part.Points, p.Part.IsClosed)).ToList(), plan);
+        if (Cancelled()) return Stopped();
+        var contours = new List<RecoveredContour>();
+        var traced = new List<double[]>();
+        for (int i = 0; i < pieces.Count; i++)
+        {
+            var (levelZ, part) = pieces[i];
+            double[] simple = simplified[i]!;
+            if (simple.Length / 3 < (part.IsClosed ? 3 : 2) || ChainLength(simple, part.IsClosed) < minimumLength) continue;
+            for (int k = 2; k < simple.Length; k += 3) simple[k] = levelZ;
+            contours.Add(new RecoveredContour { Level = levelZ, PointsXyz = simple, IsClosed = part.IsClosed });
+            traced.Add(part.Points);
         }
         // Simplification can cut across a hairpin of the same contour or a close neighbour. Those contours are
         // simplified again at half the plan tolerance, and finally kept as traced; traced contours never cross.
@@ -111,13 +121,16 @@ public static partial class TerrainCurveRecovery
             var crossing = PolylineCrossings.Find(contours.Select(c => (c.PointsXyz, c.IsClosed)).ToList());
             if (crossing.Count == 0) break;
             double finer = plan * Math.Pow(.5, pass + 1);
-            foreach (int i in crossing)
+            var redo = crossing.ToList();
+            double[]?[] again = pass >= 3 ? redo.Select(i => (double[]?)traced[i].Clone()).ToArray()
+                : Simplify(redo.Select(i => (traced[i], contours[i].IsClosed)).ToList(), finer);
+            if (Cancelled()) return Stopped();
+            for (int j = 0; j < redo.Count; j++)
             {
-                RecoveredContour contour = contours[i];
-                double[] simple = pass >= 3 ? (double[])traced[i].Clone()
-                    : contour.IsClosed ? SimplifyClosed(traced[i], finer, tolerance, Height) : SimplifyOpen(traced[i], finer, tolerance, Height);
+                RecoveredContour contour = contours[redo[j]];
+                double[] simple = again[j]!;
                 for (int k = 2; k < simple.Length; k += 3) simple[k] = contour.Level;
-                contours[i] = new RecoveredContour { Level = contour.Level, PointsXyz = simple, IsClosed = contour.IsClosed };
+                contours[redo[j]] = new RecoveredContour { Level = contour.Level, PointsXyz = simple, IsClosed = contour.IsClosed };
             }
             if (pass >= 3) break;
         }
@@ -134,24 +147,53 @@ public static partial class TerrainCurveRecovery
 
         // Remove contours whose own neighbourhood reconstructs no worse without them, shortest first.
         // Trials in separate windows are independent; each sweep is confirmed globally and undone if worse.
+        // Trials run in batches against the same state, then are taken in order: a removal changes only its own
+        // window, and a later trial overlapping it is skipped exactly as one at a time, so the outcome is the
+        // sequential one. After a removal the rest of a batch is wasted, so the batch is sized by how rarely trials
+        // remove: one at a time where most contours go, many where few do. A 548k-face terrain removed 29 of 252,
+        // each trial rebuilding most of the site. A trial rebuilds only the window without its contour; with it,
+        // the window is the global reconstruction already measured.
         policy.ReportActivity?.Invoke($"Removing redundant contours from {tracedCount}");
-        int pruned = 0;
+        int pruned = 0, tried = 0, redundantFound = 0;
         var untested = new HashSet<RecoveredContour>(contours);
         while (untested.Count > 0 && !Cancelled())
         {
             var claimed = new List<Box>(); var removed = new List<RecoveredContour>();
             double previousExcess = excess, previousRatio = ratio;
-            foreach (RecoveredContour contour in contours.Where(untested.Contains).OrderBy(c => ChainLength(c.PointsXyz, c.IsClosed)).ToList())
+            var ordered = contours.Where(untested.Contains).OrderBy(c => ChainLength(c.PointsXyz, c.IsClosed)).ToList();
+            for (int next = 0; next < ordered.Count && !Cancelled();)
             {
+                int size = Math.Clamp((int)Math.Round((tried + 1.0) / (redundantFound + 1.0)), 1, Environment.ProcessorCount);
+                var batch = new List<(RecoveredContour Contour, Box Measured, Box Context)>();
+                while (batch.Count < size && next < ordered.Count)
+                {
+                    RecoveredContour candidate = ordered[next++];
+                    // A window contains its contour's box: when that already overlaps, the window lookup is skipped.
+                    Box own = Box.Of(candidate.PointsXyz);
+                    if (claimed.Any(c => c.Overlaps(own))) continue;
+                    var (measured, context) = trials.Window(own);
+                    if (claimed.Any(c => c.Overlaps(context))) continue;
+                    batch.Add((candidate, measured, context));
+                }
+                var redundant = new bool[batch.Count];
+                Parallel.For(0, batch.Count, (i, state) =>
+                {
+                    if (Cancelled()) { state.Stop(); return; }
+                    var (contour, measured, context) = batch[i];
+                    int index = contours.IndexOf(contour);
+                    LocalError with = trials.Current(measured);
+                    redundant[i] = trials.Measure(measured, context, Chains(index), spots) is LocalError without &&
+                        without.Excess <= with.Excess + epsilon && without.Ratio <= Math.Max(1, with.Ratio) + 1e-9;
+                });
                 if (Cancelled()) break;
-                var (measured, context) = trials.Window(Box.Of(contour.PointsXyz));
-                if (claimed.Any(c => c.Overlaps(context))) continue;
-                untested.Remove(contour);
-                int index = contours.IndexOf(contour);
-                if (trials.Measure(measured, context, Chains(), spots) is LocalError with &&
-                    trials.Measure(measured, context, Chains(index), spots) is LocalError without &&
-                    without.Excess <= with.Excess + epsilon && without.Ratio <= Math.Max(1, with.Ratio) + 1e-9)
-                { contours.RemoveAt(index); removed.Add(contour); claimed.Add(context); }
+                for (int i = 0; i < batch.Count; i++)
+                {
+                    var (contour, _, context) = batch[i];
+                    if (claimed.Any(c => c.Overlaps(context))) continue;
+                    untested.Remove(contour); tried++;
+                    if (!redundant[i]) continue;
+                    contours.Remove(contour); removed.Add(contour); claimed.Add(context); redundantFound++;
+                }
             }
             if (!Evaluate()) return Failed();
             if (removed.Count > 0 && (excess > previousExcess + epsilon * removed.Count || ratio > Math.Max(1, previousRatio) + 1e-9))
@@ -259,7 +301,7 @@ public static partial class TerrainCurveRecovery
             for (int v = 0; v < count; v++)
                 if (weights[v] > 0)
                 { excess += weights[v] * Math.Max(0, deviations[v] - tolerances[v]); ratio = Math.Max(ratio, deviations[v] / tolerances[v]); }
-            trials.SetReconstruction(tin);
+            trials.SetReconstruction(tin, deviations);
             return true;
         }
 
@@ -304,6 +346,27 @@ public static partial class TerrainCurveRecovery
         }
 
         Result Failed() => Unsupported("The recovered curves could not be triangulated.");
+
+        Result Stopped() => new()
+        {
+            Borders = borders, Contours = Array.Empty<RecoveredContour>(), LandformLines = Array.Empty<double[]>(),
+            SpotPoints = Array.Empty<double>(), MaximumDeviation = double.NaN, Rounds = 0,
+            Termination = Termination.Cancelled, Diagnostic = "Cancelled.",
+        };
+
+        // Longest first, so one long contour does not start last and run alone.
+        double[]?[] Simplify(IReadOnlyList<(double[] Points, bool Closed)> lines, double planTolerance)
+        {
+            var result = new double[]?[lines.Count];
+            int[] order = Enumerable.Range(0, lines.Count).OrderByDescending(i => lines[i].Points.Length).ToArray();
+            Parallel.ForEach(Partitioner.Create(order, loadBalance: true), (i, state) =>
+            {
+                if (Cancelled()) { state.Stop(); return; }
+                var (points, closed) = lines[i];
+                result[i] = closed ? SimplifyClosed(points, planTolerance, tolerance, Height) : SimplifyOpen(points, planTolerance, tolerance, Height);
+            });
+            return result;
+        }
     }
 
     private static double ChainLength(double[] points, bool closed)

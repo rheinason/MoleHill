@@ -23,6 +23,12 @@ namespace MoleHill.Rhino.Services;
 /// </summary>
 internal static class TerrainToCurvesCommandService
 {
+    /// <summary>
+    /// From here a preview takes a minute or more (122k vertices: about 40 s; 275k with walls: about five
+    /// minutes), so a changed setting waits for Recompute instead of restarting a run.
+    /// </summary>
+    internal const int LargeTerrainVertices = 100_000;
+
     public static Result Run(RhinoDoc doc)
     {
         if (!ModelUnitGuard.TryGet(doc, out ModelUnitContext unitContext))
@@ -75,7 +81,7 @@ internal static class TerrainToCurvesCommandService
                     var reference = new TerrainCurveExtractionPrepared(terrainMesh);
                     preview(reference);
                     return await TerrainCurveExtractionService.RecoverAsync(reference, current, unitContext, token, progress);
-                }, sourceId);
+                }, sourceId, manualRecompute: terrainMesh.VertexCount >= LargeTerrainVertices);
             RhinoApp.SetCommandPrompt("Terrain to curves — adjust the floating panel; Enter keeps a ready preview, Esc cancels");
             if (!panel.ShowSemiModal(doc, RhinoEtoApp.MainWindowForDocument(doc)) || panel.Prepared?.Recovery is not { } recovery)
                 return Result.Cancel;

@@ -166,7 +166,10 @@ TriangleNet (vendored)  ←  MoleHill.Core  ←  MoleHill.Grasshopper (GH host)
   layer root, grouped and named by role. Both commands use `TerrainCurveExtractionService`, the same
   fitted contour builder, preview conduit, output writer and `TerrainCurveExtractionDialog`.
   A picked DEM or the active terrain's final built mesh goes straight to recovery; only scan input
-  runs ground filtering. Esc/Cancel discards the preview; Keep writes the completed result.
+  runs ground filtering. Esc/Cancel discards the preview; Keep writes the completed result. While a preview
+  runs, Recompute reads Stop and the status counts the elapsed time. A terrain of 100,000 vertices or more
+  (`TerrainToCurvesCommandService.LargeTerrainVertices`) takes minutes per preview, so a changed setting waits
+  for Recompute instead of restarting the run.
 - **`mhScanToTerrain` infers bare ground before recovering curves.** `Core/Scan` rasterises triangles to
   top/lowest height grids, applies progressive morphological openings, distinguishes objects from terrace
   steps by their raised perimeter, removes narrow ground scraps, and harmonically fills the largest

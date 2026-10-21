@@ -26,6 +26,7 @@ internal sealed partial class TerrainCurveExtractionDialog : Dialog<bool>
     private readonly Dictionary<string, NumericStepper> _numbers = new();
     private CancellationTokenSource? _cancellation;
     private TerrainCurveExtractionPrepared? _previewState;
+    private readonly bool _manual;
     private bool _closed, _running, _dirty;
     private int _generation;
     private string? _inputError;
@@ -36,16 +37,18 @@ internal sealed partial class TerrainCurveExtractionDialog : Dialog<bool>
     public TerrainCurveExtractionDialog(RhinoDoc doc, ModelUnitContext units, string title, string sourceName, string summary,
         TerrainCurveExtractionSettings settings,
         Func<TerrainCurveExtractionSettings, CancellationToken, Action<string>, Action<TerrainCurveExtractionPrepared>, Task<TerrainCurveExtractionPrepared>> compute,
-        Guid? sourceId = null)
+        Guid? sourceId = null, bool manualRecompute = false)
     {
-        _doc = doc; _units = units; Settings = settings; _compute = compute;
+        _doc = doc; _units = units; Settings = settings; _compute = compute; _manual = manualRecompute;
         _preview = new TerrainCurveExtractionPreview(doc.RuntimeSerialNumber, sourceId);
         Title = title + " — " + sourceName;
         Resizable = true; Padding = 12; Size = new Size(660, 790); MinimumSize = new Size(540, 520);
         this.UseRhinoStyle();
         var body = new DynamicLayout { Spacing = new Size(8, 7), Padding = 4 };
         body.AddRow(new Label { Text = summary, Wrap = WrapMode.Word, Width = 460 });
-        body.AddRow(new Label { Text = "Adjust settings to update the preview. Keep writes a fresh layer tree; Cancel discards it.", Wrap = WrapMode.Word, Width = 460 });
+        body.AddRow(new Label { Text = manualRecompute
+            ? "Large terrain: a preview can take minutes. Adjust settings, then Recompute; Stop ends a run. Keep writes a fresh layer tree; Cancel discards it."
+            : "Adjust settings to update the preview. Keep writes a fresh layer tree; Cancel discards it.", Wrap = WrapMode.Word, Width = 460 });
         if (sourceId.HasValue)
         {
             // Preview curves draw over everything, so the source is context, never in the way.
@@ -95,9 +98,9 @@ internal sealed partial class TerrainCurveExtractionDialog : Dialog<bool>
         DefaultButton = _keep; AbortButton = _cancel;
         _keep.Click += (_, _) => { if (Prepared != null && !_dirty && !_running && _inputError == null) Close(true); };
         _cancel.Click += (_, _) => Close(false);
-        _refresh.Click += (_, _) => Schedule();
+        _refresh.Click += (_, _) => { if (_running) Stop(); else Recompute(); };
         _timer.Elapsed += OnTick;
-        Shown += (_, _) => { _preview.Enabled = true; RhinoApp.EscapeKeyPressed += OnEscape; Schedule(); _timer.Start(); };
+        Shown += (_, _) => { _preview.Enabled = true; RhinoApp.EscapeKeyPressed += OnEscape; Recompute(); _timer.Start(); };
         Closed += (_, _) =>
         {
             _closed = true; _generation++; _timer.Stop(); _timer.Elapsed -= OnTick; _timer.Dispose();
@@ -150,40 +153,57 @@ internal sealed partial class TerrainCurveExtractionDialog : Dialog<bool>
     }
 
     private void OnEscape(object? sender, EventArgs args) => Close(false);
+    /// <summary>A setting changed. On a large terrain a run takes minutes, so it waits for Recompute.</summary>
     private void Schedule()
+    {
+        if (!_manual) { Recompute(); return; }
+        _generation++; _dirty = false; Prepared = null; _keep.Enabled = false;
+        _cancellation?.Cancel();
+        _status.Text = _inputError ?? "Settings changed — Recompute to update the preview.";
+    }
+
+    private void Recompute()
     {
         _generation++; _dirty = true; Prepared = null; _keep.Enabled = false;
         _cancellation?.Cancel();
         _status.Text = _inputError ?? "Settings changed — updating preview…";
     }
 
+    private void Stop()
+    {
+        _generation++; _dirty = false; Prepared = null; _keep.Enabled = false;
+        _cancellation?.Cancel();
+        _status.Text = "Stopped. Recompute to run again.";
+    }
+
     private async void OnTick(object? sender, EventArgs args)
     {
         if (!_dirty || _running || _closed || _inputError != null) return;
         if (PreparationError() is string inputError) { _status.Text = inputError; return; }
-        _running = true; _dirty = false; _refresh.Enabled = false;
+        _running = true; _dirty = false; _refresh.Text = "Stop";
         int generation = _generation;
+        var clock = System.Diagnostics.Stopwatch.StartNew();
         using var cancellation = new CancellationTokenSource(); _cancellation = cancellation;
         void Dispatch(Action action) => Application.Instance.AsyncInvoke(() => { if (!_closed && generation == _generation) action(); });
         try
         {
             _previewState = null; UpdatePreview();
             var result = await _compute(Settings with { }, cancellation.Token,
-                text => Dispatch(() => _status.Text = text),
+                text => Dispatch(() => _status.Text = $"{text} · {Elapsed(clock)}"),
                 state => Dispatch(() => { _previewState = state; UpdatePreview(); }));
             if (_closed || generation != _generation || cancellation.IsCancellationRequested) return;
             Prepared = result; _previewState = result; UpdatePreview(); _keep.Enabled = true;
             var recovery = result.Recovery!;
-            _status.Text = "Ready: " + PreparationSummary(result, _units.Abbreviation) +
+            _status.Text = $"Ready in {Elapsed(clock)}: " + PreparationSummary(result, _units.Abbreviation) +
                 $"{Count(recovery.Contours.Count, "contour")}, {Count(recovery.SpotPointCount, "spot")}. " + recovery.Diagnostic +
                 (recovery.OriginalMaximumDeviation is double original ? $" Original ground miss {original:G4} {_units.Abbreviation}." : string.Empty);
         }
-        catch (OperationCanceledException) { if (!_closed && generation == _generation) _status.Text = "Preview cancelled."; }
+        catch (OperationCanceledException) { if (!_closed && generation == _generation) _status.Text = "Preview stopped."; }
         catch (Exception error) { if (!_closed && generation == _generation) { _status.Text = error.Message; Prepared = null; _keep.Enabled = false; } }
         finally
         {
             _running = false; if (ReferenceEquals(_cancellation, cancellation)) _cancellation = null;
-            if (!_closed) _refresh.Enabled = true;
+            if (!_closed) _refresh.Text = "Recompute";
         }
     }
 
@@ -193,6 +213,9 @@ internal sealed partial class TerrainCurveExtractionDialog : Dialog<bool>
         _preview.Update(_previewState, _visibility.Where(pair => pair.Value.Checked == true).Select(pair => pair.Key).ToHashSet());
         _doc.Views.Redraw();
     }
+
+    private static string Elapsed(System.Diagnostics.Stopwatch clock) =>
+        clock.Elapsed.TotalMinutes >= 1 ? $"{(int)clock.Elapsed.TotalMinutes}:{clock.Elapsed.Seconds:00} min" : $"{clock.Elapsed.TotalSeconds:F0} s";
 
     private static string Count(int count, string noun) => $"{count:N0} {noun}{(count == 1 ? string.Empty : "s")}";
 }

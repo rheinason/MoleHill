@@ -34,7 +34,8 @@ Supports NURBS curves, polylines and lines; convert other curve types to NURBS f
 
 `mhScanToTerrain` takes a Z-up photogrammetry mesh or Rhino point cloud. One floating panel holds
 outputs, preview and terrain accuracy, with detailed controls collapsed under Advanced; it recomputes
-asynchronously as settings change. Enter keeps
+asynchronously as settings change; Stop ends a run without closing the panel, and for a terrain of
+100,000 vertices or more `mhTerrainToCurves` waits for Recompute after a change. Enter keeps
 a ready preview, Esc/Cancel discards it. Keep validates native building solids before adding ordinary
 editable curves, spots and context Breps under a fresh `Scan {source}` layer root, in one group and one
 command Undo. Ground mesh output is an opt-in check. Length/area defaults and accepted settings stay

@@ -77,7 +77,9 @@ approximation rather than a flat box. Approximate templates must cover at least 
 at least 50% within tolerance, and stay below the measured height bound; the final measured RMS ranks
 them against the median extrusion. They retain actual fit errors and do not inherit the 90% fit claim.
 
-Changes debounce, cancel superseded work and recompute asynchronously. Ground, buildings, walls,
+Changes debounce, cancel superseded work and recompute asynchronously. While a run is going the Recompute
+button reads Stop, and the status shows the elapsed time. `mhTerrainToCurves` on a terrain of 100,000
+vertices or more waits for Recompute after a change instead of restarting a run that takes minutes. Ground, buildings, walls,
 surface classes and the final curves appear as their stages complete. The source is shown by default:
 preview curves and points draw over everything, and buildings draw as their crease edges over it (a
 shaded solid would z-fight with the scanned roof). Preview and kept layers share one colour per output

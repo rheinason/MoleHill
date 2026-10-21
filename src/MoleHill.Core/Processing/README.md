@@ -17,13 +17,18 @@ rebuild; pruning batches likewise and is undone if the global measure got worse.
 on their traced polylines; only accepted contours are fitted.
 With `ContourInterval` set, `.Interval.cs` replaces error-driven selection: contours at the interval within
 `Region`, simplified against the terrain, pieces shorter than eight plan tolerances dropped; redundant
-ones removed shortest first by local trials (each sweep confirmed globally); kept contours fitted; then
+ones removed shortest first by local trials (each sweep confirmed globally; a trial rebuilds its window without
+the contour and compares it with the global reconstruction, in batches sized by how rarely trials remove, with
+the sequential outcome); kept contours fitted; then
 spot heights at the worst vertex of each separated error region until every measured vertex is within
 its own tolerance. `SecondaryRegion` vertices are measured at `SecondaryTolerance` and take spots only.
 Landform lines do not apply, so `RecoverBest` runs once. A simplified contour that crosses itself or another (a
 hairpin, a close neighbour) is simplified again at half the plan tolerance, and at worst kept as traced.
-Kept contours are fitted in parallel; a fitted curve that crosses another keeps the polyline it was
-measured with (`Geometry/PolylineCrossings`).
+Contours are simplified in parallel, and kept contours fitted in parallel: a quadratic B-spline on the
+polyline's own vertices, split into pieces at any vertex where a span cuts the corner too far, and then held
+to a quarter of the plan tolerance. The general `RouteCurveFitter` is only the fallback (a straight leg that
+misses the terrain, a curve leaving the region): on designed terrain it ran for seconds per contour.
+A fitted curve that crosses another keeps the polyline it was measured with (`Geometry/PolylineCrossings`).
 Fixed measured inputs are never pruned; original-reference error can be measured independently.
 `ITerrainRecoveryRegion` scopes deviation and spot selection. `.Region.cs` clips each contour and picks
 the fragment nearest its selected error; `.Fitting.cs` fits light curves before rebuilding, checking
