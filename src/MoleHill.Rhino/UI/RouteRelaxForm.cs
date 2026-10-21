@@ -132,12 +132,21 @@ internal sealed class RouteRelaxForm : Form
             RhinoApp.SetFocusToMainWindow();
         };
 
-        var help = MakeAction("Help me", "Search for a route near your sketch and through your pins: it finds the switchbacks a sketch has no room for.", () => HelpRequested?.Invoke());
-        var reset = MakeAction("Reset", "Back to your sketch as drawn.", () => ResetRequested?.Invoke());
-        var unpin = MakeAction("Unpin all", "Release every pin but the ends.", () => UnpinAllRequested?.Invoke());
+        // Three kinds of action, laid out by what they are for (the user found one row of five hard to read):
+        // Help me answers the issues listed just above it; two ways to start over sit quietly on their own
+        // row; Keep is the one primary action, with Cancel beside it.
+        var help = MakeAction("Help me find a route", "Search for a route near your sketch and through your pins: it finds the switchbacks a sketch has no room for.", () => HelpRequested?.Invoke());
+        help.Width = ContentWidth;
+        help.TextColor = UiTheme.RampAccent;
+        help.Font = SystemFonts.Bold();
+        var reset = MakeAction("Back to sketch", "Start again from your sketch as drawn, with its pins.", () => ResetRequested?.Invoke());
+        var unpin = MakeAction("Release pins", "Release every pin but the ends, so the route relaxes freely.", () => UnpinAllRequested?.Invoke());
+        reset.Width = unpin.Width = (ControlWidth + ValueWidth) / 2;
         var keep = MakeAction("Keep", "Add the route as a curve (Enter in the viewport).", () => KeepRequested?.Invoke());
         _cancel = MakeAction("Cancel", "Leave without adding anything (Esc in the viewport).", () => CancelRequested?.Invoke());
         keep.Font = SystemFonts.Bold();
+        keep.BackgroundColor = UiTheme.RampAccent;
+        keep.TextColor = UiTheme.RampAccentText;
 
         var title = new Label { Text = "⠿  Relax Route", Font = SystemFonts.Bold(), TextColor = UiTheme.MutedText, Cursor = Cursors.Move };
         MakeDraggable(title);
@@ -167,9 +176,10 @@ internal sealed class RouteRelaxForm : Form
                 _figures,
                 _curve,
                 issueArea,
+                help,
+                Row(MakeCaption("Start over"), unpin, reset),
                 MakeSeparator(),
                 Row(MakeCaption("Layer"), _layer),
-                ButtonRow(help, reset, unpin),
                 ButtonRow(keep, _cancel),
             },
         };
