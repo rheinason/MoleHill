@@ -187,4 +187,11 @@ internal static class AnalysisFormatting
     /// <summary>A slope stored as degrees, shown in the user's chosen slope unit.</summary>
     public static string FormatSlopeDegrees(double degrees) =>
         SlopeInput.FormatWithUnit(Math.Tan(degrees * Math.PI / 180.0), SlopeUnitPreference.Current);
+
+    /// <summary>
+    /// A slope for a collapsed card's one-line summary: at most one decimal, so a 33° batter reads
+    /// "Fill 64.9%", not "Fill 64.941%". Fields keep the full precision.
+    /// </summary>
+    public static string FormatSlopeDegreesBrief(double degrees) =>
+        SlopeInput.FormatWithUnit(Math.Tan(degrees * Math.PI / 180.0), SlopeUnitPreference.Current, "0.#");
 }

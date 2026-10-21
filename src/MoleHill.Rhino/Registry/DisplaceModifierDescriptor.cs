@@ -37,7 +37,7 @@ internal sealed class DisplaceModifierDescriptor : ModifierTypeDescriptor
     public override string Summarize(ModifierDefinition modifier)
     {
         var d = (DisplaceModifierDefinition)modifier;
-        string region = d.Boundaries.HasReferences ? $"{CountSources(d.Boundaries)} boundaries" : "whole terrain";
+        string region = d.Boundaries.HasReferences ? Count(CountSources(d.Boundaries), "boundary", "boundaries") : "whole terrain";
         return DisplaceSources.IsImage(d)
             ? $"Image {DescribeFileName(d.ImagePath)} | {(d.Mapping.HasReferences ? "Tile from rectangle" : $"Tile {d.TileSizeX:G4} x {d.TileSizeY:G4}")} | Height {d.Height:G4} | {region}"
             : $"Noise | Size {d.NoiseSize:G4} | Height {d.Height:G4} | Seed {d.Seed} | {region}";
@@ -130,17 +130,20 @@ internal sealed class DisplaceModifierDescriptor : ModifierTypeDescriptor
 
         rows.Add(ResultRow.Of(
             "Offset",
-            $"{length(result.MinOffset)} to {length(result.MaxOffset)} over {result.MovedVertexCount.ToString("N0", CultureInfo.InvariantCulture)} vertices",
+            $"{length(result.MinOffset)} to {length(result.MaxOffset)} over {Vertices(result.MovedVertexCount)}",
             "The lowest and highest height change this run made."));
         if (result.HeldVertexCount > 0)
         {
             rows.Add(ResultRow.Of(
                 "Held",
-                $"{result.HeldVertexCount.ToString("N0", CultureInfo.InvariantCulture)} vertices kept their height",
+                $"{Vertices(result.HeldVertexCount)} kept {(result.HeldVertexCount == 1 ? "its" : "their")} height",
                 "Vertices inside the region that did not move: on a breakline, wall, graded edge, Protect curve or the border, or on a boundary line."));
         }
 
         return new ModifierStageReport(rows, warning);
+
+        static string Vertices(int count) =>
+            count.ToString("N0", CultureInfo.InvariantCulture) + (count == 1 ? " vertex" : " vertices");
     }
 
     /// <summary>

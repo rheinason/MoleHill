@@ -23,8 +23,8 @@ internal sealed class GradeLineModifierDescriptor : ModifierTypeDescriptor
         var line = (GradeLineModifierDefinition)modifier;
         int lineCount = CountSources(line.Lines);
         return line.UseAsymmetricSides
-            ? $"{lineCount} design lines | asymmetric sides"
-            : $"{lineCount} design lines | Fill {AnalysisFormatting.FormatSlopeDegrees(line.SlopeAngle)}";
+            ? $"{Count(lineCount, "design line", "design lines")} | asymmetric sides"
+            : $"{Count(lineCount, "design line", "design lines")} | Fill {AnalysisFormatting.FormatSlopeDegreesBrief(line.SlopeAngle)}";
     }
 
     public override string? InertReason(ModifierDefinition modifier, TerrainBuildSnapshot snapshot) =>

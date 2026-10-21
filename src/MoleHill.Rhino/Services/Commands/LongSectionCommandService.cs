@@ -274,9 +274,8 @@ internal static class LongSectionCommandService
         double planLength = LongSectionProfile.PlanStations(path)[^1];
         if (Math.Abs(planLength - extractedLength) > Math.Max(tolerance * 10.0, extractedLength * 1e-6))
         {
-            RhinoApp.WriteLine(
-                $"The plan curve's length changed since the profile was drawn " +
-                $"({extractedLength:F3} then, {planLength:F3} now); stations are applied to its current length.");
+            RhinoApp.WriteLine("The plan curve's length changed since the profile was drawn " + FormattableString.Invariant(
+                $"({extractedLength:F3} then, {planLength:F3} now); stations are applied to its current length."));
         }
 
         // A polyline takes the profile exactly: its own points plus the profile's breaks. A smooth curve keeps
@@ -344,9 +343,15 @@ internal static class LongSectionCommandService
             doc.EndUndoRecord(undoRecord);
         }
 
-        RhinoApp.WriteLine(uncovered > 0
-            ? $"Profile applied; {uncovered} point(s) beyond the profile's ends kept their elevation."
-            : "Profile applied.");
+        string shape = exact ? "now a polyline through the profile's breaks" : "kept smooth, its edit points moved";
+        RhinoApp.WriteLine(FormattableString.Invariant(
+            $"Profile applied: {elevations.Length} profile points over {planLength:F3}, elevations {elevations.Min():F3} to {elevations.Max():F3}; the plan curve is {shape}.") +
+            (uncovered switch
+            {
+                0 => string.Empty,
+                1 => " 1 point beyond the profile's ends kept its elevation.",
+                _ => $" {uncovered} points beyond the profile's ends kept their elevation."
+            }));
         if (deviation > tolerance)
         {
             RhinoApp.WriteLine(FormattableString.Invariant(

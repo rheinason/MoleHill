@@ -25,7 +25,7 @@ internal sealed class GradePathModifierDescriptor : ModifierTypeDescriptor
         int paths = CountSources(path.Paths);
         if (!path.UseVariableWidth)
             return $"{paths} centerlines | Width {path.Width:G4}";
-        return $"{paths} centerlines | variable width, {CountSources(path.WidthEdges)} width edges | Width {path.Width:G4} fallback";
+        return $"{paths} centerlines | variable width, {Count(CountSources(path.WidthEdges), "width edge", "width edges")} | Width {path.Width:G4} fallback";
     }
 
     public override string? InertReason(ModifierDefinition modifier, TerrainBuildSnapshot snapshot) =>

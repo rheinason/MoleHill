@@ -29,7 +29,7 @@ internal sealed class ProjectToModifierDescriptor : ModifierTypeDescriptor
         string target = projectTo.TargetMesh.HasReferences
             ? "target mesh"
             : projectTo.TargetTerrainId.HasValue ? "target terrain" : "no target";
-        return $"{target} | {CountSources(projectTo.Boundaries)} boundaries | Strength {projectTo.Strength:G3}";
+        return $"{target} | {Count(CountSources(projectTo.Boundaries), "boundary", "boundaries")} | Strength {projectTo.Strength:G3}";
     }
 
     public override string? InertReason(ModifierDefinition modifier, TerrainBuildSnapshot snapshot) =>

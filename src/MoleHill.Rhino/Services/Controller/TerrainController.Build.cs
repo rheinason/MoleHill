@@ -1,4 +1,5 @@
 ﻿using System.Diagnostics;
+using System.Globalization;
 using Eto.Forms;
 using MoleHill.Rhino.Model;
 using MoleHill.Rhino.UI;
@@ -990,7 +991,8 @@ internal sealed partial class TerrainController
         long version,
         TimeSpan elapsed) =>
         RhinoApp.WriteLine(
-            $"[MoleHill] {terrain.Name}: {BuildCommandLabel(mode)} #{version:N0} finished in {elapsed.TotalSeconds:0.##} s.");
+            $"[MoleHill] {terrain.Name}: {BuildCommandLabel(mode)} #{version.ToString("N0", CultureInfo.InvariantCulture)} " +
+            $"finished in {FormatElapsed(elapsed)}.");
 
     private static void WriteBuildCancelled(TerrainDefinition terrain, TerrainBuildMode mode, long version) =>
         RhinoApp.WriteLine($"[MoleHill] {terrain.Name}: {BuildCommandLabel(mode)} #{version:N0} cancelled.");
@@ -1025,6 +1027,6 @@ internal sealed partial class TerrainController
 
     private static string FormatElapsed(TimeSpan elapsed)
     {
-        return $"{elapsed.TotalSeconds:0.##} s";
+        return elapsed.TotalSeconds.ToString("0.##", CultureInfo.InvariantCulture) + " s";
     }
 }

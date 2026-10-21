@@ -149,6 +149,13 @@ public static class SlopeInput
         return unit == SlopeAnalyzer.SlopeUnit.Ratio ? value : value + Suffix(unit);
     }
 
+    /// <summary>Value text plus its unit at a chosen precision (a numeric format such as "0.#").</summary>
+    public static string FormatWithUnit(double ratio, SlopeAnalyzer.SlopeUnit unit, string numericFormat)
+    {
+        string value = FormatValue(ratio, unit, numericFormat, CultureInfo.CurrentCulture);
+        return unit == SlopeAnalyzer.SlopeUnit.Ratio ? value : value + Suffix(unit);
+    }
+
     /// <summary>
     /// Parses user text to a slope ratio (rise/run). <paramref name="displayUnit"/> is what a bare
     /// number means; any unit written into the text overrides it.

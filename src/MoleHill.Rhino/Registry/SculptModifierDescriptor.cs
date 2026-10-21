@@ -32,7 +32,7 @@ internal sealed class SculptModifierDescriptor : ModifierTypeDescriptor
         var sculpt = (SculptModifierDefinition)modifier;
         return sculpt.Tiles.Count == 0
             ? "no strokes"
-            : $"{sculpt.Tiles.Count} tiles | {CountSources(sculpt.Constraints)} protect curves";
+            : $"{sculpt.Tiles.Count} tiles | {Count(CountSources(sculpt.Constraints), "protect curve", "protect curves")}";
     }
 
     public override IReadOnlyList<ModifierParam> Parameters { get; } = new[]

@@ -97,6 +97,15 @@ internal static class BalancePadCommandService
             return Result.Nothing;
         }
 
+        // "Pad 1" must mean the same pad however the curves were picked (found live: the numbering swapped
+        // between two runs on the same pair). The card's own order first, then west to east, south to north.
+        List<Guid> cardOrder = card?.Boundaries.ObjectIds ?? new List<Guid>();
+        selected = selected
+            .OrderBy(pad => cardOrder.IndexOf(pad.Id) is int index && index >= 0 ? index : int.MaxValue)
+            .ThenBy(pad => pad.Polyline.BoundingBox.Min.X)
+            .ThenBy(pad => pad.Polyline.BoundingBox.Min.Y)
+            .ToList();
+
         using (ground)
         {
             return Balance(doc, unitContext, terrain, selected, card, ground);
@@ -310,6 +319,16 @@ internal static class BalancePadCommandService
         }
     }
 
+    private static string DescribeStatus(string status) => status switch
+    {
+        "Converged" => "Balanced",
+        "NoBracket" => "No balance within reach",
+        "IterationCap" => "Balance stopped at the search limit",
+        "NonMonotone" => "Balance stopped: the volumes do not change steadily with height",
+        "GradingFallback" => "Balance stopped: a grade fell back",
+        _ => "Balance stopped (" + status + ")"
+    };
+
     private static void Report(UnitSystem units, int count, PadSetBalanceResult balance)
     {
         if (count > 1)
@@ -325,7 +344,7 @@ internal static class BalancePadCommandService
 
         string moved = count == 1 ? $"moved {ModelUnits.FormatLength(balance.Offsets[0], units, "F3")}, " : string.Empty;
         RhinoApp.WriteLine(
-            $"Balance {balance.Status} after {balance.GradeCount} grades: {moved}" +
+            $"{DescribeStatus(balance.Status)} after {balance.GradeCount} grades: {moved}" +
             $"cut {ModelUnits.FormatVolume(balance.Cut, units)}, fill {ModelUnits.FormatVolume(balance.Fill, units)}, " +
             $"net {ModelUnits.FormatVolume(balance.Net, units)}.");
         if (balance.Status != "Converged")

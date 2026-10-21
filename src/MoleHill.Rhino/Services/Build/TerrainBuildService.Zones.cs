@@ -202,7 +202,7 @@ internal sealed partial class TerrainBuildService
         build.RecordTiming(
             "Zones",
             totalTimer.Elapsed,
-            $"{entries.Count} boundaries over {mesh.Faces.Count:N0} source faces; resolve {resolveTimer.Elapsed.TotalSeconds:0.##} s, classify {splitTimer.Elapsed.TotalSeconds:0.##} s, output {outputTimer.Elapsed.TotalSeconds:0.##} s (meshes {meshesElapsed.TotalSeconds:0.##} s, summaries {(outputTimer.Elapsed - meshesElapsed).TotalSeconds:0.##} s)",
+            FormattableString.Invariant($"{entries.Count} {(entries.Count == 1 ? "boundary" : "boundaries")} over {mesh.Faces.Count:N0} source faces; resolve {resolveTimer.Elapsed.TotalSeconds:0.##} s, classify {splitTimer.Elapsed.TotalSeconds:0.##} s, output {outputTimer.Elapsed.TotalSeconds:0.##} s (meshes {meshesElapsed.TotalSeconds:0.##} s, summaries {(outputTimer.Elapsed - meshesElapsed).TotalSeconds:0.##} s)"),
             StageTimingDiagnosticThresholdMs);
     }
 

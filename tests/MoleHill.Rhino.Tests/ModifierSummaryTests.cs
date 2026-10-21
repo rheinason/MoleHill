@@ -38,7 +38,7 @@ public sealed class ModifierSummaryTests
 
     [Fact]
     public void AddGeometry_Summary_CountsEachSourceSet() =>
-        Assert.Equal("2 points | 1 breaklines | 3 contours", Summary(new AddGeometryModifierDefinition
+        Assert.Equal("2 points | 1 breakline | 3 contours", Summary(new AddGeometryModifierDefinition
         {
             Points = Refs(2), Breaklines = Refs(0, 1), Contours = Refs(3)
         }));
@@ -77,7 +77,7 @@ public sealed class ModifierSummaryTests
 
     [Fact]
     public void Smooth_Summary_RoundModeShowsLengthAndAngle() =>
-        Assert.Equal("Round Creases | Rounding Length 2 | Crease Angle 10 deg | 1 protect curves", Summary(new SmoothModifierDefinition
+        Assert.Equal("Round Creases | Rounding Length 2 | Crease Angle 10 deg | 1 protect curve", Summary(new SmoothModifierDefinition
         { Mode = SmoothModes.Round, RoundingLength = 2.0, CreaseAngle = 10.0, Breaklines = Refs(1) }));
 
     [Fact]
@@ -87,13 +87,13 @@ public sealed class ModifierSummaryTests
         var sculpt = new SculptModifierDefinition { Constraints = Refs(1) };
         sculpt.Tiles.Add(new SculptTile());
         sculpt.Tiles.Add(new SculptTile { I = 1 });
-        Assert.Equal("2 tiles | 1 protect curves", Summary(sculpt));
+        Assert.Equal("2 tiles | 1 protect curve", Summary(sculpt));
     }
 
     [Fact]
     public void ProjectTo_Summary_TargetKinds()
     {
-        Assert.Equal("no target | 1 boundaries | Strength 1",
+        Assert.Equal("no target | 1 boundary | Strength 1",
             Summary(new ProjectToModifierDefinition { Boundaries = Refs(1), Strength = 1 }));
         Assert.Equal("target terrain | 0 boundaries | Strength 0.5",
             Summary(new ProjectToModifierDefinition { TargetTerrainId = Guid.NewGuid(), Strength = 0.5 }));

@@ -24,8 +24,8 @@ internal sealed class RetainingWallModifierDescriptor : ModifierTypeDescriptor
         var w = (RetainingWallModifierDefinition)modifier;
         int curves = CountSources(w.WallCurves);
         return w.GradesTerrain
-            ? $"{curves} wall curves | grade terrain, {(w.UseAsymmetricSides ? "asymmetric sides" : $"Fill {AnalysisFormatting.FormatSlopeDegrees(w.SlopeAngle)}")}"
-            : $"{curves} wall curves | breaklines only";
+            ? $"{Count(curves, "wall curve", "wall curves")} | grade terrain, {(w.UseAsymmetricSides ? "asymmetric sides" : $"Fill {AnalysisFormatting.FormatSlopeDegreesBrief(w.SlopeAngle)}")}"
+            : $"{Count(curves, "wall curve", "wall curves")} | breaklines only";
     }
 
     public override string? InertReason(ModifierDefinition modifier, TerrainBuildSnapshot snapshot) =>

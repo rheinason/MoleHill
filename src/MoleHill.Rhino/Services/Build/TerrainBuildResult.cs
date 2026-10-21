@@ -99,7 +99,7 @@ internal sealed class TerrainBuildResult
 
     private static string FormatTimingMessage(string stage, TimeSpan elapsed, string? detail)
     {
-        string message = $"timing.{stage}: {elapsed.TotalSeconds:0.##} s";
+        string message = FormattableString.Invariant($"timing.{stage}: {elapsed.TotalSeconds:0.##} s");
         return string.IsNullOrWhiteSpace(detail)
             ? message
             : $"{message} | {detail}";
