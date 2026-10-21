@@ -34,22 +34,8 @@ internal static partial class GeometryCommandService
                     if (component.ComponentIndexType == ComponentIndexType.PolycurveSegment)
                         selectedObjects.Add(new ObjRef(doc, obj.Id, component));
         }
-        using var selection = new GetObject();
-        selection.SetCommandPrompt("Select curve control points or Ctrl+Shift-select curve segments, then Enter");
-        selection.GeometryFilter = ObjectType.Grip | ObjectType.Curve;
-        selection.SubObjectSelect = true;
-        selection.BottomObjectPreference = true;
-        selection.SetCustomGeometryFilter((obj, geometry, component) => obj is GripObject ||
-            (obj is CurveObject && component.ComponentIndexType == ComponentIndexType.PolycurveSegment));
-        selection.EnablePreSelect(true, true);
-        if (selectedObjects.Count == 0)
-        {
-            selection.GetMultiple(1, 0);
-            if (selection.CommandResult() != Result.Success)
-                return selection.CommandResult();
-            for (int index = 0; index < selection.ObjectCount; index++)
-                selectedObjects.Add(new ObjRef(selection.Object(index)));
-        }
+        if (selectedObjects.Count == 0 && !TryPickControlPoints(doc, selectedObjects, out Result picked))
+            return picked;
         try
         {
             return RunSlopeControlPointSelection(doc, selectedObjects);
@@ -58,6 +44,65 @@ internal static partial class GeometryCommandService
         {
             foreach (ObjRef selected in selectedObjects) selected.Dispose();
         }
+    }
+
+    /// <summary>
+    /// Picks control points, Ctrl+Shift curve segments, or whole curves after the command has started. A
+    /// whole curve has its control points turned on and is asked for again, since hidden points cannot be
+    /// picked. Grips must win over the curve under them: preferring the bottom object picked the curve
+    /// instead, which the filter refused, so picking after the command started selected nothing (found live).
+    /// </summary>
+    private static bool TryPickControlPoints(RhinoDoc doc, List<ObjRef> selectedObjects, out Result result)
+    {
+        result = Result.Success;
+        using (var selection = new GetObject())
+        {
+            selection.SetCommandPrompt("Select curve control points, Ctrl+Shift-select curve segments, or select curves to show their control points");
+            selection.GeometryFilter = ObjectType.Grip | ObjectType.Curve;
+            selection.SubObjectSelect = true;
+            selection.EnablePreSelect(false, true);
+            selection.SetCustomGeometryFilter((obj, geometry, component) => obj is GripObject ||
+                (obj is CurveObject && component.ComponentIndexType is ComponentIndexType.PolycurveSegment or ComponentIndexType.InvalidType));
+            if (selection.GetMultiple(1, 0) != GetResult.Object)
+            {
+                result = selection.CommandResult();
+                return false;
+            }
+
+            var wholeCurves = new List<RhinoObject>();
+            for (int index = 0; index < selection.ObjectCount; index++)
+            {
+                ObjRef picked = selection.Object(index);
+                if (picked.Object() is CurveObject curve && picked.GeometryComponentIndex.ComponentIndexType == ComponentIndexType.InvalidType)
+                    wholeCurves.Add(curve);
+                else if (picked.Object() is GripObject grip)
+                    selectedObjects.Add(new ObjRef(grip));
+                else
+                    selectedObjects.Add(new ObjRef(doc, picked.ObjectId, picked.GeometryComponentIndex));
+            }
+
+            if (wholeCurves.Count == 0)
+                return true;
+
+            doc.Objects.UnselectAll();
+            foreach (RhinoObject curve in wholeCurves)
+                curve.GripsOn = true;
+            doc.Views.Redraw();
+        }
+
+        using var points = new GetObject();
+        points.SetCommandPrompt("Select the control points to put on the slope");
+        points.GeometryFilter = ObjectType.Grip;
+        points.EnablePreSelect(false, true);
+        if (points.GetMultiple(1, 0) != GetResult.Object)
+        {
+            result = points.CommandResult();
+            return false;
+        }
+
+        for (int index = 0; index < points.ObjectCount; index++)
+            selectedObjects.Add(new ObjRef(points.Object(index).Object()));
+        return true;
     }
 
     private static Result RunSlopeControlPointSelection(RhinoDoc doc, IReadOnlyList<ObjRef> selectedObjects)
@@ -126,6 +171,12 @@ internal static partial class GeometryCommandService
         using var preview = new ControlPointSlopePreview(doc.RuntimeSerialNumber, reference);
         var slope = new SlopeCommandOption("MoleHill.SlopeControlPoints.Slope", 0.02);
         double pickedRatio = slope.Ratio;
+        // Like Offset: the mouse sets the slope until one is typed; then the mouse only chooses whether it
+        // rises or falls from the reference, and Through hands the slope back to the mouse. One preview,
+        // and a click and Enter apply the same thing (found live: a click took the mouse's slope and Enter
+        // the typed one, with both previewed at once).
+        bool typed = false;
+        double RatioAt(double z) => typed ? (z < reference.Z ? -1 : 1) * Math.Abs(slope.Ratio) : (z - reference.Z) / run;
         try
         {
             bool Update(double ratio)
@@ -163,28 +214,42 @@ internal static partial class GeometryCommandService
             {
                 doc.Views.Redraw();
                 using var pick = new GetPoint();
-                pick.SetCommandPrompt($"Move vertically to pick slope, or set Slope and press Enter ({slope.Description}; + rises from reference)");
+                string current = SlopeInput.FormatWithUnit(pickedRatio, SlopeUnitPreference.Current);
+                pick.SetCommandPrompt(typed
+                    ? $"Move above the reference to rise or below it to fall at {SlopeInput.FormatWithUnit(Math.Abs(slope.Ratio), SlopeUnitPreference.Current)}; click or Enter applies {current}"
+                    : $"Move vertically to set the slope, or type Slope; click or Enter applies {current}");
                 pick.AcceptNothing(true);
                 pick.Constrain(new Line(anchor, anchor + Vector3d.ZAxis));
                 slope.AddTo(pick);
+                int throughOption = typed ? pick.AddOption("Through") : -1;
                 pick.DynamicDraw += (_, e) =>
                 {
-                    pickedRatio = (e.CurrentPoint.Z - reference.Z) / run;
+                    pickedRatio = RatioAt(e.CurrentPoint.Z);
                     Update(pickedRatio);
                 };
                 GetResult result = pick.Get();
                 if (result == GetResult.Option)
                 {
+                    if (pick.OptionIndex() == throughOption)
+                    {
+                        typed = false;
+                        continue;
+                    }
+
+                    bool valueTyped = pick.OptionIndex() == slope.ValueOptionIndex;
                     slope.Commit(pick, result);
-                    pickedRatio = slope.Ratio;
+                    if (valueTyped)
+                    {
+                        typed = true;
+                        pickedRatio = slope.Ratio;
+                    }
+
                     if (!Update(pickedRatio)) return Result.Failure;
                     continue;
                 }
-                if (result == GetResult.Nothing)
-                    pickedRatio = slope.Ratio;
-                else if (result == GetResult.Point)
-                    pickedRatio = (pick.Point().Z - reference.Z) / run;
-                else
+                if (result == GetResult.Point)
+                    pickedRatio = RatioAt(pick.Point().Z);
+                else if (result != GetResult.Nothing)
                     return pick.CommandResult();
                 if (!Update(pickedRatio)) return Result.Failure;
                 break;
@@ -247,31 +312,19 @@ internal static partial class GeometryCommandService
             foreach (Curve curve in Curves) e.IncludeBoundingBox(curve.GetBoundingBox(false));
         }
 
-        protected override void DrawForeground(DrawEventArgs e)
-        {
-            if (e.RhinoDoc.RuntimeSerialNumber != documentSerial) return;
-            e.Display.PushDepthTesting(false);
-            e.Display.PushDepthWriting(false);
-            try
-            {
-                foreach (Curve curve in Curves) e.Display.DrawCurve(curve, PreviewColor, 2);
-                foreach (Point3d point in _points)
-                {
-                    e.Display.DrawLine(reference, point, PreviewColor);
-                    e.Display.DrawPoint(point, PreviewColor);
-                }
-                e.Display.DrawPoint(reference, PreviewColor);
-            }
-            finally
-            {
-                e.Display.PopDepthWriting();
-                e.Display.PopDepthTesting();
-            }
-        }
-
+        // Everything is drawn in the overlay. While a point is picked Rhino repaints only the overlay as
+        // the mouse moves, so curves drawn in DrawForeground stayed put until the camera moved and only the
+        // dots followed the mouse (found live).
         protected override void DrawOverlay(DrawEventArgs e)
         {
             if (e.RhinoDoc.RuntimeSerialNumber != documentSerial) return;
+            foreach (Curve curve in Curves) e.Display.DrawCurve(curve, PreviewColor, 2);
+            foreach (Point3d point in _points)
+            {
+                e.Display.DrawLine(reference, point, PreviewColor);
+                e.Display.DrawPoint(point, PreviewColor);
+            }
+            e.Display.DrawPoint(reference, PreviewColor);
             foreach (Point3d point in _points)
                 e.Display.DrawDot(point, $"{_label} / Z {point.Z:F3}", PreviewColor, System.Drawing.Color.White);
         }

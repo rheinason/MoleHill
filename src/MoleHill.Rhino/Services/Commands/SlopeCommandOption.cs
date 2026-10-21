@@ -60,6 +60,10 @@ internal sealed class SlopeCommandOption
         CommandOptionCache.SetValue(_cacheKey, _ratio);
     }
 
+    /// <summary>The value option's index on the getter last passed to <see cref="AddTo"/>, so a caller can
+    /// tell a typed slope from a changed unit.</summary>
+    public int ValueOptionIndex { get; private set; } = -1;
+
     /// <summary>Human-readable slope for a prompt or a report line.</summary>
     public string Description => SlopeInput.FormatWithUnit(_ratio, _unit);
 
@@ -77,7 +81,7 @@ internal sealed class SlopeCommandOption
         // OptionDouble(value, setLowerLimit, limit) makes `limit` an *upper* bound when
         // setLowerLimit is false, which silently capped this option at zero.
         _value = new OptionDouble(ToDisplayValue(_ratio, _unit));
-        get.AddOptionDouble(_optionName, ref _value);
+        ValueOptionIndex = get.AddOptionDouble(_optionName, ref _value);
         _unitOptionIndex = get.AddOptionList("Units", UnitChoices.Select(choice => choice.Label), IndexOf(_unit));
     }
 
