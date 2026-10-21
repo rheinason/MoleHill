@@ -742,6 +742,63 @@ public sealed class RouteRelaxer
     /// </summary>
     internal int SelfCrossings() => SelfCrossings(null);
 
+    /// <summary>
+    /// Cuts out every loop the band ties around no pin: the stations between two crossing segments are
+    /// replaced by the crossing point, as a rope pulled tight drops its kink. Relaxing never ties a loop, but
+    /// a drag can, and the energy has no pull to undo it, so a band left crossed after a drag stayed stuck
+    /// (found live). A loop holding a pin is the user's own shape and is left, reported as a crossing.
+    /// Returns the loops removed.
+    /// </summary>
+    public int Untangle()
+    {
+        int removed = 0;
+        for (int guard = 0; guard < 64; guard++)
+        {
+            bool cut = false;
+            for (int i = 0; i < _x.Count - 3 && !cut; i++)
+            {
+                for (int j = _x.Count - 2; j > i + 1 && !cut; j--)
+                {
+                    if (!Geometry2D.SegmentsCrossStrictly(_x[i], _y[i], _x[i + 1], _y[i + 1], _x[j], _y[j], _x[j + 1], _y[j + 1]))
+                        continue;
+
+                    bool pinned = false;
+                    for (int k = i + 1; k <= j && !pinned; k++)
+                        pinned = _pin[k] >= 0;
+                    if (pinned)
+                        continue;
+
+                    double ex = _x[i + 1] - _x[i], ey = _y[i + 1] - _y[i], fx = _x[j + 1] - _x[j], fy = _y[j + 1] - _y[j];
+                    double denominator = (ex * fy) - (ey * fx);
+                    double t = denominator == 0.0 ? 0.5 : (((_x[j] - _x[i]) * fy) - ((_y[j] - _y[i]) * fx)) / denominator;
+                    double cx = _x[i] + (t * ex), cy = _y[i] + (t * ey);
+                    int guide = _guideSegment[i];
+                    _x.RemoveRange(i + 1, j - i);
+                    _y.RemoveRange(i + 1, j - i);
+                    _pin.RemoveRange(i + 1, j - i);
+                    _guideSegment.RemoveRange(i + 1, j - i);
+                    _x.Insert(i + 1, cx);
+                    _y.Insert(i + 1, cy);
+                    _pin.Insert(i + 1, -1);
+                    _guideSegment.Insert(i + 1, guide);
+                    cut = true;
+                }
+            }
+
+            if (!cut)
+                break;
+            removed++;
+        }
+
+        if (removed > 0)
+        {
+            LoadBand(Stations(), keepPins: true);
+            Wake();
+        }
+
+        return removed;
+    }
+
     /// <summary>As <see cref="SelfCrossings()"/>, also collecting each crossing's plan point and station.</summary>
     private int SelfCrossings(List<(double X, double Y, double Station)>? at)
     {

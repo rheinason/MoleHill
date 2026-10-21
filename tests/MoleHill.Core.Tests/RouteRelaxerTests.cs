@@ -250,6 +250,30 @@ public sealed class RouteRelaxerTests
     }
 
     [Fact]
+    public void Untangle_LoopAroundNoPin_IsCutOutAtTheCrossing()
+    {
+        // A route that doubles back over itself, as a drag left it live: the loop goes, the ends stay.
+        var sketch = new[] { (30.0, 100.0), (150.0, 100.0), (150.0, 60.0), (103.3, 60.0), (103.3, 140.0), (270.0, 140.0) };
+        RouteRelaxer relaxer = Create(Hill(), sketch, Settings());
+        Assert.Equal(1, relaxer.SelfCrossings());
+        Assert.Equal(1, relaxer.Untangle());
+        Assert.Equal(0, relaxer.SelfCrossings());
+        double[] plan = relaxer.PlanXy();
+        Assert.Equal((30.0, 100.0), (plan[0], plan[1]));
+        Assert.Equal((270.0, 140.0), (plan[^2], plan[^1]));
+    }
+
+    [Fact]
+    public void Untangle_LoopHoldingAPin_IsLeftForTheUser()
+    {
+        var sketch = new[] { (30.0, 100.0), (150.0, 100.0), (150.0, 60.0), (103.3, 60.0), (103.3, 140.0), (270.0, 140.0) };
+        RouteRelaxer relaxer = Create(Hill(), sketch, Settings());
+        relaxer.AddPin(150.0, 70.0);
+        Assert.Equal(0, relaxer.Untangle());
+        Assert.Equal(1, relaxer.SelfCrossings());
+    }
+
+    [Fact]
     public void Step_NeverTiesTheBandIntoALoop()
     {
         // An invariant, not a reproduction: relaxing may untangle a band but never add a crossing. The live

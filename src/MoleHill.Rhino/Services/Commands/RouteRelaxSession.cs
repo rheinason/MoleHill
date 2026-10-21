@@ -38,6 +38,7 @@ internal sealed class RouteRelaxSession : IDisposable
     private readonly double _tolerance;
     private readonly RouteRelaxConduit _conduit;
     private readonly object _gate = new();
+    private int _uiWaiting;
     private readonly CancellationTokenSource _stop = new();
     private readonly List<Task> _workers = new();
     private RouteRelaxForm? _form;
@@ -256,6 +257,7 @@ internal sealed class RouteRelaxSession : IDisposable
         lock (_gate)
         {
             _relaxer.RemoveAllPins();
+            _relaxer.Untangle();
             Interlocked.Increment(ref _version);
         }
 
@@ -359,14 +361,33 @@ internal sealed class RouteRelaxSession : IDisposable
 
     // ── Pins (called on the UI thread by the getter) ──────────────────────
 
+    /// <summary>
+    /// The relax worker takes the gate again the moment it lets go of it, and a lock is not fair, so a mouse
+    /// move could wait out many batches before it got in: dragging felt slow (found live). A UI call takes a
+    /// turn first, and the worker stands aside while one is waiting.
+    /// </summary>
+    private UiTurn TakeUiTurn()
+    {
+        Interlocked.Increment(ref _uiWaiting);
+        return new UiTurn(this);
+    }
+
+    private readonly struct UiTurn(RouteRelaxSession session) : IDisposable
+    {
+        public void Dispose() => Interlocked.Decrement(ref session._uiWaiting);
+    }
+
+
     internal int PinNear(Point3d point, double radius)
     {
+        using (TakeUiTurn())
         lock (_gate)
             return _relaxer.PinNear(point.X, point.Y, radius);
     }
 
     internal bool IsOnBand(Point3d point, double radius)
     {
+        using (TakeUiTurn())
         lock (_gate)
             return _relaxer.DistanceToBand(point.X, point.Y) <= radius;
     }
@@ -374,6 +395,7 @@ internal sealed class RouteRelaxSession : IDisposable
     internal int AddPin(Point3d point)
     {
         int id;
+        using (TakeUiTurn())
         lock (_gate)
         {
             id = _relaxer.AddPin(point.X, point.Y);
@@ -386,6 +408,7 @@ internal sealed class RouteRelaxSession : IDisposable
 
     internal void MovePin(int id, Point3d point)
     {
+        using (TakeUiTurn())
         lock (_gate)
         {
             if (!_relaxer.MovePin(id, point.X, point.Y))
@@ -398,9 +421,25 @@ internal sealed class RouteRelaxSession : IDisposable
 
     internal void RemovePin(int id)
     {
+        using (TakeUiTurn())
         lock (_gate)
         {
             if (!_relaxer.RemovePin(id))
+                return;
+            _relaxer.Untangle();
+            Interlocked.Increment(ref _version);
+        }
+
+        Publish();
+    }
+
+    /// <summary>A drag has ended: cut out any loop it left around no pin, so the band can relax again.</summary>
+    internal void Untangle()
+    {
+        using (TakeUiTurn())
+        lock (_gate)
+        {
+            if (_relaxer.Untangle() == 0)
                 return;
             Interlocked.Increment(ref _version);
         }
@@ -441,6 +480,12 @@ internal sealed class RouteRelaxSession : IDisposable
         while (!stop.IsCancellationRequested)
         {
             bool moved = false;
+            if (Volatile.Read(ref _uiWaiting) > 0)
+            {
+                Thread.Sleep(1);
+                continue;
+            }
+
             if (!_paused)
             {
                 lock (_gate)
@@ -701,6 +746,8 @@ internal sealed class RouteRelaxSession : IDisposable
         {
             if (_grabbed >= 0 && !_moved && !_created)
                 _session.RemovePin(_grabbed);
+            else if (_moved)
+                _session.Untangle();
             _session.Conduit.DraggedPin = -1;
             _grabbed = -1;
         }

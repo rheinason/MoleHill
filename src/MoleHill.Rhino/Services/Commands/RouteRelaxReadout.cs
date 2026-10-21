@@ -57,7 +57,7 @@ internal static class RouteRelaxReadout
             RouteRelaxIssueKind.Cut =>
                 $"{where}: cuts up to {units.FormatLength(issue.Depth, "F1")} into the ground.",
             RouteRelaxIssueKind.Crossing =>
-                $"At {units.FormatLength(issue.StartStation, "F0")} the route crosses itself. Drag it apart, or Reset to start again from your sketch.",
+                $"At {units.FormatLength(issue.StartStation, "F0")} the route crosses itself. Drag it apart, or use Back to sketch to start again.",
             _ => $"{where}: fills up to {units.FormatLength(issue.Depth, "F1")} over the ground.",
         };
     }

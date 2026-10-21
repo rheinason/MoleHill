@@ -44,7 +44,8 @@ beta prereleases. Earlier versions are recorded only in the git history.
     more route than the sketch has. **Help me** then searches near your sketch and through your pins, and
     finds the switchbacks.
   - **Keep** adds the route as a light curve, ready to edit and assign to a Grade Path.
-  - Relaxing never ties the route into a loop, and a route dragged across itself is marked where it crosses.
+  - Relaxing never ties the route into a loop. A loop a drag leaves around no pin is pulled out when you let
+    go, as a rope pulls tight; one holding a pin is marked where it crosses.
 - **Suggest Route** keeps each route as a light curve with only the control points it needs (typically
   10-40, where the exact arcs needed about a hundred), so it edits like a hand-drawn one. The grade limit
   still holds; the readout gives the control points and the tightest bend as drawn. `Curve=Exact` keeps
