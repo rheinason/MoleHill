@@ -13,6 +13,24 @@ beta prereleases. Earlier versions are recorded only in the git history.
   - Protect curves keep a kerb, road edge or pad edge sharp.
   - Walls are never touched.
   - Coarse triangles beside a crease are split first, so no Remesh is needed.
+- New **Displace** modifier raises and lowers the ground by world-XY noise or a heightmap image.
+  - Noise has a size, height, octaves, roughness, seed, rotation and origin; an image takes a tile size
+    and a neutral grey, and a drawn **Mapping** rectangle places it.
+  - Boundaries with a feather scope it. Breaklines, walls, graded edges, Protect curves and, with Hold
+    Border, the border keep their height.
+  - The card warns when the terrain is too coarse to carry the noise or the image, and says what Remesh
+    edge length would.
+- Modifier cards show what their last build did (a **stage report**): Displace its sampling, offsets and
+  held vertices, with a warning when something needs attention.
+
+**Analysis**
+- New **Curvature** analysis colours the ground as **Landforms** (convex, planar, concave) or by its
+  curvature value (mean, profile or plan) on the colour ramp, with the area of each landform.
+  - **Landform Size** separates broad landforms from surface detail; Auto (a tenth of the site's shorter
+    side) is shown greyed in the box. **Flatness Tolerance** sets what counts as planar.
+- **Cut and fill volumes are exact.** Earthworks and the graders measured each face against the reference
+  at one point, which read a balanced pad 9-16% off where the reference creases under it. They now overlay
+  the two surfaces in plan and integrate the difference exactly.
 
 **Input commands**
 - New **Relax Route** (`mhRelaxRoute`, and the Suggest Route button's right-click): draw a rough route and
@@ -59,6 +77,10 @@ beta prereleases. Earlier versions are recorded only in the git history.
 - **Balance Pad** finds the height at which a pad's cut and fill balance and moves its boundary curve
   there. A curve already used by a Grade Pad card is balanced with that card's slopes, against the ground
   the card grades.
+  - Select several pads to balance them `Together` (one move for the set) or `Each` on its own.
+- New **Slope Control Points** sets the selected control points of a curve on one grade from a reference
+  point, and **Merge Control Points** pulls selected control points together, with a preview before
+  either applies.
 - **Extract Profile / Apply Profile** (prototype): draw a curve as a flat long section with the ground
   under it, edit the design line with any Rhino tool, and apply it back. The curve keeps its plan; a
   profile that doubles back is refused.
@@ -66,12 +88,31 @@ beta prereleases. Earlier versions are recorded only in the git history.
   - `Ground` takes the ground line from the active terrain, from picked meshes or surfaces, or leaves it out.
   - A smooth curve stays smooth: only its edit points take the profile, and the command says how far it
     strays between them. `Fit=Exact` gives a polyline that follows the profile exactly.
-- **Terrain to Curves** turns a dense terrain (a DEM or point-cloud mesh) into a border, spot points on
-  peaks and pits, and as few contours as rebuild it within a tolerance, ready to use as editable input.
-  - The output goes on its own layers: Border, Ridges and valleys, Contours and Spot heights under
-    "Terrain to Curves {source}", a fresh root for every run.
-  - Ridge and valley lines are added where they save contours. `RidgesValleys=Auto` tries with and without
-    them and keeps whichever needs fewer curves.
+- **Terrain to Curves** turns a dense terrain (a DEM, a point-cloud mesh or the active MoleHill terrain)
+  into a border, contours and spot heights that rebuild it within a tolerance, ready to use as editable
+  input.
+  - Contours are traced at a **Contour interval** and those the rebuild does not need are removed; spot
+    heights go only where the ground still misses. Folds and wall edges become **crease** lines.
+  - A floating panel previews the result and says how close it comes before **Keep**. A large terrain
+    (100,000 vertices or more) waits for **Recompute**, and **Stop** ends a run.
+  - The output goes on its own layers under "Terrain to Curves {source}", a fresh root for every run.
+- New **Scan to Terrain** (`mhScanToTerrain`) turns a drone or photogrammetry mesh, or a point cloud,
+  into the input a designer would draw.
+  - It finds the ground under buildings, trees and cars, and draws walls and terrace edges, kerbs, paved
+    and soft-ground outlines, contours and spot heights, plus closed building solids with fitted roofs.
+  - Paving is carried by its outlines draped on the ground; soft ground is contoured. Each has its own
+    accuracy, and the panel reports how close the result comes to the scan.
+  - Ground the scan never measured (its gap fills) is followed but not counted as a miss.
+- New toolbar buttons for Balance Pad, Extract/Apply Profile, Terrain to Curves, Scan to Terrain, Slope
+  Control Points and Merge Control Points.
+
+**Fixes**
+- Polyline input that is straight in plan but carries a profile (a graded centreline, a draped straight
+  line) kept its heights when simplified. A suggested route assigned to Grade Path came out up to 1.04 m
+  off its own centreline.
+- A grading window kept the breaklines on all its faces: a contour just past a pad's reach was dropped and
+  the batter cut through it.
+- Panel cards no longer run under the scrollbar when they grow past the fold.
 
 ## 1.4.1-beta — 2026-10-15
 
