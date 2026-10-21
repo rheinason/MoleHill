@@ -138,6 +138,9 @@ Escape closes the popup from either the search box or the grid.
 Horizontal scrolling is a design failure, not a responsive fallback. Panel and picker scrollables hard-
 disable their native horizontal scrollbar; child layouts must reflow, hide secondary content, or move
 low-priority actions into overflow while remaining pinned to the available client width.
+The panel pins each tab to that width with `UiControls.FitContentToWidth`, which also re-syncs when
+content growing past the fold brings in the vertical scrollbar. Dialogs keep `ExpandContentWidth` with the
+margin on the scrollable, not the content: the pinning stopped the scan dialog's Shown event from firing.
 - `RefreshUi` treats missing model units as a document state: the status card explains how to set units,
   and creation/build controls stay disabled while non-destructive inspection remains available.
 - Expanded zone cards show last-final-build quantities for the resolved zone output: plan/surface area,

@@ -57,6 +57,43 @@ internal static class UiControls
     }
 
     /// <summary>
+    /// Lays a scrollable's content out at the scrollable's client width. <c>ExpandContentWidth</c> is not
+    /// enough on the WPF backend: it measures before reserving the vertical scrollbar, and it leaves out the
+    /// content's own padding, so either one leaves a few pixels to scroll sideways (found live in the panel).
+    /// <c>ClientSize</c> already excludes a visible scrollbar. Content that grows past the fold brings the
+    /// scrollbar in without resizing the scrollable, so a content resize re-syncs too. That cannot toggle the
+    /// bar: content only narrows while it is taller than the view, which narrowing keeps it, and only widens
+    /// once it fits, which widening keeps it.
+    /// <para>Not for a dialog's own content: in the scan dialog this kept the window's Shown event from ever
+    /// firing, so its preview never started (found live); the dialog moves its padding onto the scrollable
+    /// instead.</para>
+    /// </summary>
+    public static void FitContentToWidth(Scrollable scrollable)
+    {
+        Control? content = scrollable.Content;
+        if (content == null)
+            return;
+
+        scrollable.ExpandContentWidth = false;
+        DisableHorizontalScrolling(scrollable);
+
+        void Sync()
+        {
+            int width = scrollable.ClientSize.Width;
+            if (width > 0 && content.Width != width)
+                content.Width = width;
+        }
+
+        scrollable.SizeChanged += (_, _) => Sync();
+        scrollable.Shown += (_, _) => Sync();
+        content.SizeChanged += (_, _) => Application.Instance.AsyncInvoke(() =>
+        {
+            if (!scrollable.IsDisposed)
+                Sync();
+        });
+    }
+
+    /// <summary>
     /// Drops an icon-only button's native raised/boxed chrome so it reads as a bare glyph — like Rhino's
     /// own Layers panel toolbar — instead of a button with a visible border sitting around the icon.
     /// Eto has no cross-platform "flat, no border" style, so reach into the native handler the same way

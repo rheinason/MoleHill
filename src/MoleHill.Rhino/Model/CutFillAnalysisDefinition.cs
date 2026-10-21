@@ -38,6 +38,8 @@ public sealed class CutFillAnalysisDefinition : ReferenceComparisonAnalysisDefin
     /// <summary>Whether either drawn output is switched on, and so whether the delta field is needed.</summary>
     public bool DrawsDeltaOutput => ShowDeltaContours || ShowBalanceLine;
 
+    public override (string Low, string High) GetRangeLabels() => ("Cut", "Fill");
+
     public CutFillAnalysisDefinition()
     {
         Label = "Cut / Fill";

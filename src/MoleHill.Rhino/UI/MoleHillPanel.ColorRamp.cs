@@ -27,6 +27,7 @@ public sealed partial class MoleHillPanel
 
         TerrainAnalysisSummary? summary = GetAnalysisSummary(terrain, analysisId);
         RangeShape shape = TerrainAnalysisPreviewBuilder.GetRangeShape(analysis);
+        (string lowLabel, string highLabel) = analysis.GetRangeLabels();
 
         // Mid-gesture edits recolour without saving or refreshing the panel; anything else is a normal
         // commit. Without the split, the save's StateChanged rebuilds this card on every mouse-move and
@@ -48,6 +49,8 @@ public sealed partial class MoleHillPanel
             Interval = analysis.ColorInterval,
             AutoRange = analysis.AutoColorRange,
             Shape = shape,
+            LowLabel = lowLabel,
+            HighLabel = highLabel,
             Histogram = summary?.DistributionBins,
             HasData = summary?.DisplayRangeLow is not null && summary.DisplayRangeHigh is not null,
             FormatValue = AnalysisFormatting.GetValueFormatter(analysis),

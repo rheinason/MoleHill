@@ -95,6 +95,12 @@ public abstract class AnalysisDefinition : ITerrainContentItem
     }
 
     /// <summary>
+    /// What the colour card calls the two ends of the range. A method, not a property, so the serializer
+    /// never writes it into the document.
+    /// </summary>
+    public virtual (string Low, string High) GetRangeLabels() => ("Min", "Max");
+
+    /// <summary>
     /// Load-time normalization for this definition's own fields (null-coalescing, clamps), run once after
     /// deserialization and after the schema migrations. The palette fields every analysis shares are
     /// normalized by the serializer, not here. Not version-gated; the default does nothing.

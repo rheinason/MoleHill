@@ -622,21 +622,21 @@ internal sealed class ColorRampControl : Panel
         // bound with the other, unedited one could widen the range but never narrow it. The edited
         // field's magnitude must win: mirror it onto the other side before the shape is applied.
         var min = new ScrubField(
-            symmetric ? "Cut" : "Min",
+            _options.LowLabel,
             _range.Low,
             _options.FormatValue,
             (value, live) => SetRange(value, symmetric ? -value : _range.High, live),
             () => _range.Low,
             max: _range.High,
             help: symmetric
-                ? "Largest cut depth mapped. The range stays symmetric, so no change sits mid-ramp."
+                ? "Largest magnitude mapped. The range stays symmetric about zero, so zero sits mid-ramp."
                 : "Values at or below this use the first colour. Drag to scrub.")
         {
             Step = ScrubField.StepForSpan(span)
         };
 
         var max = new ScrubField(
-            symmetric ? "Fill" : "Max",
+            _options.HighLabel,
             _range.High,
             _options.FormatValue,
             (value, live) => SetRange(symmetric ? -value : _range.Low, value, live),

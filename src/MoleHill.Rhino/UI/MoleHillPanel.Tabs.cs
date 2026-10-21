@@ -260,25 +260,13 @@ public sealed partial class MoleHillPanel : Panel
         {
             Content = content,
             Border = BorderType.None,
-            ExpandContentWidth = false,
             ExpandContentHeight = false
         };
-        UiControls.DisableHorizontalScrolling(scrollable);
 
-        // ExpandContentWidth alone leaves a persistent few-px horizontal scrollbar once the vertical
-        // scrollbar appears (the WPF backend measures the expand width before reserving the vertical
-        // scrollbar's own width). Pin content width to the scrollable's actual client area instead —
-        // ClientSize already excludes a visible vertical scrollbar, so this is the width cards should
-        // really lay out against.
-        void SyncContentWidth()
-        {
-            int width = scrollable.ClientSize.Width;
-            if (width > 0 && content.Width != width)
-                content.Width = width;
-        }
-
-        scrollable.SizeChanged += (_, _) => SyncContentWidth();
-        scrollable.Shown += (_, _) => SyncContentWidth();
+        // Cards lay out against the client width, re-synced when a card growing past the fold brings in
+        // the vertical scrollbar (found live: a Curvature card switched to "Curvature value" clipped its
+        // right edge under the bar).
+        UiControls.FitContentToWidth(scrollable);
 
         return scrollable;
     }

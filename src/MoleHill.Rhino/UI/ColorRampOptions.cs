@@ -21,6 +21,11 @@ internal sealed class ColorRampOptions
     /// <summary>How the range is anchored — cut/fill stays symmetric about zero however Min/Max are dragged.</summary>
     public required RangeShape Shape { get; init; }
 
+    /// <summary>Labels for the two range fields — "Cut"/"Fill" for cut/fill, "Min"/"Max" by default.</summary>
+    public string LowLabel { get; init; } = "Min";
+
+    public string HighLabel { get; init; } = "Max";
+
     /// <summary>Normalized histogram bars from the last colouring, or null for no distribution.</summary>
     public double[]? Histogram { get; init; }
 

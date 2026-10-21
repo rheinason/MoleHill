@@ -60,6 +60,9 @@ public sealed class CurvatureAnalysisDefinition : AnalysisDefinition
         RangeHigh = 0.0;
     }
 
+    // Convex is positive, so the low end of the symmetric range is the concave one.
+    public override (string Low, string High) GetRangeLabels() => ("Concave", "Convex");
+
     public override void NormalizeAfterLoad()
     {
         if (!double.IsFinite(FeatureSize) || FeatureSize < 0.0)
