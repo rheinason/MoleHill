@@ -6,10 +6,10 @@ namespace MoleHill.Core.Grading;
 public static partial class PathGrader
 {
     /// <summary>
-    /// Stops paths where they meet a hard constraint instead of refusing them. Each path is split at every
-    /// place its centerline crosses a preserved-elevation hard constraint; a piece inside a closed one (a
-    /// graded pad) is left to it, and every other piece is graded, ending short of the constraint by as much
-    /// as it takes for neither road edge to cross it at that angle. Paths that cross nothing, and paths this
+    /// Stops paths where they meet a hard constraint instead of refusing them. Each path is blocked along
+    /// every stretch where a preserved-elevation hard constraint enters its road (between the road edges,
+    /// not only across the centerline), and split around those stretches; a piece inside a closed constraint
+    /// (a graded pad) is left to it, and every other piece is graded. Paths that meet nothing, and paths this
     /// does not reshape (variable-width and one-sided ones), are returned unchanged.
     /// </summary>
     /// <remarks>
@@ -17,6 +17,10 @@ public static partial class PathGrader
     /// with it: one path into one lawn left every path in the modifier ungraded, while the build reported
     /// success (the park-scale probe: 24 paths, 22 crossings, nothing graded). A graded lawn's boundary, or
     /// a wall, is authoritative where a path meets it, so the path stops there.
+    /// <para>Stops used to come from centerline crossings alone, so a constraint that entered the road
+    /// without crossing the centerline (a bend, a pad corner, a stub), or crossed it exactly at a path vertex,
+    /// still refused the whole grade; one lying inside the road along it was graded over and lost its height.
+    /// <c>GradePathNearConstraintsStressTests</c> covers each.</para>
     /// </remarks>
     public static PathDefinition[] StopPathsAtHardConstraints(
         PathDefinition[] paths,
@@ -87,52 +91,77 @@ public static partial class PathGrader
                 cumulative[i] = cumulative[i - 1] + Math.Sqrt(Sq(xy[i * 2] - xy[(i - 1) * 2]) + Sq(xy[(i * 2) + 1] - xy[((i - 1) * 2) + 1]));
             double total = cumulative[n - 1];
 
-            // Every crossing as (arc position, setback the road edges need there).
+            // Every stretch of the path whose road a constraint enters, as an arc interval.
             double halfWidth = path.Width * 0.5;
-            var crossings = new List<(double S, double Setback)>();
+            double margin = Math.Max(2.0 * tolerance, halfWidth * 0.05);
+            var blocked = new List<(double Start, double End)>();
             for (int i = 0; i < n - 1; i++)
             {
                 double ax = xy[i * 2], ay = xy[(i * 2) + 1], bx = xy[(i + 1) * 2], by = xy[((i + 1) * 2) + 1];
-                double dx = bx - ax, dy = by - ay;
-                double length = Math.Sqrt((dx * dx) + (dy * dy));
+                double length = Math.Sqrt(Sq(bx - ax) + Sq(by - ay));
                 if (length <= tolerance)
                     continue;
 
+                // The road over this segment, in its own frame (along, across). At an interior vertex it reaches
+                // a half width past the vertex, which covers the outside of the bend.
+                double ux = (bx - ax) / length, uy = (by - ay) / length;
+                double sLow = i > 0 ? -halfWidth : 0.0;
+                double sHigh = length + (i < n - 2 ? halfWidth : 0.0);
+                double dLimit = halfWidth + margin;
                 foreach ((double cx, double cy, double ex, double ey) in barrierSegments)
                 {
-                    if (!TrySegmentIntersection(ax, ay, bx, by, cx, cy, ex, ey, out double t))
+                    double s0 = ((cx - ax) * ux) + ((cy - ay) * uy), d0 = ((cy - ay) * ux) - ((cx - ax) * uy);
+                    double s1 = ((ex - ax) * ux) + ((ey - ay) * uy), d1 = ((ey - ay) * ux) - ((ex - ax) * uy);
+                    if (!TryClipToRectangle(s0, d0, s1, d1, sLow, sHigh, -dLimit, dLimit, out double from, out double to))
                         continue;
 
-                    double bdx = ex - cx, bdy = ey - cy;
-                    double barrierLength = Math.Sqrt((bdx * bdx) + (bdy * bdy));
-                    double sine = barrierLength > 0 ? Math.Abs((dx * bdy) - (dy * bdx)) / (length * barrierLength) : 1.0;
-                    double cosine = barrierLength > 0 ? Math.Abs((dx * bdx) + (dy * bdy)) / (length * barrierLength) : 0.0;
-                    double setback = (halfWidth * cosine / Math.Max(sine, 1e-3)) + Math.Max(2.0 * tolerance, halfWidth * 0.05);
-                    crossings.Add((cumulative[i] + (t * length), setback));
+                    double sFrom = s0 + ((s1 - s0) * from), sTo = s0 + ((s1 - s0) * to);
+                    double low = cumulative[i] + Math.Min(sFrom, sTo), high = cumulative[i] + Math.Max(sFrom, sTo);
+
+                    // A path drawn to end on a constraint (snapped to a pad's edge) meets it only across its own
+                    // end line; that is where it was meant to stop.
+                    if (!path.IsClosed && (high <= tolerance || low >= total - tolerance))
+                        continue;
+
+                    blocked.Add((low - margin, high + margin));
                 }
             }
 
-            if (crossings.Count == 0)
+            if (blocked.Count == 0)
             {
                 result.Add(path);
                 continue;
             }
 
-            crossings.Sort(static (a, b) => a.S.CompareTo(b.S));
-            stops += crossings.Count;
-
-            // Pieces between consecutive crossings; the path's own ends need no setback.
-            var bounds = new List<(double S, double Setback)> { (0.0, 0.0) };
-            bounds.AddRange(crossings);
-            bounds.Add((total, 0.0));
-            for (int k = 0; k + 1 < bounds.Count; k++)
+            blocked.Sort(static (a, b) => a.Start.CompareTo(b.Start));
+            var merged = new List<(double Start, double End)>();
+            foreach ((double start, double end) in blocked)
             {
-                double start = bounds[k].S + bounds[k].Setback;
-                double end = bounds[k + 1].S - bounds[k + 1].Setback;
-                if (end - start <= Math.Max(4.0 * tolerance, halfWidth * 0.1))
+                if (merged.Count > 0 && start <= merged[^1].End)
+                    merged[^1] = (merged[^1].Start, Math.Max(merged[^1].End, end));
+                else
+                    merged.Add((start, end));
+            }
+
+            stops += merged.Count;
+
+            // The pieces between blocked stretches. A piece shorter than half the road is a nub left by a path
+            // drawn a little past a constraint, not a road.
+            var pieces = new List<(double Start, double End)>();
+            double cursor = 0.0;
+            foreach ((double start, double end) in merged)
+            {
+                pieces.Add((cursor, Math.Min(start, total)));
+                cursor = Math.Max(cursor, end);
+            }
+
+            pieces.Add((cursor, total));
+            foreach ((double start, double end) in pieces)
+            {
+                if (end - start <= Math.Max(4.0 * tolerance, halfWidth * 0.5))
                     continue;
 
-                PointAt(xy, z, cumulative, (bounds[k].S + bounds[k + 1].S) * 0.5, out double mx, out double my, out _);
+                PointAt(xy, z, cumulative, (start + end) * 0.5, out double mx, out double my, out _);
                 if (closedBarriers.Any(ring => Geometry2D.PointInPolygon(mx, my, ring, ring.Length / 2)))
                 {
                     piecesLeftToConstraints++;
@@ -188,19 +217,40 @@ public static partial class PathGrader
         elevation = z[i - 1] + ((z[i] - z[i - 1]) * t);
     }
 
-    /// <summary>Proper crossing of segment a-b by segment c-e; <paramref name="t"/> is the parameter along a-b.</summary>
-    private static bool TrySegmentIntersection(
-        double ax, double ay, double bx, double by, double cx, double cy, double ex, double ey, out double t)
+    /// <summary>
+    /// Liang-Barsky: the parameter range [<paramref name="from"/>, <paramref name="to"/>] of segment
+    /// (x0, y0)-(x1, y1) inside the rectangle, boundary included; false when no part of it is.
+    /// </summary>
+    private static bool TryClipToRectangle(
+        double x0, double y0, double x1, double y1, double minX, double maxX, double minY, double maxY,
+        out double from, out double to)
     {
-        t = 0.0;
-        double rx = bx - ax, ry = by - ay, sx = ex - cx, sy = ey - cy;
-        double denominator = (rx * sy) - (ry * sx);
-        if (Math.Abs(denominator) < 1e-15)
-            return false;
+        from = 0.0;
+        to = 1.0;
+        double dx = x1 - x0, dy = y1 - y0;
+        return Clip(-dx, x0 - minX, ref from, ref to) && Clip(dx, maxX - x0, ref from, ref to) &&
+            Clip(-dy, y0 - minY, ref from, ref to) && Clip(dy, maxY - y0, ref from, ref to);
 
-        double qx = cx - ax, qy = cy - ay;
-        t = ((qx * sy) - (qy * sx)) / denominator;
-        double u = ((qx * ry) - (qy * rx)) / denominator;
-        return t > 0.0 && t < 1.0 && u >= 0.0 && u <= 1.0;
+        static bool Clip(double p, double q, ref double from, ref double to)
+        {
+            if (p == 0.0)
+                return q >= 0.0;
+
+            double r = q / p;
+            if (p < 0.0)
+            {
+                if (r > to)
+                    return false;
+                from = Math.Max(from, r);
+            }
+            else
+            {
+                if (r < from)
+                    return false;
+                to = Math.Min(to, r);
+            }
+
+            return true;
+        }
     }
 }

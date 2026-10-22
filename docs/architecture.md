@@ -990,6 +990,21 @@ closed constraint is left to it, and the rest are graded, set back far enough th
 at that angle. The Rhino stage applies the stop before it creates the path's elevation constraints, so the
 constraints it persists never cross a pad. The build reports the count as `grade_path.barrier_stops`.
 
+**Stops come from the road, not the centreline (2026-10-22).** A stress sweep of paths beside breaklines,
+walls and pad rings (`GradePathNearConstraintsStressTests`, 552 graded scenes) found the stop rule above only
+looked for *centreline* crossings. A constraint that entered the road without crossing it (a bend, a pad
+corner, a stub) or that crossed exactly at a path vertex still refused the whole grade, and one lying inside the
+road along it was graded over and lost its height. A path is now blocked along every stretch where a constraint
+enters its road strip, bounded by the constraint's real extent. A path drawn to end *on* a constraint (snapped to
+a pad edge) is not trimmed. The sweep then showed the grade still moving constraints it stopped at, by up to the
+road's rise, through two leaks. A batter is stopped by a ray from the road edge that *crosses* a constraint, but
+a vertex lying on the constraint only touches it, so `ApplyPathGrading` now keeps every vertex on a hard
+constraint at its height. And the explicit tier's carve-and-fill removed constraint vertices inside the batter and
+did not put them back (12.6 m on the large copied case), so it now defers to split-keep whenever its output loses
+one (`LosesHardConstraintVertices`). The only refusal left is a constraint inside the road for its whole length,
+reported as such. `ConstraintHeightCheck` (tests) measures the invariant: the terrain along every hard
+constraint is the same before and after a grade.
+
 ### Breaklines are hard, unless a card grades through them (2026-09-30)
 
 A breakline stays hard: a grading card may not cross a breakline or graded edge from a card above it,

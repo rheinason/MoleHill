@@ -1,4 +1,5 @@
 using MoleHill.Core.Engine;
+using MoleHill.Core.Geometry;
 
 namespace MoleHill.Core.Grading;
 
@@ -24,6 +25,7 @@ public static partial class PathGrader
         int boundaryVertexCount = 0,
         double boundaryTolerance = 1e-3)
     {
+        PreparedBarriers preparedBarriers = GradingBarriers.Build(barrierConstraints);
         if (interpolateOriginalZ != null)
         {
             ApplyPathGradingWithSections(
@@ -38,10 +40,54 @@ public static partial class PathGrader
                 boundaryLoop ?? Array.Empty<double>(),
                 boundaryVertexCount,
                 boundaryTolerance);
-            return;
+        }
+        else
+        {
+            ApplyPathGradingByProximity(paths, preparedBarriers, outXy, origZ, newZ, vertCount);
         }
 
-        PreparedBarriers preparedBarriers = GradingBarriers.Build(barrierConstraints);
+        KeepHardConstraintHeights(preparedBarriers, outXy, origZ, newZ, vertCount);
+    }
+
+    /// <summary>
+    /// A vertex on a hard constraint keeps its height. A batter stops where its ray from the road edge
+    /// crosses a constraint, but a vertex lying on the constraint only touches it at the ray's end, so the
+    /// constraint's own vertices were the ones a batter reaching it moved: a breakline past a path's end or
+    /// beside a stopped path came out up to the road's full rise off its drawn height.
+    /// </summary>
+    private static void KeepHardConstraintHeights(
+        PreparedBarriers barriers, double[] outXy, double[] origZ, double[] newZ, int vertCount)
+    {
+        if (barriers.Segments.Length == 0)
+            return;
+
+        const double onLine = 1e-6;
+        var scratch = new SpatialHashGrid2D.QueryScratch(barriers.Segments.Length);
+        var candidates = new List<int>(8);
+        for (int i = 0; i < vertCount; i++)
+        {
+            if (newZ[i] == origZ[i])
+                continue;
+
+            double px = outXy[i * 2], py = outXy[(i * 2) + 1];
+            barriers.Index.GatherCandidates(new Bounds2D(px - onLine, px + onLine, py - onLine, py + onLine), candidates, scratch);
+            foreach (int index in candidates)
+            {
+                BarrierSegment segment = barriers.Segments[index];
+                if (Geometry2D.DistanceToSegment(px, py, segment.Ax, segment.Ay, segment.Bx, segment.By) <= onLine)
+                {
+                    newZ[i] = origZ[i];
+                    break;
+                }
+            }
+        }
+    }
+
+    private static void ApplyPathGradingByProximity(
+        PathDefinition[] paths,
+        PreparedBarriers preparedBarriers,
+        double[] outXy, double[] origZ, double[] newZ, int vertCount)
+    {
         var setupScratch = new SpatialHashGrid2D.QueryScratch(Math.Max(preparedBarriers.Segments.Length, 1));
         var setupCandidates = new List<int>(8);
         var preparedPaths = new PreparedPath[paths.Length];

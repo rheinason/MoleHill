@@ -63,6 +63,105 @@ public static partial class PathGrader
         return false;
     }
 
+    /// <summary>
+    /// Whether a terrain vertex lying on a hard constraint inside a daylight loop (one the carve removed) is
+    /// missing from <paramref name="graded"/>, or back at another height.
+    /// </summary>
+    private static bool LosesHardConstraintVertices(
+        double[] vertices, int vertexCount, PreparedBarriers barriers, List<double[]> loopsXy,
+        double[] graded, int gradedCount, double tolerance)
+    {
+        if (barriers.Segments.Length == 0 || loopsXy.Count == 0)
+            return false;
+
+        const double onLine = 1e-6;
+        var loopBounds = new Bounds2D[loopsXy.Count];
+        for (int l = 0; l < loopsXy.Count; l++)
+        {
+            double[] loop = loopsXy[l];
+            double minX = double.MaxValue, maxX = double.MinValue, minY = double.MaxValue, maxY = double.MinValue;
+            for (int i = 0; i < loop.Length / 2; i++)
+            {
+                minX = Math.Min(minX, loop[i * 2]);
+                maxX = Math.Max(maxX, loop[i * 2]);
+                minY = Math.Min(minY, loop[(i * 2) + 1]);
+                maxY = Math.Max(maxY, loop[(i * 2) + 1]);
+            }
+
+            loopBounds[l] = new Bounds2D(minX, maxX, minY, maxY);
+        }
+
+        var scratch = new SpatialHashGrid2D.QueryScratch(barriers.Segments.Length);
+        var candidates = new List<int>(8);
+        var taken = new List<int>();
+        for (int v = 0; v < vertexCount; v++)
+        {
+            double x = vertices[v * 3], y = vertices[(v * 3) + 1];
+            bool inside = false;
+            for (int l = 0; l < loopsXy.Count && !inside; l++)
+            {
+                inside = x >= loopBounds[l].MinX && x <= loopBounds[l].MaxX && y >= loopBounds[l].MinY && y <= loopBounds[l].MaxY &&
+                    Geometry2D.PointInPolygon(x, y, loopsXy[l], loopsXy[l].Length / 2);
+            }
+
+            if (!inside)
+                continue;
+
+            barriers.Index.GatherCandidates(new Bounds2D(x - onLine, x + onLine, y - onLine, y + onLine), candidates, scratch);
+            foreach (int index in candidates)
+            {
+                BarrierSegment segment = barriers.Segments[index];
+                if (Geometry2D.DistanceToSegment(x, y, segment.Ax, segment.Ay, segment.Bx, segment.By) <= onLine)
+                {
+                    taken.Add(v);
+                    break;
+                }
+            }
+        }
+
+        if (taken.Count == 0)
+            return false;
+
+        double cell = Math.Max(tolerance, 1e-9);
+        var byCell = new Dictionary<(long X, long Y), List<int>>();
+        for (int g = 0; g < gradedCount; g++)
+        {
+            var key = ((long)Math.Floor(graded[g * 3] / cell), (long)Math.Floor(graded[(g * 3) + 1] / cell));
+            if (!byCell.TryGetValue(key, out List<int>? bucket))
+                byCell[key] = bucket = new List<int>(1);
+            bucket.Add(g);
+        }
+
+        foreach (int v in taken)
+        {
+            double x = vertices[v * 3], y = vertices[(v * 3) + 1], z = vertices[(v * 3) + 2];
+            long cx = (long)Math.Floor(x / cell), cy = (long)Math.Floor(y / cell);
+            bool kept = false;
+            for (long i = cx - 1; i <= cx + 1 && !kept; i++)
+            {
+                for (long j = cy - 1; j <= cy + 1 && !kept; j++)
+                {
+                    if (!byCell.TryGetValue((i, j), out List<int>? bucket))
+                        continue;
+                    foreach (int g in bucket)
+                    {
+                        if (Geometry2D.DistanceSquared(x, y, graded[g * 3], graded[(g * 3) + 1]) <= tolerance * tolerance &&
+                            Math.Abs(graded[(g * 3) + 2] - z) <= 10.0 * tolerance)
+                        {
+                            kept = true;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if (!kept)
+                return true;
+        }
+
+        return false;
+    }
+
     /// <param name="RailLoopXy">
     /// A closed one-sided rail's own ring. Its batter is an annulus — rail ring on one side, daylight ring
     /// on the other — which no single simple loop can describe, so the two rings are conformed separately
@@ -191,6 +290,15 @@ public static partial class PathGrader
             topology.BoundaryComponentCount > terrainTopology.BoundaryComponentCount)
         {
             errorMessage = GradedRegionAssembler.DescribeWeldTopologyFailure("Grade Path", topology, terrainTopology);
+            return null;
+        }
+
+        // The fill does not always put a hard constraint back: a breakline beside a stopped path, or past a
+        // path's end, came out cut away and up to the road's rise off its height. Split-keep conforms in place
+        // and keeps it, so defer whenever a constraint vertex the carve took is not back where it was.
+        if (LosesHardConstraintVertices(vertices, vertexCount, barriers, daylightLoopsXy, assembled.Vertices, assembled.VertexCount, tolerance))
+        {
+            errorMessage = "Grade Path batter reaches a hard constraint the corridor fill would not keep; explicit corridor grading deferred to terrain conform.";
             return null;
         }
 

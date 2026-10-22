@@ -251,6 +251,28 @@ Result on 2026-09-29 after the wall fixes (architecture.md, "Retaining walls: ge
 error: median 1.7% of wall height, 90th percentile 3.7%. The worst cases are rings at shallow slopes, where
 the far side's batter reaches across the ring and the probe's single-section model no longer applies.
 
+## grade-path
+
+Also a probe. `GradePathProbe` (`tests/MoleHill.Rhino.Tests/GradePathProbe.cs`) runs a Grade Path through the
+real build on a 40 x 30 m survey beside one hard constraint per context: a breakline inside the road, beside
+it, across it at a path vertex and obliquely, a stub or V-bend reaching into it, a line just past its end, a
+Grade Pad whose corner pokes into the road or whose edge the path ends on, and a breakline-mode wall across or
+beside it. Each case is built with and without the path, and both surfaces are sampled along every constraint:
+a path may stop at a constraint, never move one. It reports whether the path graded, its tier, its stops,
+border loops, the largest constraint movement and how much of the centreline reached the design height.
+
+```powershell
+py -3 tools/rhino-hosted-perf.py --bin tests/MoleHill.Rhino.Tests/bin/Release/net8.0 `
+    --request path.json --entry GradePathProbe
+# path.json: { "ResultPath": "...", "Spacing": 1.0 }   (optional: Contexts, Rises, Widths)
+```
+
+Result on 2026-10-22 (Rhino 8, width 3, rises -1/0/+1), the same probe on both builds: before the road-strip
+stops (architecture.md, "Stops come from the road, not the centreline"), 9 of 36 cases were refused and 21
+moved a constraint, by up to 2.14 m on the wall's top rail; after, all 36 graded, every terrain one loop, and
+no constraint moved. A breakline inside the road blocks most of the path (35-40% on design): that is the rule,
+and Grade Through Breaklines is the way past it.
+
 ## wall-insert
 
 Also a probe. `WallInsertProbe` (`tests/MoleHill.Rhino.Tests/WallInsertProbe.cs`) runs the interactive

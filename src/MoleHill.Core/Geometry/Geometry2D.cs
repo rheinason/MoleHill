@@ -413,7 +413,7 @@ internal static class Geometry2D
         return nearestZ;
     }
 
-    private static double DistanceToSegment(double px, double py, double ax, double ay, double bx, double by)
+    public static double DistanceToSegment(double px, double py, double ax, double ay, double bx, double by)
     {
         double dx = bx - ax;
         double dy = by - ay;

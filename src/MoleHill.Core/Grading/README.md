@@ -161,14 +161,22 @@ graded it as a near-vertical wall where explicit assembly succeeds
 (`GradePathDistantHardConstraintCopiedCaseTests`).
 
 **Paths stop at hard constraints; they are not refused for crossing one.** Before the cascade,
-`PathGrader.StopPathsAtHardConstraints` (`PathGrader.BarrierStops.cs`) splits each centerline where it
-crosses a preserved-elevation hard constraint. A piece inside a closed one (a graded pad or lawn) is
-left to it, and every other piece is graded, ending short of the constraint by as much as its road edges
-need at that crossing angle. A crossing used to be refused, and the refusal took every path in the
+`PathGrader.StopPathsAtHardConstraints` (`PathGrader.BarrierStops.cs`) blocks each path along every
+stretch where a preserved-elevation hard constraint enters its road strip (between the road edges, not
+only across the centerline), and splits it around those stretches. A piece inside a closed one (a graded
+pad or lawn) is left to it, and every other piece is graded. A path drawn to end on a constraint is not
+trimmed. A crossing used to be refused, and the refusal took every path in the
 modifier with it: on the park-scale probe, 22 crossings among 24 paths left nothing graded while the build
 reported success. Variable-width and one-sided paths are passed through unchanged. The Rhino stage
 applies the same stop before it makes the path's elevation constraints, so the constraints it persists
 describe the pieces that were graded.
+
+**A grade never moves a hard constraint it stops at.** Two leaks did (up to the road's rise, and 12.6 m on
+the large copied case): a batter's barrier test is a ray *crossing* a constraint, which a vertex lying on
+one only touches, so `ApplyPathGrading` keeps every vertex on a hard constraint at its height; and the
+explicit tier's fill did not put back constraint vertices its carve removed, so it defers to split-keep
+when its output loses one. `GradePathNearConstraintsStressTests` sweeps paths beside breaklines, walls
+and pad rings and checks the terrain along every constraint is unchanged (`ConstraintHeightCheck`).
 
 **A closed rail whose inward batter cannot reach daylight grades without a daylight ring.** On a ring too
 small for its batter the daylight rays cross before they meet ground, and the envelope self-intersects.

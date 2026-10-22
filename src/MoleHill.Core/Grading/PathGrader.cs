@@ -112,7 +112,7 @@ public static partial class PathGrader
             paths = StopPathsAtHardConstraints(paths, hardConstraints, modelTolerance, out int stops, out int leftInside);
             if (paths.Length == 0)
             {
-                errorMessage = "Grade Path lies entirely inside hard constraints; there is nothing left to grade.";
+                errorMessage = "Grade Path is blocked by hard constraints (breaklines, walls or graded areas) along its whole length; there is nothing left to grade.";
                 return null;
             }
 

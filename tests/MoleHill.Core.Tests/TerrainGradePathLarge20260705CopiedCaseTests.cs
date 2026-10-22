@@ -19063,13 +19063,16 @@ public class TerrainGradePathLarge20260705CopiedCaseTests
 
         Assert.NotNull(result);
         Assert.True(string.IsNullOrWhiteSpace(errorMessage) || !errorMessage.Contains("failed", StringComparison.OrdinalIgnoreCase), errorMessage);
-        // Re-captured 2026-10-06. The earlier 8,380-8,420 / 16,480-16,560 described the split-keep fallback:
-        // the zone splitter folded this terrain, so explicit corridor assembly came back non-manifold and was
-        // deferred. With splits resolved per edge it now welds watertight (one border loop, no non-manifold
-        // edge), keeping the terrain's own triangles around the corridor - hence the extra vertices.
-        Assert.InRange(result!.VertexCount, 8740, 8780);
-        Assert.InRange(result.FaceCount, 17220, 17290);
-        Assert.Contains(result.Diagnostics, d => d.Contains("explicit corridor construction", StringComparison.Ordinal));
+        // Re-captured 2026-10-22. The explicit corridor result captured before (8,740-8,780 / 17,220-17,290)
+        // welded watertight, but its fill dropped the hard constraints the batter reached and moved the terrain
+        // on them by up to 12.6 m. The explicit tier now defers when it would lose a constraint, and split-keep
+        // keeps them all.
+        Assert.InRange(result!.VertexCount, 9090, 9140);
+        Assert.InRange(result.FaceCount, 17920, 17990);
+        Assert.Contains(result.Diagnostics, d => d.Contains("terrain conform (split-keep", StringComparison.Ordinal));
+        (double moved, double movedX, double movedY) = ConstraintHeightCheck.WorstChange(
+            hardConstraints, new IndexedTriMesh(vertices, vertexCount, faces, faceCount), result);
+        Assert.True(moved <= 1e-3, $"The grade moved a hard constraint by {moved:0.###} at ({movedX:0.##}, {movedY:0.##}).");
 
         MeshTopologyValidator.BoundaryGraphAnalysis topology =
             MeshTopologyValidator.AnalyzeBoundaryGraph(result.Faces, result.FaceCount);
