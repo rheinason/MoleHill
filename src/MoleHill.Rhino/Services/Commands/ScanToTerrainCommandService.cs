@@ -29,32 +29,43 @@ internal static partial class ScanToTerrainCommandService
         if (get.Get() != GetResult.Object) return get.CommandResult();
         RhinoObject? source = get.Object(0).Object();
         string sourceName = string.IsNullOrWhiteSpace(source?.Attributes.Name) ? "scan" : source!.Attributes.Name;
-        IndexedTriMesh mesh = IndexedTriMesh.Empty; ScanColourSource? colours = null; ScanPointCloud? cloud = null;
-        string? diagnostic;
+        // Only what touches the document happens here. Copying a million triangles and decoding an 8k texture
+        // froze Rhino for seconds before the panel appeared, so that is read in the background while it opens.
+        Task<(IndexedTriMesh Mesh, ScanColourSource? Colours, ScanPointCloud? Cloud, string Diagnostic)> reading;
         try
         {
             if (source?.Geometry is PointCloud points)
             {
-                cloud = ScanPointCloudReader.Read(points);
-                diagnostic = FormattableString.Invariant($"{cloud.Count:N0} cloud observations; ") + (cloud.Colours == null ? "no colour" : "point colours") +
+                ScanPointCloud cloud = ScanPointCloudReader.Read(points);
+                string note = FormattableString.Invariant($"{cloud.Count:N0} cloud observations; ") + (cloud.Colours == null ? "no colour" : "point colours") +
                     (cloud.Classes == null ? "." : "; retained LAS classes.");
+                reading = Task.FromResult((IndexedTriMesh.Empty, (ScanColourSource?)null, (ScanPointCloud?)cloud, note));
             }
             else if (get.Object(0).Mesh() is Mesh picked)
             {
-                using Mesh copy = picked.DuplicateMesh();
-                if (!ScanMeshReader.TryRead(doc, source, copy, out mesh, out colours, out diagnostic))
-                { RhinoApp.WriteLine(diagnostic); return Result.Failure; }
+                Mesh copy = picked.DuplicateMesh();
+                ScanMeshReader.DiffuseTexture? texture = ScanMeshReader.FindDiffuse(doc, source, copy, out string? textureNote);
+                reading = Task.Run(() =>
+                {
+                    using (copy)
+                    {
+                        if (!ScanMeshReader.TryRead(copy, texture, textureNote, out IndexedTriMesh mesh, out ScanColourSource? colours, out string? note))
+                            throw new InvalidOperationException(note ?? "The scan could not be read.");
+                        return (mesh, colours, (ScanPointCloud?)null, note ?? string.Empty);
+                    }
+                });
             }
             else return Result.Failure;
         }
         catch (ArgumentException error) { RhinoApp.WriteLine(error.Message); return Result.Failure; }
-        RhinoApp.WriteLine(diagnostic);
         source?.Select(false);
-        using var panel = new TerrainCurveExtractionDialog(doc, units, "Scan to Terrain", sourceName, diagnostic ?? string.Empty,
-            ScanToTerrainSettings.Load(units), (settings, token, progress, preview) =>
-                ComputeAsync(mesh, colours, cloud, (ScanToTerrainSettings)settings, units, token, progress, preview), source?.Id);
-        RhinoApp.SetCommandPrompt("Scan to terrain — adjust the floating panel; Enter keeps a ready preview, Esc cancels");
-        if (!panel.ShowSemiModal(doc, RhinoEtoApp.MainWindowForDocument(doc)) || panel.Prepared?.Recovery == null)
+        using var panel = new TerrainCurveExtractionPanel(doc, units, "Scan to Terrain", sourceName, "Reading the scan…",
+            ScanToTerrainSettings.Load(units), async (settings, token, progress, preview) =>
+            {
+                var input = await reading;
+                return await ComputeAsync(input.Mesh, input.Colours, input.Cloud, (ScanToTerrainSettings)settings, units, token, progress, preview);
+            }, source?.Id, manualRecompute: true, loading: ReadSummary(reading));
+        if (!panel.ShowAndWait() || panel.Prepared?.Recovery == null)
             return Result.Cancel;
         TerrainCurveExtractionPrepared prepared = panel.Prepared;
         ScanTerrainPipeline.Result pipeline = prepared.Scan!;
@@ -70,7 +81,7 @@ internal static partial class ScanToTerrainCommandService
         double? sourceBottom = source?.Geometry?.GetBoundingBox(true) is { IsValid: true } box ? box.Min.Z : null;
         try
         {
-            added = TerrainCurveExtractionOutput.Add(doc, recovery, $"Scan {sourceName}", "Scan to Terrain",
+            added = TerrainCurveExtractionOutput.Add(doc, recovery, sourceName, "Scan to Terrain",
                 onLayer => AddExtras(doc, pipeline, solids, accepted.AddGroundMesh, sourceBottom, onLayer), out root);
         }
         finally { foreach (Brep solid in solids) solid.Dispose(); }
@@ -83,6 +94,13 @@ internal static partial class ScanToTerrainCommandService
                 FormattableString.Invariant($"{pipeline.Ground.ClassifiedGroundDisagreements:N0} differ from the independent filter by more than its initial allowance."));
         if (added > 0) RhinoApp.WriteLine($"Added to the layers under '{root}'.");
         doc.Views.Redraw(); return added > 0 ? Result.Success : Result.Failure;
+    }
+
+    private static async Task<string> ReadSummary(Task<(IndexedTriMesh Mesh, ScanColourSource? Colours, ScanPointCloud? Cloud, string Diagnostic)> reading)
+    {
+        string diagnostic = (await reading).Diagnostic;
+        RhinoApp.WriteLine(diagnostic);
+        return diagnostic;
     }
 
     internal static async Task<TerrainCurveExtractionPrepared> ComputeAsync(IndexedTriMesh mesh, ScanColourSource? colours, ScanPointCloud? cloud,
@@ -99,7 +117,7 @@ internal static partial class ScanToTerrainCommandService
     }
 
     private static Guid AddGroundMesh(
-        RhinoDoc doc, IndexedTriMesh groundMesh, Func<string, System.Drawing.Color, string, ObjectAttributes> onLayer)
+        RhinoDoc doc, IndexedTriMesh groundMesh, Func<TerrainCurveExtractionStyle.Style, string, ObjectAttributes> onLayer)
     {
         using var mesh = new Mesh();
         double[] vertices = groundMesh.Vertices;
@@ -109,11 +127,11 @@ internal static partial class ScanToTerrainCommandService
         for (int f = 0; f < groundMesh.FaceCount; f++)
             mesh.Faces.AddFace(faces[f * 3], faces[(f * 3) + 1], faces[(f * 3) + 2]);
         MeshNormalOrientation.UnifyAndComputeNormalsWelded(mesh);
-        return doc.Objects.AddMesh(mesh, onLayer(TerrainCurveExtractionStyle.Ground.Layer, TerrainCurveExtractionStyle.Ground.Colour, "Scan ground"));
+        return doc.Objects.AddMesh(mesh, onLayer(TerrainCurveExtractionStyle.Ground, TerrainCurveExtractionStyle.Ground.Name));
     }
 
     private static IEnumerable<Guid> AddExtras(RhinoDoc doc, ScanTerrainPipeline.Result pipeline,
-        IReadOnlyList<Brep> buildingSolids, bool showGround, double? sourceBottom, Func<string, System.Drawing.Color, string, ObjectAttributes> onLayer)
+        IReadOnlyList<Brep> buildingSolids, bool showGround, double? sourceBottom, Func<TerrainCurveExtractionStyle.Style, string, ObjectAttributes> onLayer)
     {
         foreach (ScanWalls.Wall wall in pipeline.Walls)
         {
@@ -121,7 +139,7 @@ internal static partial class ScanToTerrainCommandService
             using Curve toe = ScanCurveBuilder.Build(wall.ToeCurve);
             ObjectAttributes Attributes(string side)
             {
-                ObjectAttributes attributes = onLayer(TerrainCurveExtractionStyle.Walls.Layer, TerrainCurveExtractionStyle.Walls.Colour, $"Wall {side}");
+                ObjectAttributes attributes = onLayer(TerrainCurveExtractionStyle.Walls, $"Wall {side}");
                 attributes.SetUserString("MoleHill.Scan.MeanStep", Format(wall.MeanHeight));
                 attributes.SetUserString("MoleHill.Scan.MeasuredLength", Format(wall.Length));
                 ScanCurveBuilder.StampEvidence(attributes, side == "top" ? wall.TopCurve : wall.ToeCurve);

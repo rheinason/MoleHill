@@ -12,7 +12,7 @@ namespace MoleHill.Rhino.Services;
 internal static partial class ScanToTerrainCommandService
 {
     private static IEnumerable<Guid> AddSurfaceOutput(RhinoDoc doc, ScanTerrainPipeline.Result pipeline,
-        double? sourceBottom, Func<string, Color, string, ObjectAttributes> onLayer)
+        double? sourceBottom, Func<TerrainCurveExtractionStyle.Style, string, ObjectAttributes> onLayer)
     {
         if (pipeline.Areas != null && pipeline.IncludeAreaBoundaries)
         {
@@ -21,7 +21,7 @@ internal static partial class ScanToTerrainCommandService
                 bool paved = boundary.Kind == ScanSurfaceKind.Paved;
                 var style = paved ? TerrainCurveExtractionStyle.PavedAreas : TerrainCurveExtractionStyle.SoftAreas;
                 using Curve curve = ScanCurveBuilder.Build(boundary.Curve);
-                ObjectAttributes attributes = onLayer(style.Layer, style.Colour, style.Layer + " — draped boundary");
+                ObjectAttributes attributes = onLayer(style, style.Name);
                 // Paved outlines carry the paving in the rebuild; soft outlines are drawings only.
                 attributes.SetUserString("MoleHill.Scan.GeometryRole", paved ? "Classification boundary and elevation breakline" : "Classification boundary");
                 yield return doc.Objects.AddCurve(curve, attributes);
@@ -35,7 +35,7 @@ internal static partial class ScanToTerrainCommandService
             var style = edge.IsKerb ? TerrainCurveExtractionStyle.Kerbs : TerrainCurveExtractionStyle.PavingEdges;
             ObjectAttributes Attributes(string name, ScanCurveGeometry geometry)
             {
-                ObjectAttributes attributes = onLayer(style.Layer, style.Colour, name);
+                ObjectAttributes attributes = onLayer(style, name);
                 attributes.SetUserString("MoleHill.Scan.MeasuredStep", Format(edge.MeanStep));
                 attributes.SetUserString("MoleHill.Scan.StepEvidenceShare", Format(edge.MeasuredShare));
                 ScanCurveBuilder.StampEvidence(attributes, geometry);
@@ -58,7 +58,7 @@ internal static partial class ScanToTerrainCommandService
     /// Priority by elevation, the default, the inner area wins where the outer area's loop covers it.
     /// </summary>
     private static IEnumerable<Guid> AddZoneHatches(RhinoDoc doc, ScanSurfaceAreas.Result areas, double? sourceBottom,
-        Func<string, Color, string, ObjectAttributes> onLayer)
+        Func<TerrainCurveExtractionStyle.Style, string, ObjectAttributes> onLayer)
     {
         double lowest = Math.Min(areas.Ground.Values.Where(double.IsFinite).DefaultIfEmpty(0).Min(), sourceBottom ?? double.PositiveInfinity);
         double floor = Math.Floor(lowest) - 1, tolerance = doc.ModelAbsoluteTolerance;
@@ -96,7 +96,7 @@ internal static partial class ScanToTerrainCommandService
             int depth = regions.Count(other => !ReferenceEquals(other.Hatch, region.Hatch) && Inside(region, other));
             region.Hatch.Translate(0, 0, depth * .01);
             var style = region.Kind == ScanSurfaceKind.Paved ? TerrainCurveExtractionStyle.PavedZones : TerrainCurveExtractionStyle.SoftZones;
-            ObjectAttributes attributes = onLayer(style.Layer, style.Colour, style.Layer + " — area fill");
+            ObjectAttributes attributes = onLayer(style, style.Name);
             attributes.SetUserString("MoleHill.Scan.GeometryRole", "Classification zone");
             yield return doc.Objects.AddHatch(region.Hatch, attributes);
             region.Hatch.Dispose();

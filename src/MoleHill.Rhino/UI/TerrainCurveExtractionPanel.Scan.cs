@@ -5,7 +5,7 @@ using MoleHill.Rhino.Services;
 namespace MoleHill.Rhino.UI;
 
 /// <summary>Optional scan preparation rows and evidence; ordinary terrain extraction skips this stage.</summary>
-internal sealed partial class TerrainCurveExtractionDialog
+internal sealed partial class TerrainCurveExtractionPanel
 {
     private readonly DynamicLayout _scanAdvanced = new() { Spacing = new Eto.Drawing.Size(8, 7) };
 

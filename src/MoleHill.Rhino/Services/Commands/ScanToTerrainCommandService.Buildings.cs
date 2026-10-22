@@ -116,14 +116,14 @@ internal static partial class ScanToTerrainCommandService
     }
 
     private static IEnumerable<Guid> AddBuildingOutput(RhinoDoc doc, ScanBuildings.Result? result,
-        IReadOnlyList<Brep> solids, Func<string, Color, string, ObjectAttributes> onLayer)
+        IReadOnlyList<Brep> solids, Func<TerrainCurveExtractionStyle.Style, string, ObjectAttributes> onLayer)
     {
         if (result == null)
             yield break;
         for (int i = 0; i < result.Buildings.Count; i++)
         {
             ScanBuildings.Building building = result.Buildings[i];
-            ObjectAttributes attributes = onLayer(TerrainCurveExtractionStyle.Buildings.Layer, TerrainCurveExtractionStyle.Buildings.Colour, $"Building {building.RoofKind}");
+            ObjectAttributes attributes = onLayer(TerrainCurveExtractionStyle.Buildings, $"Building {building.RoofKind}");
             attributes.SetUserString("MoleHill.Scan.RoofKind", building.RoofKind.ToString());
             attributes.SetUserString("MoleHill.Scan.RoofFallback", building.IsFallback ? "Yes" : "No");
             attributes.SetUserString("MoleHill.Scan.GroundHeight", Format(building.GroundHeight));

@@ -162,9 +162,16 @@ TriangleNet (vendored)  ←  MoleHill.Core  ←  MoleHill.Grasshopper (GH host)
   (`WallSlopeDegrees`): a 2.5D rebuild cannot stand a wall up, and measured they missed by the wall's height.
   The error-driven contours and ridge/valley lines it replaced missed tolerance on a 12 ha survey after an
   hour; interval recovery with creases met it in 90 s and used 25-60% fewer inputs on graded terrain.
-  The cap is Recovery inputs per hectare (1,000). The command adds them under a fresh `Terrain to Curves {source}`
-  layer root, grouped and named by role. Both commands use `TerrainCurveExtractionService`, the same
-  fitted contour builder, preview conduit, output writer and `TerrainCurveExtractionDialog`.
+  The cap is Recovery inputs per hectare (1,000). The command adds them to the input layers of a fresh
+  `MoleHill {source} curves` terrain root, grouped and named by role. Both commands use `TerrainCurveExtractionService`, the same
+  fitted contour builder, preview conduit, output writer and `TerrainCurveExtractionPanel`.
+- **Extraction output lands in a terrain's own input tree.** `TerrainCurveExtractionOutput` writes under
+  `MoleHill {name}::Input` (`TerrainLayerNaming.InputRoot`): `Contours`, `Spots`, `Boundary`, `Zones::Paved` /
+  `Zones::Soft`, and one `Breaklines` layer for every line the terrain must keep (scan walls, kerbs, paving
+  edges, paved outlines, recovered creases), each object coloured by its kind. Site context that drives
+  nothing (buildings, soft outlines, the check mesh) goes under `Context`. New layers take the shipped
+  template's colour and print width, so a terrain created with that name reads them where it already looks.
+  Layers are per name and never reused: a taken root becomes `name 2`.
   A picked DEM or the active terrain's final built mesh goes straight to recovery; only scan input
   runs ground filtering. Esc/Cancel discards the preview; Keep writes the completed result. While a preview
   runs, Recompute reads Stop and the status counts the elapsed time. A terrain of 100,000 vertices or more
@@ -176,14 +183,16 @@ TriangleNet (vendored)  ←  MoleHill.Core  ←  MoleHill.Grasshopper (GH host)
   footprint. Ground at fill edges uses a local median to suppress isolated wall-foot heights.
   `ScanGroundMesher` averages to a coarser spacing, preserving simple border loops for `TerrainCurveRecovery`.
   The host reads a Z-up mesh or cloud and writes borders, contours, ridge/valley lines when requested, and spot
-  points under a fresh `Scan {source}` root in one Undo operation. Ground mesh output is an opt-in check.
+  points into a fresh `MoleHill {source}` input tree in one Undo operation. Ground mesh output is an opt-in check.
   Physical defaults use document units. Esc/Cancel discards this scan preview before output; Keep accepts
   a completed preview. Tolerance is checked against inferred ground vertices, not hidden surveyed
   ground. A spent curve budget is reported with the residual error. Phase 2's `ScanWalls` combines narrow
   bands of unexplained rises into paired measured top/toe rails, rejecting short fragments, broad ramps
   and fits outside the footprint. `ScanAlignmentFitter` supplies paired supported line/arc plans with
   independent height profiles; `ScanCurveGeometry` retains rational pieces and inferred intervals.
-  `ScanCurveBuilder` builds identical editable NURBS for preview and Keep on `Walls and edges`.
+  `ScanCurveBuilder` builds identical editable NURBS for preview and Keep on `Input::Breaklines`. Row- and
+  column-scan chains of one diagonal step are joined across the band and repeats dropped (`LinkAcrossBand`,
+  `WithoutRepeats`); fitting runs in parallel.
   Walls require observed ground; original mesh/cloud samples establish kerb evidence. Short compatible
   gaps may be bridged, with explicit inferred intervals. `ScanSurfaceGraph` fits shared class interfaces
   once; duplicate complete loops are drawn once while remaining in clipping topology. Shared junction
@@ -195,7 +204,7 @@ TriangleNet (vendored)  ←  MoleHill.Core  ←  MoleHill.Grasshopper (GH host)
   A scan's gap fills (faces textured far below its median texel density) are `Unmeasured`: interval
   recovery reports their area and its remaining `Misses`, but measures neither tolerance nor spots there.
   Wall controls live on the floating panel; physical defaults use document units.
-  `ScanMeshReader` captures diffuse bitmap bytes and face-corner UVs on the UI thread, preserving scan
+  `ScanMeshReader` finds the diffuse bitmap on the UI thread and decodes it with face-corner UVs off it, preserving scan
   seams; vertex colours are the fallback. Pure `ScanTerrainPipeline` builds the wall-constrained
   reference before `ScanSurfaceAreas` classifies observed ground from chromaticity, slope and roughness.
   Classification runs on a colour lattice up to four times finer than the height grid
@@ -235,8 +244,12 @@ TriangleNet (vendored)  ←  MoleHill.Core  ←  MoleHill.Grasshopper (GH host)
   exclude vegetation candidates. `IsGround` still describes the top observation, excluding roofs above
   a lower ground return from measured step/colour evidence. The host reads retained class bytes from
   `PointCloud.UserDictionary["MoleHill.Scan.Classification"]`; source importers must retain them.
-  `UI/TerrainCurveExtractionDialog` is a document-parented semi-modal panel with every setting and output/preview
-  toggle, asynchronous debounced computation, staged viewport output and Keep/Cancel. Core publishes
+  `UI/TerrainCurveExtractionPanel` is a modeless, document-owned floating panel with every setting and output/preview
+  toggle, asynchronous computation, staged viewport output and Keep/Cancel. The command waits in a
+  command-line `GetOption` (`ShowAndWait`; Run/Keep options, Enter keeps, Esc cancels) and the panel's buttons
+  reach it as custom messages, so the views stay free to pan, zoom and rotate — a semi-modal dialog disabled
+  Rhino's main window. Scan to Terrain opens the panel at once and reads the mesh and texture in the
+  background (`ScanMeshReader.FindDiffuse` on the UI thread, `TryRead` off it); it runs only on Run. Core publishes
   stage snapshots; the UI marshals them and ignores stale generations. Its `.Scan` partial adds optional
   preparation controls. `TerrainCurveExtractionSettings` owns common physical cache conversion and
   `ScanToTerrainSettings` adds scan controls (saved only on Keep in separate command namespaces).

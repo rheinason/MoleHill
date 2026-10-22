@@ -13,6 +13,10 @@ int inputCap = int.TryParse(args.FirstOrDefault(a => a.StartsWith("--max-inputs=
 double inputsPerHectare = args.Any(a => a.StartsWith("--max-inputs=")) ? 0
     : double.TryParse(args.FirstOrDefault(a => a.StartsWith("--inputs-per-ha="))?.Split('=')[1], NumberStyles.Float, CultureInfo.InvariantCulture, out double requestedDensity) ? requestedDensity : 500;
 bool withBuildings = args.Contains("--buildings");
+double smoothShare = double.TryParse(args.FirstOrDefault(a => a.StartsWith("--smooth-share="))?.Split('=')[1], NumberStyles.Float, CultureInfo.InvariantCulture, out double requestedSmooth) ? requestedSmooth : .45;
+double raisedShare = double.TryParse(args.FirstOrDefault(a => a.StartsWith("--raised-share="))?.Split('=')[1], NumberStyles.Float, CultureInfo.InvariantCulture, out double requestedShare) ? requestedShare : .5;
+double planar = double.TryParse(args.FirstOrDefault(a => a.StartsWith("--planar="))?.Split('=')[1], NumberStyles.Float, CultureInfo.InvariantCulture, out double requestedPlanar) ? requestedPlanar : .65;
+double turfPlanar = double.TryParse(args.FirstOrDefault(a => a.StartsWith("--turf-planar="))?.Split('=')[1], NumberStyles.Float, CultureInfo.InvariantCulture, out double requestedTurf) ? requestedTurf : .85;
 double partDrop = double.TryParse(args.FirstOrDefault(a => a.StartsWith("--part-drop="))?.Split('=')[1], NumberStyles.Float, CultureInfo.InvariantCulture, out double requestedDrop) ? requestedDrop : 1.5;
 int roofFaces = int.TryParse(args.FirstOrDefault(a => a.StartsWith("--roof-faces="))?.Split('=')[1], out int requestedFaces) ? requestedFaces : 12;
 if (inputCap < 1) throw new ArgumentOutOfRangeException(nameof(args), "Maximum inputs must be positive.");
@@ -32,7 +36,7 @@ using var bitmap = new BinaryReader(File.OpenRead(args[1]));
 int w = bitmap.ReadInt32(), h = bitmap.ReadInt32(); var colours = new ScanColourSource(new ScanTexture(w, h, bitmap.ReadBytes(w * h * 3)), uv.ToArray());
 var result = ScanTerrainPipeline.Build(mesh, colours, new()
 {
-    Ground = new() { SmallestObject = 2, LargestObject = 48, InitialThreshold = .3, MaximumThreshold = 4, Margin = .5, MinimumObjectArea = 20, PartDrop = partDrop },
+    Ground = new() { SmallestObject = 2, LargestObject = 48, InitialThreshold = .3, MaximumThreshold = 4, Margin = .5, MinimumObjectArea = 20, PartDrop = partDrop, RaisedPerimeterShare = raisedShare, SmoothRaisedPerimeterShare = smoothShare },
     GroundSpacing = 1,
     PlanTolerance = .5,
     Walls = new() { MinimumHeight = .6, MinimumLength = 3, PlanTolerance = .25, VerticalTolerance = .1, BorderMargin = 2, MaximumWidth = 1 },
@@ -46,7 +50,7 @@ var result = ScanTerrainPipeline.Build(mesh, colours, new()
     StandingObjectHeight = .4,
     StandingObjectMaximumHeight = 2.5,
     // The native command's defaults: 20 m2, 2 m, roof tolerance 0.3 m, 2 m roof detail, 12 roof faces.
-    Buildings = withBuildings ? new() { MinimumArea = 20, MinimumHeight = 2, FootprintTolerance = .5, RoofTolerance = .3, MinimumRoofDetail = 2, MaximumRoofFaces = roofFaces } : null,
+    Buildings = withBuildings ? new() { MinimumArea = 20, MinimumHeight = 2, FootprintTolerance = .5, RoofTolerance = .3, MinimumRoofDetail = 2, MaximumRoofFaces = roofFaces, MinimumPlanarShare = planar, MinimumTurfPlanarShare = turfPlanar } : null,
     ReportProgress = stage => Console.WriteLine($"{timer.Elapsed.TotalSeconds:F1}s {stage}")
 });
 var grid = result.Ground.Ground;
@@ -108,6 +112,8 @@ if (result.Buildings is ScanBuildings.Result buildings)
         offset += solid.VertexCount;
     }
     Console.WriteLine($"{buildings.CandidateCount} raised candidates: {buildings.RejectedVegetation} rejected as vegetation, {buildings.RejectedGeometry} as geometry");
+    foreach (var rejected in buildings.Rejections)
+        Console.WriteLine(FormattableString.Invariant($"  rejected at ({rejected.X:F1}, {rejected.Y:F1}), {rejected.Area:F0} m2: {rejected.Reason}"));
     Console.WriteLine($"{buildings.Buildings.Count} buildings, {buildings.Buildings.Count(b => b.IsFallback)} fallbacks, median roof RMS {buildings.Buildings.Select(b => b.RoofRms).OrderBy(r => r).ElementAtOrDefault(buildings.Buildings.Count / 2):F3} m");
 }
 Console.WriteLine($"{result.Walls.Count} wall pairs; {result.Roads.Count(x => x.IsKerb)} kerb pairs; {result.Roads.Count(x => !x.IsKerb)} colour edges; {result.Areas.Boundaries.Count} areas; cell={grid.CellSize}");

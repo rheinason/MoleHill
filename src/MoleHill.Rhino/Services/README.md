@@ -445,16 +445,18 @@ layer table, dimension styles, and layouts can act on. See `docs/architecture.md
   or picked targets (`DrapeCommandService.TrySelectTargets`); a smooth curve applies through
   `TerrainInputCommandAlgorithms.ApplyProfileToEditPoints` unless `Fit=Exact`.
 - `Commands/ScanToTerrainCommandService.cs` + `.Surfaces.cs` + `.Buildings.cs` — `mhScanToTerrain`
-  captures mesh/cloud arrays, opens `UI/TerrainCurveExtractionDialog`, runs cancellable pure stages asynchronously,
+  opens `UI/TerrainCurveExtractionPanel` at once while the mesh and texture are read in the background, runs cancellable
+  pure stages asynchronously on Run,
   validates native building Breps, then writes accepted output in one group and command Undo. Native
   planar trimming starts precisely to preserve short shared arrangement edges.
   `ScanToTerrainSettings` holds model-unit settings with physical length/area cache values saved only
   on Keep. `TerrainCurveExtractionPreview` owns document-scoped native viewport resources; preview adds no
-  objects, changes no source visibility and creates no Undo. The dialog debounces changes, cancels old
+  objects, changes no source visibility and creates no Undo. The panel cancels old
   work and ignores stale callbacks; preview visibility changes need no computation. Its lifetime owns
-  timers, Escape handlers and the conduit. All settings live on the panel; the command line accepts
-  Enter/Esc after selecting the source. `Import/ScanMeshReader.cs` preserves UV seams and captures the
-  diffuse bitmap/vertex colours on the UI thread. `Import/ScanPointCloudReader.cs` copies point XYZ/RGB
+  timers and the conduit. All settings live on the panel; the command waits in a command-line get (Run/Keep
+  options, Enter keeps, Esc cancels) so the views stay navigable. Output goes to the `MoleHill {source}::Input`
+  tree (`TerrainCurveExtractionOutput`, `TerrainCurveExtractionStyle`). `Import/ScanMeshReader.cs` preserves UV seams:
+  `FindDiffuse` locates the bitmap on the UI thread and `TryRead` decodes it and the mesh off it. `Import/ScanPointCloudReader.cs` copies point XYZ/RGB
   and optional `PointCloud.UserDictionary["MoleHill.Scan.Classification"]` LAS byte codes in point order.
   See [Scan to Terrain](../../../docs/scan-to-terrain.md) for the input contract and acceptance evidence.
   Plan tolerance also governs building footprint cleanup without a hidden 0.5 m cap. Minimum patch

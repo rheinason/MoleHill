@@ -47,6 +47,19 @@ public static class ScanGround
         public double RaisedPerimeterShare { get; init; } = 0.5;
 
         /// <summary>
+        /// The share a roof-smooth region needs instead (see <see cref="SmoothTopRoughness"/>). A shed built against a
+        /// road has its roof flush with the road along one side: on Varðin a 270 m2 shed stood 6 m over the shore yet
+        /// up along only 49.7% of its edge. Rock and trees in the same band are rough, and keep the stricter share.
+        /// </summary>
+        public double SmoothRaisedPerimeterShare { get; init; } = 0.45;
+
+        /// <summary>
+        /// Median absolute Laplacian of the top over half-metre steps, below which a raised region reads as a roof.
+        /// Measured: roofs 0.03-0.11 m, trees and bushes 0.2-1.2 m, a rock outcrop 0.6 m.
+        /// </summary>
+        public double SmoothTopRoughness { get; init; } = 0.15;
+
+        /// <summary>
         /// A drop this tall inside a raised region that failed as a whole parts it, and each part is judged on its
         /// own; zero judges regions whole.
         /// </summary>
@@ -146,9 +159,13 @@ public static class ScanGround
         var isObject = new bool[sizes.Count];
         int objectCount = 0, stepCount = 0;
         int minimumNodes = options.MinimumObjectArea > 0.0 ? (int)Math.Ceiling(options.MinimumObjectArea / surface.NodeArea) : 0;
+        HashSet<int> smoothTops = SmoothTops(top, labels, sizes.Count, columns, rows, cell, options,
+            label => edges[label] > 0 && raisedEdges[label] < options.RaisedPerimeterShare * edges[label] &&
+                raisedEdges[label] >= options.SmoothRaisedPerimeterShare * edges[label]);
         for (int label = 0; label < sizes.Count; label++)
         {
-            isObject[label] = edges[label] == 0 || raisedEdges[label] >= options.RaisedPerimeterShare * edges[label];
+            isObject[label] = edges[label] == 0 || raisedEdges[label] >= options.RaisedPerimeterShare * edges[label] ||
+                smoothTops.Contains(label);
             if (!isObject[label])
                 stepCount++;
             else if (sizes[label] >= minimumNodes)
@@ -290,6 +307,8 @@ public static class ScanGround
             !double.IsFinite(options.MaximumThreshold) || options.MaximumThreshold < options.InitialThreshold ||
             !double.IsFinite(options.GroundSlope) || options.GroundSlope < 0 ||
             !double.IsFinite(options.RaisedPerimeterShare) || options.RaisedPerimeterShare < 0 || options.RaisedPerimeterShare > 1 ||
+            !double.IsFinite(options.SmoothRaisedPerimeterShare) || options.SmoothRaisedPerimeterShare < 0 || options.SmoothRaisedPerimeterShare > 1 ||
+            !double.IsFinite(options.SmoothTopRoughness) || options.SmoothTopRoughness < 0 ||
             !double.IsFinite(options.PartDrop) || options.PartDrop < 0 ||
             !double.IsFinite(options.Margin) || options.Margin < 0 ||
             !double.IsFinite(options.MinimumObjectArea) || options.MinimumObjectArea < 0)
@@ -363,6 +382,48 @@ public static class ScanGround
             if (members.Count >= minimumNodes) found++;
         }
         return found;
+    }
+
+    /// <summary>
+    /// The regions <paramref name="consider"/> picks whose top is roof-smooth: the median absolute Laplacian over
+    /// steps of about half a metre, at nodes whose four step neighbours lie in the same region, is at most
+    /// <see cref="Options.SmoothTopRoughness"/>. A region with too few such nodes is not judged smooth.
+    /// </summary>
+    private static HashSet<int> SmoothTops(double[] top, int[] labels, int labelCount, int columns, int rows, double cell,
+        Options options, Func<int, bool> consider)
+    {
+        var smooth = new HashSet<int>();
+        if (options.SmoothTopRoughness <= 0 || options.SmoothRaisedPerimeterShare >= options.RaisedPerimeterShare)
+            return smooth;
+        var samples = new Dictionary<int, List<double>>();
+        for (int label = 0; label < labelCount; label++)
+            if (consider(label))
+                samples[label] = new List<double>();
+        if (samples.Count == 0)
+            return smooth;
+        int k = Math.Max(1, (int)Math.Round(0.5 / cell));
+        for (int j = k; j < rows - k; j++)
+            for (int i = k; i < columns - k; i++)
+            {
+                int node = j * columns + i, label = labels[node];
+                if (label < 0 || !samples.TryGetValue(label, out List<double>? list))
+                    continue;
+                int w = node - k, e = node + k, s = node - k * columns, n = node + k * columns;
+                if (labels[w] != label || labels[e] != label || labels[s] != label || labels[n] != label)
+                    continue;
+                double laplacian = 4 * top[node] - top[w] - top[e] - top[s] - top[n];
+                if (double.IsFinite(laplacian))
+                    list.Add(Math.Abs(laplacian));
+            }
+        foreach ((int label, List<double> list) in samples)
+        {
+            if (list.Count < 10)
+                continue;
+            list.Sort();
+            if (list[list.Count / 2] <= options.SmoothTopRoughness)
+                smooth.Add(label);
+        }
+        return smooth;
     }
 
     private static bool[] FilterObjects(double[] top, int columns, int rows, double cell, Options options)

@@ -16,12 +16,50 @@ namespace MoleHill.Rhino.Services;
 /// <summary>Captures scan triangles and diffuse UV colours without normalising away texture seams.</summary>
 internal static class ScanMeshReader
 {
-    public static bool TryRead(RhinoDoc doc, RhinoObject? source, Mesh mesh, out IndexedTriMesh scan,
+    /// <summary>Where a scan's diffuse bitmap lives and how its UVs map onto it.</summary>
+    internal sealed record DiffuseTexture(string Path, bool RepeatU, bool RepeatV, Transform UvTransform);
+
+    /// <summary>
+    /// Finds the scan's diffuse bitmap through its material. Touches the document, so it runs on the UI thread;
+    /// everything slow (array copies, decoding the bitmap) is left to <see cref="TryRead"/>.
+    /// </summary>
+    public static DiffuseTexture? FindDiffuse(RhinoDoc doc, RhinoObject? source, Mesh mesh, out string? diagnostic)
+    {
+        diagnostic = null;
+        try
+        {
+            using Material? material = source?.GetMaterial(true);
+            using Texture? texture = material?.GetBitmapTexture();
+            using Material? converted = texture == null ? source?.GetRenderMaterial(true)?.ToMaterial(global::Rhino.Render.RenderTexture.TextureGeneration.Allow) : null;
+            using Texture? generated = converted?.GetBitmapTexture();
+            Texture? diffuse = texture ?? generated;
+            if (diffuse == null || mesh.TextureCoordinates.Count != mesh.Vertices.Count || string.IsNullOrWhiteSpace(diffuse.FileName))
+                return null;
+            string path = diffuse.FileName;
+            if (!File.Exists(path))
+                path = global::Rhino.Render.Utilities.FindFile(doc, path, true);
+            if (File.Exists(path))
+                return new DiffuseTexture(path, diffuse.WrapU == TextureUvwWrapping.Repeat, diffuse.WrapV == TextureUvwWrapping.Repeat,
+                    diffuse.ApplyUvwTransform ? diffuse.UvwTransform : Transform.Identity);
+            diagnostic = "The scan's diffuse bitmap could not be located; using available vertex colours or geometry only.";
+        }
+        catch (Exception error) when (error is ArgumentException or IOException or ExternalException or InvalidOperationException)
+        {
+            diagnostic = $"The scan's diffuse bitmap could not be read ({error.Message}); using available vertex colours or geometry only.";
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// Copies the triangles and samples colour from <paramref name="texture"/> or vertex colours. Reads only the
+    /// mesh it is given (a private copy) and the bitmap file, so it runs off the UI thread.
+    /// </summary>
+    public static bool TryRead(Mesh mesh, DiffuseTexture? texture, string? textureDiagnostic, out IndexedTriMesh scan,
         out ScanColourSource? colours, out string? diagnostic)
     {
         scan = IndexedTriMesh.Empty;
         colours = null;
-        diagnostic = null;
+        diagnostic = textureDiagnostic;
         Point3d[] points = mesh.Vertices.ToPoint3dArray();
         if (points.Length == 0 || mesh.Faces.Count == 0)
         {
@@ -41,54 +79,44 @@ internal static class ScanMeshReader
         var faces = new List<int>(mesh.Faces.Count * 3);
         foreach (MeshFace face in mesh.Faces)
         {
-            faces.AddRange(new[] { face.A, face.B, face.C });
-            if (face.IsQuad)
-                faces.AddRange(new[] { face.A, face.C, face.D });
-        }
-        if (faces.Any(index => index < 0 || index >= points.Length))
-        {
-            diagnostic = "A scan triangle refers to a missing vertex.";
-            return false;
-        }
-        scan = IndexedTriMesh.FromArrays(xyz, faces.ToArray());
-        try
-        {
-            using Material? material = source?.GetMaterial(true);
-            using Texture? texture = material?.GetBitmapTexture();
-            using Material? converted = texture == null ? source?.GetRenderMaterial(true)?.ToMaterial(global::Rhino.Render.RenderTexture.TextureGeneration.Allow) : null;
-            using Texture? generated = converted?.GetBitmapTexture();
-            Texture? diffuse = texture ?? generated;
-            if (diffuse != null && mesh.TextureCoordinates.Count == points.Length && !string.IsNullOrWhiteSpace(diffuse.FileName))
+            if (face.A < 0 || face.B < 0 || face.C < 0 || face.D < 0 ||
+                face.A >= points.Length || face.B >= points.Length || face.C >= points.Length || face.D >= points.Length)
             {
-                string path = diffuse.FileName;
-                if (!File.Exists(path))
-                    path = global::Rhino.Render.Utilities.FindFile(doc, path, true);
-                if (File.Exists(path))
-                {
-                    using var bitmap = new Bitmap(path);
-                    if ((long)bitmap.Width * bitmap.Height > 128_000_000)
-                        throw new InvalidOperationException("The diffuse bitmap exceeds 128 million pixels.");
-                    ScanTexture image = Decode(bitmap, diffuse.WrapU == TextureUvwWrapping.Repeat, diffuse.WrapV == TextureUvwWrapping.Repeat);
-                    var uv = new float[scan.FaceCount * 6];
-                    Transform transform = diffuse.ApplyUvwTransform ? diffuse.UvwTransform : Transform.Identity;
-                    for (int corner = 0; corner < scan.FaceCount * 3; corner++)
-                    {
-                        Point2f t = mesh.TextureCoordinates[scan.Faces[corner]];
-                        var p = new Point3d(t.X, t.Y, 0);
-                        p.Transform(transform);
-                        uv[corner * 2] = (float)p.X;
-                        uv[corner * 2 + 1] = (float)p.Y;
-                    }
-                    colours = new ScanColourSource(image, uv);
-                    diagnostic = FormattableString.Invariant($"Diffuse colour: {bitmap.Width} × {bitmap.Height} bitmap sampled through triangle UVs.");
-                    return true;
-                }
-                diagnostic = "The scan's diffuse bitmap could not be located; using available vertex colours or geometry only.";
+                diagnostic = "A scan triangle refers to a missing vertex.";
+                return false;
+            }
+            faces.Add(face.A); faces.Add(face.B); faces.Add(face.C);
+            if (face.IsQuad)
+            {
+                faces.Add(face.A); faces.Add(face.C); faces.Add(face.D);
             }
         }
-        catch (Exception error) when (error is ArgumentException or IOException or ExternalException or InvalidOperationException)
+        scan = IndexedTriMesh.FromArrays(xyz, faces.ToArray());
+        if (texture != null)
         {
-            diagnostic = $"The scan's diffuse bitmap could not be read ({error.Message}); using available vertex colours or geometry only.";
+            try
+            {
+                using var bitmap = new Bitmap(texture.Path);
+                if ((long)bitmap.Width * bitmap.Height > 128_000_000)
+                    throw new InvalidOperationException("The diffuse bitmap exceeds 128 million pixels.");
+                ScanTexture image = Decode(bitmap, texture.RepeatU, texture.RepeatV);
+                var uv = new float[scan.FaceCount * 6];
+                for (int corner = 0; corner < scan.FaceCount * 3; corner++)
+                {
+                    Point2f t = mesh.TextureCoordinates[scan.Faces[corner]];
+                    var p = new Point3d(t.X, t.Y, 0);
+                    p.Transform(texture.UvTransform);
+                    uv[corner * 2] = (float)p.X;
+                    uv[corner * 2 + 1] = (float)p.Y;
+                }
+                colours = new ScanColourSource(image, uv);
+                diagnostic = FormattableString.Invariant($"Diffuse colour: {bitmap.Width} × {bitmap.Height} bitmap sampled through triangle UVs.");
+                return true;
+            }
+            catch (Exception error) when (error is ArgumentException or IOException or ExternalException or InvalidOperationException)
+            {
+                diagnostic = $"The scan's diffuse bitmap could not be read ({error.Message}); using available vertex colours or geometry only.";
+            }
         }
         if (mesh.VertexColors.Count == points.Length)
         {

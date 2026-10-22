@@ -214,6 +214,31 @@ public sealed class ScanGroundTests
             Assert.True(result.IsGround[Node(x, y)], $"the knoll at {x}, {y} was taken away");
     }
 
+    [Theory]
+    [InlineData(0.0, false)]
+    [InlineData(0.5, true)]
+    public void Build_ShedFlushWithTheRoad_KeepsASmoothRoofButNotRoughGround(double roughness, bool ground)
+    {
+        // A 12 x 16 m shed whose flat roof is level with the road behind it: up 6 m over the yard on three sides,
+        // flush along the fourth. Required to stand up along 90% of its edge it fails as a whole, as Vardin's
+        // shed did at 50%; the smooth-roof share (45%) keeps it, and the same region rough as rock does not.
+        static double Road(double x) => x > 45 ? 6.0 : 0.0;
+        double Site(double x, double y) => x is >= 33 and <= 45 && y is >= 30 and <= 46
+            ? 6.0 + roughness * Math.Sin(x * 7) * Math.Cos(y * 5)
+            : Road(x);
+        var options = new ScanGround.Options
+        {
+            CellSize = Metric.CellSize, SmallestObject = Metric.SmallestObject, LargestObject = Metric.LargestObject,
+            InitialThreshold = Metric.InitialThreshold, MaximumThreshold = Metric.MaximumThreshold, Margin = Metric.Margin,
+            MinimumObjectArea = Metric.MinimumObjectArea, RaisedPerimeterShare = 0.9, SmoothRaisedPerimeterShare = 0.45,
+        };
+        ScanGround.Result result = ScanGround.Build(HeightField(80, 76, 0.25, Site), options);
+        ScanGrid grid = result.Ground;
+        int node = (int)Math.Round(38 / grid.CellSize) * grid.Columns + (int)Math.Round(38 / grid.CellSize);
+
+        Assert.Equal(ground, result.IsGround[node]);
+    }
+
     [Fact]
     public void Build_SteepPlainSlope_IsAllGround()
     {

@@ -99,6 +99,19 @@ public sealed class ScanWallsTests
     }
 
     [Fact]
+    public void Trace_SmearedDiagonalStep_TracesOneWallNotFragments()
+    {
+        // Row and column scans each keep the first crossing of a smeared step, a band apart on a 45-degree wall, so
+        // the dual-edge chain broke every cell or two: Vardin's quay and road-edge walls were all lost that way.
+        // Joined, the row and column pieces each make the whole wall, and only one copy may be kept.
+        IReadOnlyList<ScanWalls.Wall> walls = ScanWalls.Trace(
+            Grid((x, y) => 1.5 * Math.Clamp(((x - y) / Math.Sqrt(2) + 0.3) / 0.6, 0, 1)), Options() with { MaximumWidth = 1 });
+        ScanWalls.Wall wall = Assert.Single(walls);
+        Assert.True(wall.Length > 30, $"length {wall.Length:F1}");
+        Assert.InRange(wall.MeanHeight, 1.3, 1.6);
+    }
+
+    [Fact]
     public void Trace_RectangularTerrace_ClosesBothRailsWithoutAHeightSpike()
     {
         ScanWalls.Wall wall = Assert.Single(ScanWalls.Trace(Grid((x, y) => x >= 8 && x <= 22 && y >= 8 && y <= 22 ? 2 : 0), Options()));

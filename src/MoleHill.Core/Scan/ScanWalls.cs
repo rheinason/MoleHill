@@ -89,7 +89,7 @@ public static class ScanWalls
         }
 
         var used = new bool[crossings.Count];
-        var result = new List<Wall>();
+        var chains = new List<List<Crossing>>();
         for (int i = 0; i < crossings.Count; i++)
         {
             if (incoming.GetValueOrDefault(crossings[i].Start) != 1 || outgoing[crossings[i].Start].Count != 1)
@@ -97,7 +97,26 @@ public static class ScanWalls
         }
         for (int i = 0; i < crossings.Count; i++)
             Follow(i); // Closed chains have no endpoint.
-        return result;
+        // Fitting dominates (tens of milliseconds a chain) and every chain fits alone; rejections are reported
+        // afterwards, in chain order, because the callback counts.
+        List<List<Crossing>> linked = LinkAcrossBand(chains, cornerColumns, band);
+        var fitted = new Wall?[linked.Count];
+        var rejected = new List<string>?[linked.Count];
+        Parallel.For(0, linked.Count, new ParallelOptions { CancellationToken = options.CancellationToken }, i =>
+        {
+            List<string>? reasons = null;
+            fitted[i] = Fit(linked[i], options.ReportRejected == null ? null : reason => (reasons ??= new()).Add(reason));
+            rejected[i] = reasons;
+        });
+        var result = new List<Wall>();
+        for (int i = 0; i < linked.Count; i++)
+        {
+            foreach (string reason in rejected[i] ?? Enumerable.Empty<string>())
+                options.ReportRejected!(reason);
+            if (fitted[i] is Wall wall)
+                result.Add(wall);
+        }
+        return WithoutRepeats(result, band * ground.CellSize, options.MinimumHeight * 0.5);
 
         void Add(int a, int b, int stride, int start, int end)
         {
@@ -153,9 +172,14 @@ public static class ScanWalls
                     break;
                 current = next[0];
             }
+            chains.Add(chain);
+        }
+
+        Wall? Fit(List<Crossing> chain, Action<string>? reportRejected)
+        {
             double length = chain.Count * ground.CellSize;
             if (length < options.MinimumLength || chain.Count < 2)
-                return;
+                return null;
             var top = new List<double>();
             var toe = new List<double>();
             foreach (Crossing edge in chain)
@@ -170,17 +194,22 @@ public static class ScanWalls
                 toe.AddRange(toe.Take(3).ToArray());
             }
             if (top.Count < 6 || toe.Count < 6)
-                return;
+                return null;
             double plan = options.PlanTolerance;
             if (!ScanAlignmentFitter.FitPair(top.ToArray(), toe.ToArray(), closed, ground.CellSize,
-                plan, options.VerticalTolerance, options.CancellationToken, out var topCurve, out var toeCurve, options.ReportRejected))
-                return;
+                plan, options.VerticalTolerance, options.CancellationToken, out var topCurve, out var toeCurve, reportRejected))
+                return null;
             if (!Inside(topCurve.PointsXyz) || !Inside(toeCurve.PointsXyz))
-                return;
+                return null;
+            if (Folded(topCurve.PointsXyz) || Folded(toeCurve.PointsXyz))
+            {
+                reportRejected?.Invoke("Wall rail folds: it climbs in place where a joined chain turned back.");
+                return null;
+            }
             length = (PlanLength(topCurve.PointsXyz) + PlanLength(toeCurve.PointsXyz)) * 0.5;
             if (length < options.MinimumLength)
-                return;
-            result.Add(new Wall
+                return null;
+            return new Wall
             {
                 TopCurve = topCurve,
                 ToeCurve = toeCurve,
@@ -190,7 +219,24 @@ public static class ScanWalls
                 MeanHeight = chain.Average(edge => edge.Height),
                 MinimumHeight = chain.Min(edge => edge.Height),
                 MaximumHeight = chain.Max(edge => edge.Height),
-            });
+            };
+        }
+
+        // A rail that changes height without moving in plan: the rebuild merges its coincident vertices and keeps one
+        // height (Varðin: a toe stood 0.64 m tall in one spot where a joint turned back, and paving missed by 0.66 m).
+        bool Folded(double[] points)
+        {
+            double still = ground.CellSize * 0.05;
+            for (int start = 0; start < points.Length; start += 3)
+                for (int i = start + 3; i < points.Length; i += 3)
+                {
+                    double dx = points[i] - points[start], dy = points[i + 1] - points[start + 1];
+                    if (dx * dx + dy * dy > still * still)
+                        break;
+                    if (Math.Abs(points[i + 2] - points[start + 2]) > options.VerticalTolerance)
+                        return true;
+                }
+            return false;
         }
 
         bool Inside(double[] points)
@@ -209,6 +255,164 @@ public static class ScanWalls
             points.Add(x);
             points.Add(y);
             points.Add(ground.Values[node]);
+        }
+    }
+
+    /// <summary>
+    /// Joins chains that are one step seen twice. A row scan and a column scan each keep the first crossing of a
+    /// smeared step, and on a diagonal wall the two land up to a band apart, so the dual-edge chain broke every
+    /// cell or two: on Vardin every quay and road-edge wall fell apart into pieces under a metre while
+    /// axis-aligned walls traced whole. A chain's end is joined to the nearest chain start within the band
+    /// ahead of it, running the same way (high ground on the same side) at a comparable height.
+    /// </summary>
+    /// <summary>Cosine of the sharpest turn between joined chains (60 degrees). A 45-degree wall's pieces each run
+    /// along a raster axis, so anything stricter rejects the joints this exists for (Varðin: 19 walls to 11).</summary>
+    private const double TurnCosine = 0.5;
+
+    private static List<List<Crossing>> LinkAcrossBand(List<List<Crossing>> chains, int cornerColumns, int band)
+    {
+        int count = chains.Count;
+        var byStart = new Dictionary<long, List<int>>(IndexedMeshTools.CellKeyComparer.Instance);
+        (long X, long Y) Cell(int corner) => (corner % cornerColumns / band, corner / cornerColumns / band);
+        long Key(long x, long y) => (x << 32) | (uint)y;
+        bool Closed(List<Crossing> chain) => chain[^1].End == chain[0].Start;
+        for (int i = 0; i < count; i++)
+        {
+            if (Closed(chains[i]))
+                continue;
+            (long x, long y) = Cell(chains[i][0].Start);
+            if (!byStart.TryGetValue(Key(x, y), out List<int>? list))
+                byStart[Key(x, y)] = list = new List<int>();
+            list.Add(i);
+        }
+
+        (double X, double Y) At(int corner) => (corner % cornerColumns, corner / cornerColumns);
+        (double X, double Y) Heading(List<Crossing> chain, bool atEnd)
+        {
+            int k = Math.Min(chain.Count, band + 1);
+            (double X, double Y) a = atEnd ? At(chain[^k].Start) : At(chain[0].Start);
+            (double X, double Y) b = atEnd ? At(chain[^1].End) : At(chain[k - 1].End);
+            double dx = b.X - a.X, dy = b.Y - a.Y, length = Math.Sqrt(dx * dx + dy * dy);
+            return length > 0 ? (dx / length, dy / length) : (0, 0);
+        }
+
+        var next = new int[count];
+        var hasPrevious = new bool[count];
+        Array.Fill(next, -1);
+        var root = Enumerable.Range(0, count).ToArray();
+        int Find(int i)
+        {
+            while (root[i] != i)
+                i = root[i] = root[root[i]];
+            return i;
+        }
+        var heights = chains.Select(chain => chain.Average(edge => edge.Height)).ToArray();
+        for (int i = 0; i < count; i++)
+        {
+            List<Crossing> chain = chains[i];
+            if (Closed(chain))
+                continue;
+            (double X, double Y) end = At(chain[^1].End);
+            (double X, double Y) heading = Heading(chain, atEnd: true);
+            int best = -1;
+            double bestDistance = double.PositiveInfinity;
+            (long hx, long hy) = Cell(chain[^1].End);
+            for (long cx = hx - 1; cx <= hx + 1; cx++)
+                for (long cy = hy - 1; cy <= hy + 1; cy++)
+                {
+                    if (!byStart.TryGetValue(Key(cx, cy), out List<int>? candidates))
+                        continue;
+                    foreach (int j in candidates)
+                    {
+                        if (j == i || hasPrevious[j] || Find(i) == Find(j))
+                            continue;
+                        (double X, double Y) start = At(chains[j][0].Start);
+                        double gx = start.X - end.X, gy = start.Y - end.Y;
+                        double distance = Math.Max(Math.Abs(gx), Math.Abs(gy));
+                        if (distance > band || distance >= bestDistance)
+                            continue;
+                        // Ahead of the end, never behind it: a joint reaching back folded the rails into a cusp on
+                        // Vardalag, where the rebuilt terrain read 0.9 m off at its tip.
+                        if (gx * heading.X + gy * heading.Y < 0)
+                            continue;
+                        (double X, double Y) onward = Heading(chains[j], atEnd: false);
+                        if (onward.X * heading.X + onward.Y * heading.Y < TurnCosine)
+                            continue;
+                        if (heights[j] > heights[i] * 2 || heights[i] > heights[j] * 2)
+                            continue;
+                        best = j;
+                        bestDistance = distance;
+                    }
+                }
+            if (best < 0)
+                continue;
+            next[i] = best;
+            hasPrevious[best] = true;
+            root[Find(best)] = Find(i);
+        }
+
+        var linked = new List<List<Crossing>>();
+        for (int i = 0; i < count; i++)
+        {
+            if (hasPrevious[i])
+                continue;
+            var merged = new List<Crossing>(chains[i]);
+            for (int j = next[i]; j >= 0; j = next[j])
+                merged.AddRange(chains[j]);
+            linked.Add(merged);
+        }
+        return linked;
+    }
+
+    /// <summary>
+    /// Drops a wall whose top rail mostly runs within <paramref name="reach"/> in plan and <paramref name="rise"/> in
+    /// height of a longer wall's: once row- and
+    /// column-scan pieces are joined, each set can complete the same step on its own (Vardalag: 15 such pairs in
+    /// 202 walls), and two copies of one wall are two fixed breaklines fighting over it. Height matters: stacked
+    /// terrace walls run that close in plan, and dropping one cost Varðin its paved accuracy.
+    /// </summary>
+    private static IReadOnlyList<Wall> WithoutRepeats(List<Wall> walls, double reach, double rise)
+    {
+        var kept = new bool[walls.Count];
+        var cells = new Dictionary<long, List<(double X, double Y, double Z)>>(IndexedMeshTools.CellKeyComparer.Instance);
+        long Key(double x, double y) => ((long)Math.Floor(x / reach) << 32) | (uint)(int)Math.Floor(y / reach);
+        foreach (int i in Enumerable.Range(0, walls.Count).OrderByDescending(i => walls[i].Length))
+        {
+            double[] top = walls[i].Top;
+            int near = 0, count = top.Length / 3;
+            for (int k = 0; k < top.Length; k += 3)
+                if (Near(top[k], top[k + 1], top[k + 2]))
+                    near++;
+            if (near * 2 > count)
+                continue;
+            kept[i] = true;
+            // Densify so a sparse simplified rail still covers its whole length.
+            for (int k = 3; k < top.Length; k += 3)
+            {
+                double dx = top[k] - top[k - 3], dy = top[k + 1] - top[k - 2], dz = top[k + 2] - top[k - 1];
+                int steps = Math.Max(1, (int)Math.Ceiling(Math.Sqrt(dx * dx + dy * dy) / (reach * 0.5)));
+                for (int step = 0; step <= steps; step++)
+                {
+                    double x = top[k - 3] + dx * step / steps, y = top[k - 2] + dy * step / steps, z = top[k - 1] + dz * step / steps;
+                    long key = Key(x, y);
+                    if (!cells.TryGetValue(key, out List<(double X, double Y, double Z)>? list))
+                        cells[key] = list = new List<(double X, double Y, double Z)>();
+                    list.Add((x, y, z));
+                }
+            }
+        }
+        return walls.Where((_, i) => kept[i]).ToList();
+
+        bool Near(double x, double y, double z)
+        {
+            long cx = (long)Math.Floor(x / reach), cy = (long)Math.Floor(y / reach);
+            for (long i = cx - 1; i <= cx + 1; i++)
+                for (long j = cy - 1; j <= cy + 1; j++)
+                    if (cells.TryGetValue((i << 32) | (uint)(int)j, out List<(double X, double Y, double Z)>? list))
+                        foreach ((double px, double py, double pz) in list)
+                            if ((px - x) * (px - x) + (py - y) * (py - y) <= reach * reach && Math.Abs(pz - z) <= rise)
+                                return true;
+            return false;
         }
     }
 

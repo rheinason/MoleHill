@@ -19,7 +19,9 @@ public static partial class ScanBuildings
         /// <summary>Maximum connected roof facets, including roof steps; zero leaves the face count unbounded.</summary>
         public int MaximumRoofFaces { get; init; }
         public double PlaneAngleDegrees { get; init; } = 18;
-        public double MinimumPlanarShare { get; init; } = 0.7;
+        public double MinimumPlanarShare { get; init; } = 0.65;
+        /// <summary>Planar share a mostly green candidate needs to count as a turf roof rather than vegetation.</summary>
+        public double MinimumTurfPlanarShare { get; init; } = 0.85;
         public double MaximumGreenShare { get; init; } = 0.55;
         public int MaximumPlanes { get; init; } = 12;
         public CancellationToken CancellationToken { get; init; }
@@ -52,7 +54,12 @@ public static partial class ScanBuildings
         public required int CandidateCount { get; init; }
         public required int RejectedVegetation { get; init; }
         public required int RejectedGeometry { get; init; }
+        /// <summary>Every raised candidate that was not kept, with where it is and why, for review.</summary>
+        public IReadOnlyList<Rejection> Rejections { get; init; } = Array.Empty<Rejection>();
     }
+
+    /// <summary>A raised candidate not kept as a building: its plan centre, area and the reason.</summary>
+    public readonly record struct Rejection(double X, double Y, double Area, bool Vegetation, string Reason);
 
     private sealed class Candidate
     {
@@ -142,13 +149,20 @@ public static partial class ScanBuildings
         }
 
         var buildings = new List<Building>();
+        var rejections = new List<Rejection>();
         int vegetation = 0, geometry = 0;
         foreach (Candidate candidate in candidates.Values)
         {
+            void Reject(bool asVegetation, string reason)
+            {
+                if (asVegetation) vegetation++; else geometry++;
+                rejections.Add(new Rejection(candidate.Nodes.Average(n => surface.NodeX(n % surface.Columns)),
+                    candidate.Nodes.Average(n => surface.NodeY(n / surface.Columns)), candidate.Nodes.Count * surface.NodeArea, asVegetation, reason));
+            }
             options.CancellationToken.ThrowIfCancellationRequested();
             if (surfaceClasses != null && candidate.Nodes.Count(node => surfaceClasses[node] is >= 3 and <= 5) > candidate.Nodes.Count * .5)
             {
-                vegetation++;
+                Reject(true, "Classified as vegetation");
                 continue;
             }
             int coloured = 0, green = 0;
@@ -165,7 +179,7 @@ public static partial class ScanBuildings
             List<RoofSample> samples = CaptureRoofSamples(scan, candidate);
             if (samples.Count == 0)
             {
-                if (greenCandidate) vegetation++; else geometry++;
+                Reject(greenCandidate, "No upward roof triangles");
                 continue;
             }
             // Work about a local origin throughout fitting and arrangement, including survey coordinates.
@@ -178,14 +192,15 @@ public static partial class ScanBuildings
             double minimumDominantShare = coloured > candidate.Nodes.Count * .5 ? .18 : .25;
             if (planes.Count == 0 || planarShare < options.MinimumPlanarShare || planes.Max(plane => plane.Area) < totalArea * minimumDominantShare)
             {
-                if (greenCandidate) vegetation++; else geometry++;
+                Reject(greenCandidate, planes.Count == 0 ? "No roof planes" : FormattableString.Invariant(
+                    $"Roof not planar enough: planes explain {planarShare:P0} (need {options.MinimumPlanarShare:P0}), largest {planes.Max(plane => plane.Area) / totalArea:P0}"));
                 continue;
             }
             // Green is supporting evidence, not a veto on turf roofs. A green candidate needs stronger
             // coherent plane evidence than an ordinary roof before it is retained as a building.
-            if (greenCandidate && (planarShare < .9 || planes.Max(plane => plane.Area) < totalArea * .3 || planes.Count > 6))
+            if (greenCandidate && (planarShare < options.MinimumTurfPlanarShare || planes.Max(plane => plane.Area) < totalArea * .3 || planes.Count > 6))
             {
-                vegetation++;
+                Reject(true, FormattableString.Invariant($"Green, and its planes are too weak for a turf roof: {planarShare:P0} planar, {planes.Count} planes"));
                 continue;
             }
             HashSet<int> roofed = RoofedNodes(candidate, samples, planes, surface, options, originX, originY, surfaceColours, surfaceClasses);
@@ -193,14 +208,14 @@ public static partial class ScanBuildings
                 out double facadeAngle, out HashSet<int> kept);
             if (footprints.Count == 0)
             {
-                geometry++;
+                Reject(false, "No footprint outline");
                 continue;
             }
             // Samples over trimmed canopy, or over a scrap the outline left out, are no part of this roof.
             (samples, planes) = KeepSamples(samples, planes, sample => kept.Contains(NodeAt(surface, sample.X + originX, sample.Y + originY)));
             if (samples.Count == 0 || planes.Count == 0)
             {
-                geometry++;
+                Reject(false, "No roof left inside the footprint");
                 continue;
             }
             double nearestWithin = samples.Where(sample => planes.Min(region => Math.Abs(sample.Z - region.Plane.Height(sample.X, sample.Y))) <= options.RoofTolerance).Sum(sample => sample.Weight) / totalArea;
@@ -266,13 +281,13 @@ public static partial class ScanBuildings
             }
             if (solid.IsEmpty || model == null)
             {
-                geometry++;
+                Reject(false, "No roof fitted: " + string.Join(" ", failed.Take(3)));
                 continue;
             }
             (double eave, double ridge) = RoofHeights(solid, baseZ, options);
             if (!double.IsFinite(baseZ + eave + ridge) || eave < baseZ + options.MinimumHeight * 0.25)
             {
-                geometry++;
+                Reject(false, "The roof came down to the ground");
                 continue;
             }
             for (int i = 0; i < solid.VertexCount; i++)
@@ -295,7 +310,7 @@ public static partial class ScanBuildings
                         (model.Kind == ScanRoofKind.Composite ? " " + model.Diagnostic : ""),
             });
         }
-        return new Result { Buildings = buildings, CandidateCount = candidates.Count, RejectedVegetation = vegetation, RejectedGeometry = geometry };
+        return new Result { Buildings = buildings, CandidateCount = candidates.Count, RejectedVegetation = vegetation, RejectedGeometry = geometry, Rejections = rejections };
     }
 
     private static bool Positive(double value) => double.IsFinite(value) && value > 0;

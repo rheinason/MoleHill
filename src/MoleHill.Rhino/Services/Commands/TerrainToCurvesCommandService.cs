@@ -74,7 +74,7 @@ internal static class TerrainToCurvesCommandService
             { RhinoApp.WriteLine(meshError ?? "The mesh could not be read."); return Result.Failure; }
             const string prefix = "MoleHill.TerrainToCurves.";
             var settings = TerrainCurveExtractionSettings.Load(unitContext, prefix);
-            using var panel = new TerrainCurveExtractionDialog(doc, unitContext, "Terrain to Curves", sourceName,
+            using var panel = new TerrainCurveExtractionPanel(doc, unitContext, "Terrain to Curves", sourceName,
                 FormattableString.Invariant($"{terrainMesh.VertexCount:N0} {(terrainMesh.VertexCount == 1 ? "vertex" : "vertices")} from the final terrain mesh. Accuracy is measured against this surface."), settings,
                 async (current, token, progress, preview) =>
                 {
@@ -82,10 +82,9 @@ internal static class TerrainToCurvesCommandService
                     preview(reference);
                     return await TerrainCurveExtractionService.RecoverAsync(reference, current, unitContext, token, progress);
                 }, sourceId, manualRecompute: terrainMesh.VertexCount >= LargeTerrainVertices);
-            RhinoApp.SetCommandPrompt("Terrain to curves — adjust the floating panel; Enter keeps a ready preview, Esc cancels");
-            if (!panel.ShowSemiModal(doc, RhinoEtoApp.MainWindowForDocument(doc)) || panel.Prepared?.Recovery is not { } recovery)
+            if (!panel.ShowAndWait() || panel.Prepared?.Recovery is not { } recovery)
                 return Result.Cancel;
-            int added = TerrainCurveExtractionOutput.Add(doc, recovery, $"Terrain to Curves {sourceName}", "Terrain to Curves", null, out string root);
+            int added = TerrainCurveExtractionOutput.Add(doc, recovery, $"{sourceName} curves", "Terrain to Curves", null, out string root);
             if (added > 0) panel.Settings.Save(unitContext, prefix);
             RhinoApp.WriteLine($"Terrain to curves: {recovery.Contours.Count} contours, {recovery.SpotPointCount} spots; " + recovery.Diagnostic);
             if (added > 0) RhinoApp.WriteLine($"Added to the layers under '{root}'.");

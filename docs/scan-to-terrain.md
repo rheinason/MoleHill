@@ -109,17 +109,35 @@ not completed roof recognition. The native 10 m² patch setting reduced closed a
 to 157; Keep produced valid grouped output and one Undo restored the source. These are geometry
 quality diagnostics, not a claim of surveyed accuracy or measured performance improvement.
 
+Output goes under a fresh `MoleHill {source}` root, laid out as that terrain's own input tree, so a
+MoleHill terrain of the same name reads it from the layers it already looks at. Several kinds share
+`Input::Breaklines`; each object keeps its kind's colour and name (`Wall top`, `Kerb bottom`, `Paved outline`).
+
 | Output layer | Meaning |
 |---|---|
-| Border | Outer/inner loops of the retained ground footprint |
-| Contours / Spot heights | Fitted, editable ground inputs; clipped to paved and soft ground when classified |
-| Ridges and valleys | Optional lines offered to reduce the recovery curve count |
-| Walls and edges | Paired measured top/toe breaklines, held in every contour reconstruction |
-| Paved areas / Soft areas | Closed draped outlines; paved outlines are breaklines in every rebuild, soft outlines are drawings |
-| Paved zones / Soft zones | Flat solid hatches of the same areas beneath the source, as MoleHill zone input |
-| Kerbs / Paving edges | Persistent measured narrow steps as pairs; otherwise one colour edge, when area output is disabled |
-| Buildings | Closed roof context Breps with fit and fallback metadata; never terrain inputs |
-| Ground (check) | Opt-in internal reference mesh |
+| Input::Boundary | Outer/inner loops of the retained ground footprint |
+| Input::Contours / Input::Spots | Fitted, editable ground inputs; clipped to paved and soft ground when classified |
+| Input::Breaklines | Every line the terrain must keep: paired measured wall top/toe rails, paved outlines, measured kerbs and paving edges (when area output is disabled) |
+| Input::Zones::Paved / ::Soft | Flat solid hatches of the paved and soft areas beneath the source, as MoleHill zone input |
+| Context::Soft outlines | Closed draped soft-area outlines; drawings, not breaklines |
+| Context::Buildings | Closed roof context Breps with fit and fallback metadata; never terrain inputs |
+| Context::Ground check | Opt-in internal reference mesh |
+
+Walls are traced from crossings of the ground raster by a row scan and a column scan. On a diagonal step the
+two keep crossings up to a band apart, so the chains are joined across that gap when they run on the same way
+at a comparable height (the joint may not reach back, which folded rails into a cusp), a wall repeating a
+longer one's top rail at the same height is dropped, and a fitted rail that changes height without moving in
+plan is rejected (the rebuild merges such vertices and keeps one height). On Varðin this took walls from 8 to
+14 (the quay and road edges), Grønalid from 9 to 48 and Vardalag from 24 to 164, with both recovery tolerances
+still met on all three.
+
+A raised region normally needs to stand up along half its edge to be an object rather than a terrace. A
+roof-smooth region (median |Laplacian| ≤ 0.15 m over half-metre steps) needs 45%: Varðin's harbour shed is
+flush with the road behind it and stood up along 49.7%. Rock and trees in the same band are rough (0.2–1.2 m)
+and stay ground; at a flat 45% a 374 m² outcrop on Vardalag was removed. Candidates rejected by the building
+stage are listed with their reasons (`ScanBuildings.Result.Rejections`, printed by `tools/MoleHill.ScanReview`);
+the planar-share floors are 65% (85% for a mostly green, turf roof), which on Varðin admitted a two-part house
+at 68% and a turf roof at 89%.
 
 Ground is a progressive morphological filter plus harmonic fill beneath raised objects. Narrow
 terrace steps are distinguished from objects raised around their perimeter. Under buildings and
