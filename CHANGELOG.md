@@ -3,6 +3,18 @@
 Released through Rhino's Package Manager (Yak) as `MoleHill`. Versions before 1.0.0 were
 beta prereleases. Earlier versions are recorded only in the git history.
 
+## 1.5.1-beta — 2026-10-22
+
+**Grade Path beside breaklines, walls and pads**
+- A path now stops wherever a breakline, wall or pad edge enters its road, and the rest of it grades. It used
+  to stop only where the centreline crossed one, so a bend, a pad corner or a stub reaching into the road, or
+  a line through one of the path's own vertices, failed the whole grade.
+- A grade no longer moves the breaklines, walls and pad edges it stops at. The batter could regrade the line
+  itself, by up to the road's height above the ground, and on some terrains the corridor dropped the line
+  altogether. A breakline lying inside the road was graded over; it now blocks the path there, as breaklines
+  do (tick **Grade Through Breaklines** to grade across it).
+- A path drawn to end on a pad's edge is left as drawn.
+
 ## 1.5.0-beta — 2026-10-21
 
 **Terrain shaping**
