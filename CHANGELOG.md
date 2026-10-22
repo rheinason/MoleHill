@@ -3,6 +3,27 @@
 Released through Rhino's Package Manager (Yak) as `MoleHill`. Versions before 1.0.0 were
 beta prereleases. Earlier versions are recorded only in the git history.
 
+## 1.5.2-beta — 2026-10-22
+
+**Scan to Terrain**
+- The panel no longer locks the views: it is a floating window and the command waits at the command line,
+  so you can pan, zoom and rotate around the preview. Enter keeps a ready preview, Esc cancels, and Run and
+  Keep are also command-line options.
+- The panel opens at once. The scan and its texture are read in the background (a 1 M-triangle scan used to
+  freeze Rhino for about 5 s first), and the scan runs only when you press **Run**.
+- Output now follows MoleHill's layer structure, under `MoleHill <scan name>::Input`: Contours, Spots,
+  Boundary, Zones (Paved and Soft) and one **Breaklines** layer holding every line the terrain must keep
+  (wall tops and toes, paved outlines, kerbs, paving edges), each in its own colour. Buildings and soft
+  outlines, which drive nothing, go under `Context`. A terrain of the same name reads them from the layers
+  it already looks at.
+- Walls at an angle to the scan's grid are traced. They broke into pieces under a metre and were dropped,
+  so quay fronts and road edges were missing: a harbour test scan went from 8 to 14 walls, the two earlier
+  reference scans from 9 to 48 and from 24 to 164, with both accuracy targets still met.
+- More buildings are recognised: a roof level with the road behind it (a shed built into a slope), houses
+  whose roofs are 65-70% planar, and turf roofs that are 85-90% planar. Rock and trees beside them stay
+  ground.
+- Terrain to Curves uses the same panel and writes to the same `MoleHill <name> curves::Input` layers.
+
 ## 1.5.1-beta — 2026-10-22
 
 **Grade Path beside breaklines, walls and pads**
