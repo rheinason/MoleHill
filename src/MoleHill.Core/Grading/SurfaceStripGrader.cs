@@ -4,7 +4,7 @@ using MoleHill.Core.Engine;
 
 namespace MoleHill.Core.Grading;
 
-public static class SurfaceStripGrader
+public static partial class SurfaceStripGrader
 {
     public readonly record struct TimingEntry(string Name, TimeSpan Elapsed);
 
@@ -115,26 +115,6 @@ public static class SurfaceStripGrader
             profile: null)?.MeasuredAgainst(terrain, GradingTolerances.DefaultModelTolerance);
     }
 
-    public static GradingResult? Grade(
-        IndexedTriMesh terrain,
-        IReadOnlyList<SurfaceDefinition> surfaces,
-        IReadOnlyList<ConstraintPolyline> barrierConstraints,
-        out string? errorMessage,
-        out TimingProfile profile)
-    {
-        (double[] vertices, int vertexCount, int[] faces, int faceCount) = terrain;
-        profile = new TimingProfile();
-        return GradeCore(
-            vertices,
-            vertexCount,
-            faces,
-            faceCount,
-            surfaces,
-            barrierConstraints,
-            out errorMessage,
-            profile)?.MeasuredAgainst(terrain, GradingTolerances.DefaultModelTolerance);
-    }
-
     private static GradingResult? GradeCore(
         double[] vertices,
         int vertexCount,
@@ -199,7 +179,7 @@ public static class SurfaceStripGrader
         }
 
         AddBoundarySegments(faces, faceCount, segList);
-        AddBarrierConstraints(barrierConstraints, xyList, zList, vertHash, segList, dedupTol);
+        AddBarrierConstraints(barrierConstraints, xyList, zList, vertHash, segList, dedupTol, hasBoundaryLoop ? boundaryLoop : null, boundaryVertexCount);
         foreach (SurfaceDefinition surface in surfaces)
             AddPolygonConstraint(surface.FootprintXy, surface.FootprintVertexCount, xyList, zList, vertHash, faceGrid, segList, dedupTol);
         AddPhase(profile, "prepare_constraints", prepStart);
@@ -634,8 +614,14 @@ public static class SurfaceStripGrader
         List<double> zList,
         SpatialVertexHash vertHash,
         List<(int a, int b)> segList,
-        double dedupTol)
+        double dedupTol,
+        double[]? boundaryLoop,
+        int boundaryVertexCount)
     {
+        // Only the part of a barrier on this mesh is triangulated: a point already a vertex, or inside the
+        // border. A wall rail runs on past a grading window, and its points beyond the window, triangulated with
+        // it, changed the faces the window shares with the rest, so no window could weld. The batter still sees
+        // the whole barrier (PreparedBarriers).
         foreach (var constraint in barrierConstraints)
         {
             if (!constraint.PreserveInputElevation)
@@ -656,6 +642,10 @@ public static class SurfaceStripGrader
                 {
                     pointIndices[i] = near;
                 }
+                else if (boundaryLoop != null && !Geometry2D.PointInPolygon(px, py, boundaryLoop, boundaryVertexCount))
+                {
+                    pointIndices[i] = -1;
+                }
                 else
                 {
                     pointIndices[i] = zList.Count;
@@ -670,7 +660,7 @@ public static class SurfaceStripGrader
             {
                 int a = pointIndices[i];
                 int b = pointIndices[i + 1];
-                if (a != b)
+                if (a >= 0 && b >= 0 && a != b)
                     segList.Add((a, b));
             }
 
@@ -679,7 +669,7 @@ public static class SurfaceStripGrader
 
             int last = pointIndices[pointCount - 1];
             int first = pointIndices[0];
-            if (last != first)
+            if (last >= 0 && first >= 0 && last != first)
                 segList.Add((last, first));
         }
     }

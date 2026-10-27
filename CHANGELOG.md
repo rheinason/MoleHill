@@ -12,6 +12,10 @@ beta prereleases. Earlier versions are recorded only in the git history.
 - In-Situ Stair no longer notches the terrain's border. It peeled the border again after grading, which ran up
   long needle triangles from slivers along a sparse border and cut V-shaped slits many metres into the site;
   Remesh then opened them into holes. The border now stays exactly as Triangulate left it.
+- In-Situ Stair grades only the ground within its reach, as Grade Pad and Grade Path do; the rest of the terrain
+  passes through untouched. It used to re-triangulate the whole site for a 3 m stair and drop hundreds of points
+  along the border, which could stop a Retaining Wall stacked after it from inserting. The Grasshopper In-Situ
+  Stair component grades the same way.
 
 **Scan to Terrain**
 - Walls and kerbs go on layers of their own, for Retaining Wall cards rather than as plain breaklines: wall

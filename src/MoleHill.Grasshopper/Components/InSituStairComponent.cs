@@ -113,7 +113,14 @@ public sealed class InSituStairComponent : RegistryTerrainComponent
 
         foreach (var stairReference in stairBuild.References)
         {
-            var result = SurfaceStripGrader.Grade(new IndexedTriMesh(currentVertices, currentVertexCount, currentFaces, currentFaceCount), stairReference.SupportSurface, out string? gradingWarning);
+            var result = SurfaceStripGrader.GradeWindowed(
+                new IndexedTriMesh(currentVertices, currentVertexCount, currentFaces, currentFaceCount),
+                new[] { stairReference.SupportSurface },
+                Array.Empty<ConstraintPolyline>(),
+                previous: null,
+                new GradingWindows.Memo(),
+                notes: new List<string>(),
+                out string? gradingWarning);
 
             if (result == null)
             {

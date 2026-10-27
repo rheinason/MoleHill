@@ -301,6 +301,81 @@ public class SurfaceStripGraderTests
             "Grading changed the terrain's border.");
     }
 
+    /// <summary>
+    /// Windowed, a surface re-triangulates only the faces within its reach. A barrier running on past the window
+    /// (a wall rail, as every wall persists) must not stop it welding: its points beyond the window, triangulated
+    /// with it, used to change the faces the window shares with the rest, so the stair graded the whole terrain.
+    /// </summary>
+    [Fact]
+    public void GradeWindowed_BarrierRunningPastTheWindow_LeavesTheRestUntouched()
+    {
+        const int cells = 20;
+        var vertices = new List<double>();
+        for (int j = 0; j <= cells; j++)
+            for (int i = 0; i <= cells; i++)
+                vertices.AddRange(new[] { (double)i, j, 0.0 });
+        var faces = new List<int>();
+        int V(int i, int j) => (j * (cells + 1)) + i;
+        for (int j = 0; j < cells; j++)
+            for (int i = 0; i < cells; i++)
+                faces.AddRange(new[] { V(i, j), V(i + 1, j), V(i + 1, j + 1), V(i, j), V(i + 1, j + 1), V(i, j + 1) });
+        var terrain = new IndexedTriMesh(vertices.ToArray(), vertices.Count / 3, faces.ToArray(), faces.Count / 3);
+
+        var surface = new SurfaceStripGrader.SurfaceDefinition(
+            footprintXy: new[] { 5.0, 5.0, 7.0, 5.0, 7.0, 7.0, 5.0, 7.0 },
+            footprintVertexCount: 4,
+            boundaryVertices: new[]
+            {
+                5.0, 5.0, 0.5,
+                7.0, 5.0, 0.5,
+                7.0, 7.0, 0.5,
+                5.0, 7.0, 0.5
+            },
+            boundaryVertexCount: 4,
+            planeXCoeff: 0.0,
+            planeYCoeff: 0.0,
+            planeConstant: 0.5);
+        // Off the grid, so it crosses the window's edge between vertices, as a real rail does.
+        var railPoints = new List<double>();
+        for (int i = 0; i < cells; i++)
+            railPoints.AddRange(new[] { i + 0.5, 8.3, 0.0 });
+        var rail = new ConstraintPolyline(railPoints.ToArray(), cells, IsClosed: false, PreserveInputElevation: true);
+
+        var notes = new List<string>();
+        GradingResult? result = SurfaceStripGrader.GradeWindowed(
+            terrain, new[] { surface }, new[] { rail }, previous: null, new GradingWindows.Memo(), notes, out string? errorMessage);
+
+        Assert.True(result != null, errorMessage);
+        Assert.Contains(notes, note => note.Contains("graded 1 window", StringComparison.Ordinal));
+        Assert.Equal(0.5, FindVertexZ(result!, 6.0, 6.0), 6);
+        Assert.Equal(PlanArea(terrain.Vertices, terrain.Faces, terrain.FaceCount), PlanArea(result.Vertices, result.Faces, result.FaceCount), 6);
+
+        // Every face clear of the surface's reach comes back as it went in.
+        HashSet<string> graded = FaceKeys(result.Vertices, result.Faces, result.FaceCount);
+        for (int f = 0; f < terrain.FaceCount; f++)
+        {
+            int a = terrain.Faces[f * 3], b = terrain.Faces[f * 3 + 1], c = terrain.Faces[f * 3 + 2];
+            double cx = (terrain.Vertices[a * 3] + terrain.Vertices[b * 3] + terrain.Vertices[c * 3]) / 3.0;
+            double cy = (terrain.Vertices[a * 3 + 1] + terrain.Vertices[b * 3 + 1] + terrain.Vertices[c * 3 + 1]) / 3.0;
+            if (cx > 2.0 && cx < 10.0 && cy > 2.0 && cy < 10.0)
+                continue;
+            Assert.Contains(FaceKey(terrain.Vertices, a, b, c), graded);
+        }
+    }
+
+    private static HashSet<string> FaceKeys(double[] vertices, int[] faces, int faceCount)
+    {
+        var keys = new HashSet<string>(StringComparer.Ordinal);
+        for (int f = 0; f < faceCount; f++)
+            keys.Add(FaceKey(vertices, faces[f * 3], faces[f * 3 + 1], faces[f * 3 + 2]));
+        return keys;
+    }
+
+    private static string FaceKey(double[] vertices, int a, int b, int c) =>
+        string.Join(";", new[] { a, b, c }
+            .Select(i => FormattableString.Invariant($"{vertices[i * 3]:F6},{vertices[i * 3 + 1]:F6},{vertices[i * 3 + 2]:F6}"))
+            .OrderBy(static key => key, StringComparer.Ordinal));
+
     private static double PlanArea(double[] vertices, int[] faces, int faceCount)
     {
         double area = 0.0;

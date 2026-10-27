@@ -2055,9 +2055,10 @@ output exact.
   constraints' own tolerance-expanded bounds; a query escaping that region rebuilds over the whole mesh
   (`RegionWasAbandoned`), so a bad region costs speed, never geometry
   (`ConstraintCoincidenceSnapperRegionTests`).
-- **Grading windows.** `GradingWindows` grades each group of pads or paths on the faces within their reach
-  (`PadGrader.GradeWindowed`, `PathGrader.GradeWindowed`). Reach is by shape (a pad's filled outline and
-  Max Distance or daylight reach plus apron; a path's centreline and half-width plus reach), using the
+- **Grading windows.** `GradingWindows` grades each group of pads, paths or stair surfaces on the faces within
+  their reach (`PadGrader.GradeWindowed`, `PathGrader.GradeWindowed`, `SurfaceStripGrader.GradeWindowed`). Reach
+  is by shape (a pad's filled outline and Max Distance or daylight reach plus apron; a path's centreline and
+  half-width plus reach; a stair's filled footprint and Max Distance or daylight reach), using the
   triangle's own distance. The margin is twice the longest face *within the reach*, capped at half the
   reach. A window must be a terrain the grader accepts: one boundary loop, no pinch. Pockets of at most
   `PocketFaceLimit` unreached faces join the window, and a pinched rim vertex gets its whole fan. A patch
@@ -2067,6 +2068,9 @@ output exact.
   computation, so reuse is exact. The locks and constraints a window receives are chosen by a box covering
   its faces (`CoveringBox`), not its reach box: reached faces are taken whole and stick out past it, and a
   breakline left off a face the grader builds on is a batter cut through a breakline (953 m3 on one pad). `GradingWindows.Stitch` welds by coordinates only near the windows.
+  A grader that re-triangulates its window must triangulate only the part of a constraint on it: the stair
+  grader added every barrier point, and a wall rail's points past the window changed the shared faces, so the
+  stair never welded and re-triangulated the whole site (`GradeWindowed_BarrierRunningPastTheWindow_*`).
 - **Retaining Wall rail insertion** runs per rail window (eight local face sizes around the faces a rail
   crosses; `TryInsertWallConstraintsWindowed`). A window that declines or would not weld back sends the
   stage to the whole-mesh insertion, so the windowed path stands in for it exactly. When one reach covers

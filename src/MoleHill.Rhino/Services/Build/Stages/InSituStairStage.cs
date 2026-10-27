@@ -26,7 +26,7 @@ internal static class InSituStairStage
             TerrainBuildService.ComputeModifierStageFingerprint(c.Snapshot, c.Terrain, inSituStair, c.CurrentMeshFingerprint),
             () => input == null
                 ? TerrainBuildService.WarnMissingMesh(c.Build, inSituStair.Label)
-                : ApplyInSituStair(c.Snapshot, input, inSituStair, c.Build, c.Mode),
+                : ApplyInSituStair(c.Snapshot, input, inSituStair, c.Build, c.Mode, c.RuntimeCache, c.StageKey),
             result => TerrainBuildService.DescribeModifierMeshResult(inSituStair.Label, result),
             out ulong fingerprint,
             c.ShouldCancel);
@@ -92,7 +92,9 @@ internal static class InSituStairStage
         RhinoMesh mesh,
         InSituStairModifierDefinition modifier,
         TerrainBuildResult build,
-        TerrainBuildMode mode)
+        TerrainBuildMode mode,
+        TerrainRuntimeCache runtimeCache,
+        string stageKey)
     {
         modifier.ComputedSurfaceCount = null;
         modifier.ComputedTreadDepthSummary = null;
@@ -165,12 +167,22 @@ internal static class InSituStairStage
             .Select(static reference => reference.SupportSurface)
             .ToArray();
         var batchGradeTimer = Stopwatch.StartNew();
-        var batchResult = SurfaceStripGrader.Grade(new IndexedTriMesh(currentVertices, currentVertexCount, currentFaces, currentFaceCount), stairSurfaces, build.PersistentHardConstraints, out var batchGradingWarning, out var batchProfile);
+        runtimeCache.GradingWindowMemos.TryGetValue(stageKey, out GradingWindows.Memo? previousWindows);
+        var nextWindows = new GradingWindows.Memo();
+        var batchResult = SurfaceStripGrader.GradeWindowed(
+            new IndexedTriMesh(currentVertices, currentVertexCount, currentFaces, currentFaceCount),
+            stairSurfaces,
+            build.PersistentHardConstraints,
+            previousWindows,
+            nextWindows,
+            build.Diagnostics,
+            out var batchGradingWarning);
+        runtimeCache.GradingWindowMemos[stageKey] = nextWindows;
         batchGradeTimer.Stop();
         build.RecordTiming(
             "In-Situ Stair Surface Grade",
             batchGradeTimer.Elapsed,
-            $"batched {stairSurfaces.Length:N0} surfaces: {currentVertexCount:N0} verts/{currentFaceCount:N0} faces -> {batchResult?.VertexCount ?? 0:N0} verts/{batchResult?.FaceCount ?? 0:N0} faces; {batchProfile.FormatSummary()}",
+            $"{stairSurfaces.Length:N0} surfaces: {currentVertexCount:N0} verts/{currentFaceCount:N0} faces -> {batchResult?.VertexCount ?? 0:N0} verts/{batchResult?.FaceCount ?? 0:N0} faces",
             TerrainBuildService.StageTimingDiagnosticThresholdMs);
 
         if (batchResult == null)

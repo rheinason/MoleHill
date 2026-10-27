@@ -43,9 +43,10 @@ tied in distance, and noise chose the incoming edge's shoulder or the outgoing o
 reach was then left at the original ground, a lump inside the cut that came and went as the pad moved by
 centimetres (`PadGraderCornerFanTests`).
 
-`GradingWindows` + `PadGrader.Windowed.cs` / `PathGrader.Windowed.cs` (`GradeWindowed`) grade each group
-of pads or paths on the faces within their reach (a pad's filled outline, a path's centreline, grown by how
-far it can change the terrain) and stitch the patches back, memoizing each window by a key of its canonical
+`GradingWindows` + `PadGrader.Windowed.cs` / `PathGrader.Windowed.cs` / `SurfaceStripGrader.Windowed.cs`
+(`GradeWindowed`) grade each group of pads, paths or In-Situ Stair surfaces on the faces within their reach (a
+pad's filled outline, a path's centreline, a stair's filled footprint, grown by how far it can change the
+terrain) and stitch the patches back, memoizing each window by a key of its canonical
 input. Small enclosed pockets join their window, and a patch must keep the edges it shares with the rest of the terrain,
 or the call grades the whole mesh instead. A window takes the faces its items reach whole, so they stick out past the
 reach box; the box that picks the window's locks and breaklines is grown to cover them (`CoveringBox`), or a batter
