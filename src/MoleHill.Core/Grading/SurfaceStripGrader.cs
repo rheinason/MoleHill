@@ -281,28 +281,24 @@ public static class SurfaceStripGrader
         }
         AddPhase(profile, "build_vertices", buildVertsStart);
 
+        // No border peel here. The incoming border is the terrain's, already peeled by Triangulate under the
+        // card's own settings; peeling it again with defaults ran up needle fans from the slivers along a
+        // sparse border and notched the terrain far from the stair (copied case 2026-10-26).
         var finalFaces = extracted.Faces;
-        long cullStart = Stopwatch.GetTimestamp();
-        var cullResult = TriangleBoundaryCuller.Cull(
-            finalVerts,
-            outVertCount,
-            finalFaces,
-            outFaceCount,
-            xyList.ToArray(),
-            IndexedMeshTools.FlattenSegments(segList),
-            0);
-
-        if (cullResult.Changed)
+        long compactStart = Stopwatch.GetTimestamp();
+        var compaction = IndexedMeshTools.Compact(outVertCount, finalFaces, outFaceCount);
+        if (compaction.VertexCount != outVertCount)
         {
-            outXy = IndexedMeshTools.CompactDoubleData(outXy, 2, cullResult.NewToOld, cullResult.VertexCount);
-            origZ = IndexedMeshTools.CompactDoubleData(origZ, 1, cullResult.NewToOld, cullResult.VertexCount);
-            newZ = IndexedMeshTools.CompactDoubleData(newZ, 1, cullResult.NewToOld, cullResult.VertexCount);
-            finalVerts = IndexedMeshTools.CompactDoubleData(finalVerts, 3, cullResult.NewToOld, cullResult.VertexCount);
-            finalFaces = cullResult.Faces;
-            outVertCount = cullResult.VertexCount;
-            outFaceCount = cullResult.FaceCount;
+            // Points Triangle.NET merged (onto another point, or onto a segment they sit a hair off) stay in
+            // its vertex list but in no triangle.
+            outXy = IndexedMeshTools.CompactDoubleData(outXy, 2, compaction.NewToOld, compaction.VertexCount);
+            origZ = IndexedMeshTools.CompactDoubleData(origZ, 1, compaction.NewToOld, compaction.VertexCount);
+            newZ = IndexedMeshTools.CompactDoubleData(newZ, 1, compaction.NewToOld, compaction.VertexCount);
+            finalVerts = IndexedMeshTools.CompactDoubleData(finalVerts, 3, compaction.NewToOld, compaction.VertexCount);
+            finalFaces = compaction.Faces;
+            outVertCount = compaction.VertexCount;
         }
-        AddPhase(profile, "cull_boundary", cullStart);
+        AddPhase(profile, "compact_vertices", compactStart);
 
         long volumeStart = Stopwatch.GetTimestamp();
         GradingVolumeMetrics volume = GradingResultBuilder.ComputeVolume(outXy, origZ, newZ, finalFaces, outFaceCount);

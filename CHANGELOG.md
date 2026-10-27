@@ -3,6 +3,16 @@
 Released through Rhino's Package Manager (Yak) as `MoleHill`. Versions before 1.0.0 were
 beta prereleases. Earlier versions are recorded only in the git history.
 
+## Unreleased
+
+**Fixes**
+- In-Situ Stair no longer tears the terrain. Its tiny-face cleanup read every steep face as tiny, so after a
+  Retaining Wall it deleted the wall faces: both rails opened along the wall's whole length, and small holes
+  opened across the site, far from the stair.
+- In-Situ Stair no longer notches the terrain's border. It peeled the border again after grading, which ran up
+  long needle triangles from slivers along a sparse border and cut V-shaped slits many metres into the site;
+  Remesh then opened them into holes. The border now stays exactly as Triangulate left it.
+
 ## 1.5.2-beta — 2026-10-22
 
 **Scan to Terrain**

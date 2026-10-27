@@ -17,7 +17,7 @@ internal static class Program
     private const string RhinoSystemDirectory = @"C:\Program Files\Rhino 8\System";
     private const string RhinoNetCoreDirectory = @"C:\Program Files\Rhino 8\System\netcore";
 
-    private sealed record Options(string CasePath, string PluginDirectory, string? Units, bool Stages);
+    private sealed record Options(string CasePath, string PluginDirectory, string? Units, bool Stages, string? DumpDirectory);
 
     [STAThread]
     private static int Main(string[] args)
@@ -26,10 +26,11 @@ internal static class Program
         if (options == null)
         {
             Console.Error.WriteLine(
-                "Usage: MoleHill.CaseReplay <case-zip-or-dir> [--plugin <dir>] [--units Meters|Millimeters|...] [--stages]\n" +
+                "Usage: MoleHill.CaseReplay <case-zip-or-dir> [--plugin <dir>] [--units Meters|Millimeters|...] [--stages] [--dump <dir>]\n" +
                 "  --units   the source model's unit system; bundles exported before 2026-10-06 do not record it\n" +
                 "            and default to Meters\n" +
-                "  --stages  also build after each modifier and report the mesh's border loops and non-manifold edges");
+                "  --stages  also build after each modifier and report the mesh's border loops and non-manifold edges\n" +
+                "  --dump    write each built mesh to <dir> as OBJ (one per stage with --stages)");
             return 1;
         }
 
@@ -87,7 +88,7 @@ internal static class Program
 
     private static Options? ParseArguments(string[] args)
     {
-        string? casePath = null, plugin = null, units = null;
+        string? casePath = null, plugin = null, units = null, dump = null;
         bool stages = false;
         for (int i = 0; i < args.Length; i++)
         {
@@ -102,6 +103,9 @@ internal static class Program
                 case "--stages":
                     stages = true;
                     break;
+                case "--dump" when i + 1 < args.Length:
+                    dump = args[++i];
+                    break;
                 default:
                     if (args[i].StartsWith("--", StringComparison.Ordinal) || casePath != null)
                         return null;
@@ -110,7 +114,7 @@ internal static class Program
             }
         }
 
-        return casePath == null ? null : new Options(casePath, plugin ?? DefaultPluginDirectory, units, stages);
+        return casePath == null ? null : new Options(casePath, plugin ?? DefaultPluginDirectory, units, stages, dump);
     }
 
     // Kept out of Main so RhinoCommon is only loaded after the resolver and PATH are in place.
@@ -121,7 +125,8 @@ internal static class Program
             new[] { "/netcore", "/nosplash" },
             Rhino.Runtime.InProcess.WindowStyle.NoWindow);
         Assembly plugin = AssemblyLoadContext.Default.LoadFromAssemblyPath(pluginAssemblyPath);
-        CaseReplayer.Run(plugin, caseDirectory, options.Units, options.Stages);
+        CaseReplayer.Run(plugin, caseDirectory, options.Units, options.Stages,
+            options.DumpDirectory == null ? null : Path.GetFullPath(options.DumpDirectory));
         return 0;
     }
 

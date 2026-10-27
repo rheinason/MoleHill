@@ -16,7 +16,7 @@ internal static class CaseReplayer
 {
     private const BindingFlags AnyMember = BindingFlags.Static | BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
 
-    public static void Run(Assembly plugin, string caseDirectory, string? unitsOverride, bool stages)
+    public static void Run(Assembly plugin, string caseDirectory, string? unitsOverride, bool stages, string? dumpDirectory)
     {
         using JsonDocument manifest = JsonDocument.Parse(File.ReadAllText(Path.Combine(caseDirectory, "manifest.json")));
         JsonElement root = manifest.RootElement;
@@ -37,10 +37,10 @@ internal static class CaseReplayer
             {
                 int modifierCount = ModifierCount(DeserializeTerrain(plugin, terrainJson, units, terrainId));
                 for (int upto = 0; upto < modifierCount; upto++)
-                    BuildAndReport(plugin, doc, terrainJson, units, terrainId, upto, printDiagnostics: false);
+                    BuildAndReport(plugin, doc, terrainJson, units, terrainId, upto, printDiagnostics: false, dumpDirectory);
             }
 
-            BuildAndReport(plugin, doc, terrainJson, units, terrainId, int.MaxValue, printDiagnostics: true);
+            BuildAndReport(plugin, doc, terrainJson, units, terrainId, int.MaxValue, printDiagnostics: true, dumpDirectory);
         }
         finally
         {
@@ -160,7 +160,8 @@ internal static class CaseReplayer
     private static int ModifierCount(object terrain) => ((ICollection)Property(terrain, "Modifiers")!).Count;
 
     private static void BuildAndReport(
-        Assembly plugin, RhinoDoc doc, string terrainJson, UnitSystem units, Guid terrainId, int upto, bool printDiagnostics)
+        Assembly plugin, RhinoDoc doc, string terrainJson, UnitSystem units, Guid terrainId, int upto, bool printDiagnostics,
+        string? dumpDirectory)
     {
         object terrain = DeserializeTerrain(plugin, terrainJson, units, terrainId);
         var modifiers = ((IEnumerable)Property(terrain, "Modifiers")!).Cast<object>().ToList();
@@ -190,6 +191,25 @@ internal static class CaseReplayer
 
         var mesh = Property(result, "PrimaryMesh") as Mesh;
         Console.WriteLine($"{label} ({timer.ElapsedMilliseconds:N0} ms): {Describe(mesh)}");
+        if (dumpDirectory != null && mesh != null)
+        {
+            string name = upto < modifiers.Count ? $"stage-{upto:D2}-{Property(modifiers[upto], "Label")}" : "full";
+            string path = Path.Combine(dumpDirectory, string.Concat(name.Select(static c => char.IsLetterOrDigit(c) || c == '-' ? c : '_')) + ".obj");
+            WriteObj(path, mesh);
+            Console.WriteLine($"  wrote {path}");
+        }
+        // Every border loop but the outer one is a hole: say where each is.
+        if (mesh?.GetNakedEdges() is { Length: > 1 } loops)
+        {
+            foreach (Polyline loop in loops.OrderByDescending(static l => l.Length).Skip(1))
+            {
+                BoundingBox box = loop.BoundingBox;
+                Console.WriteLine(
+                    $"  hole: length {loop.Length:G4}, {loop.Count} points, x {box.Min.X:F2}..{box.Max.X:F2}, " +
+                    $"y {box.Min.Y:F2}..{box.Max.Y:F2}, z {box.Min.Z:F2}..{box.Max.Z:F2}");
+            }
+        }
+
         if (!printDiagnostics)
             return;
 
@@ -198,6 +218,27 @@ internal static class CaseReplayer
             string text = diagnostic.ToString() ?? string.Empty;
             if (!text.StartsWith("timing.", StringComparison.Ordinal))
                 Console.WriteLine($"  {text}");
+        }
+    }
+
+    // Vertices as stored (double precision), so a dump reproduces the mesh the next stage receives.
+    private static void WriteObj(string path, Mesh mesh)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        using var writer = new StreamWriter(path);
+        var invariant = System.Globalization.CultureInfo.InvariantCulture;
+        for (int i = 0; i < mesh.Vertices.Count; i++)
+        {
+            Point3d v = mesh.Vertices.Point3dAt(i);
+            writer.WriteLine(string.Format(invariant, "v {0:R} {1:R} {2:R}", v.X, v.Y, v.Z));
+        }
+
+        for (int i = 0; i < mesh.Faces.Count; i++)
+        {
+            MeshFace f = mesh.Faces[i];
+            writer.WriteLine(f.IsQuad
+                ? $"f {f.A + 1} {f.B + 1} {f.C + 1} {f.D + 1}"
+                : $"f {f.A + 1} {f.B + 1} {f.C + 1}");
         }
     }
 

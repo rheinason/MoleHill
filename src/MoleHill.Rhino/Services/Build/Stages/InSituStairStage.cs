@@ -26,7 +26,7 @@ internal static class InSituStairStage
             TerrainBuildService.ComputeModifierStageFingerprint(c.Snapshot, c.Terrain, inSituStair, c.CurrentMeshFingerprint),
             () => input == null
                 ? TerrainBuildService.WarnMissingMesh(c.Build, inSituStair.Label)
-                : ApplyInSituStair(c.Snapshot, c.Terrain, input, inSituStair, c.Build, c.Mode),
+                : ApplyInSituStair(c.Snapshot, input, inSituStair, c.Build, c.Mode),
             result => TerrainBuildService.DescribeModifierMeshResult(inSituStair.Label, result),
             out ulong fingerprint,
             c.ShouldCancel);
@@ -89,7 +89,6 @@ internal static class InSituStairStage
 
     private static RhinoMesh ApplyInSituStair(
         TerrainBuildSnapshot snapshot,
-        TerrainDefinition terrain,
         RhinoMesh mesh,
         InSituStairModifierDefinition modifier,
         TerrainBuildResult build,
@@ -150,8 +149,6 @@ internal static class InSituStairStage
             referenceBuildTimer.Elapsed,
             $"{stairBuild!.SurfaceCount:N0} surfaces, {stairBuild.StepCountSummary} steps",
             TerrainBuildService.StageTimingDiagnosticThresholdMs);
-
-        double tolerance = TerrainBuildService.GetToleranceProfile(snapshot, terrain).RemeshConstraintTolerance;
 
         modifier.ComputedSurfaceCount = stairBuild.SurfaceCount;
         modifier.ComputedTreadDepthSummary = stairBuild.TreadDepthSummary;
@@ -263,8 +260,13 @@ internal static class InSituStairStage
             $"{build.PersistentHardConstraints.Count:N0} hard constraints",
             TerrainBuildService.StageTimingDiagnosticThresholdMs);
 
+        // Never tiny-face cleanup here: it judges faces by plan area, so it deletes every steep
+        // face in the terrain (retaining walls included) and tore them open on a real case.
         var meshBuildTimer = Stopwatch.StartNew();
-        RhinoMesh stairMesh = RhinoGeometryConversions.BuildMesh(currentVertices, currentVertexCount, currentFaces, currentFaceCount);
+        RhinoMesh stairMesh = TerrainBuildService.FinalizeGradingMesh(
+            RhinoGeometryConversions.BuildMesh(currentVertices, currentVertexCount, currentFaces, currentFaceCount),
+            "In-Situ Stair",
+            build);
         meshBuildTimer.Stop();
         build.RecordTiming(
             "In-Situ Stair Mesh Build",
@@ -272,17 +274,6 @@ internal static class InSituStairStage
             $"{stairMesh.Vertices.Count:N0} verts, {stairMesh.Faces.Count:N0} faces",
             TerrainBuildService.StageTimingDiagnosticThresholdMs);
 
-        var cleanupTimer = Stopwatch.StartNew();
-        RhinoMesh cleanedStairMesh = TerrainBuildService.CleanTinyFaces(stairMesh, tolerance, "In-Situ Stair", build);
-        cleanupTimer.Stop();
-        build.RecordTiming(
-            "In-Situ Stair Tiny Cleanup",
-            cleanupTimer.Elapsed,
-            ReferenceEquals(cleanedStairMesh, stairMesh)
-                ? "unchanged"
-                : $"{cleanedStairMesh.Vertices.Count:N0} verts, {cleanedStairMesh.Faces.Count:N0} faces",
-            TerrainBuildService.StageTimingDiagnosticThresholdMs);
-
-        return cleanedStairMesh;
+        return stairMesh;
     }
 }

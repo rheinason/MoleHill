@@ -11,7 +11,8 @@ dotnet build tools/MoleHill.CaseReplay
 DOTNET_ROLL_FORWARD=Major tools/MoleHill.CaseReplay/bin/Debug/net7.0-windows/MoleHill.CaseReplay.exe <case.zip|dir> [--stages]
 ```
 
-- `--stages` also builds after each modifier and prints its mesh: vertices, faces, border loops,
+- `--dump <dir>` writes each built mesh (each stage with `--stages`) to `<dir>` as OBJ, at double precision.
+- `--stages` also builds after each modifier and prints its mesh: vertices, faces, border loops (with where each hole is),
   non-manifold edges. One border loop and zero non-manifold edges after every stage is a healthy terrain.
 - `--plugin <dir>` loads a different plugin build (default `src\MoleHill.Rhino\bin\Release\net7.0`).
 - `--units <UnitSystem>` sets the document units. Bundles record them since 2026-10-06; older bundles

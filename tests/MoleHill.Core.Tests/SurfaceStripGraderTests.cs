@@ -256,6 +256,65 @@ public class SurfaceStripGraderTests
         Assert.True(leftWithBarrier > 0.2, $"Expected unblocked left side to keep grading, got {leftWithBarrier:G6}.");
     }
 
+    private sealed record CapturedTerrain(string Case, double[] Vertices, int[] Faces);
+
+    /// <summary>
+    /// A sparse strip of a real terrain (copied case 2026-10-26): long needles fanning onto a border whose
+    /// stationing points sit a float's rounding inside one long border edge, joined to it by zero-area slivers.
+    /// The grader used to peel the border again after re-triangulating, which ran up the needles from the
+    /// slivers and notched the terrain far from the graded surface.
+    /// </summary>
+    [Fact]
+    public void Grade_SparseBorderStrip_KeepsTheTerrainBorder()
+    {
+        const string resource = "MoleHill.Core.Tests.TestData.StairBorderNeedleFanCase.json";
+        using Stream stream = typeof(SurfaceStripGraderTests).Assembly.GetManifestResourceStream(resource)
+            ?? throw new InvalidOperationException($"Missing {resource}.");
+        CapturedTerrain terrain = System.Text.Json.JsonSerializer.Deserialize<CapturedTerrain>(stream)!;
+        var surface = new SurfaceStripGrader.SurfaceDefinition(
+            footprintXy: new[] { 50.0, 11.5, 51.0, 11.5, 51.0, 12.5, 50.0, 12.5 },
+            footprintVertexCount: 4,
+            boundaryVertices: new[]
+            {
+                50.0, 11.5, 29.0,
+                51.0, 11.5, 29.0,
+                51.0, 12.5, 29.0,
+                50.0, 12.5, 29.0
+            },
+            boundaryVertexCount: 4,
+            planeXCoeff: 0.0,
+            planeYCoeff: 0.0,
+            planeConstant: 29.0);
+
+        GradingResult? result = SurfaceStripGrader.Grade(
+            new IndexedTriMesh(terrain.Vertices, terrain.Vertices.Length / 3, terrain.Faces, terrain.Faces.Length / 3),
+            surface,
+            out string? errorMessage);
+
+        Assert.True(result != null, errorMessage);
+        Assert.Equal(
+            PlanArea(terrain.Vertices, terrain.Faces, terrain.Faces.Length / 3),
+            PlanArea(result!.Vertices, result.Faces, result.FaceCount),
+            3);
+        Assert.True(
+            MeshTopologyValidator.AnalyzeBoundaryGraph(result.Faces, result.FaceCount).HasSingleClosedBoundaryLoop,
+            "Grading changed the terrain's border.");
+    }
+
+    private static double PlanArea(double[] vertices, int[] faces, int faceCount)
+    {
+        double area = 0.0;
+        for (int f = 0; f < faceCount; f++)
+        {
+            int a = faces[f * 3] * 3, b = faces[f * 3 + 1] * 3, c = faces[f * 3 + 2] * 3;
+            area += Math.Abs(
+                ((vertices[b] - vertices[a]) * (vertices[c + 1] - vertices[a + 1])) -
+                ((vertices[b + 1] - vertices[a + 1]) * (vertices[c] - vertices[a]))) * 0.5;
+        }
+
+        return area;
+    }
+
     private static IEnumerable<(double x, double y, double z)> EnumerateVertices(GradingResult result)
     {
         for (int i = 0; i < result.VertexCount; i++)
