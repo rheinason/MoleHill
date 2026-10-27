@@ -3,6 +3,7 @@
 // Triangle Copyright (c) 1993, 1995, 1997, 1998, 2002, 2005 Jonathan Richard Shewchuk
 // Triangle.NET code by Christian Woltering
 // </copyright>
+// Modified for MoleHill: FindDirection throws when its turn circles the vertex, instead of spinning forever. See LICENSES/TriangleNet.md.
 // -----------------------------------------------------------------------
 
 namespace TriangleNet.Meshing
@@ -571,6 +572,11 @@ namespace TriangleNet.Meshing
         /// is used to find the direction to move in to get from one point to
         /// another.
         /// </remarks>
+        private static string CircledMessage(Vertex start, Vertex target) =>
+            string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                "Unable to find a triangle on path: the search circled its vertex at ({0:R}, {1:R}) looking for ({2:R}, {3:R}).",
+                start.x, start.y, target.x, target.y);
+
         private FindDirectionResult FindDirection(ref Otri searchtri, Vertex searchpoint)
         {
             Otri checktri = default(Otri);
@@ -602,6 +608,11 @@ namespace TriangleNet.Meshing
                     rightflag = false;
                 }
             }
+            // On a valid mesh a turn ends within one circuit of the vertex. On one an earlier intersection left
+            // inverted (nearly collinear crossing segments), it never ends: a MoleHill Remesh spun here for over 20
+            // minutes holding the triangulation lock. A full circuit fails the call instead, as a boundary does.
+            Triangle firstTri = searchtri.tri;
+            int firstOrient = searchtri.orient;
             while (leftflag)
             {
                 // Turn left until satisfied.
@@ -610,6 +621,11 @@ namespace TriangleNet.Meshing
                 {
                     logger.Error("Unable to find a triangle on path.", "Mesh.FindDirection().1");
                     throw new Exception("Unable to find a triangle on path.");
+                }
+                if (searchtri.tri == firstTri && searchtri.orient == firstOrient)
+                {
+                    logger.Error("Unable to find a triangle on path: the search circled its vertex.", "Mesh.FindDirection().3");
+                    throw new Exception(CircledMessage(startvertex, searchpoint));
                 }
                 leftvertex = searchtri.Apex();
                 rightccw = leftccw;
@@ -624,6 +640,11 @@ namespace TriangleNet.Meshing
                 {
                     logger.Error("Unable to find a triangle on path.", "Mesh.FindDirection().2");
                     throw new Exception("Unable to find a triangle on path.");
+                }
+                if (searchtri.tri == firstTri && searchtri.orient == firstOrient)
+                {
+                    logger.Error("Unable to find a triangle on path: the search circled its vertex.", "Mesh.FindDirection().4");
+                    throw new Exception(CircledMessage(startvertex, searchpoint));
                 }
                 rightvertex = searchtri.Dest();
                 leftccw = rightccw;

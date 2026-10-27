@@ -289,11 +289,19 @@ public static class TriangulationHelper
         };
     }
 
+    /// <summary>
+    /// Floating-point noise at the coordinates' magnitude, as single precision: what this re-triangulates is
+    /// usually a stage's mesh, whose arrays are float-rounded by design (<c>RhinoGeometryConversions.BuildMesh</c>),
+    /// beside constraints computed in double. A rail stationed along an existing line then sits up to a float's
+    /// rounding off it, and at double-noise tolerance the two copies reached Triangle.NET as crossings: Remesh
+    /// Rebuild spun on them for over 20 minutes (copied case 2026-10-26). Four float ulps; TinEngine, fed the
+    /// user's double-precision curves, keeps double noise.
+    /// </summary>
     private static double TJunctionTolerance(double[] xyCoords)
     {
         double magnitude = 1.0;
         foreach (double value in xyCoords)
             magnitude = Math.Max(magnitude, Math.Abs(value));
-        return magnitude * 1e-9;
+        return magnitude * (1.0 / (1 << 22));
     }
 }

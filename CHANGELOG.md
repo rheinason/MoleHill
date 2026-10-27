@@ -20,6 +20,10 @@ beta prereleases. Earlier versions are recorded only in the git history.
   cleanup now judges a face by its true size, not its size in plan (a vertical wall face has none), and only ever
   takes faces from the border. Its old guard engaged only on a terrain with one clean border, so on a terrain
   with a hole it could tear every wall open.
+- Remesh (Rebuild mode) no longer hangs. A rail stationed along a line already in the terrain sat a float's
+  rounding off it, and the triangulator read the two copies as crossing; on one site it spun for over 20 minutes,
+  blocking every other triangulation meanwhile. Such overlaps are now joined before triangulating, and the
+  triangulator gives up on an inverted mesh instead of looping. That site's rebuild now takes under a second.
 
 **Scan to Terrain**
 - Walls and kerbs go on layers of their own, for Retaining Wall cards rather than as plain breaklines: wall

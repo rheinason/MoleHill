@@ -47,6 +47,7 @@ each changed file carries a "Modified for MoleHill" note under its copyright hea
 | `Mesh.cs` | Incremental editing: `TryInsertPoint`, `CanDeletePoint` and `TryDeletePoint`, used by `TinEngine` for single-point edits. |
 | `Meshing/GenericMesher.cs` | Skips the quality-refinement pass when no quality or conforming option is requested. |
 | `Meshing/QualityMesher.cs` | Creates its large refinement workspace lazily, only when refinement or an incremental edit needs it. |
+| `Meshing/ConstraintMesher.cs` | `FindDirection` throws when its turn around a vertex comes full circle (a mesh an earlier segment intersection left inverted), instead of looping forever. |
 
 The full history of each change is in the repository's git log for `src/TriangleNet/`.
 

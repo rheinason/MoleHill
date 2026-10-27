@@ -635,7 +635,13 @@ contour to plain Delaunay: the terrain ignored its inputs and grew 48 m slivers,
 insertion. `FullRebuild` splits each segment at any vertex within floating-point noise of its interior
 (1e-9 of the coordinate magnitude) before triangulating; a real gap is left for the CDT. Shared
 `TriangulationHelper` applies the same split for grading, remeshing and area-splitting callers, without
-changing caller-owned vertices or segments. The fallback message now carries Triangle's reason.
+changing caller-owned vertices or segments, at **single-precision** noise (four float ulps of the magnitude):
+those callers re-triangulate a stage's mesh, whose arrays are float-rounded by design (`BuildMesh`), beside
+constraints computed in double, so a rail stationed along an existing line sits up to a float's rounding off
+it. At double noise those overlaps reached Triangle as crossings, and Remesh Rebuild spun on one for over 20
+minutes holding the triangulation lock (copied case 2026-10-26). Triangle.NET's `FindDirection` now throws
+when its turn around a vertex comes full circle, so a mesh left inverted fails the tier instead of hanging.
+The fallback message now carries Triangle's reason.
 Triangle.NET's large quality-refinement state is created only when quality, conforming Delaunay, or an
 incremental mesh mutation requests it. Plain and per-face conform triangulations avoid the otherwise
 unused 4,096-bucket refinement queues, while `IMesh.Refine` retains its lazy creation path.
