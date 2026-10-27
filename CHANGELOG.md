@@ -16,6 +16,10 @@ beta prereleases. Earlier versions are recorded only in the git history.
   passes through untouched. It used to re-triangulate the whole site for a 3 m stair and drop hundreds of points
   along the border, which could stop a Retaining Wall stacked after it from inserting. The Grasshopper In-Situ
   Stair component grades the same way.
+- Remesh (Rebuild mode) and a Retaining Wall's rebuild fallback can no longer delete wall faces. Their tiny-face
+  cleanup now judges a face by its true size, not its size in plan (a vertical wall face has none), and only ever
+  takes faces from the border. Its old guard engaged only on a terrain with one clean border, so on a terrain
+  with a hole it could tear every wall open.
 
 **Scan to Terrain**
 - Walls and kerbs go on layers of their own, for Retaining Wall cards rather than as plain breaklines: wall

@@ -492,14 +492,14 @@ internal sealed partial class TerrainBuildService
         if (!cleanup.HasChanges)
         {
             if (cleanup.BlockedFaceCount > 0)
-                build.Diagnostics.Add($"{sourceLabel} kept the pre-cleanup mesh because tiny-face cleanup would create extra boundary loops or open naked-edge chains.");
+                build.Diagnostics.Add($"{sourceLabel} kept its tiny faces: they are inside the terrain, or removing them would pinch its border.");
             return mesh;
         }
 
         if (cleanup.BlockedFaceCount > 0)
         {
             build.Diagnostics.Add(
-                $"{sourceLabel} removed {cleanup.RemovedFaceCount} tiny faces and kept {cleanup.BlockedFaceCount} because removing them would create extra boundary loops or open naked-edge chains.");
+                $"{sourceLabel} removed {cleanup.RemovedFaceCount} tiny faces from the border and kept {cleanup.BlockedFaceCount} inside the terrain or where removing them would pinch its border.");
         }
         else
         {
@@ -509,13 +509,20 @@ internal sealed partial class TerrainBuildService
         return BuildRemappedMesh(vertices, new List<int>(cleanup.Faces));
     }
 
+    /// <summary>
+    /// Removes tiny faces from the border, never from inside. A face is tiny by its true (3D) size: judged in plan,
+    /// every steep face read as tiny, and the cleanup deleted retaining walls (copied case 2026-10-26). A face may go
+    /// only where the border stays a border: an interior face would open a hole, and a face whose one border edge
+    /// faces a corner already on the border would pinch it. The rule is local, so it holds whatever the incoming
+    /// border looks like; the old guard engaged only on one closed loop, and a terrain with a hole or a pinch let it
+    /// delete freely.
+    /// </summary>
     internal static TinyFaceCleanupResult ComputeTinyFaceCleanup(
         double[] vertices,
         int[] faces,
         int faceCount,
         double tolerance)
     {
-        var originalTopology = MeshTopologyValidator.AnalyzeBoundaryGraph(faces, faceCount);
         double medianEdgeLength = ComputeMedianUndirectedEdgeLength(vertices, faces, faceCount);
         double geometryFloor = Math.Max(medianEdgeLength * 1e-12, double.Epsilon);
         double effectiveCleanupTolerance = Math.Min(
@@ -523,57 +530,41 @@ internal sealed partial class TerrainBuildService
             Math.Max(medianEdgeLength * 0.01, geometryFloor));
         double minEdgeLength = Math.Max(effectiveCleanupTolerance * 2.0, geometryFloor);
         double minEdgeLengthSquared = minEdgeLength * minEdgeLength;
-        double minProjectedArea = Math.Max(
+        double minArea = Math.Max(
             effectiveCleanupTolerance * effectiveCleanupTolerance * 2.0,
             geometryFloor * geometryFloor);
         Dictionary<long, int> originalEdgeCounts = IndexedMeshTools.CountFaceEdges(faces, faceCount);
 
-        var candidates = new List<(int FaceIndex, double Area, double SmallestEdgeSquared, double MinProjectedAltitude)>();
+        var candidates = new List<(int FaceIndex, double Area, double SmallestEdgeSquared, double MinAltitude)>();
         for (int faceIndex = 0; faceIndex < faceCount; faceIndex++)
         {
             int a = faces[faceIndex * 3];
             int b = faces[faceIndex * 3 + 1];
             int c = faces[faceIndex * 3 + 2];
 
-            double ax = vertices[a * 3];
-            double ay = vertices[a * 3 + 1];
-            double az = vertices[a * 3 + 2];
-            double bx = vertices[b * 3];
-            double by = vertices[b * 3 + 1];
-            double bz = vertices[b * 3 + 2];
-            double cx = vertices[c * 3];
-            double cy = vertices[c * 3 + 1];
-            double cz = vertices[c * 3 + 2];
-
-            double abx = bx - ax;
-            double aby = by - ay;
-            double abz = bz - az;
-            double bcx = cx - bx;
-            double bcy = cy - by;
-            double bcz = cz - bz;
-            double cax = ax - cx;
-            double cay = ay - cy;
-            double caz = az - cz;
+            double abx = vertices[b * 3] - vertices[a * 3];
+            double aby = vertices[b * 3 + 1] - vertices[a * 3 + 1];
+            double abz = vertices[b * 3 + 2] - vertices[a * 3 + 2];
+            double acx = vertices[c * 3] - vertices[a * 3];
+            double acy = vertices[c * 3 + 1] - vertices[a * 3 + 1];
+            double acz = vertices[c * 3 + 2] - vertices[a * 3 + 2];
+            double bcx = acx - abx;
+            double bcy = acy - aby;
+            double bcz = acz - abz;
 
             double l0Squared = (abx * abx) + (aby * aby) + (abz * abz);
             double l1Squared = (bcx * bcx) + (bcy * bcy) + (bcz * bcz);
-            double l2Squared = (cax * cax) + (cay * cay) + (caz * caz);
-            double area = Math.Abs((bx - ax) * (cy - ay) - (by - ay) * (cx - ax)) * 0.5;
+            double l2Squared = (acx * acx) + (acy * acy) + (acz * acz);
+            double nx = (aby * acz) - (abz * acy);
+            double ny = (abz * acx) - (abx * acz);
+            double nz = (abx * acy) - (aby * acx);
+            double area = Math.Sqrt((nx * nx) + (ny * ny) + (nz * nz)) * 0.5;
             double smallestEdgeSquared = Math.Min(l0Squared, Math.Min(l1Squared, l2Squared));
-            double projectedL0Squared = (abx * abx) + (aby * aby);
-            double projectedL1Squared = (bcx * bcx) + (bcy * bcy);
-            double projectedL2Squared = (cax * cax) + (cay * cay);
-            double longestProjectedEdgeSquared = Math.Max(projectedL0Squared, Math.Max(projectedL1Squared, projectedL2Squared));
-            double shortestProjectedEdgeSquared = Math.Min(projectedL0Squared, Math.Min(projectedL1Squared, projectedL2Squared));
-            double longestProjectedEdge = Math.Sqrt(longestProjectedEdgeSquared);
-            double minProjectedAltitude = longestProjectedEdge > geometryFloor
-                ? (2.0 * area) / longestProjectedEdge
-                : 0.0;
-            double projectedDuplicateTolerance = effectiveCleanupTolerance * 0.5;
-            bool projectedDuplicate = shortestProjectedEdgeSquared <= projectedDuplicateTolerance * projectedDuplicateTolerance;
-            bool projectedSliver =
-                longestProjectedEdge > effectiveCleanupTolerance * 8.0 &&
-                minProjectedAltitude < Math.Max(effectiveCleanupTolerance * 0.5, longestProjectedEdge * 0.001);
+            double longestEdge = Math.Sqrt(Math.Max(l0Squared, Math.Max(l1Squared, l2Squared)));
+            double minAltitude = longestEdge > geometryFloor ? (2.0 * area) / longestEdge : 0.0;
+            bool sliver =
+                longestEdge > effectiveCleanupTolerance * 8.0 &&
+                minAltitude < Math.Max(effectiveCleanupTolerance * 0.5, longestEdge * 0.001);
 
             bool shortBoundaryEdge = HasShortBoundaryEdge(
                 originalEdgeCounts,
@@ -587,10 +578,9 @@ internal sealed partial class TerrainBuildService
             bool hasBoundaryEdge = FaceHasBoundaryEdge(originalEdgeCounts, a, b, c);
 
             if (shortBoundaryEdge ||
-                area < minProjectedArea ||
-                (projectedDuplicate && shortBoundaryEdge) ||
-                (projectedSliver && hasBoundaryEdge))
-                candidates.Add((faceIndex, area, smallestEdgeSquared, minProjectedAltitude));
+                area < minArea ||
+                (sliver && hasBoundaryEdge))
+                candidates.Add((faceIndex, area, smallestEdgeSquared, minAltitude));
         }
 
         if (candidates.Count == 0)
@@ -602,7 +592,7 @@ internal sealed partial class TerrainBuildService
             if (compare != 0)
                 return compare;
 
-            int altitudeCompare = left.MinProjectedAltitude.CompareTo(right.MinProjectedAltitude);
+            int altitudeCompare = left.MinAltitude.CompareTo(right.MinAltitude);
             if (altitudeCompare != 0)
                 return altitudeCompare;
 
@@ -611,37 +601,30 @@ internal sealed partial class TerrainBuildService
 
         bool[] keepFace = new bool[faceCount];
         Array.Fill(keepFace, true);
+        var edgeCounts = new Dictionary<long, int>(originalEdgeCounts, IndexedMeshTools.EdgeKeyComparer.Instance);
+        var borderDegree = new Dictionary<int, int>();
+        foreach (var pair in edgeCounts)
+        {
+            if (pair.Value != 1)
+                continue;
+            int from = (int)(pair.Key >> 32);
+            int to = (int)(pair.Key & 0xFFFFFFFFL);
+            borderDegree[from] = borderDegree.GetValueOrDefault(from) + 1;
+            borderDegree[to] = borderDegree.GetValueOrDefault(to) + 1;
+        }
 
         int removedCount = 0;
         int blockedCount = 0;
-        bool enforceSingleClosedBoundaryLoop = HasSingleClosedBoundaryLoopIgnoringNonManifoldEdges(originalTopology);
-        Dictionary<long, int>? edgeCounts = enforceSingleClosedBoundaryLoop
-            ? new Dictionary<long, int>(originalEdgeCounts, IndexedMeshTools.EdgeKeyComparer.Instance)
-            : null;
-
         foreach (var candidate in candidates)
         {
-            if (enforceSingleClosedBoundaryLoop &&
-                FaceHasNoCurrentBoundaryEdges(edgeCounts!, faces, candidate.FaceIndex))
+            if (!CanRemoveKeepingBorder(edgeCounts, borderDegree, faces, candidate.FaceIndex))
             {
                 blockedCount++;
                 continue;
             }
 
             keepFace[candidate.FaceIndex] = false;
-            if (enforceSingleClosedBoundaryLoop)
-            {
-                ApplyFaceEdgeCountDelta(edgeCounts!, faces, candidate.FaceIndex, -1);
-                var proposedTopology = AnalyzeBoundaryGraphFromEdgeCounts(edgeCounts!);
-                if (!HasSingleClosedBoundaryLoopIgnoringNonManifoldEdges(proposedTopology))
-                {
-                    ApplyFaceEdgeCountDelta(edgeCounts!, faces, candidate.FaceIndex, 1);
-                    keepFace[candidate.FaceIndex] = true;
-                    blockedCount++;
-                    continue;
-                }
-            }
-
+            RemoveFaceFromBorder(edgeCounts, borderDegree, faces, candidate.FaceIndex);
             removedCount++;
         }
 
@@ -652,6 +635,66 @@ internal sealed partial class TerrainBuildService
             BuildFilteredFaces(faces, faceCount, keepFace, removedCount),
             removedCount,
             blockedCount);
+    }
+
+    /// <summary>
+    /// True when deleting the face leaves the border a border: it has a border edge, none of its edges is
+    /// non-manifold, and with exactly one border edge the opposite corner is not on the border already (deleting
+    /// the face would pinch the border there). An ear (two border edges) or a lone face can always go.
+    /// </summary>
+    private static bool CanRemoveKeepingBorder(
+        Dictionary<long, int> edgeCounts,
+        Dictionary<int, int> borderDegree,
+        int[] faces,
+        int faceIndex)
+    {
+        int borderEdges = 0;
+        int opposite = -1;
+        for (int corner = 0; corner < 3; corner++)
+        {
+            int from = faces[faceIndex * 3 + corner];
+            int to = faces[faceIndex * 3 + ((corner + 1) % 3)];
+            int count = GetEdgeCount(edgeCounts, from, to);
+            if (count > 2)
+                return false;
+            if (count == 1)
+            {
+                borderEdges++;
+                opposite = faces[faceIndex * 3 + ((corner + 2) % 3)];
+            }
+        }
+
+        if (borderEdges == 0)
+            return false;
+
+        return borderEdges > 1 || borderDegree.GetValueOrDefault(opposite) == 0;
+    }
+
+    private static void RemoveFaceFromBorder(
+        Dictionary<long, int> edgeCounts,
+        Dictionary<int, int> borderDegree,
+        int[] faces,
+        int faceIndex)
+    {
+        for (int corner = 0; corner < 3; corner++)
+        {
+            int from = faces[faceIndex * 3 + corner];
+            int to = faces[faceIndex * 3 + ((corner + 1) % 3)];
+            long key = IndexedMeshTools.GetEdgeKey(from, to);
+            int before = edgeCounts.GetValueOrDefault(key);
+            int after = before - 1;
+            if (after <= 0)
+                edgeCounts.Remove(key);
+            else
+                edgeCounts[key] = after;
+
+            // An edge leaving the border (1 -> 0) or joining it (2 -> 1) changes both corners' border degree.
+            int delta = (before == 1 ? -1 : 0) + (after == 1 ? 1 : 0);
+            if (delta == 0)
+                continue;
+            borderDegree[from] = borderDegree.GetValueOrDefault(from) + delta;
+            borderDegree[to] = borderDegree.GetValueOrDefault(to) + delta;
+        }
     }
 
     private static bool HasShortBoundaryEdge(
@@ -681,109 +724,11 @@ internal sealed partial class TerrainBuildService
                IsBoundaryEdge(edgeCounts, c, a);
     }
 
-    private static bool HasSingleClosedBoundaryLoopIgnoringNonManifoldEdges(MeshTopologyValidator.BoundaryGraphAnalysis topology)
-    {
-        return topology.BoundaryEdgeCount > 0 &&
-               topology.BoundaryComponentCount == 1 &&
-               !topology.HasOpenBoundaryChains;
-    }
-
-
-    private static bool FaceHasNoCurrentBoundaryEdges(Dictionary<long, int> edgeCounts, int[] faces, int faceIndex)
-    {
-        int a = faces[faceIndex * 3];
-        int b = faces[faceIndex * 3 + 1];
-        int c = faces[faceIndex * 3 + 2];
-        return GetEdgeCount(edgeCounts, a, b) != 1 &&
-               GetEdgeCount(edgeCounts, b, c) != 1 &&
-               GetEdgeCount(edgeCounts, c, a) != 1;
-    }
 
     private static int GetEdgeCount(Dictionary<long, int> edgeCounts, int a, int b)
     {
         edgeCounts.TryGetValue(IndexedMeshTools.GetEdgeKey(a, b), out int count);
         return count;
-    }
-
-    private static void ApplyFaceEdgeCountDelta(Dictionary<long, int> edgeCounts, int[] faces, int faceIndex, int delta)
-    {
-        int a = faces[faceIndex * 3];
-        int b = faces[faceIndex * 3 + 1];
-        int c = faces[faceIndex * 3 + 2];
-        IncrementEdgeCount(edgeCounts, a, b, delta);
-        IncrementEdgeCount(edgeCounts, b, c, delta);
-        IncrementEdgeCount(edgeCounts, c, a, delta);
-    }
-
-    private static void IncrementEdgeCount(Dictionary<long, int> edgeCounts, int a, int b, int delta)
-    {
-        long key = IndexedMeshTools.GetEdgeKey(a, b);
-        edgeCounts.TryGetValue(key, out int count);
-        count += delta;
-        if (count == 0)
-            edgeCounts.Remove(key);
-        else
-            edgeCounts[key] = count;
-    }
-
-    private static MeshTopologyValidator.BoundaryGraphAnalysis AnalyzeBoundaryGraphFromEdgeCounts(
-        IReadOnlyDictionary<long, int> edgeCounts)
-    {
-        var adjacency = new Dictionary<int, List<int>>();
-        var degree = new Dictionary<int, int>();
-        int boundaryEdgeCount = 0;
-        int nonManifoldEdgeCount = 0;
-
-        foreach (var pair in edgeCounts)
-        {
-            if (pair.Value > 2)
-            {
-                nonManifoldEdgeCount++;
-                continue;
-            }
-
-            if (pair.Value != 1)
-                continue;
-
-            boundaryEdgeCount++;
-            int a = (int)(pair.Key >> 32);
-            int b = (int)(pair.Key & 0xFFFFFFFFL);
-            AddBoundaryNeighbor(adjacency, degree, a, b);
-            AddBoundaryNeighbor(adjacency, degree, b, a);
-        }
-
-        if (boundaryEdgeCount == 0)
-            return new MeshTopologyValidator.BoundaryGraphAnalysis(0, 0, 0, HasOpenBoundaryChains: true, nonManifoldEdgeCount);
-
-        bool hasOpenBoundaryChains = degree.Values.Any(value => value != 2);
-        int boundaryComponentCount = 0;
-        var visited = new HashSet<int>();
-
-        foreach (int start in adjacency.Keys)
-        {
-            if (!visited.Add(start))
-                continue;
-
-            boundaryComponentCount++;
-            var stack = new Stack<int>();
-            stack.Push(start);
-            while (stack.Count > 0)
-            {
-                int current = stack.Pop();
-                foreach (int next in adjacency[current])
-                {
-                    if (visited.Add(next))
-                        stack.Push(next);
-                }
-            }
-        }
-
-        return new MeshTopologyValidator.BoundaryGraphAnalysis(
-            boundaryEdgeCount,
-            degree.Count,
-            boundaryComponentCount,
-            hasOpenBoundaryChains,
-            nonManifoldEdgeCount);
     }
 
     private static void AddBoundaryNeighbor(

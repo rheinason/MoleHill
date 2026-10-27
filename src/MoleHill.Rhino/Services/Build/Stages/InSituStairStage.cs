@@ -272,8 +272,8 @@ internal static class InSituStairStage
             $"{build.PersistentHardConstraints.Count:N0} hard constraints",
             TerrainBuildService.StageTimingDiagnosticThresholdMs);
 
-        // Never tiny-face cleanup here: it judges faces by plan area, so it deletes every steep
-        // face in the terrain (retaining walls included) and tore them open on a real case.
+        // Never tiny-face cleanup here: grading output must not lose a face. When it ran here (judging by plan
+        // area, its guard off) it deleted the steep faces of a retaining wall and tore it open on a real case.
         var meshBuildTimer = Stopwatch.StartNew();
         RhinoMesh stairMesh = TerrainBuildService.FinalizeGradingMesh(
             RhinoGeometryConversions.BuildMesh(currentVertices, currentVertexCount, currentFaces, currentFaceCount),

@@ -4,11 +4,11 @@ using Xunit;
 namespace MoleHill.Rhino.Tests;
 
 /// <summary>
-/// Grading stages finish their mesh with <c>FinalizeGradingMesh</c>, never <c>CleanTinyFaces</c>. The cleanup
-/// judges a face by its plan area, so every steep face in the terrain reads as tiny, and its hole guard turns
-/// itself off whenever the incoming border already touches itself. On a real case (In-Situ Stair after a
-/// Retaining Wall, 2026-10-26) it then deleted all 558 such faces: both rails of the wall tore open along
-/// their whole length, and small holes opened across the site, far from the stair.
+/// Grading stages finish their mesh with <c>FinalizeGradingMesh</c>, never <c>CleanTinyFaces</c>: grading output
+/// must not lose a face. When the In-Situ Stair still ran the cleanup (a copied case, 2026-10-26), it judged faces
+/// by plan area with its hole guard off, deleted all 558 steep faces of a Retaining Wall and tore both rails open
+/// along their whole length, with small holes across the site. The cleanup itself is now border-only and judged
+/// in 3D (<c>TerrainBuildServiceTinyFaceCleanupTests</c>); grading still has no business deleting faces.
 /// </summary>
 public class GradingTinyFaceCleanupGuardTests
 {
