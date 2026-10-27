@@ -38,7 +38,7 @@ internal static class TerrainCurveExtractionOutput
             {
                 if (!layers.TryGetValue(style.Layer, out int index))
                 {
-                    index = EnsureLayer(doc, layerRoot, style.Layer, template);
+                    index = EnsureLayer(doc, layerRoot, style.Layer, style.Colour, template);
                     layers[style.Layer] = index;
                 }
 
@@ -96,9 +96,10 @@ internal static class TerrainCurveExtractionOutput
     /// The layer at <paramref name="relativePath"/> under <paramref name="root"/>, creating every missing level.
     /// A new layer takes the shipped template's colour and print width for its path, or its nearest listed
     /// ancestor's, so the scan's input layers look like the ones a terrain creates (<c>Input::Zones::Paved</c>
-    /// takes <c>Input::Zones</c>'s).
+    /// takes <c>Input::Zones</c>'s print width). A leaf the template does not list takes the kind's own colour, so
+    /// <c>Walls::Kerbs</c> is not drawn in its parent's wall red.
     /// </summary>
-    private static int EnsureLayer(RhinoDoc doc, string root, string relativePath, IReadOnlyList<LayerTemplateEntry> template)
+    private static int EnsureLayer(RhinoDoc doc, string root, string relativePath, System.Drawing.Color leafColour, IReadOnlyList<LayerTemplateEntry> template)
     {
         string path = root;
         int index = doc.Layers.FindByFullPath(path, -1);
@@ -112,15 +113,21 @@ internal static class TerrainCurveExtractionOutput
             if (index >= 0)
                 continue;
             var layer = new Layer { Name = segment, ParentLayerId = doc.Layers[parent].Id };
-            if (TemplateEntry(template, path[(root.Length + 2)..]) is { } entry)
+            string relative = path[(root.Length + 2)..];
+            if (TemplateEntry(template, relative) is { } entry)
             {
                 if (entry.ColorArgb is int argb) layer.Color = System.Drawing.Color.FromArgb(argb);
                 if (entry.PlotWeight is double weight) layer.PlotWeight = weight;
             }
+            if (relative.Length == relativePath.Length && !Listed(template, relative))
+                layer.Color = leafColour;
             index = doc.Layers.Add(layer);
         }
         return index;
     }
+
+    private static bool Listed(IReadOnlyList<LayerTemplateEntry> template, string relativePath) =>
+        template.Any(entry => string.Equals(entry.Path, TerrainLayerNaming.DefaultRoot + "::" + relativePath, StringComparison.OrdinalIgnoreCase));
 
     private static LayerTemplateEntry? TemplateEntry(IReadOnlyList<LayerTemplateEntry> template, string relativePath)
     {

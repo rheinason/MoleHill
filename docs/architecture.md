@@ -167,8 +167,9 @@ TriangleNet (vendored)  ←  MoleHill.Core  ←  MoleHill.Grasshopper (GH host)
   fitted contour builder, preview conduit, output writer and `TerrainCurveExtractionPanel`.
 - **Extraction output lands in a terrain's own input tree.** `TerrainCurveExtractionOutput` writes under
   `MoleHill {name}::Input` (`TerrainLayerNaming.InputRoot`): `Contours`, `Spots`, `Boundary`, `Zones::Paved` /
-  `Zones::Soft`, and one `Breaklines` layer for every line the terrain must keep (scan walls, kerbs, paving
-  edges, paved outlines, recovered creases), each object coloured by its kind. Site context that drives
+  `Zones::Soft`, and `Breaklines` for every line the terrain must keep (paving edges, paved outlines, recovered
+  creases), with scan wall rails on `Input::Walls` and kerb rails on `Input::Walls::Kerbs`, the layer a Retaining Wall
+  card reads its pairs from, each object coloured by its kind. Site context that drives
   nothing (buildings, soft outlines, the check mesh) goes under `Context`. New layers take the shipped
   template's colour and print width, so a terrain created with that name reads them where it already looks.
   Layers are per name and never reused: a taken root becomes `name 2`.

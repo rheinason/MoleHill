@@ -13,6 +13,11 @@ beta prereleases. Earlier versions are recorded only in the git history.
   long needle triangles from slivers along a sparse border and cut V-shaped slits many metres into the site;
   Remesh then opened them into holes. The border now stays exactly as Triangulate left it.
 
+**Scan to Terrain**
+- Walls and kerbs go on layers of their own, for Retaining Wall cards rather than as plain breaklines: wall
+  top and toe rails on `Input::Walls`, kerbs on `Input::Walls::Kerbs`, so walls and kerbs can each have
+  their own card.
+
 ## 1.5.2-beta — 2026-10-22
 
 **Scan to Terrain**

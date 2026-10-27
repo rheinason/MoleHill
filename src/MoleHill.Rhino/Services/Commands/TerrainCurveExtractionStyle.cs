@@ -9,9 +9,11 @@ namespace MoleHill.Rhino.Services;
 /// outlines, which carry the paving as breaklines, draw heaviest.
 /// <para><b>Layers are the terrain's own input tree</b> (<see cref="Model.TerrainLayerNaming.InputRoot"/>): every
 /// line a terrain must keep is on <c>Input::Breaklines</c>, whatever found it, so "which layer is breaklines" has one
-/// answer and a terrain of the same name reads the output without reassigning anything. The colour is the
-/// object's, so walls, kerbs and paved edges stay distinguishable on that one layer. What only describes the site
-/// (buildings, soft outlines, the check mesh) goes under <c>Context</c>, which no terrain source reads.</para>
+/// answer. Walls and kerbs are the exception: their top and toe rails are what a Retaining Wall card pairs, so they
+/// go where its curves go, <c>Input::Walls</c>, with kerbs on <c>Input::Walls::Kerbs</c> so a second card (or none)
+/// can take them apart from the walls. A terrain source reads a layer's own objects, not its sublayers. The colour
+/// is the object's, so the kinds sharing a layer stay distinguishable. What only describes the site (buildings,
+/// soft outlines, the check mesh) goes under <c>Context</c>, which no terrain source reads.</para>
 /// </summary>
 internal static class TerrainCurveExtractionStyle
 {
@@ -20,6 +22,8 @@ internal static class TerrainCurveExtractionStyle
     public readonly record struct Style(string Name, string Layer, Color Colour, int Weight);
 
     public const string Breaklines = "Input::Breaklines";
+    public const string WallLines = "Input::Walls";
+    public const string KerbLines = WallLines + "::Kerbs";
 
     public static readonly Style Border = new("Border", "Input::Boundary", Color.FromArgb(35, 31, 32), 1);
     /// <summary>The terrain's own folds (batter crests and toes, pad edges, wall tops and toes), held as breaklines.</summary>
@@ -31,8 +35,8 @@ internal static class TerrainCurveExtractionStyle
     /// <summary>Flat area fills beneath the mesh for zone input; lighter than the outlines they fill.</summary>
     public static readonly Style PavedZones = new("Paved area", "Input::Zones::Paved", Color.FromArgb(165, 172, 190), 1);
     public static readonly Style SoftZones = new("Soft area", "Input::Zones::Soft", Color.FromArgb(228, 205, 140), 1);
-    public static readonly Style Walls = new("Wall", Breaklines, Color.FromArgb(110, 85, 65), 3);
-    public static readonly Style Kerbs = new("Kerb", Breaklines, Color.FromArgb(160, 95, 35), 2);
+    public static readonly Style Walls = new("Wall", WallLines, Color.FromArgb(110, 85, 65), 3);
+    public static readonly Style Kerbs = new("Kerb", KerbLines, Color.FromArgb(160, 95, 35), 2);
     public static readonly Style PavingEdges = new("Paving edge", Breaklines, Color.FromArgb(160, 95, 35), 2);
     public static readonly Style Buildings = new("Building", "Context::Buildings", Color.FromArgb(170, 135, 110), 1);
     public static readonly Style Ground = new("Scan ground", "Context::Ground check", Color.FromArgb(160, 160, 160), 1);

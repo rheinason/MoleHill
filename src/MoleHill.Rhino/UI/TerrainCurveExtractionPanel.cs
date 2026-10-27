@@ -108,7 +108,7 @@ internal sealed partial class TerrainCurveExtractionPanel : Form
         }
         Number(detail, "Recovery inputs per hectare", nameof(settings.InputsPerHectare), 1, 100000, 0);
         body.AddRow(new Label { Text = scan ? "Tolerance describes the inferred ground, not surveyed ground beneath removed objects. Roof fallbacks remain marked for review." : "Tolerance is measured at the reference terrain vertices; walls are carried by their crease lines and not measured. A spent input cap reports the remaining error.", Wrap = WrapMode.Word, Width = 460 });
-        body.AddRow(new Label { Text = "Kept output goes under 'MoleHill <name>::Input': Contours, Spots, Breaklines (every line the terrain must keep), Boundary and Zones — the layers a MoleHill terrain of that name reads." + (scan ? " Buildings and drawing-only outlines go under '::Context'." : ""), Wrap = WrapMode.Word, Width = 460 });
+        body.AddRow(new Label { Text = "Kept output goes under 'MoleHill <name>::Input': Contours, Spots, Breaklines (every line the terrain must keep), Walls and Walls::Kerbs (top and toe rails for Retaining Wall cards), Boundary and Zones — the layers a MoleHill terrain of that name reads." + (scan ? " Buildings and drawing-only outlines go under '::Context'." : ""), Wrap = WrapMode.Word, Width = 460 });
         if (scan) body.AddRow(new Expander { Header = "Advanced", Content = _scanAdvanced, Expanded = false });
         var shell = new DynamicLayout { Spacing = new Size(8, 8) };
         var scroll = new Scrollable { Content = body, ExpandContentWidth = true, Padding = 4 };

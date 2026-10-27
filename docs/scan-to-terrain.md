@@ -110,14 +110,19 @@ to 157; Keep produced valid grouped output and one Undo restored the source. The
 quality diagnostics, not a claim of surveyed accuracy or measured performance improvement.
 
 Output goes under a fresh `MoleHill {source}` root, laid out as that terrain's own input tree, so a
-MoleHill terrain of the same name reads it from the layers it already looks at. Several kinds share
-`Input::Breaklines`; each object keeps its kind's colour and name (`Wall top`, `Kerb bottom`, `Paved outline`).
+MoleHill terrain of the same name reads it from the layers it already looks at. Lines the terrain must keep are on
+`Input::Breaklines`. Wall and kerb top and toe rails are what a Retaining Wall card pairs, so they go on that
+card's layer, `Input::Walls`, with kerbs on `Input::Walls::Kerbs`: point one card at each (a source reads a layer's
+own objects, not its sublayers), or leave kerbs out. Each object keeps its kind's colour and name (`Wall top`,
+`Kerb bottom`).
 
 | Output layer | Meaning |
 |---|---|
 | Input::Boundary | Outer/inner loops of the retained ground footprint |
 | Input::Contours / Input::Spots | Fitted, editable ground inputs; clipped to paved and soft ground when classified |
-| Input::Breaklines | Every line the terrain must keep: paired measured wall top/toe rails, paved outlines, measured kerbs and paving edges (when area output is disabled) |
+| Input::Breaklines | Paved outlines, paving edges (when area output is disabled) and recovered creases |
+| Input::Walls | Paired measured wall top and toe rails, for a Retaining Wall card |
+| Input::Walls::Kerbs | Measured kerb top and bottom rails, for a second Retaining Wall card |
 | Input::Zones::Paved / ::Soft | Flat solid hatches of the paved and soft areas beneath the source, as MoleHill zone input |
 | Context::Soft outlines | Closed draped soft-area outlines; drawings, not breaklines |
 | Context::Buildings | Closed roof context Breps with fit and fallback metadata; never terrain inputs |
