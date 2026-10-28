@@ -376,6 +376,57 @@ public class SurfaceStripGraderTests
             .Select(i => FormattableString.Invariant($"{vertices[i * 3]:F6},{vertices[i * 3 + 1]:F6},{vertices[i * 3 + 2]:F6}"))
             .OrderBy(static key => key, StringComparer.Ordinal));
 
+    /// <summary>
+    /// A wall rail beside a stair is a barrier to the stair's batter, and a vertex on it keeps its height: the
+    /// batter reaching it used to regrade it, and a stringer wall's toe rail rose 0.1 m (2026-10-28 sweep).
+    /// </summary>
+    [Fact]
+    public void Grade_VertexOnBarrierWithinBatterReach_KeepsItsHeight()
+    {
+        const int cells = 20;
+        var vertices = new List<double>();
+        for (int j = 0; j <= cells; j++)
+            for (int i = 0; i <= cells; i++)
+                vertices.AddRange(new[] { (double)i, j, 0.0 });
+        var faces = new List<int>();
+        int V(int i, int j) => (j * (cells + 1)) + i;
+        for (int j = 0; j < cells; j++)
+            for (int i = 0; i < cells; i++)
+                faces.AddRange(new[] { V(i, j), V(i + 1, j), V(i + 1, j + 1), V(i, j), V(i + 1, j + 1), V(i, j + 1) });
+
+        var surface = new SurfaceStripGrader.SurfaceDefinition(
+            footprintXy: new[] { 5.0, 5.0, 7.0, 5.0, 7.0, 11.0, 5.0, 11.0 },
+            footprintVertexCount: 4,
+            boundaryVertices: new[]
+            {
+                5.0, 5.0, 0.5,
+                7.0, 5.0, 0.5,
+                7.0, 11.0, 0.5,
+                5.0, 11.0, 0.5
+            },
+            boundaryVertexCount: 4,
+            planeXCoeff: 0.0,
+            planeYCoeff: 0.0,
+            planeConstant: 0.5);
+
+        // A wall's toe rail 0.5 m outside the stair, well within its 0.77 m batter.
+        var rail = new ConstraintPolyline(
+            new[] { 7.5, 6.0, 0.0, 7.5, 8.0, 0.0, 7.5, 10.0, 0.0 },
+            3,
+            IsClosed: false,
+            PreserveInputElevation: true);
+
+        GradingResult? result = SurfaceStripGrader.Grade(
+            new IndexedTriMesh(vertices.ToArray(), vertices.Count / 3, faces.ToArray(), faces.Count / 3),
+            surface,
+            new[] { rail },
+            out string? errorMessage);
+
+        Assert.True(result != null, errorMessage);
+        Assert.Equal(0.0, FindVertexZ(result!, 7.5, 8.0), 9);
+        Assert.True(FindVertexZ(result!, 7.0, 8.0) > 0.4, "The stair's edge should still be graded.");
+    }
+
     private static double PlanArea(double[] vertices, int[] faces, int faceCount)
     {
         double area = 0.0;

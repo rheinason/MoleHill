@@ -1,4 +1,5 @@
-﻿using static MoleHill.Core.Engine.MeshFlipGeometry;
+﻿using MoleHill.Core.Geometry;
+using static MoleHill.Core.Engine.MeshFlipGeometry;
 
 namespace MoleHill.Core.Engine;
 
@@ -740,7 +741,16 @@ internal sealed class FeaturePolylineGraph
 
         double spacing = Math.Sqrt(Math.Max((maxX - minX) * (maxY - minY), 0.0) / vertexCount);
         var index = new VertexXYGrid(vertices, vertexCount, Math.Max(Math.Max(spacing, tolerance * 4.0), 1e-6));
+        // A mesh edge along a constraint may also span several of its segments: a remesh collapses vertices
+        // along a pinned chain, so its output has edges skipping the constraint's own stations, and the next
+        // remesh (the tiled remesher's next pass) did not recognise them, flipped them, and a stair stringer's
+        // rail lost 0.34 m (copied stringer sweep, 2026-10-28). So every vertex on the constraint is collected
+        // with the range of segments it lies on, and an edge between two of them is pinned when they share a
+        // segment or its midpoint lies on one between them: a chord across a bend does not.
         var onSegment = new List<(double T, int Vertex)>();
+        var collected = new List<int>();
+        var firstSegment = new int[vertexCount];
+        var lastSegment = new int[vertexCount];
         foreach (ConstraintPolyline constraint in constraints)
         {
             int pointCount = constraint.PointCount;
@@ -755,14 +765,74 @@ internal sealed class FeaturePolylineGraph
                     constraint.Points[s * 3], constraint.Points[s * 3 + 1],
                     constraint.Points[e * 3], constraint.Points[e * 3 + 1],
                     tolerance, onSegment);
-                foreach (var point in onSegment) nearSegment[point.Vertex] = true;
                 foreach (var point in onSegment)
-                    foreach (int neighbour in adjacency.NeighborsOf(point.Vertex))
-                        if (neighbour > point.Vertex && nearSegment[neighbour])
-                            featureEdges.Add(EdgeKey(point.Vertex, neighbour));
-                foreach (var point in onSegment) nearSegment[point.Vertex] = false;
+                {
+                    if (!nearSegment[point.Vertex])
+                    {
+                        nearSegment[point.Vertex] = true;
+                        firstSegment[point.Vertex] = s;
+                        collected.Add(point.Vertex);
+                    }
+
+                    lastSegment[point.Vertex] = s;
+                }
             }
+
+            foreach (int vertex in collected)
+                foreach (int neighbour in adjacency.NeighborsOf(vertex))
+                    if (neighbour > vertex && nearSegment[neighbour] &&
+                        RunsAlongConstraint(vertices, constraint, segmentCount, vertex, neighbour, firstSegment, lastSegment, tolerance))
+                        featureEdges.Add(EdgeKey(vertex, neighbour));
+
+            foreach (int vertex in collected)
+                nearSegment[vertex] = false;
+            collected.Clear();
         }
+    }
+
+    /// <summary>
+    /// True when mesh edge <paramref name="a"/>-<paramref name="b"/>, both of whose ends lie on the constraint,
+    /// runs along it: they lie on a common segment, or the edge's midpoint lies within tolerance of a segment in
+    /// the range between them (going round the short way on a closed constraint).
+    /// </summary>
+    private static bool RunsAlongConstraint(
+        double[] vertices,
+        ConstraintPolyline constraint,
+        int segmentCount,
+        int a,
+        int b,
+        int[] firstSegment,
+        int[] lastSegment,
+        double tolerance)
+    {
+        int lo = Math.Min(firstSegment[a], firstSegment[b]);
+        int hi = Math.Max(lastSegment[a], lastSegment[b]);
+        if (firstSegment[a] <= lastSegment[b] && firstSegment[b] <= lastSegment[a])
+            return true;
+
+        double mx = (vertices[a * 3] + vertices[b * 3]) * 0.5;
+        double my = (vertices[a * 3 + 1] + vertices[b * 3 + 1]) * 0.5;
+        bool MidpointOn(int s)
+        {
+            int e = (s + 1) % constraint.PointCount;
+            return Geometry2D.DistanceToSegment(
+                mx, my,
+                constraint.Points[s * 3], constraint.Points[s * 3 + 1],
+                constraint.Points[e * 3], constraint.Points[e * 3 + 1]) <= tolerance;
+        }
+
+        if (!constraint.IsClosed || hi - lo <= segmentCount / 2)
+        {
+            for (int s = lo; s <= hi; s++)
+                if (MidpointOn(s))
+                    return true;
+            return false;
+        }
+
+        for (int s = hi; s != (lo + 1) % segmentCount; s = (s + 1) % segmentCount)
+            if (MidpointOn(s))
+                return true;
+        return false;
     }
 
     /// <summary>Minimal XY spatial hash for finding the mesh vertices that lie along a constraint segment.</summary>

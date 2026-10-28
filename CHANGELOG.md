@@ -24,6 +24,11 @@ beta prereleases. Earlier versions are recorded only in the git history.
   rounding off it, and the triangulator read the two copies as crossing; on one site it spun for over 20 minutes,
   blocking every other triangulation meanwhile. Such overlaps are now joined before triangulating, and the
   triangulator gives up on an inverted mesh instead of looping. That site's rebuild now takes under a second.
+- Walls beside stairs (stringers) keep their rails through Remesh. Remesh re-spaces a wall rail's vertices, and
+  its next pass then failed to recognise rail edges that skipped the rail's own stations and flipped them: the
+  terrain at a stringer's top rail could fall 0.3 m below it. Remeshing twice is now as safe as once.
+- In-Situ Stair no longer regrades a wall rail its batter reaches. A rail beside a stair already blocked the
+  batter beyond it, but a vertex on the rail itself was regraded, lifting a stringer's toe rail by up to 0.1 m.
 
 **Scan to Terrain**
 - Walls and kerbs go on layers of their own, for Retaining Wall cards rather than as plain breaklines: wall

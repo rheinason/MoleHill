@@ -348,6 +348,11 @@ public static partial class SurfaceStripGrader
                     continue;
             }
 
+            // A barrier blocks the batter beyond it, and a vertex ON one is a hard constraint's own: it keeps
+            // its height. Graded, a stringer wall's toe rail rose 0.1 m where the stair's batter reached it.
+            if (barrierCandidates != null && IsOnBarrier(px, py, barriers, barrierScratch!, barrierCandidates))
+                continue;
+
             if (Geometry2D.PointInPolygon(px, py, surface.FootprintXy, surface.FootprintVertexCount))
             {
                 newZ[i] = surface.EvaluateZ(px, py);
@@ -381,6 +386,26 @@ public static partial class SurfaceStripGrader
                     newZ[i] = boundaryZ + Math.Sign(dz) * rise;
             }
         }
+    }
+
+    /// <summary>True when the point lies on a barrier segment in plan, within a millimetre.</summary>
+    private static bool IsOnBarrier(
+        double px,
+        double py,
+        PreparedBarriers barriers,
+        SpatialHashGrid2D.QueryScratch scratch,
+        List<int> candidates)
+    {
+        const double onBarrierTolerance = 1e-3;
+        barriers.Index.GatherCandidates(Bounds2D.FromPoint(px, py, onBarrierTolerance), candidates, scratch);
+        foreach (int index in candidates)
+        {
+            BarrierSegment segment = barriers.Segments[index];
+            if (Geometry2D.DistanceToSegment(px, py, segment.Ax, segment.Ay, segment.Bx, segment.By) <= onBarrierTolerance)
+                return true;
+        }
+
+        return false;
     }
 
     private static (double MinX, double MinY, double MaxX, double MaxY, double MinZ, double MaxZ) BoundaryExtent(SurfaceDefinition surface)

@@ -397,8 +397,12 @@ which ran. Background and the rejected alternatives are in `docs/wall-pinch-inve
 
 Isotropic Remesh inserts the card's own constraint curves before refinement and skips the operation if
 insertion fails. `FeaturePolylineGraph` protects every existing edge whose endpoints lie on a constraint
-segment, using CSR adjacency so unrelated nearby vertices cannot interrupt a subdivided chain. Spatial
-lookup falls back to a vertex scan when a segment walk would cost more than the mesh size.
+segment, using CSR adjacency so unrelated nearby vertices cannot interrupt a subdivided chain. An edge may
+also span several of a constraint's segments, as a remesh's own output does once it has collapsed along the
+chain; it is protected when its midpoint lies on the constraint between its ends (a chord across a bend does
+not). Recognising only same-segment edges let the tiled remesher's second pass flip a stair stringer's rail
+0.34 m off it (`RemeshPinnedRailTests`). Spatial lookup falls back to a vertex scan when a segment walk would
+cost more than the mesh size.
 
 `TerrainPresentationMesh` splits wall shading seams on a presentation copy for the conduit, RDK render
 provider and bake. The computational mesh stays welded. Walls are faces at least 70° from horizontal
