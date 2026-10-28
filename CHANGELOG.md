@@ -3,7 +3,7 @@
 Released through Rhino's Package Manager (Yak) as `MoleHill`. Versions before 1.0.0 were
 beta prereleases. Earlier versions are recorded only in the git history.
 
-## Unreleased
+## 1.5.3-beta — 2026-10-28
 
 **Fixes**
 - In-Situ Stair no longer tears the terrain. Its tiny-face cleanup read every steep face as tiny, so after a
