@@ -4,6 +4,6 @@ public sealed class SurfaceOrientedObjectDefinition : TerrainObjectDefinition
 {
     public SurfaceOrientedObjectDefinition()
     {
-        Name = "Surface Objects";
+        Name = "Orient";
     }
 }

@@ -97,7 +97,12 @@ internal sealed partial class TerrainController
             return;
 
         using TerrainUndoTransaction? undo = BeginTerrainUndoTransaction(doc, "Delete MoleHill Terrain");
-        RestoreTerrainObjectPlacements(doc, terrain);
+        if (!RestoreTerrainObjectPlacements(doc, terrain))
+        {
+            RhinoApp.WriteLine("Some placed objects could not be restored. The terrain was retained; unlock or Release the objects before deleting it.");
+            Save(doc, state);
+            return;
+        }
         DeleteOwnedObjects(doc, terrain);
         PurgeOrphanedOwnedObjects(doc, terrain);
         TerrainLayerCleanup.RemoveEmptyLayers(doc, terrain.Name, LayerRoleService.GetTable(doc, terrain));
@@ -126,7 +131,9 @@ internal sealed partial class TerrainController
         using TerrainUndoTransaction? undo = BeginTerrainUndoTransaction(doc, "Detach MoleHill Terrain");
 
         BakeTerrain(doc, terrainId);
-        RestoreTerrainObjectPlacements(doc, terrain);
+        // Detach releases placed source objects in their current pose.
+        foreach (var definition in terrain.Objects)
+            definition.PlacementStates.Clear();
         RemoveRuntimeCache(doc.RuntimeSerialNumber, terrainId);
         RemoveRebuildState(doc.RuntimeSerialNumber, terrainId);
         state.Terrains.Remove(terrain);

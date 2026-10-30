@@ -4,6 +4,13 @@ Object-scatter point distribution (the Scatter object type). Pure, unit-tested; 
 (`TerrainBuildService.Scatter.cs`) projects the returned points onto the terrain and emits block
 instances.
 
+Plant/Orient also use this folder's pure placement math: `PlacementBox` computes a deterministic
+bounded approximation to a minimum-volume box (principal-axis/world seeds, then volume refinement;
+all supplied points contribute to final extents). `PlacementFrame` fits a terrain plane to footprint
+hits and lifts the requested heading into that plane without changing its bearing in plan.
+`PlacementVector` supplies double-precision coordinates; `PlacementLinearAlgebra` shares the symmetric
+eigensolver. Degenerate/non-finite samples are rejected. Rhino owns sampling, persistence and transforms.
+
 - `ScatterSampler.cs` — given boundary polygon(s), a pattern, a density spec, and a seed, returns 2D
   sample points. Patterns: Random / Grid / JitteredGrid / PoissonDisk (`ScatterPattern`). Density:
   Count / PerArea / Spacing (`ScatterDensityMode`), all reduced to one effective cell size. Deterministic

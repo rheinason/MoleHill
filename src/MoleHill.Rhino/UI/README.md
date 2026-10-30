@@ -3,6 +3,12 @@
 The dockable terrain panel (Eto.Forms) and its dialogs. Composes reusable card/editor primitives - add
 fields by composing them, not by copying boilerplate.
 
+Plant/Orient share schema rows for Sources, Heading, Scale and Offset, with seeded controls under
+Variation. `MoleHillPanel.ObjectPlacement.cs` adds Show Base, Change Base and Release Selected/All;
+the schema adds placed/skipped feedback. Picking and geometry changes stay in the controller; a
+temporary document-scoped Rhino conduit previews the base in front of terrain. Bake keeps placements
+live; Release keeps the pose and stops the card controlling it.
+
 Layer source popovers use a native `GridView` for available layers. Filtering replaces its data store;
 keyboard navigation only selects and scrolls the existing rows. Enter commits the selected layer and
 Escape closes the popup from either the search box or the grid.

@@ -82,7 +82,11 @@ public sealed partial class MoleHillPanel : Panel
         {
             var definition = terrain.Objects.FirstOrDefault(item => item.Id == definitionId);
             if (definition != null)
+            {
                 mutator(definition);
+                // An explicit pick is an intentional reassignment, even on a watched layer.
+                definition.ReleasedObjectIds.RemoveAll(id => definition.Sources.ObjectIds.Contains(id));
+            }
         }, scheduleRebuild, deferDocumentSave, suppressImmediateUiRefresh);
     }
 

@@ -178,7 +178,12 @@ internal sealed partial class TerrainController
             return;
 
         using TerrainUndoTransaction? undo = BeginTerrainUndoTransaction(doc, "Remove MoleHill Object Definition");
-        RestorePlacementStates(doc, definition.PlacementStates);
+        if (!RestorePlacementStates(doc, definition.PlacementStates))
+        {
+            RhinoApp.WriteLine("Some objects could not be restored. The card and its placement history were retained; unlock the objects or Release them before removing the card.");
+            Save(doc, state);
+            return;
+        }
         terrain.Objects.Remove(definition);
         terrain.EnsureBaseModifier();
 

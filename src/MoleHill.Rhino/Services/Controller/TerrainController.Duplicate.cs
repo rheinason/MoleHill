@@ -24,7 +24,7 @@ internal sealed partial class TerrainController
     {
         var map = new Dictionary<Guid, Guid>();
         var generated = new HashSet<Guid>(AllOwnedIds(original).Concat(original.BakedObjectIds));
-        var inverses = PlacementInverses(original);
+        var inverses = PlacementInverses(doc, original);
 
         using var _ = new EventSuppression(this);
 
@@ -75,14 +75,16 @@ internal sealed partial class TerrainController
         return map;
     }
 
-    private static Dictionary<Guid, Transform> PlacementInverses(TerrainDefinition terrain)
+    private static Dictionary<Guid, Transform> PlacementInverses(RhinoDoc doc, TerrainDefinition terrain)
     {
         var inverses = new Dictionary<Guid, Transform>();
         foreach (TerrainObjectDefinition definition in terrain.Objects)
         {
             foreach (TerrainObjectPlacementState state in definition.PlacementStates)
             {
-                if (TryGetInverse(state.GetLastAppliedTransform(), out Transform inverse))
+                Transform applied = doc.Objects.FindId(state.ObjectId)?.Geometry is { } geometry &&
+                    ObjectPlacementReference.Find(geometry) is { } reference ? reference.LastPlacement : state.GetLastAppliedTransform();
+                if (TryGetInverse(applied, out Transform inverse))
                     inverses[state.ObjectId] = inverse;
             }
         }

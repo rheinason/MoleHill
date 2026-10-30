@@ -10,7 +10,7 @@ namespace MoleHill.Rhino.Services;
 
 internal static class TerrainSerializer
 {
-    private const int DocumentSchemaVersion = 32;
+    private const int DocumentSchemaVersion = 33;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -139,28 +139,12 @@ internal static class TerrainSerializer
             if (obj.RandomScaleMax < obj.RandomScaleMin)
                 obj.RandomScaleMax = obj.RandomScaleMin;
             obj.PlacementStates ??= new List<TerrainObjectPlacementState>();
+            obj.ReleasedObjectIds ??= new List<Guid>();
+            obj.PlacementScale = double.IsFinite(obj.PlacementScale) ? Math.Max(0.01, obj.PlacementScale) : 1;
+            obj.HeadingDegrees = double.IsFinite(obj.HeadingDegrees) ? obj.HeadingDegrees : 0;
             obj.PlacementStates.RemoveAll(state => state.ObjectId == Guid.Empty);
-            foreach (var state in obj.PlacementStates)
-            {
-                state.LastAppliedTransform ??= new[]
-                {
-                    1.0, 0.0, 0.0, 0.0,
-                    0.0, 1.0, 0.0, 0.0,
-                    0.0, 0.0, 1.0, 0.0,
-                    0.0, 0.0, 0.0, 1.0
-                };
-
-                if (state.LastAppliedTransform.Length != 16)
-                {
-                    state.LastAppliedTransform =
-                    [
-                        1.0, 0.0, 0.0, 0.0,
-                        0.0, 1.0, 0.0, 0.0,
-                        0.0, 0.0, 1.0, 0.0,
-                        0.0, 0.0, 0.0, 1.0
-                    ];
-                }
-            }
+            // Do not replace corrupt placement history with identity: that would treat a
+            // previously tilted object as a fresh source and silently apply placement twice.
         }
     }
 

@@ -12,7 +12,18 @@ genuine pointer gestures only — they are blind, focus-dependent, and cannot re
 ## 0. Pending live checks
 
 Run these at the next live session, then delete each line once it has passed (say so in the commit).
-None open. On 2026-10-21 the mouse checks passed live: `mhMergeControlPoints` ordered picks (First/Last),
+Plant/Orient: manually exercise Change Base's face/three-point picker through accept and Esc, and
+Show Base's finish prompt. The underlying base commit, rendered controls and placement lifecycle
+passed hosted checks on 2026-10-30; the interactive picking loop was not driven automatically.
+
+Plant/Orient **known failure**, reproduced twice on 2026-10-30 in the current Debug RHP: after
+Orient → Bake → native Move → asynchronous live reorientation, one native Undo leaves four car
+objects where there were two. Redo returns to two but loses their explicit source IDs and placement
+states. Fix native geometry undo integration before treating this flow as accepted. The read-only
+`HostedObjectPlacementTests.AssertAfterNativeCommand` refreshes definitions after Undo and checks
+actual geometry count as well as placement count; do not force a rebuild to validate native Undo.
+
+On 2026-10-21 the mouse checks passed live: `mhMergeControlPoints` ordered picks (First/Last),
 and `mhSlopeControlPoints` after its rework (picking control points or a whole curve after the command
 starts, the preview following the mouse, the Offset-style slope with Through). `mhRelaxRoute` dragging,
 loop untangling on release and the reordered buttons passed in the same session.
@@ -25,6 +36,57 @@ When driving GH components headless from `run_csharp`, clear a parameter's `Pers
 first item, the component reads that, and the solve looks like a silent no-op.
 
 ## 1. Build before launching
+
+Follow-up original-flow test, 2026-10-30: the same exact RHP
+`7db2418f-3853-4971-9de1-9bd42ae077fc` loaded unblocked in owned slot `armadillo`, PID 16876,
+Rhino `8.35.26251.13001`. This run used a synthetic car-shaped block and loose mesh (body, cabin,
+four wheels), initially tilted 70 degrees. Orient/Bake/native Move onto the other slope passed;
+after recovering the assignments lost by Redo, four further native Move/Bake crossings passed
+with the same card. Assertions read the live result without forcing a build: two objects, correct
+remembered base normal/contact, matching geometry/card history and unchanged body dimensions.
+The actual loose-mesh body normal retained a constant 0.01536-degree automatic-base approximation;
+the maximum wheel gap was 1.115 mm on a four-metre vehicle, without accumulation. The block's
+body normal/contact errors were negligible. **Native Undo failed twice** as described above;
+this is current-build evidence and supersedes any inference of Undo acceptance from the earlier
+build below. Artifacts: `.artifacts/object-placement-live-flow/REPORT.md`, measured `results.jsonl`,
+`failures.jsonl`, scripts, before/after Undo `.3dm` scenes and an actual viewport capture.
+The owned slot closed gracefully and the original user Rhino was left open. No production fix was
+made as part of this follow-up validation.
+
+Pre-commit review reran `./validate.ps1 managed`: full solution build and 3,309 managed tests passed
+(1,785 Core, 1,468 Rhino, 56 Grasshopper; 197 native skips). Evidence:
+`.artifacts/validate/managed-20261030-235120/`. The sandbox blocked ILRepack's temporary-file move;
+the approved host run passed. Existing NU1900 and xUnit1031 warnings remain. This rerun is managed
+validation only and does not change the native Undo/Redo failure above.
+
+Plant/Orient redesign, 2026-10-30: exact Debug RHP `7db2418f-3853-4971-9de1-9bd42ae077fc`
+loaded unblocked in owned slot `armadillo`, PID 58592, Rhino `8.35.26251.13001`. Seven placement
+tests ran inside Rhino (including Plant preserving a 70-degree tilt and forty absolute-pose cycles).
+`HostedObjectPlacementTests` exercised the actual RHP by reflection: a 70-degree block and loose mesh
+were oriented/baked, moved using native `_Move`, then reoriented by the same card. Thirty API moves
+between slopes preserved frame/scale, footprint misses kept geometry/history, and recovery succeeded.
+Native `.3dm` save/headless-reopen retained custom user data and live ownership. Watched-layer release,
+fresh assignment, copied blocks/meshes, conflicts and a custom block-base commit passed. A changed
+base between solve/sync rejected the stale result without moving the edited object.
+
+On the preceding geometry build `cbad4821-0edd-45f8-9f91-baf5773e5965`, live asynchronous `_Move`
+followed by one native `_Undo` and `_Redo` restored all four car positions; independent bounds
+comparisons passed. The final panel was captured/inspected at 320 and 240 logical pixels using real
+`GetWindowRect` bounds filtered by the owned PID. Its initially white WPF capture was resolved by
+enabling SoftwareOnly rendering inside the disposable process, as in earlier checks below.
+Artifacts: `.artifacts/object-placement/final-native.txt`, `placement-roundtrip.3dm`,
+`final-panel-320.png`, `final-panel-240.png`, `undo-before.json`, `redo-expected.json`.
+
+Validation: `./validate.ps1 managed` passed 1,785 Core, 1,468 Rhino and 56 Grasshopper tests (196
+native skips at that run); the added Plant regression brought the subsequent full Rhino run to
+1,468 passes / 179 native skips. `dotnet build src/MoleHill.Rhino/MoleHill.Rhino.csproj --no-restore
+--verbosity quiet` and the final targeted Rhino test command passed. The targeted filter was
+`FullyQualifiedName~ObjectPlacementTests|FullyQualifiedName~TerrainSchemaMigrationTests|FullyQualifiedName~ParameterSchemaGuardTests|FullyQualifiedName~TerrainUnitScalerTests`
+(359 passed / four native skips; those four placement bodies ran successfully in Rhino).
+`./validate.ps1 native` failed outside Rhino with the known `rhcommon_c` initialization error
+`0x8007045A`; it is not native acceptance evidence. NuGet vulnerability-service warnings and the
+existing Core xUnit1031 warning remain unrelated. No package was published. Owned slots were closed;
+the original user-started Rhino was left open.
 
 Upstream roof corrections, 2026-10-18: normal Debug RHP `ef6d3038-2009-419d-b745-ae2f9aac8c9e`
 and Core `985b4ab6-a094-43fb-83a5-d44747517632` were loaded from the exact standard output paths

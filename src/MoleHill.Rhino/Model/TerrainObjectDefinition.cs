@@ -16,6 +16,20 @@ public abstract class TerrainObjectDefinition
 
     public int RandomSeed { get; set; }
 
+    [UnitFree("A rotation in degrees around the placement up axis.")]
+    public double HeadingDegrees { get; set; }
+
+    [UnitFree("A uniform scale multiple.")]
+    public double PlacementScale { get; set; } = 1.0;
+
+    public List<Guid> ReleasedObjectIds { get; set; } = new();
+
+    [System.Text.Json.Serialization.JsonIgnore, NotBuildInput]
+    public int LastPlacedObjectCount { get; set; }
+
+    [System.Text.Json.Serialization.JsonIgnore, NotBuildInput]
+    public int LastSkippedObjectCount { get; set; }
+
     [UnitFree("An angle in degrees; angles do not change with model units.")]
     public double RandomRotationMinDegrees { get; set; }
 

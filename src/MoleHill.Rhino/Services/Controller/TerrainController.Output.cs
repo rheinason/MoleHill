@@ -507,35 +507,26 @@ internal sealed partial class TerrainController
         terrain.MarkerObjectIds.Clear();
     }
 
-    private void RestoreTerrainObjectPlacements(RhinoDoc doc, TerrainDefinition terrain)
+    private bool RestoreTerrainObjectPlacements(RhinoDoc doc, TerrainDefinition terrain)
     {
+        bool restored = true;
         foreach (var definition in terrain.Objects)
-            RestorePlacementStates(doc, definition.PlacementStates);
+            restored &= RestorePlacementStates(doc, definition.PlacementStates);
+        return restored;
     }
 
-    private void RestorePlacementStates(RhinoDoc doc, IList<TerrainObjectPlacementState> placementStates)
+    private bool RestorePlacementStates(RhinoDoc doc, IList<TerrainObjectPlacementState> placementStates)
     {
         if (placementStates.Count == 0)
-            return;
+            return true;
 
         using var _ = new EventSuppression(this);
+        bool restored = true;
         foreach (var state in placementStates.ToList())
         {
-            Transform appliedTransform = state.GetLastAppliedTransform();
-            if (IsIdentityTransform(appliedTransform))
-                continue;
-
-            if (!TryGetInverse(appliedTransform, out Transform inverse))
-                continue;
-
-            if (!TryTransformSourceObject(doc, state.ObjectId, inverse, out Guid newObjectId))
-                continue;
-
-            if (newObjectId != state.ObjectId)
-                ReplaceSourceObjectReferences(doc, state.ObjectId, newObjectId);
-
-            state.SetLastAppliedTransform(Transform.Identity);
+            restored &= TryRestorePlacementState(doc, state);
         }
+        return restored;
     }
 
     private void PurgeOrphanedOwnedObjects(RhinoDoc doc, TerrainDefinition terrain)

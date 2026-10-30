@@ -141,6 +141,19 @@ internal static class TerrainSchemaMigrations
                     terrain.Modifiers.OfType<TriangulateModifierDefinition>().FirstOrDefault();
                 if (primary?.LegacyBoundary?.HasReferences == true)
                     MergeSourceSet(primary.OuterBoundaries, primary.LegacyBoundary);
+            }),
+
+        new TerrainSchemaMigration(
+            33,
+            "Objects: preserve placement history for reference recovery; fixed heading/scale start neutral",
+            terrain =>
+            {
+                foreach (var definition in terrain.Objects)
+                {
+                    definition.HeadingDegrees = 0;
+                    definition.PlacementScale = 1;
+                    definition.ReleasedObjectIds.Clear();
+                }
             })
     };
 

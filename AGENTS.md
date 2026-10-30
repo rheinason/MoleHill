@@ -164,6 +164,15 @@ Use C# with 4-space indentation, file-scoped namespaces, and one type per file. 
 
 Keep nullable annotations intentional: `MoleHill.*` projects have nullable enabled, while `TriangleNet` does not. Keep reusable computation in `MoleHill.Core`, Grasshopper-specific component and conversion code in `MoleHill.Grasshopper`, and Rhino command/panel/document workflows in `MoleHill.Rhino`.
 
+## Object placement convention
+
+Plant/Orient bases belong to geometry (`ObjectPlacementReference` custom user data), independently of
+card ownership. Never re-infer an already known base from tilted geometry. Bake keeps placement live;
+Release keeps the pose and excludes watched-layer matches. Solve absolute poses, verify geometry and
+base fingerprints before applying a delta, and retain history on failed solves/restoration. External
+transforms conjugate history; plugin placement/restoration uses the scoped left-multiply path. See
+`docs/architecture.md` → Plant and Orient object placement.
+
 ## Testing Guidelines
 Use xUnit test projects under `tests/` (`MoleHill.Core.Tests`, `MoleHill.Grasshopper.Tests`, `MoleHill.Rhino.Tests`). Name files `<ClassName>Tests.cs` and test methods `MethodName_Scenario_ExpectedResult`. The Rhino tests link `Model/`, `Registry/` and most of `Services/` as source; tests needing Rhino's native runtime use `[RhinoNativeFact]` and skip where it is unavailable, so a green run there does not mean they executed. Prioritize geometry edge cases (collinearity, duplicate points, breakline intersections, tolerance boundaries), grading and slope regressions, and smoke tests for Grasshopper component behavior.
 

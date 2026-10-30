@@ -1830,6 +1830,45 @@ customised (`Services/Output/LayerRoutingMigration`), rather than retargeting an
 defaults gets none. Bindings are per role and the old data was per card, so two cards of the same kind on
 different layers cannot both keep theirs: the first wins and the rest are reported.
 
+## Rhino: Plant and Orient object placement
+
+Plant and Orient act on existing Rhino objects, independently of generated output. Bake leaves their
+live relationship intact. **Release Selected/All** keeps their current pose and removes the card's
+control; released IDs also exclude watched-layer matches until explicitly picked again. Detach releases
+placements in place. Disabling/removing a card restores its neutral pose.
+
+An object's base belongs to its geometry (`ObjectPlacementReference`, serializable custom Rhino user
+data), not to a terrain or card. It travels through transforms, copies and `.3dm` saves. Existing bases
+win; new blocks use their local axes and definition bounds; loose geometry gets a deterministic,
+bounded minimum-volume box approximation, with its broadest face proposed as the base. **Show Base**
+draws its footprint/up/heading in `DrawOverlay`; **Change Base** previews six faces or a three-point
+plane, accepting only on Enter. An unfamiliar asset's physical underside is not inferable with certainty.
+
+Core's `Scattering/PlacementBox` refines principal-axis/world seeds, bounding search samples while
+enclosing all supplied points in the final extents. Rhino supplies mesh/tessellated-Brep samples.
+Orient flattens the remembered footprint at its requested location/heading, applies absolute fixed and
+seeded variation, projects all four corners along World Z, and fits a plane to the terrain hits through
+Core's `PlacementFrame`. Its frame lifts the heading into that plane instead of orthogonally projecting
+it (which would change its plan bearing). This is a best fit, without automatic collision clearance.
+Plant retains rotation, applies its absolute adjustments and translates its lowest point vertically.
+Offset is World Z for Plant and the fitted normal for Orient.
+
+Cards own sources, released exclusions and the last applied transform. Geometry also carries that
+transform so API moves, undo and missed command events can reconcile it before snapshot capture.
+External transforms conjugate placement history; plugin placement/restoration left-multiplies it in
+a scoped callback mode. Fresh bindings rebase history while retaining the known base. A worker returns
+an absolute pose and expected source revision; sync verifies that revision, applies only the delta,
+and advances history only on success. Reference edits participate in source fingerprints.
+Missing footprint hits, unstable fits, stale results and ownership conflicts retain current pose/history.
+Schema 33 preserves legacy transforms for reference recovery, initializes fixed controls neutrally and
+refuses to replace corrupt history with identity. The panel exposes placed/skipped counts and groups
+seeded controls under Variation.
+
+Known limitation (2026-10-30 live test): a native Undo after Move and asynchronous placement can
+leave both the restored and placed geometry; Redo can then lose explicit card assignments.
+Geometry-carried history does not yet make those asynchronous edits one native geometry undo
+operation. See `docs/rhino-live-testing.md` for the reproduction and pending acceptance checks.
+
 ## Rhino: preview vs render vs bake (generated objects)
 
 Generative outputs (markers, scatter, analysis annotations) are `GeneratedRhinoObject`s (geometry or

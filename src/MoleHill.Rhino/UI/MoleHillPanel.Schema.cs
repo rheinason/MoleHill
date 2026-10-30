@@ -445,12 +445,26 @@ public sealed partial class MoleHillPanel
         if (descriptor == null || descriptor.Parameters.Count == 0)
             return false;
 
+        var variation = UiLayouts.CardBody();
+        bool isPlacement = definition is not ScatterObjectDefinition;
         foreach (var parameter in descriptor.Parameters)
         {
             if (parameter.VisibleWhen != null && !parameter.VisibleWhen(definition))
                 continue;
 
-            layout.AddRow(BuildObjectSchemaRow(terrain, definition, parameter));
+            if (isPlacement && parameter.Key.StartsWith("random", StringComparison.Ordinal))
+                variation.AddRow(BuildObjectSchemaRow(terrain, definition, parameter));
+            else
+                layout.AddRow(BuildObjectSchemaRow(terrain, definition, parameter));
+        }
+
+        if (isPlacement)
+        {
+            layout.AddRow(new Expander { Header = "Variation", Content = variation, Expanded = false });
+            layout.AddRow(CreateObjectPlacementActions(terrain, definition));
+            layout.AddRow(CreateReadOnlyValueRow("Placement",
+                $"{definition.LastPlacedObjectCount} placed · {definition.LastSkippedObjectCount} skipped",
+                $"{definition.ReleasedObjectIds.Count} released objects are excluded from this card. Bake keeps objects live. Release leaves them placed and stops this card controlling them. Failed placements leave the object unchanged; see diagnostics below."));
         }
 
         return true;

@@ -57,6 +57,13 @@ internal static class TerrainBuildSnapshotBuilder
         if (!ModelUnitGuard.TryGet(doc, out ModelUnitContext unitContext))
             throw new InvalidOperationException(ModelUnitGuard.RequiredMessage);
 
+        // Object-carried history also sees API transforms and cancelled/undone commands.
+        // Reconcile before cloning, so a missing BeforeTransformObjects event cannot double-place.
+        foreach (var definition in terrain.Objects.Where(item => item is not ScatterObjectDefinition))
+            foreach (var state in definition.PlacementStates)
+                if (doc.Objects.FindId(state.ObjectId)?.Geometry is { } geometry &&
+                    ObjectPlacementReference.Find(geometry) is { } reference)
+                    state.SetLastAppliedTransform(reference.LastPlacement);
         TerrainDefinition terrainClone = CloneTerrain(terrain);
 
         // Resolved first: the annotation style and the hatch patterns both come from it, and every
@@ -236,7 +243,7 @@ internal static class TerrainBuildSnapshotBuilder
         return clone;
     }
 
-    private static ResolvedSourceObject? CreateResolvedSourceObject(RhinoDoc doc, RhinoObject obj)
+    internal static ResolvedSourceObject? CreateResolvedSourceObject(RhinoDoc doc, RhinoObject obj)
     {
         var geometry = obj.Geometry?.Duplicate();
         if (geometry == null)
@@ -355,6 +362,7 @@ internal static class TerrainBuildSnapshotBuilder
             builder.Add((int)obj.Geometry.ObjectType);
             builder.Add(obj.LayerPath);
             builder.Add(obj.GeometryDataCrc);
+            builder.Add(ObjectPlacementGeometry.ReferenceFingerprint(obj.Geometry));
             AddBoundingBoxFingerprint(ref builder, obj.WorldBoundingBox);
         }
 

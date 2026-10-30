@@ -403,6 +403,9 @@ internal sealed partial class TerrainController
         using var _ = new EventSuppression(this);
         foreach (var definition in terrain.Objects)
         {
+            definition.LastPlacedObjectCount = 0;
+            var matchedIds = RhinoSourceResolver.ResolveObjects(doc, definition.Sources)
+                .Where(obj => !definition.ReleasedObjectIds.Contains(obj.Id)).Select(obj => obj.Id).ToHashSet();
             var currentStates = definition.PlacementStates
                 .Where(state => state.ObjectId != Guid.Empty)
                 .ToDictionary(state => state.ObjectId, state => state);
@@ -419,8 +422,13 @@ internal sealed partial class TerrainController
                 if (targetPlacements.ContainsKey(state.ObjectId))
                     continue;
 
-                TryRestorePlacementState(doc, state);
-                definition.PlacementStates.Remove(state);
+                // A failed solve (including a footprint miss) is not a request to restore.
+                if (definition.IsEnabled && matchedIds.Contains(state.ObjectId))
+                    continue;
+                if (TryRestorePlacementState(doc, state))
+                    definition.PlacementStates.Remove(state);
+                else
+                    build.Diagnostics.Add($"Objects could not restore {FormatObjectRef(state.ObjectId)}; its placement history was retained.");
             }
 
             foreach (var pair in targetPlacements)
@@ -428,15 +436,36 @@ internal sealed partial class TerrainController
                 var placement = pair.Value;
                 currentStates.TryGetValue(placement.ObjectId, out var state);
                 Transform previousTransform = state?.GetLastAppliedTransform() ?? Transform.Identity;
+                var liveObject = doc.Objects.FindId(placement.ObjectId);
+                if (liveObject == null || liveObject.Geometry.DataCRC(0u) != placement.SourceGeometryCrc ||
+                    ObjectPlacementGeometry.ReferenceFingerprint(liveObject.Geometry) != placement.SourceReferenceFingerprint ||
+                    !TransformsMatch(previousTransform, placement.ExpectedPreviousTransform))
+                {
+                    build.Diagnostics.Add($"Objects skipped {FormatObjectRef(placement.ObjectId)} because it changed while placement was building.");
+                    continue;
+                }
                 if (!TryCreatePlacementDelta(previousTransform, placement.AppliedTransform, out Transform delta))
                 {
                     build.Diagnostics.Add($"Objects skipped {FormatObjectRef(placement.ObjectId)} because its placement delta could not be computed.");
                     continue;
                 }
 
+                if (ObjectPlacementReference.Find(liveObject.Geometry) == null && placement.BaselineReference != null)
+                {
+                    var reference = placement.BaselineReference.CopyReference();
+                    reference.TransformReference(previousTransform);
+                    reference.LastPlacement = previousTransform;
+                    liveObject.Geometry.UserData.Add(reference);
+                }
+                var liveReference = ObjectPlacementReference.Find(liveObject.Geometry);
+                Transform referenceHistory = liveReference?.LastPlacement ?? Transform.Identity;
+                // A released/reassigned object or a copy starts from its current size/pose,
+                // retaining its known base but acquiring independent placement history.
+                if (liveReference != null) liveReference.LastPlacement = previousTransform;
                 Guid liveObjectId = placement.ObjectId;
                 if (!TryTransformSourceObject(doc, liveObjectId, delta, out Guid newObjectId))
                 {
+                    if (liveReference != null) liveReference.LastPlacement = referenceHistory;
                     build.Diagnostics.Add($"Objects skipped {FormatObjectRef(placement.ObjectId)} because Rhino could not apply the placement transform.");
                     continue;
                 }
@@ -461,7 +490,10 @@ internal sealed partial class TerrainController
                     definition.PlacementStates.Remove(state);
                 else
                     state.SetLastAppliedTransform(placement.AppliedTransform);
+                definition.LastPlacedObjectCount++;
             }
+            definition.LastSkippedObjectCount = definition.IsEnabled && definition is not ScatterObjectDefinition
+                ? Math.Max(0, matchedIds.Count - definition.LastPlacedObjectCount) : 0;
         }
     }
 
@@ -481,11 +513,11 @@ internal sealed partial class TerrainController
             if (otherTerrain.TerrainId == terrainId)
                 continue;
 
-            foreach (var definition in otherTerrain.Objects.Where(item => item.IsEnabled))
+            foreach (var definition in otherTerrain.Objects.Where(item => item.IsEnabled && item is not ScatterObjectDefinition))
             {
                 foreach (var obj in RhinoSourceResolver.ResolveObjects(doc, definition.Sources))
                 {
-                    if (candidates.Contains(obj.Id))
+                    if (candidates.Contains(obj.Id) && !definition.ReleasedObjectIds.Contains(obj.Id))
                         conflicts.Add(obj.Id);
                 }
             }
@@ -496,6 +528,9 @@ internal sealed partial class TerrainController
 
     private bool TryRestorePlacementState(RhinoDoc doc, TerrainObjectPlacementState state)
     {
+        if (doc.Objects.FindId(state.ObjectId)?.Geometry is { } geometry &&
+            ObjectPlacementReference.Find(geometry) is { } reference)
+            state.SetLastAppliedTransform(reference.LastPlacement);
         Transform appliedTransform = state.GetLastAppliedTransform();
         if (IsIdentityTransform(appliedTransform))
             return true;
@@ -531,7 +566,10 @@ internal sealed partial class TerrainController
         if (objectId == Guid.Empty || IsIdentityTransform(transform))
             return objectId != Guid.Empty;
 
-        newObjectId = doc.Objects.Transform(objectId, transform, deleteOriginal: true);
+        bool applying = ObjectPlacementReference.ApplyingPlacement;
+        ObjectPlacementReference.ApplyingPlacement = true;
+        try { newObjectId = doc.Objects.Transform(objectId, transform, deleteOriginal: true); }
+        finally { ObjectPlacementReference.ApplyingPlacement = applying; }
         return newObjectId != Guid.Empty;
     }
 

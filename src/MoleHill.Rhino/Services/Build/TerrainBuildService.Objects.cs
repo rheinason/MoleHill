@@ -5,7 +5,7 @@ using RhinoMesh = Rhino.Geometry.Mesh;
 
 namespace MoleHill.Rhino.Services;
 
-// Marker and object-placement stages: pose/principal-axis solving, deterministic random transforms, and marker block templates.
+// Marker and object-placement stages: durable base/footprint solving, absolute variation, and marker block templates.
 internal sealed partial class TerrainBuildService
 {
     private static void BuildMarkers(TerrainBuildSnapshot snapshot, TerrainDefinition terrain, RhinoMesh mesh, TerrainBuildResult build, Func<bool>? shouldCancel)
@@ -99,7 +99,8 @@ internal sealed partial class TerrainBuildService
         mesh.Normals.ComputeNormals();
 
         var resolvedEntries = placeableDefinitions
-            .Select(item => (Definition: item, Objects: TerrainBuildSnapshotResolver.ResolveObjects(snapshot, item.Sources)))
+            .Select(item => (Definition: item, Objects: TerrainBuildSnapshotResolver.ResolveObjects(snapshot, item.Sources)
+                .Where(obj => !item.ReleasedObjectIds.Contains(obj.ObjectId)).ToArray()))
             .ToList();
 
         var owners = new Dictionary<Guid, Guid>();
@@ -154,7 +155,7 @@ internal sealed partial class TerrainBuildService
         }
     }
 
-    private static bool TryBuildObjectPlacement(
+    internal static bool TryBuildObjectPlacement(
         TerrainBuildSnapshot snapshot,
         TerrainObjectDefinition definition,
         ResolvedSourceObject obj,
@@ -166,11 +167,13 @@ internal sealed partial class TerrainBuildService
         placement = new TerrainObjectPlacement();
         diagnostic = null;
 
-        GeometryBase baselineGeometry = obj.Geometry.Duplicate();
+        using GeometryBase baselineGeometry = obj.Geometry.Duplicate();
         Transform previousTransform = stateByObjectId.TryGetValue(obj.ObjectId, out var existingState)
             ? existingState.GetLastAppliedTransform()
             : Transform.Identity;
-        if (!TryGetInverse(previousTransform, out Transform inversePrevious))
+        if ((existingState != null && (existingState.LastAppliedTransform is not { Length: 16 } ||
+             existingState.LastAppliedTransform.Any(value => !double.IsFinite(value)))) ||
+            !TryGetInverse(previousTransform, out Transform inversePrevious))
         {
             diagnostic = $"Objects skipped {FormatObjectRef(obj.ObjectId)} because its stored placement transform could not be inverted.";
             return false;
@@ -186,6 +189,10 @@ internal sealed partial class TerrainBuildService
         if (!baselineBoundingBox.IsValid && obj.WorldBoundingBox.IsValid)
             baselineBoundingBox = TransformBoundingBox(obj.WorldBoundingBox, inversePrevious);
 
+        bool hasReference = ObjectPlacementGeometry.TryGetReference(obj, baselineGeometry, inversePrevious, out var reference);
+        if (hasReference && obj.HasSourceTransform)
+            baselineBoundingBox = new BoundingBox(reference.BoxCorners);
+
         Transform appliedTransform;
         switch (definition)
         {
@@ -194,8 +201,11 @@ internal sealed partial class TerrainBuildService
                     return false;
                 break;
             case SurfaceOrientedObjectDefinition:
-                if (!TryCreateSurfaceOrientedPlacement(snapshot, definition, obj.ObjectId, obj, baselineGeometry, previousTransform, mesh, out appliedTransform, out diagnostic))
+                if (!hasReference || !TryCreateFootprintPlacement(snapshot, definition, obj.ObjectId, reference, mesh, out appliedTransform, out diagnostic))
+                {
+                    diagnostic ??= $"Objects skipped {FormatObjectRef(obj.ObjectId)} because its base could not be resolved. Use Change Base.";
                     return false;
+                }
                 break;
             default:
                 diagnostic = $"Objects skipped {FormatObjectRef(obj.ObjectId)} because its object definition type is unsupported.";
@@ -205,7 +215,11 @@ internal sealed partial class TerrainBuildService
         placement = new TerrainObjectPlacement
         {
             ObjectId = obj.ObjectId,
-            AppliedTransform = appliedTransform
+            AppliedTransform = appliedTransform,
+            ExpectedPreviousTransform = previousTransform,
+            BaselineReference = hasReference ? reference : null,
+            SourceGeometryCrc = obj.GeometryDataCrc,
+            SourceReferenceFingerprint = ObjectPlacementGeometry.ReferenceFingerprint(obj.Geometry)
         };
         diagnostic = null;
         return true;
@@ -230,399 +244,59 @@ internal sealed partial class TerrainBuildService
             return false;
         }
 
-        if (!TryResolveTerrainPoint(snapshot, mesh, lowestPoint, out Point3d terrainPoint, out _, out diagnostic))
+        Transform variation = CreateRandomPlacementTransform(definition, objectId, lowestPoint, Vector3d.ZAxis);
+        using GeometryBase variedGeometry = geometry.Duplicate();
+        if (!TryApplyTransform(variedGeometry, variation) ||
+            !TryGetLowestPoint(variedGeometry, TransformBoundingBox(fallbackBoundingBox, variation), out var variedLowest))
+            return false;
+        if (!TryResolveTerrainPoint(snapshot, mesh, variedLowest, out Point3d terrainPoint, out _, out diagnostic))
             return false;
 
         Point3d targetPoint = terrainPoint + (Vector3d.ZAxis * definition.ZOffset);
-        Transform basePlacement = Transform.Translation(targetPoint - lowestPoint);
-        Transform randomLocal = CreateRandomPlacementTransform(definition, objectId, lowestPoint, Vector3d.ZAxis);
-        appliedTransform = basePlacement * randomLocal;
+        Transform basePlacement = Transform.Translation(targetPoint - variedLowest);
+        appliedTransform = basePlacement * variation;
         return true;
     }
 
-    private static bool TryCreateSurfaceOrientedPlacement(
-        TerrainBuildSnapshot snapshot,
-        TerrainObjectDefinition definition,
-        Guid objectId,
-        ResolvedSourceObject obj,
-        GeometryBase geometry,
-        Transform previousTransform,
-        RhinoMesh mesh,
-        out Transform appliedTransform,
-        out string? diagnostic)
+    private static bool TryCreateFootprintPlacement(
+        TerrainBuildSnapshot snapshot, TerrainObjectDefinition definition, Guid objectId,
+        ObjectPlacementReference reference, RhinoMesh mesh, out Transform appliedTransform, out string? diagnostic)
     {
         appliedTransform = Transform.Identity;
         diagnostic = null;
-
-        if (!TryCreateSurfaceSourcePlane(obj, geometry, previousTransform, objectId, out Plane sourcePlane, out Transform preAlignTransform, out diagnostic))
-            return false;
-
-        if (!TryResolveTerrainPoint(snapshot, mesh, sourcePlane.Origin, out Point3d terrainPoint, out Vector3d terrainNormal, out diagnostic))
-            return false;
-
-        if (!TryCreateTerrainFrame(terrainPoint, terrainNormal, sourcePlane.XAxis, out Plane targetPlane))
+        if (!reference.TryGetPlane(out var source)) return false;
+        Vector3d heading = ProjectToWorldHorizontal(source.XAxis);
+        if (!heading.Unitize())
         {
-            diagnostic = "Objects skipped a source object because a stable terrain frame could not be computed.";
-            return false;
+            heading = ProjectToWorldHorizontal(source.YAxis);
+            if (!heading.Unitize()) return false;
         }
-
-        if (Math.Abs(definition.ZOffset) > 1e-9)
-            targetPlane.Origin += targetPlane.Normal * definition.ZOffset;
-
-        Transform basePlacement = Transform.PlaneToPlane(sourcePlane, targetPlane);
-        Transform randomLocal = CreateRandomPlacementTransform(definition, objectId, sourcePlane.Origin, sourcePlane.Normal);
-        appliedTransform = basePlacement * randomLocal * preAlignTransform;
-        return true;
-    }
-
-    private static bool TryCreateSurfaceSourcePlane(
-        ResolvedSourceObject obj,
-        GeometryBase geometry,
-        Transform previousTransform,
-        Guid objectId,
-        out Plane sourcePlane,
-        out Transform preAlignTransform,
-        out string? diagnostic)
-    {
-        sourcePlane = Plane.Unset;
-        preAlignTransform = Transform.Identity;
-        diagnostic = null;
-        if (!TryCreateObjectPosePlane(obj, geometry, previousTransform, out Plane posePlane))
+        var horizontal = new Plane(source.Origin, heading, Vector3d.CrossProduct(Vector3d.ZAxis, heading));
+        Transform variation = CreateRandomPlacementTransform(definition, objectId, source.Origin, Vector3d.ZAxis);
+        Transform flatten = variation * Transform.PlaneToPlane(source, horizontal);
+        heading.Transform(variation);
+        if (!heading.Unitize()) return false;
+        var hits = new List<Point3d>(4);
+        foreach (var corner in reference.BaseCorners)
         {
-            diagnostic = "Objects skipped a source object because an upright placement frame could not be resolved.";
-            return false;
-        }
-
-        if (!TryCreateUprightPosePlane(posePlane, out Plane uprightPosePlane))
-        {
-            diagnostic = "Objects skipped a source object because its plan rotation could not be resolved.";
-            return false;
-        }
-
-        preAlignTransform = Transform.PlaneToPlane(posePlane, uprightPosePlane);
-
-        BoundingBox localBounds = BoundingBox.Empty;
-        if (obj.HasSourceTransform && obj.LocalBoundingBox.IsValid)
-        {
-            localBounds = obj.LocalBoundingBox;
-        }
-        else
-        {
-            GeometryBase uprightGeometry = geometry.Duplicate();
-            if (TryApplyTransform(uprightGeometry, preAlignTransform))
-                localBounds = uprightGeometry.GetBoundingBox(uprightPosePlane);
-            if (!localBounds.IsValid && obj.WorldBoundingBox.IsValid)
-                localBounds = TransformBoundingBox(obj.WorldBoundingBox, preAlignTransform);
-        }
-        if (!localBounds.IsValid)
-        {
-            diagnostic = $"Objects skipped {FormatObjectRef(objectId)} because its bounding box is invalid.";
-            return false;
-        }
-
-        double centerX = (localBounds.Min.X + localBounds.Max.X) * 0.5;
-        double centerY = (localBounds.Min.Y + localBounds.Max.Y) * 0.5;
-        double bottomZ = localBounds.Min.Z;
-        Point3d sourceOrigin = uprightPosePlane.Origin
-                             + (uprightPosePlane.XAxis * centerX)
-                             + (uprightPosePlane.YAxis * centerY)
-                             + (uprightPosePlane.ZAxis * bottomZ);
-        sourcePlane = new Plane(sourceOrigin, uprightPosePlane.XAxis, uprightPosePlane.YAxis);
-        return sourcePlane.IsValid;
-    }
-
-    private static bool TryCreateObjectPosePlane(
-        ResolvedSourceObject obj,
-        GeometryBase geometry,
-        Transform previousTransform,
-        out Plane plane)
-    {
-        plane = Plane.Unset;
-
-        if (obj.HasSourceTransform)
-        {
-            Transform sourceTransform = obj.SourceTransform;
-            if (!IsIdentityTransform(previousTransform))
+            Point3d sample = corner;
+            sample.Transform(flatten);
+            if (!TryResolveTerrainPoint(snapshot, mesh, sample, out Point3d hit, out _, out _))
             {
-                if (!TryGetInverse(previousTransform, out Transform inversePrevious))
-                    return false;
-
-                sourceTransform = inversePrevious * sourceTransform;
-            }
-
-            if (TryCreatePosePlaneFromTransform(sourceTransform, out plane))
-                return true;
-        }
-
-        if (TryCreatePosePlaneFromGeometry(geometry, out plane))
-            return true;
-
-        BoundingBox bbox = geometry.GetBoundingBox(true);
-        if (!bbox.IsValid)
-            return false;
-
-        plane = new Plane(bbox.Center, Vector3d.XAxis, Vector3d.YAxis);
-        return true;
-    }
-
-    private static bool TryCreatePosePlaneFromTransform(Transform transform, out Plane plane)
-    {
-        plane = Plane.Unset;
-
-        Point3d origin = Point3d.Origin;
-        origin.Transform(transform);
-
-        Vector3d xAxis = Vector3d.XAxis;
-        xAxis.Transform(transform);
-        Vector3d yAxis = Vector3d.YAxis;
-        yAxis.Transform(transform);
-        if (!xAxis.Unitize() || !yAxis.Unitize())
-            return false;
-
-        plane = new Plane(origin, xAxis, yAxis);
-        return plane.IsValid;
-    }
-
-    private static bool TryCreateUprightPosePlane(Plane posePlane, out Plane uprightPlane)
-    {
-        uprightPlane = Plane.Unset;
-
-        Vector3d xAxis = ProjectToWorldHorizontal(posePlane.XAxis);
-        if (!xAxis.Unitize())
-        {
-            xAxis = ProjectToWorldHorizontal(posePlane.YAxis);
-            if (!xAxis.Unitize())
+                diagnostic = $"Objects skipped {FormatObjectRef(objectId)} because its footprint extends outside the terrain.";
                 return false;
+            }
+            hits.Add(hit);
         }
-
-        Vector3d yAxis = Vector3d.CrossProduct(Vector3d.ZAxis, xAxis);
-        if (!yAxis.Unitize())
+        if (!ObjectPlacementGeometry.TryFitTerrainFrame(hits, heading, out var target))
+        {
+            diagnostic = $"Objects skipped {FormatObjectRef(objectId)} because its footprint does not define a stable terrain plane.";
             return false;
-
-        uprightPlane = new Plane(posePlane.Origin, xAxis, yAxis);
-        return uprightPlane.IsValid;
-    }
-
-    private static bool TryCreatePosePlaneFromGeometry(GeometryBase geometry, out Plane plane)
-    {
-        plane = Plane.Unset;
-        if (!TryGetPrincipalAxes(geometry, out Point3d centroid, out Vector3d axisA, out Vector3d axisB, out Vector3d axisC))
-            return false;
-
-        Vector3d[] axes = [axisA, axisB, axisC];
-        int upIndex = 0;
-        double bestUpAlignment = double.MinValue;
-        for (int index = 0; index < axes.Length; index++)
-        {
-            if (!axes[index].Unitize())
-                continue;
-
-            double alignment = Math.Abs(Vector3d.Multiply(axes[index], Vector3d.ZAxis));
-            if (alignment > bestUpAlignment)
-            {
-                bestUpAlignment = alignment;
-                upIndex = index;
-            }
         }
-
-        Vector3d upAxis = axes[upIndex];
-        if (!upAxis.Unitize())
-            return false;
-        if (Vector3d.Multiply(upAxis, Vector3d.ZAxis) < 0.0)
-            upAxis = -upAxis;
-
-        int[] horizontalIndices = Enumerable.Range(0, axes.Length)
-            .Where(index => index != upIndex)
-            .ToArray();
-        if (horizontalIndices.Length == 0)
-            return false;
-
-        int xIndex = horizontalIndices
-            .OrderByDescending(index => ProjectToWorldHorizontal(axes[index]).Length)
-            .First();
-        Vector3d xAxis = axes[xIndex] - (upAxis * Vector3d.Multiply(axes[xIndex], upAxis));
-        if (!xAxis.Unitize())
-        {
-            xAxis = Vector3d.XAxis - (upAxis * Vector3d.Multiply(Vector3d.XAxis, upAxis));
-            if (!xAxis.Unitize())
-            {
-                xAxis = Vector3d.YAxis - (upAxis * Vector3d.Multiply(Vector3d.YAxis, upAxis));
-                if (!xAxis.Unitize())
-                    return false;
-            }
-        }
-
-        Vector3d yAxis = Vector3d.CrossProduct(upAxis, xAxis);
-        if (!yAxis.Unitize())
-            return false;
-
-        plane = new Plane(centroid, xAxis, yAxis);
-        return plane.IsValid;
-    }
-
-    private static bool TryGetPrincipalAxes(
-        GeometryBase geometry,
-        out Point3d centroid,
-        out Vector3d axisA,
-        out Vector3d axisB,
-        out Vector3d axisC)
-    {
-        centroid = Point3d.Unset;
-        axisA = Vector3d.Unset;
-        axisB = Vector3d.Unset;
-        axisC = Vector3d.Unset;
-
-        switch (geometry)
-        {
-            case Mesh mesh:
-                if (TryGetMeshPrincipalAxes(mesh, out centroid, out axisA, out axisB, out axisC))
-                    return true;
-                break;
-            case Brep brep:
-                if (TryGetBrepPrincipalAxes(brep, out centroid, out axisA, out axisB, out axisC))
-                    return true;
-                break;
-            case Extrusion extrusion:
-                var extrusionBrep = extrusion.ToBrep();
-                if (extrusionBrep != null &&
-                    TryGetBrepPrincipalAxes(extrusionBrep, out centroid, out axisA, out axisB, out axisC))
-                    return true;
-                break;
-            case Curve curve:
-                var length = LengthMassProperties.Compute(curve);
-                if (length != null)
-                {
-                    using (length)
-                    {
-                        if (TryGetPrincipalAxesFromLength(length, out centroid, out axisA, out axisB, out axisC))
-                            return true;
-                    }
-                }
-                break;
-        }
-
-        return false;
-    }
-
-    private static bool TryGetMeshPrincipalAxes(
-        Mesh mesh,
-        out Point3d centroid,
-        out Vector3d axisA,
-        out Vector3d axisB,
-        out Vector3d axisC)
-    {
-        centroid = Point3d.Unset;
-        axisA = Vector3d.Unset;
-        axisB = Vector3d.Unset;
-        axisC = Vector3d.Unset;
-
-        var volume = VolumeMassProperties.Compute(mesh);
-        if (volume != null)
-        {
-            using (volume)
-            {
-                if (TryGetPrincipalAxesFromVolume(volume, out centroid, out axisA, out axisB, out axisC))
-                    return true;
-            }
-        }
-
-        var area = AreaMassProperties.Compute(mesh);
-        if (area != null)
-        {
-            using (area)
-            {
-                if (TryGetPrincipalAxesFromArea(area, out centroid, out axisA, out axisB, out axisC))
-                    return true;
-            }
-        }
-
-        return false;
-    }
-
-    private static bool TryGetBrepPrincipalAxes(
-        Brep brep,
-        out Point3d centroid,
-        out Vector3d axisA,
-        out Vector3d axisB,
-        out Vector3d axisC)
-    {
-        centroid = Point3d.Unset;
-        axisA = Vector3d.Unset;
-        axisB = Vector3d.Unset;
-        axisC = Vector3d.Unset;
-
-        var volume = VolumeMassProperties.Compute(brep);
-        if (volume != null)
-        {
-            using (volume)
-            {
-                if (TryGetPrincipalAxesFromVolume(volume, out centroid, out axisA, out axisB, out axisC))
-                    return true;
-            }
-        }
-
-        var area = AreaMassProperties.Compute(brep);
-        if (area != null)
-        {
-            using (area)
-            {
-                if (TryGetPrincipalAxesFromArea(area, out centroid, out axisA, out axisB, out axisC))
-                    return true;
-            }
-        }
-
-        return false;
-    }
-
-    private static bool TryGetPrincipalAxesFromVolume(
-        VolumeMassProperties massProperties,
-        out Point3d centroid,
-        out Vector3d axisA,
-        out Vector3d axisB,
-        out Vector3d axisC)
-    {
-        centroid = massProperties.Centroid;
-        return massProperties.WorldCoordinatesPrincipalMoments(
-            out _,
-            out axisA,
-            out _,
-            out axisB,
-            out _,
-            out axisC);
-    }
-
-    private static bool TryGetPrincipalAxesFromArea(
-        AreaMassProperties massProperties,
-        out Point3d centroid,
-        out Vector3d axisA,
-        out Vector3d axisB,
-        out Vector3d axisC)
-    {
-        centroid = massProperties.Centroid;
-        return massProperties.WorldCoordinatesPrincipalMoments(
-            out _,
-            out axisA,
-            out _,
-            out axisB,
-            out _,
-            out axisC);
-    }
-
-    private static bool TryGetPrincipalAxesFromLength(
-        LengthMassProperties massProperties,
-        out Point3d centroid,
-        out Vector3d axisA,
-        out Vector3d axisB,
-        out Vector3d axisC)
-    {
-        centroid = massProperties.Centroid;
-        return massProperties.WorldCoordinatesPrincipalMoments(
-            out _,
-            out axisA,
-            out _,
-            out axisB,
-            out _,
-            out axisC);
+        target.Origin += target.Normal * definition.ZOffset;
+        var variedHorizontal = new Plane(source.Origin, heading, Vector3d.CrossProduct(Vector3d.ZAxis, heading));
+        appliedTransform = Transform.PlaneToPlane(variedHorizontal, target) * flatten;
+        return appliedTransform.IsValid;
     }
 
     private static bool TryResolveTerrainPoint(
@@ -697,7 +371,7 @@ internal sealed partial class TerrainBuildService
         Vector3d axis)
     {
         Transform scaleTransform = Transform.Identity;
-        double scale = SampleDeterministicRange(
+        double scale = definition.PlacementScale * SampleDeterministicRange(
             definition.Id,
             objectId,
             definition.RandomSeed,
@@ -709,7 +383,7 @@ internal sealed partial class TerrainBuildService
             scaleTransform = Transform.Scale(anchor, scale);
 
         Transform rotationTransform = Transform.Identity;
-        double rotationDegrees = SampleDeterministicRange(
+        double rotationDegrees = definition.HeadingDegrees + SampleDeterministicRange(
             definition.Id,
             objectId,
             definition.RandomSeed,

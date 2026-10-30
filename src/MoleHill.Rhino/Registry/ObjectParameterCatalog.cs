@@ -13,6 +13,16 @@ internal static class ObjectParameterCatalog
             definition => definition.Sources,
             0,
             "Rhino objects and layers whose instances should be placed."),
+        ObjectParam.Number(
+            "headingDegrees", "Heading", definition => definition.HeadingDegrees,
+            (definition, value) => definition.HeadingDegrees = value,
+            "Additional rotation from the object's remembered heading. Replaces the previous adjustment.",
+            min: null, unit: ParameterUnit.Degrees, liveEdit: true, liveScrub: true),
+        ObjectParam.Number(
+            "placementScale", "Scale", definition => definition.PlacementScale,
+            (definition, value) => definition.PlacementScale = value,
+            "Uniform multiple of the source size. Replaces the previous adjustment.",
+            min: 0.01, unit: ParameterUnit.None, liveEdit: true, liveScrub: true),
         ObjectParam.Slider(
             "randomRotationMinDegrees",
             "Rotate Min",
@@ -74,10 +84,10 @@ internal static class ObjectParameterCatalog
             liveScrub: true),
         ObjectParam.Number(
             "zOffset",
-            "Z Offset",
+            "Offset",
             definition => definition.ZOffset,
             (definition, value) => definition.ZOffset = value,
-            "Lift or sink placed objects along their placement up axis.",
+            "Lift or sink along World Z for Plant, or the fitted terrain normal for Orient.",
             min: null,
             unit: ParameterUnit.ModelLength,
             liveEdit: true,
@@ -89,5 +99,6 @@ internal static class ObjectParameterCatalog
             "Explicit picks plus watched layers drive the objects in this definition."),
     };
 
-    public static IReadOnlyList<ObjectParam> CommonTransforms => Common.Skip(1).Take(6).ToArray();
+    public static IReadOnlyList<ObjectParam> CommonTransforms => Common
+        .Where(parameter => parameter.Key.StartsWith("random", StringComparison.Ordinal) || parameter.Key == "zOffset").ToArray();
 }

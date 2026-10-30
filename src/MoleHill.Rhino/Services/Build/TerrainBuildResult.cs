@@ -12,6 +12,14 @@ internal sealed class TerrainObjectPlacement
     public Guid ObjectId { get; init; }
 
     public Transform AppliedTransform { get; init; } = Transform.Identity;
+
+    public Transform ExpectedPreviousTransform { get; init; } = Transform.Identity;
+
+    public ObjectPlacementReference? BaselineReference { get; init; }
+
+    public uint SourceGeometryCrc { get; init; }
+
+    public ulong SourceReferenceFingerprint { get; init; }
 }
 
 internal sealed class TerrainObjectPlacementGroup

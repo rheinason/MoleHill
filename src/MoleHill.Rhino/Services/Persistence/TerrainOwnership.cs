@@ -41,5 +41,8 @@ internal static class TerrainOwnership
             if (set.ObjectIds.Count > 0 && objectMap.Count > 0)
                 set.ReplaceObjects(set.ObjectIds.Select(id => objectMap.TryGetValue(id, out Guid copy) ? copy : id));
         }
+        foreach (var definition in terrain.Objects)
+            definition.ReleasedObjectIds = definition.ReleasedObjectIds
+                .Select(id => objectMap.TryGetValue(id, out Guid copy) ? copy : id).Distinct().ToList();
     }
 }

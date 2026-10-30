@@ -4,6 +4,6 @@ public sealed class LowestPointObjectDefinition : TerrainObjectDefinition
 {
     public LowestPointObjectDefinition()
     {
-        Name = "Projected Objects";
+        Name = "Plant";
     }
 }

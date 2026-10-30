@@ -776,7 +776,11 @@ internal static class TerrainRuntimeCacheCloner
             clone.Placements.Add(new TerrainObjectPlacement
             {
                 ObjectId = placement.ObjectId,
-                AppliedTransform = placement.AppliedTransform
+                AppliedTransform = placement.AppliedTransform,
+                ExpectedPreviousTransform = placement.ExpectedPreviousTransform,
+                BaselineReference = placement.BaselineReference?.CopyReference(),
+                SourceGeometryCrc = placement.SourceGeometryCrc,
+                SourceReferenceFingerprint = placement.SourceReferenceFingerprint
             });
         }
 

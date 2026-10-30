@@ -22,4 +22,6 @@ internal sealed class ResolvedSourceObject
     public bool HasSourceTransform { get; init; }
 
     public uint GeometryDataCrc { get; init; }
+
+    public ObjectPlacementReference? PlacementReference { get; init; }
 }

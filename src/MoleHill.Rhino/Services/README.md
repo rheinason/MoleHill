@@ -17,6 +17,7 @@ file that needs Rhino's runtime must be added to that `Exclude` at its new path.
 | `Output/` | Layer roles/templates/creation/routing, annotation styles, hatch patterns, generated-object model, block catalog and templates, `AnnotationBlockLibrary` (copy the built-in annotation block, field inspection and preview field resolution) and `AnnotationBlockEditor` (open a block in Rhino's block editor by name), per-terrain layer rename/cleanup, content visibility |
 | `Annotation/` | Annotation, legend, report and section builders, section layout/profile comparison, zone analysis and gradient-compliance evaluation |
 | `Persistence/` | Terrain JSON serializer, document store/identity/ownership, unit scaling, colour-ramp and field-code stores |
+| `Objects/` | Object-owned transform-aware placement bases, geometry sampling/footprint fitting, and the temporary base-preview conduit |
 | `Import/` | GeoTIFF and raster georeferencing, DEM sampling, LandXML, survey import geometry/placement/naming, project-base plane, document north, Displace's heightmap image loader (`HeightmapImageLoader`: System.Drawing to 8-bit luminance, file stamp, small decode cache) |
 | `CurveReview/` | The curve-review conduit, form, rules, labeller and analysis |
 | `Sculpt/` | The sculpt session controller and its field codec, mask builder, live contours, normal patcher, colouriser and zone follower |
@@ -186,6 +187,13 @@ layer table, dimension styles, and layouts can act on. See `docs/architecture.md
   `Layer`; output whose colour is data stays `Object`.
 
 ## State, preview, bake
+
+Plant/Orient modify source objects and stay live through Bake. `TerrainController.Objects.cs` owns
+base inspection/correction and explicit Release; released objects remain excluded from watched layers.
+Detach leaves them placed. `ObjectPlacementReference` persists the known base independently of card
+identity, tracks external transforms and reconciles history before snapshots. Solver results carry
+the expected source revision; failed fits/conflicts leave geometry/history intact. See architecture
+→ Plant and Orient for the frame/transform contract.
 - `ModelUnitGuard.cs`, shared `ModelUnitContext.cs`, and `TerrainUnitScaler.cs` define the host unit
   contract. Unitless documents remain readable but dimensional actions/builds are blocked. Rhino's
   scale-with-units event rescales every persisted physical value (including sculpt payloads and inverse-

@@ -12,7 +12,7 @@ public sealed class TerrainObjectPlacementState
     {
         var values = LastAppliedTransform;
         if (values == null || values.Length != 16)
-            return Transform.Identity;
+            return Transform.Unset;
 
         var transform = Transform.Identity;
         transform.M00 = values[0];

@@ -11,6 +11,13 @@ Standalone Python experiments live in [`examples/Rhino/`](../../examples/Rhino/R
 including moving a curve control point's elevation relative to a reference point and slope.
 They run independently of the compiled plugin.
 
+Plant/Orient in the Objects tab retain an object-owned base through Bake, transforms, copies and
+file saves. Heading and Scale replace prior adjustments; Show Base/Change Base inspect or correct
+the footprint, and Release keeps the pose while stopping live control. See
+[object placement](../../docs/architecture.md#rhino-plant-and-orient-object-placement).
+Native Undo/Redo after a live placement still has a known duplication/assignment failure; see the
+[live-test record](../../docs/rhino-live-testing.md#0-pending-live-checks).
+
 `mhSlopeControlPoints` is the compiled control-point workflow: turn PointsOn and select control points,
 or Ctrl+Shift-select polyline/polycurve segments, before or after starting the command. Pick a reference,
 then move vertically to preview/pick the

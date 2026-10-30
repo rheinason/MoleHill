@@ -47,6 +47,11 @@ A definition normalizes its own fields after load in a `virtual NormalizeAfterLo
   `ReferenceComparisonAnalysisDefinition` base; nothing should compute the delta twice.
 
 ## Definition hierarchies (JSON-polymorphic base → subtypes)
+
+Object definitions persist fixed heading/scale, released-object exclusions (including watched-layer
+matches), and live transform history. Placed/skipped counters are runtime feedback, excluded from
+JSON/build fingerprints. The durable base itself is geometry user data, independent of definition
+identity; see `Services/Objects`. Schema 33 retains legacy transform history for recovery.
 - **`[NotBuildInput]`** marks a property no build reads: presentation (a card's `Label`, Retopo's
   `ShowField`) or a result the build writes back (the stair's `Computed*`). Stage fingerprints leave these
   out, so changing one re-runs nothing. Every new property is a build input unless it is marked;

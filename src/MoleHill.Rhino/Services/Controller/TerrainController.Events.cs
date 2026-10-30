@@ -62,8 +62,7 @@ internal sealed partial class TerrainController
         if (_suppressDocEvents > 0 ||
             e.ObjectsWillBeCopied ||
             e.ObjectCount == 0 ||
-            IsIdentityTransform(e.Transform) ||
-            sender is not RhinoDoc doc)
+            IsIdentityTransform(e.Transform))
         {
             return;
         }
@@ -75,6 +74,13 @@ internal sealed partial class TerrainController
             .ToList();
         if (transformedObjectIds.Count == 0)
             return;
+
+        RhinoDoc? doc = e.Objects.FirstOrDefault(obj => obj != null)?.Document;
+        if (doc == null) return;
+
+        if (GetState(doc).Terrains.Any(terrain => terrain.Objects.Any(definition =>
+            definition.PlacementStates.Any(state => transformedObjectIds.Contains(state.ObjectId)))))
+            JoinActiveTerrainUndoRecord(doc, "Move MoleHill Objects");
 
         AdjustPlacementTransformsForUserTransform(doc, transformedObjectIds, e.Transform);
 
@@ -674,6 +680,7 @@ internal sealed partial class TerrainController
 
             foreach (var definition in terrain.Objects)
             {
+                changed |= ReplaceTrackedObjectId(definition.ReleasedObjectIds, oldObjectId, newObjectId);
                 foreach (var placementState in definition.PlacementStates)
                     changed |= placementState.ReplaceObject(oldObjectId, newObjectId);
             }

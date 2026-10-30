@@ -272,6 +272,12 @@ When Triangle.NET inserts Steiner points, their Z must be interpolated. Check in
 
 ## Coding Style
 
+Plant/Orient bases belong to geometry (`ObjectPlacementReference` custom user data), independently of
+card ownership. Never re-infer a known base from tilted geometry. Bake keeps placement live; Release
+keeps the pose and excludes watched-layer matches. Solve absolute poses and verify geometry/base
+fingerprints before applying deltas. Retain history on failed solves/restoration. External transforms
+conjugate history; plugin transforms use the scoped left-multiply path. See architecture → Plant and Orient.
+
 4-space indentation, one type per file. Geometry edge cases to prioritize in tests: collinearity, duplicate points, breakline intersections, tolerance boundaries, grading/slope regression.
 
 ## Commit Style
