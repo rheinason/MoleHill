@@ -3,6 +3,33 @@
 Released through Rhino's Package Manager (Yak) as `MoleHill`. Versions before 1.0.0 were
 beta prereleases. Earlier versions are recorded only in the git history.
 
+## 1.5.4-beta — 2026-11-02
+
+**Fixes**
+- Layouts no longer show a stray copy of the terrain. The preview was also drawn in the page's own space, at
+  its model coordinates, beside the detail that should hold it.
+- A layout detail no longer turns the terrain flat gray when you zoom the page. Once the page was zoomed far
+  enough that a detail ran past the window edge, every pass in it was taken for a shadow-map pass, and only
+  the gray shadow-casting mesh was drawn, without the terrain's colours or analysis colouring.
+
+**Plant and Orient**
+- An object's base now belongs to the object, not the card: it is kept through bake, moves and other
+  transforms, copies and saves, so a planted object is never re-fitted from its tilted geometry.
+- Orient fits the object from its footprint, and Plant keeps the object's tilt.
+- The card can show and correct an object's base, and has explicit actions to release objects from it.
+- A failed solve or restore leaves the object and its history as they were.
+
+**Real-world coordinates**
+- Export With Georef offers every format Rhino can export (including formats added by other plug-ins), not
+  only `.3dm`. A `.3dm` export carries the selected objects' layers and attributes but no other document
+  content.
+- New `mhCopyWithGeoref` (right-click on the Export With Georef button) copies the selection at real-world
+  coordinates, ready for an ordinary Paste in a real-world file.
+
+**Known issue**
+- After Orient, Bake and a native Move, one native Undo can leave the oriented objects duplicated, and Redo can
+  lose their card assignments. Delete the duplicates by hand until this is fixed.
+
 ## 1.5.3-beta — 2026-10-28
 
 **Fixes**
