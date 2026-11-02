@@ -16,6 +16,7 @@ coordinates**. Its inverse `G^-1` maps real-world data into the local model.
 - `mhConvertToRealWorldCoordinates` applies `G` to selected geometry.
 - `mhConvertToProjectCoordinates` applies `G^-1` to selected geometry.
 - `mhExportWithGeoref` writes selected local geometry through `G` without moving the source document.
+- `mhCopyWithGeoref` copies selected local geometry through `G` for ordinary Paste in a real-world file.
 - `mhImportWithGeoref` imports/pastes real-world geometry and applies `G^-1`.
 - `mhClearProjectBase` deletes the saved mapping without moving geometry.
 
@@ -59,8 +60,23 @@ the coordinate transform fails, every newly added object is removed with locked/
 the prior selection is restored. Objects on locked layers still fail the transform with an explicit
 unlock-and-retry message rather than overriding the user's layer protection.
 
-`mhExportWithGeoref` applies `G` through Rhino's file-write transform. It never moves source geometry,
-never changes the active CPlane or document path, suppresses file-format input, and restores selection.
+`mhExportWithGeoref` uses Rhino's native export-format picker, including installed export plug-ins,
+and applies `G` through the file-write transform. The chosen writer can show its normal format options
+(for example DWG scheme or mesh settings). The `-mhExportWithGeoref` form accepts a path and uses the
+writer's current defaults without further prompts. It never moves source geometry, changes the active
+CPlane or document path, and restores selection. The selected write omits bitmap tables, plug-in user data,
+history, preview images and cached render meshes, so exporting curves does not package the source
+document's embedded images or unrelated blocks. Selected block instances retain their definitions;
+texture images are not embedded by this geometry transfer. A clean `.3dm` retains object names,
+layers, units and tolerances while stripping source views, saved CPlanes (including the project base),
+document user text, notes and plug-in data. Rhino's geometry-only flag is deliberately avoided because
+it drops object attributes and measurement settings as well.
+
+`mhCopyWithGeoref` is also the Export With Georef toolbar button's right-click. It transforms detached
+duplicates, uses Rhino's native CopyToClipboard, and purges the temporary copies in `finally`.
+Source objects, ids, selection and the document's modified flag are preserved. Use ordinary **Paste**
+in a file whose geometry is already at real-world coordinates. For a file modelled near a saved local
+origin, use **mhImportWithGeoref → Paste** to apply that destination's inverse mapping instead.
 
 ## GeoTIFF import
 

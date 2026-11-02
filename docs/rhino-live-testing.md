@@ -88,6 +88,24 @@ native skips at that run); the added Plant regression brought the subsequent ful
 existing Core xUnit1031 warning remain unrelated. No package was published. Owned slots were closed;
 the original user-started Rhino was left open.
 
+Georeferenced transfer, 2026-10-29: exact Debug RHP `a114b9b5-2f6e-4839-bbb5-484a813d74d1`
+in owned slot `armadillo`, PID 20316, Rhino 8.35. `HostedGeoreferenceExportTests.RunFileCases`
+(in the Rhino test assembly, invoked inside Rhino) exported three metre-unit curves beside an
+unrelated 50,000-vertex mesh block and embedded image: `.3dm` was 14,926 bytes, retained names,
+layers, units and tolerance, and excluded the unrelated definition, image payload, document text
+and saved CPlane. DXF and STEP imported at the expected rotated/translated real-world coordinates.
+A selected block retained its required definition and excluded the unrelated block. These hosted
+cases are deliberately not reported as managed xUnit passes.
+
+Native `run_command` also exercised `-mhExportWithGeoref`, `mhCopyWithGeoref`, ordinary `Paste`,
+and `mhImportWithGeoref Paste` with a curve and block. Queries checked source ids, geometry,
+selection and modified flag after copying, no temporary copies, correct real-world paste placement,
+and the inverse mapping back into local coordinates. The owned slot was closed gracefully; the
+user-started Rhino was left open. Artifacts: `.artifacts/georef-export/`.
+Build: `dotnet build src/MoleHill.Rhino/MoleHill.Rhino.csproj --no-restore --verbosity quiet`
+(zero warnings/errors). Managed: `dotnet test tests/MoleHill.Rhino.Tests/MoleHill.Rhino.Tests.csproj
+--no-restore --verbosity quiet` (1,461 passed, 175 native skips). No package was published.
+
 Upstream roof corrections, 2026-10-18: normal Debug RHP `ef6d3038-2009-419d-b745-ae2f9aac8c9e`
 and Core `985b4ab6-a094-43fb-83a5-d44747517632` were loaded from the exact standard output paths
 in a fresh owned `aardvark`, PID 20516, Rhino 8.35.26251.13001. The same UV-preserving reference,

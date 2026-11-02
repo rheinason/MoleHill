@@ -126,6 +126,7 @@
       </tool_bar_item>
       <tool_bar_item guid="38384f78-6581-49e6-9e6f-df044c064bed">
         <left_macro_id>b8e52fee-0bd4-4f88-9ef3-cae47d6358aa</left_macro_id>
+        <right_macro_id>941b642a-3b26-4851-8c66-47e2f141193f</right_macro_id>
       </tool_bar_item>
       <tool_bar_item guid="fa7ce0d5-2773-4fb8-99e5-c07297de9591">
         <left_macro_id>2ac2a520-cf80-4cf4-b0df-151560bc2603</left_macro_id>
@@ -337,6 +338,15 @@ _CurveType=_Interpolated</script>
         <locale_1033>Export With Georef</locale_1033>
       </tooltip>
       <script>mhExportWithGeoref</script>
+    </macro_item>
+    <macro_item guid="941b642a-3b26-4851-8c66-47e2f141193f" bitmap_id="8efa019e-175c-4e2b-929c-57e53faa7913">
+      <text>
+        <locale_1033>mhCopyWithGeoref</locale_1033>
+      </text>
+      <tooltip>
+        <locale_1033>Copy With Georef</locale_1033>
+      </tooltip>
+      <script>mhCopyWithGeoref</script>
     </macro_item>
     <macro_item guid="bbb7ecdc-0a4e-4244-ba4f-8f796d6b5749" bitmap_id="766733f4-4213-442c-977b-10bcd0fa0450">
       <text>

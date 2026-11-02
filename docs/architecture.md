@@ -343,6 +343,13 @@ TriangleNet (vendored)  ←  MoleHill.Core  ←  MoleHill.Grasshopper (GH host)
   source/output tracking. Legacy Python `FOTM` planes (the inverse convention) and legacy C# `Georef`
   planes migrate only after confirmation and are retained unchanged. Georeferenced Paste/File import
   diffs the complete object table, transforms all new ModelSpace objects, and removes them on failure.
+  Georeferenced export uses Rhino's installed export-format picker and a selected write with the saved
+  transform; bitmap tables, history, cached meshes and plug-in data are omitted. Clean `.3dm` files
+  retain selected object attributes, required block/layer definitions, units and tolerances, then strip
+  source views, CPlanes and document text. Rhino's geometry-only flag is unsuitable: it drops names,
+  layers and measurement settings too.
+  `mhCopyWithGeoref` (Export With Georef's right-click) copies transformed temporary duplicates through
+  Rhino's native clipboard, purges them, and restores selection and the document's modified flag.
   GeoTIFF import
   reads embedded model and linear-unit tags without GDAL, asks for source units when metadata is absent,
   falls back to a full-affine world file, converts coordinates into document units, and applies the saved

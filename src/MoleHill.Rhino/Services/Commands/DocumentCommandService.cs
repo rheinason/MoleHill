@@ -7,7 +7,6 @@ using MoleHill.Shared;
 using Rhino;
 using Rhino.Commands;
 using Rhino.DocObjects;
-using Rhino.FileIO;
 using Rhino.Geometry;
 using Rhino.Input;
 using Rhino.Input.Custom;
@@ -214,14 +213,14 @@ internal static class DocumentCommandService
         return Result.Success;
     }
 
-    public static Result RunExportWithGeoref(RhinoDoc doc)
+    public static Result RunExportWithGeoref(RhinoDoc doc, RunMode mode)
     {
         if (!ModelUnitGuard.TryGet(doc, out _)) return Result.Failure;
         Result resolution = ResolveProjectBaseTransform(doc, toProjectCoordinates: false, out Transform transform);
         if (resolution != Result.Success)
             return resolution;
 
-        var getObject = new GetObject();
+        using var getObject = new GetObject();
         getObject.SetCommandPrompt("Select geometry to export with georef");
         getObject.EnablePreSelect(true, true);
         getObject.SubObjectSelect = false;
@@ -230,14 +229,12 @@ internal static class DocumentCommandService
         if (getObject.CommandResult() != Result.Success)
             return getObject.CommandResult();
 
-        var dialog = new Eto.Forms.SaveFileDialog
-        {
-            Title = "Export Georeferenced Rhino File",
-            FileName = GetDefaultGeoreferenceExportFileName(doc.Name)
-        };
-        dialog.Filters.Add(new FileFilter("Rhino 3D", ".3dm"));
-        if (dialog.ShowDialog(RhinoEtoApp.MainWindowForDocument(doc)) != DialogResult.Ok ||
-            string.IsNullOrWhiteSpace(dialog.FileName))
+        // Rhino owns this list, including formats supplied by installed export plug-ins.
+        string fileName = mode == RunMode.Scripted
+            ? RhinoGet.GetFileNameScripted(GetFileNameMode.Export, GetDefaultGeoreferenceExportFileName(doc.Name))
+            : RhinoGet.GetFileName(GetFileNameMode.Export, GetDefaultGeoreferenceExportFileName(doc.Name),
+                "Export With Georef", RhinoEtoApp.MainWindowForDocument(doc));
+        if (string.IsNullOrWhiteSpace(fileName))
             return Result.Cancel;
 
         var selectedIds = Enumerable.Range(0, getObject.ObjectCount)
@@ -245,33 +242,36 @@ internal static class DocumentCommandService
             .Where(id => id != Guid.Empty)
             .ToHashSet();
 
-        var selectedBefore = new HashSet<Guid>(doc.Objects.GetSelectedObjects(false, false).Select(obj => obj.Id));
-        try
-        {
-            doc.Objects.UnselectAll();
-            foreach (Guid id in selectedIds)
-                doc.Objects.Select(id, true, true);
+        bool wrote = GeoreferenceExportService.WriteSelected(doc, selectedIds, transform, fileName, mode);
+        RhinoApp.WriteLine(wrote
+            ? $"MoleHill: exported georeferenced geometry to '{fileName}'."
+            : $"MoleHill: export was cancelled or could not write '{fileName}'.");
+        return wrote ? Result.Success : Result.Failure;
+    }
 
-            using var options = new FileWriteOptions
-            {
-                UpdateDocumentPath = false,
-                SuppressDialogBoxes = true,
-                SuppressAllInput = true,
-                WriteSelectedObjectsOnly = true,
-                Xform = transform
-            };
+    public static Result RunCopyWithGeoref(RhinoDoc doc)
+    {
+        if (!ModelUnitGuard.TryGet(doc, out _)) return Result.Failure;
+        Result resolution = ResolveProjectBaseTransform(doc, toProjectCoordinates: false, out Transform transform);
+        if (resolution != Result.Success)
+            return resolution;
 
-            bool wrote = doc.WriteFile(dialog.FileName, options);
-            if (!wrote)
-                RhinoApp.WriteLine($"MoleHill: could not export georeferenced geometry to '{dialog.FileName}'.");
-            return wrote ? Result.Success : Result.Failure;
-        }
-        finally
-        {
-            doc.Objects.UnselectAll();
-            foreach (Guid id in selectedBefore)
-                doc.Objects.Select(id, true, true);
-        }
+        using var getObject = new GetObject();
+        getObject.SetCommandPrompt("Select geometry to copy at real-world coordinates");
+        getObject.EnablePreSelect(true, true);
+        getObject.SubObjectSelect = false;
+        getObject.GroupSelect = true;
+        getObject.GetMultiple(1, 0);
+        if (getObject.CommandResult() != Result.Success)
+            return getObject.CommandResult();
+
+        Guid[] ids = Enumerable.Range(0, getObject.ObjectCount)
+            .Select(i => getObject.Object(i).ObjectId).Distinct().ToArray();
+        bool copied = GeoreferenceExportService.CopySelected(doc, ids, transform, out string? error);
+        RhinoApp.WriteLine(copied
+            ? "MoleHill: copied at real-world coordinates. Use Paste in the real-world file, or mhImportWithGeoref Paste in a local project."
+            : error ?? "MoleHill: could not copy geometry with georef.");
+        return copied ? Result.Success : Result.Failure;
     }
 
     public static Result RunImportLandXml(RhinoDoc doc)

@@ -29,6 +29,13 @@ an adjoining section that cannot move its endpoint must be converted to NURBS fi
 Undo restores the edit. Closed/periodic seam points remain coupled. The slope is between control
 point locations, not a tangent slope along the curve.
 
+`mhExportWithGeoref` exports a selection at the saved real-world origin using Rhino's full installed
+export-format list and the chosen writer's options. Rhino exports contain geometry and its required
+block/layer definitions, without embedded bitmap tables, plug-in data, history or cached render meshes.
+`mhCopyWithGeoref`, also on the export button's right-click, copies at the same real-world coordinates:
+use ordinary Paste in the real-world file, or `mhImportWithGeoref` → Paste in a local project. Both
+commands leave the source geometry in place. See [project-base coordinates](../../docs/project-base-georeference.md).
+
 `mhMergeControlPoints` accepts preselected curve grips or individual picks in order, including
 grips on separate curves. Choose `Mode` (`AtCenter`, `ByDistance`, `First`, `Last`), adjust `Distance`
 in model units for ByDistance, inspect the green curve/movement preview, and press Enter to apply.
