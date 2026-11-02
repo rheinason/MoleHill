@@ -6,6 +6,9 @@ using Rhino.Geometry;
 
 namespace MoleHill.Rhino.Services;
 
+/// <summary>
+/// Draws every terrain's live preview (mesh, zones, analyses, annotations, markers, scatter) without doc objects.
+/// </summary>
 internal sealed class TerrainDisplayConduit : DisplayConduit
 {
     private const int ScatterShapePointBudget = 32;
@@ -33,9 +36,17 @@ internal sealed class TerrainDisplayConduit : DisplayConduit
         }
     }
 
+    /// <summary>
+    /// True for the page's own space in a layout. Model geometry belongs only inside detail viewports; a
+    /// page-space pass would draw the preview at its model coordinates on the sheet, beside the detail.
+    /// A detail viewport has its own id, so it is not matched here.
+    /// </summary>
+    private static bool IsPageSpacePass(DrawEventArgs e) =>
+        e.Viewport.ParentView is RhinoPageView page && e.Viewport.Id == page.MainViewport.Id;
+
     protected override void PostDrawObjects(DrawEventArgs e)
     {
-        if (e.RhinoDoc == null)
+        if (e.RhinoDoc == null || IsPageSpacePass(e))
             return;
 
         bool shadowPass = IsShadowMapPass(e);
@@ -65,7 +76,7 @@ internal sealed class TerrainDisplayConduit : DisplayConduit
     /// </summary>
     protected override void DrawForeground(DrawEventArgs e)
     {
-        if (e.RhinoDoc == null)
+        if (e.RhinoDoc == null || IsPageSpacePass(e))
             return;
 
         var views = TerrainController.Instance.GetPreviewViews(e.RhinoDoc);
@@ -156,6 +167,13 @@ internal sealed class TerrainDisplayConduit : DisplayConduit
     /// pipeline's world-to-clip matrix disagreeing with the viewport's. Anything but a shaded surface drawn
     /// there leaks onto the screen from the light's projection: scatter points scattered across the
     /// terrain and floating in the air, found live.
+    ///
+    /// A layout detail is the exception: it is drawn into the page's window, so its pipeline matrix is the
+    /// detail's own projection followed by a 2D scale and offset onto the page's clip space, which change
+    /// with every page zoom or pan. An exact comparison read every visible detail pass as a shadow pass
+    /// after one wheel click, and the terrain drew flat gray in the shadow-caster material (found live:
+    /// x/y rows a positive multiple of the viewport's to 1e-16, w row identical). See
+    /// <see cref="DetailProjectionMatch"/>.
     /// </summary>
     private static bool IsShadowMapPass(DrawEventArgs e)
     {
@@ -164,6 +182,9 @@ internal sealed class TerrainDisplayConduit : DisplayConduit
             return false;
 
         Transform viewport = e.Viewport.GetTransform(CoordinateSystem.World, CoordinateSystem.Clip);
+        if (e.Viewport.ParentView is RhinoPageView)
+            return !DetailProjectionMatch.IsOwnProjection(pipeline, viewport);
+
         for (int row = 0; row < 4; row++)
         {
             // The depth row is negated on the view's own passes (OpenGL's depth convention), so compare

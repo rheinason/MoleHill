@@ -233,7 +233,11 @@ the expected source revision; failed fits/conflicts leave geometry/history intac
   severity ordering. `TerrainDisplayState.RenderHash` is the change stamp the render mesh provider
   hands the RDK cache. Surfaces draw in `PostDrawObjects` (every pass); curves, text and dots draw once
   per frame in `DrawForeground` (curves depth-tested, labels and dots on top), because shadowed Shaded modes run ~10 passes
-  and re-submitting thousands of labels per pass cost ~160 ms a frame. `TerrainDisplayColors` caches
+  and re-submitting thousands of labels per pass cost ~160 ms a frame. Layouts: nothing draws in a
+  page's own space (it would land at model coordinates on the sheet), and a detail's passes are told from
+  shadow-map passes by `DetailProjectionMatch`, because a detail cropped by the window edge is drawn with
+  its projection scaled and offset onto the page, which an exact matrix comparison read as a shadow pass
+  (flat gray terrain). `TerrainDisplayColors` caches
   layer colours per document (cleared on layer-table events) for the same reason.
 - `DocumentTextDotOverlay.cs` - redraws the document's own text dots, in display order, after the
   preview's labels. Rhino draws a dot without depth before any conduit's `PostDrawObjects`, so the
@@ -556,6 +560,12 @@ the expected source revision; failed fits/conflicts leave geometry/history intac
 - `GeoreferenceImportPlanner.cs` - complete before/after object-table differencing so Paste/File import
   remaps all newly added ModelSpace objects rather than only Rhino's selected subset; failed remaps remove
   every newly added object and restore the prior selection.
+- `GeoreferenceExportService.cs` - selected file writes through the saved transform,
+  with Rhino's export-format options; omits bitmap tables, plug-in data, history and cached meshes.
+  `.3dm` output retains object attributes, units and tolerances while stripping document views, CPlanes
+  and user text. Do not use WriteGeometryOnly: it also discards object names, layers and units.
+  Clipboard transfer uses transformed temporary duplicates and native CopyToClipboard, purges the
+  duplicates in `finally`, and restores the selection and modified flag.
 - `RasterGeoreference` / `GeoTiffMetadataReader` / `GeoTiffLinearUnitReader` (now `MoleHill.Core.IO`;
   `RasterGeoreferenceExtensions.cs` keeps the one RhinoCommon `Transform`) - dependency-free
   affine raster placement from embedded GeoTIFF model tags or full six-value world files. Projected EPSG
