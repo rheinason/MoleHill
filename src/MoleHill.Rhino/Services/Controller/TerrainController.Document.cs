@@ -82,6 +82,8 @@ internal sealed partial class TerrainController
         _states.Remove(docSerial);
         _pendingTerrainEdits.Remove(docSerial);
         _terrainUndoRecords.RemoveWhere(item => item.docSerial == docSerial);
+        _placementUndoChains.Remove(docSerial);
+        _pendingUndoCascades.Remove(docSerial);
         _pendingSourceReferencePrunes.Remove(docSerial);
         _pendingObjectReplacements.Remove(docSerial);
         foreach (var key in _blockTextHeights.Keys.Where(key => key.docSerial == docSerial).ToList())

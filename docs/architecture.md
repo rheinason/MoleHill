@@ -1871,10 +1871,22 @@ Schema 33 preserves legacy transforms for reference recovery, initializes fixed 
 refuses to replace corrupt history with identity. The panel exposes placed/skipped counts and groups
 seeded controls under Variation.
 
-Known limitation (2026-10-30 live test): a native Undo after Move and asynchronous placement can
-leave both the restored and placed geometry; Redo can then lose explicit card assignments.
-Geometry-carried history does not yet make those asynchronous edits one native geometry undo
-operation. See `docs/rhino-live-testing.md` for the reproduction and pending acceptance checks.
+**Native Undo/Redo.** A live placement lands after the edit that caused it (a native Move, a terrain
+edit) has closed its undo record. It must not touch geometry outside a record: rewriting a moved object
+there left the Move's record pointing at geometry that no longer existed, so Undo resurrected the original
+under a new ID beside the placed copy, and Redo then lost the card's source IDs (the 1.5.4 known issue).
+`SyncTerrainObjects` therefore writes into a "Place MoleHill Objects" record of its own, opened at its
+first change and carrying the terrain-state snapshot; inside an already open record it joins that one.
+Undoing that record alone would restore the unplaced pose, which the live rebuild would place again, so
+Undo could never get past it. `PlacementUndoChain` pairs each live placement record with the record
+directly beneath it, and the controller replays the other half at idle through the real `_Undo`/`_Redo`
+command: one Undo or Redo steps over the edit and its placement together. Three Rhino 8.35 behaviours
+shape it, all found live: `RhinoDoc.Undo()` called from idle opens a record it never closes (the whole
+undo system then stops), so the cascade runs the command through `RunScript`; a record is purged from the
+undo list as soon as it is undone, so a purge cannot drop a pair; and Redo names the `_Undo` command's
+record and puts the change back under the `_Redo` command's serial, so pairs are kept by the change's
+first serial. A queued half is dropped when the user undoes or redoes first, and waits while any record
+is open.
 
 ## Rhino: preview vs render vs bake (generated objects)
 

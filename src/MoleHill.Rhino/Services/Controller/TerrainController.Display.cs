@@ -391,6 +391,18 @@ internal sealed partial class TerrainController
         if (terrain.Objects.Count == 0)
             return;
 
+        // Half of a placement pair has just been undone or redone and the other half is queued. This
+        // build saw the in-between state; the cascade's own restore schedules the build that counts.
+        if (HasPendingUndoCascade(doc))
+        {
+            build.Diagnostics.Add("Objects were not placed while an undo or redo was completing.");
+            return;
+        }
+
+        // Placement rewrites user geometry after the edit that caused it has closed its undo record,
+        // so it records its own; see PlacementUndoChain for why that record is paired with its trigger.
+        using PlacementUndoScope undo = BeginPlacementUndo(doc, pairWithTrigger: terrain.LiveUpdateEnabled);
+
         var placementsByDefinition = build.ObjectPlacements.ToDictionary(group => group.DefinitionId);
         var crossTerrainConflicts = CollectCrossTerrainObjectConflicts(
             doc,
@@ -425,6 +437,7 @@ internal sealed partial class TerrainController
                 // A failed solve (including a footprint miss) is not a request to restore.
                 if (definition.IsEnabled && matchedIds.Contains(state.ObjectId))
                     continue;
+                undo.BeforeChange();
                 if (TryRestorePlacementState(doc, state))
                     definition.PlacementStates.Remove(state);
                 else
@@ -450,6 +463,8 @@ internal sealed partial class TerrainController
                     continue;
                 }
 
+                if (!IsIdentityTransform(delta))
+                    undo.BeforeChange();
                 if (ObjectPlacementReference.Find(liveObject.Geometry) == null && placement.BaselineReference != null)
                 {
                     var reference = placement.BaselineReference.CopyReference();

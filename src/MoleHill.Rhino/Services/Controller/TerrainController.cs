@@ -44,6 +44,9 @@ internal sealed partial class TerrainController
     private UITimer? _buildWakeTimer;
     private readonly Dictionary<uint, PendingTerrainEdit> _pendingTerrainEdits = new();
     private readonly HashSet<(uint docSerial, uint undoSerial)> _terrainUndoRecords = new();
+    private readonly Dictionary<uint, PlacementUndoChain> _placementUndoChains = new();
+    private readonly Dictionary<uint, UndoCascade> _pendingUndoCascades = new();
+    private bool _runningUndoCascade;
     private readonly HashSet<uint> _pendingSourceReferencePrunes = new();
     private readonly Dictionary<uint, Queue<Guid>> _pendingObjectReplacements = new();
     private readonly Dictionary<uint, HashSet<Guid>> _pendingBlockAttributeKeyRepairs = new();
@@ -85,6 +88,7 @@ internal sealed partial class TerrainController
         RhinoDoc.DocumentPropertiesChanged += OnDocumentPropertiesChanged;
         RhinoDoc.CloseDocument += OnCloseDocument;
         RhinoApp.Idle += OnIdle;
+        global::Rhino.Commands.Command.UndoRedo += OnUndoRedo;
         _displayConduit.Enabled = true;
     }
 
@@ -108,6 +112,7 @@ internal sealed partial class TerrainController
         RhinoDoc.DocumentPropertiesChanged -= OnDocumentPropertiesChanged;
         RhinoDoc.CloseDocument -= OnCloseDocument;
         RhinoApp.Idle -= OnIdle;
+        global::Rhino.Commands.Command.UndoRedo -= OnUndoRedo;
         _displayConduit.Enabled = false;
 
         var workers = new List<(CancellationTokenSource? Cancellation, Task? Task)>();
@@ -133,6 +138,8 @@ internal sealed partial class TerrainController
         _pendingDocumentSaves.Clear();
         _pendingTerrainEdits.Clear();
         _terrainUndoRecords.Clear();
+        _placementUndoChains.Clear();
+        _pendingUndoCascades.Clear();
         _pendingSourceReferencePrunes.Clear();
         _pendingBlockAttributeKeyRepairs.Clear();
         _runtimeCaches.Clear();

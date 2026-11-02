@@ -3,6 +3,13 @@
 Released through Rhino's Package Manager (Yak) as `MoleHill`. Versions before 1.0.0 were
 beta prereleases. Earlier versions are recorded only in the git history.
 
+## Unreleased
+
+**Fixes**
+- Undo after moving an oriented or planted object no longer duplicates it. One Undo now takes back both the
+  move and the live re-orientation that followed, and Redo restores both, with the object still on its card.
+  This was the known issue in 1.5.4-beta.
+
 ## 1.5.4-beta — 2026-11-02
 
 **Fixes**

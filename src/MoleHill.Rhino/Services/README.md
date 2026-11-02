@@ -213,6 +213,11 @@ the expected source revision; failed fits/conflicts leave geometry/history intac
   native Undo/Redo stack: the controller stores serialized before-state snapshots, joins an existing
   command record when one is active, and coalesces live panel gestures into one record. Undo restoration
   cancels stale work, clears caches, persists the restored JSON, and schedules fresh live builds.
+- `PlacementUndoChain.cs` - pure mirror of Rhino's undo stack that pairs each live Plant/Orient placement
+  record with the record that caused it; `TerrainController.Undo` feeds it `Command.UndoRedo` and runs
+  the paired `_Undo`/`_Redo` at idle, so one Undo/Redo steps over an edit and its placement. Never write
+  user geometry outside an undo record from a build callback: a closed earlier record then resurrects
+  the original beside the edited copy. See architecture → Plant and Orient → Native Undo/Redo.
 - `TerrainBuildActivity.cs` - what the selected terrain's build is doing now (`GetBuildActivity`), for
   the collapsed Status header's "Building · Remesh (3 of 9) · 12 s". The build reports one numbered step
   per enabled modifier and per output family (`TerrainBuildProgress.ForStep`); the panel ticks the clock

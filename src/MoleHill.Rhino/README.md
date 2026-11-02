@@ -15,8 +15,8 @@ Plant/Orient in the Objects tab retain an object-owned base through Bake, transf
 file saves. Heading and Scale replace prior adjustments; Show Base/Change Base inspect or correct
 the footprint, and Release keeps the pose while stopping live control. See
 [object placement](../../docs/architecture.md#rhino-plant-and-orient-object-placement).
-Native Undo/Redo after a live placement still has a known duplication/assignment failure; see the
-[live-test record](../../docs/rhino-live-testing.md#0-pending-live-checks).
+A live placement is its own undo record, paired with the edit that caused it so one native Undo/Redo
+steps over both; see [object placement](../../docs/architecture.md#rhino-plant-and-orient-object-placement).
 
 `mhSlopeControlPoints` is the compiled control-point workflow: turn PointsOn and select control points,
 or Ctrl+Shift-select polyline/polycurve segments, before or after starting the command. Pick a reference,

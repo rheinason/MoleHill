@@ -159,6 +159,166 @@ internal sealed partial class TerrainController
         RaiseStateChanged();
     }
 
+    private PlacementUndoChain GetPlacementUndoChain(uint docSerial)
+    {
+        if (!_placementUndoChains.TryGetValue(docSerial, out PlacementUndoChain? chain))
+        {
+            chain = new PlacementUndoChain();
+            _placementUndoChains[docSerial] = chain;
+        }
+
+        return chain;
+    }
+
+    /// <summary>
+    /// Mirrors Rhino's undo stack for <see cref="PlacementUndoChain"/> and queues the Undo/Redo that keeps
+    /// an automatic placement and its trigger together. The cascade itself waits for idle: Rhino is still
+    /// inside its undo when this fires.
+    /// </summary>
+    private void OnUndoRedo(object? sender, global::Rhino.Commands.UndoRedoEventArgs e)
+    {
+        // The event names no document; undo always acts on the active one.
+        RhinoDoc? doc = RhinoDoc.ActiveDoc;
+        if (doc == null)
+            return;
+
+        PlacementUndoChain chain = GetPlacementUndoChain(doc.RuntimeSerialNumber);
+        if (e.IsBeginRecording)
+            chain.RecordingBegan(e.UndoSerialNumber);
+        else if (e.IsBeginUndo || e.IsBeginRedo)
+        {
+            // An Undo/Redo of the user's own before the queued half ran (they can type faster than
+            // idle) moved the stack, so the queued half would now act on the wrong record. Drop it; the
+            // restore that undo performs schedules the build that settles the objects.
+            if (!_runningUndoCascade)
+                _pendingUndoCascades.Remove(doc.RuntimeSerialNumber);
+            chain.ReplayBegan();
+        }
+        else if (e.IsEndRecording)
+            chain.RecordingEnded(e.UndoSerialNumber);
+        else if (e.IsPurgeRecord)
+            chain.Purged(e.UndoSerialNumber);
+        else if (e.IsEndUndo && chain.UndoEnded(e.UndoSerialNumber))
+            _pendingUndoCascades[doc.RuntimeSerialNumber] = UndoCascade.Undo;
+        else if (e.IsEndRedo && chain.RedoEnded(e.UndoSerialNumber))
+            _pendingUndoCascades[doc.RuntimeSerialNumber] = UndoCascade.Redo;
+    }
+
+    private bool HasPendingUndoCascade(RhinoDoc doc) => _pendingUndoCascades.ContainsKey(doc.RuntimeSerialNumber);
+
+    private void ProcessPendingUndoCascades()
+    {
+        if (_pendingUndoCascades.Count == 0 || global::Rhino.Commands.Command.InCommand())
+            return;
+
+        foreach ((uint docSerial, UndoCascade cascade) in _pendingUndoCascades.ToList())
+        {
+            _pendingUndoCascades.Remove(docSerial);
+            RhinoDoc? doc = RhinoDoc.FromRuntimeSerialNumber(docSerial);
+            if (doc == null)
+                continue;
+
+            // Undoing inside another open record nests into it, and that record then clears the redo
+            // stack the paired Redo needs (observed live when a script command began before idle).
+            if (doc.UndoRecordingIsActive)
+            {
+                _pendingUndoCascades[docSerial] = cascade;
+                continue;
+            }
+
+            // The commands, not RhinoDoc.Undo()/Redo(): called from idle those open an undo record and
+            // never close it, after which nothing in the document can be undone (observed live,
+            // Rhino 8.35). RunScript runs the real command, which owns its record.
+            bool ok;
+            _runningUndoCascade = true;
+            try
+            {
+                ok = RhinoApp.RunScript(doc.RuntimeSerialNumber,
+                    cascade == UndoCascade.Undo ? "_Undo" : "_Redo", echo: false);
+            }
+            finally
+            {
+                _runningUndoCascade = false;
+            }
+            if (!ok)
+                RhinoApp.WriteLine($"MoleHill: could not {(cascade == UndoCascade.Undo ? "undo" : "redo")} the edit paired with an object placement.");
+        }
+    }
+
+    /// <summary>
+    /// Opens the undo record that an automatic object placement writes into, at its first change, and
+    /// closes it on dispose. Inside another open record (a command applying a build synchronously) the
+    /// placement joins that record instead. A record of its own is paired with the record beneath it when
+    /// the build was a live response to that edit.
+    /// </summary>
+    private PlacementUndoScope BeginPlacementUndo(RhinoDoc doc, bool pairWithTrigger) => new(this, doc, pairWithTrigger);
+
+    private sealed class PlacementUndoScope : IDisposable
+    {
+        private const string Description = "Place MoleHill Objects";
+        private readonly TerrainController _controller;
+        private readonly RhinoDoc _doc;
+        private readonly bool _pairWithTrigger;
+        private bool _started;
+        private uint _record;
+        private uint _trigger;
+        private TerrainUndoSnapshot? _before;
+
+        public PlacementUndoScope(TerrainController controller, RhinoDoc doc, bool pairWithTrigger)
+        {
+            _controller = controller;
+            _doc = doc;
+            _pairWithTrigger = pairWithTrigger;
+        }
+
+        /// <summary>Call immediately before the first document change the placement makes.</summary>
+        public void BeforeChange()
+        {
+            if (_started)
+                return;
+
+            _started = true;
+            if (!_doc.UndoRecordingEnabled)
+                return;
+
+            if (_doc.UndoRecordingIsActive)
+            {
+                _controller.JoinActiveTerrainUndoRecord(_doc, Description);
+                return;
+            }
+
+            _trigger = _pairWithTrigger ? _controller.GetPlacementUndoChain(_doc.RuntimeSerialNumber).Top : 0;
+            _before = _controller.CaptureUndoState(_controller.GetState(_doc));
+            _record = _doc.BeginUndoRecord(Description);
+        }
+
+        public void Dispose()
+        {
+            if (_record == 0)
+                return;
+
+            uint record = _record;
+            _record = 0;
+            try
+            {
+                _doc.AddCustomUndoEvent(Description, _controller.OnRestoreStateUndo, _before!.WithDescription(Description));
+            }
+            finally
+            {
+                _doc.EndUndoRecord(record);
+            }
+
+            if (_trigger != 0)
+                _controller.GetPlacementUndoChain(_doc.RuntimeSerialNumber).Pair(record, _trigger);
+        }
+    }
+
+    private enum UndoCascade
+    {
+        Undo,
+        Redo
+    }
+
     private sealed class PendingTerrainEdit
     {
         public PendingTerrainEdit(TerrainUndoSnapshot before, string description)

@@ -16,12 +16,17 @@ Plant/Orient: manually exercise Change Base's face/three-point picker through ac
 Show Base's finish prompt. The underlying base commit, rendered controls and placement lifecycle
 passed hosted checks on 2026-10-30; the interactive picking loop was not driven automatically.
 
-Plant/Orient **known failure**, reproduced twice on 2026-10-30 in the current Debug RHP: after
-Orient → Bake → native Move → asynchronous live reorientation, one native Undo leaves four car
-objects where there were two. Redo returns to two but loses their explicit source IDs and placement
-states. Fix native geometry undo integration before treating this flow as accepted. The read-only
-`HostedObjectPlacementTests.AssertAfterNativeCommand` refreshes definitions after Undo and checks
-actual geometry count as well as placement count; do not force a rebuild to validate native Undo.
+Plant/Orient native Undo/Redo after a live placement: **fixed and passed live on 2026-11-02** (Release
+RHP, owned slot `aardvark`, Rhino 8.35.26251.13001, the 2026-10-30 car fixtures). Orient → Bake → native
+`_Move 40,0,0` → live reorientation → `_Undo` left two cars with their original IDs at their exact
+pre-Move poses (was four); `_Redo` redid Move and placement with sources and states intact; a second
+Undo after the Redo stepped over both again; the second report repro (`_Move -40,0,0` → Undo) returned
+the exact previous placed pose. Command history shows each pair ("Undoing Place MoleHill Objects |
+Undoing Move"). **Harness trap:** the paired half runs at idle, and back-to-back router calls give Rhino
+none (a `run_csharp` holds a command record open, and the cascade waits for it). Pause a few seconds
+after each `_Undo`/`_Redo` before asserting, or the next Undo/Redo arrives first and correctly cancels
+the queued half. The read-only `HostedObjectPlacementTests.AssertAfterNativeCommand` still refreshes
+definitions after Undo and checks actual geometry count; do not force a rebuild to validate native Undo.
 
 On 2026-10-21 the mouse checks passed live: `mhMergeControlPoints` ordered picks (First/Last),
 and `mhSlopeControlPoints` after its rework (picking control points or a whole curve after the command

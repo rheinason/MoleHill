@@ -220,6 +220,9 @@ internal sealed partial class TerrainController
 
     private void OnIdle(object? sender, EventArgs e)
     {
+        // First, so a placement's paired Undo/Redo lands before any build can act on the half-undone state.
+        ProcessPendingUndoCascades();
+
         if (_pendingSourceReferencePrunes.Count > 0)
         {
             foreach (var docSerial in _pendingSourceReferencePrunes.ToList())
