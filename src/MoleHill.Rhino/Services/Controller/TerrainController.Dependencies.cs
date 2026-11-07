@@ -179,6 +179,10 @@ internal sealed partial class TerrainController
 
     private void RemoveRuntimeCache(uint docSerial, Guid terrainId)
     {
+        if (RhinoDoc.FromRuntimeSerialNumber(docSerial) is RhinoDoc doc)
+            ClearScatterPreview(doc, terrainId);
+        else
+            _scatterPreviewInstances.Remove((docSerial, terrainId));
         TerrainRebuildState? rebuildState = null;
         if (_rebuildStates.TryGetValue((docSerial, terrainId), out var existingRebuildState))
         {

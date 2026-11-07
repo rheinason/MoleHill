@@ -23,3 +23,5 @@ eigensolver. Degenerate/non-finite samples are rejected. Rhino owns sampling, pe
   rows, including rejected candidates. Every
   candidate is tested against per-loop bounding boxes before any polygon edge is walked.
 - `ScatterRequest.cs` — the input bundle.
+- `ScatterFootprint.cs` — conservative plan containment of block bounds, checking entire edges across
+  concave notches and accepting boundary contact. A footprint must fit inside one region.

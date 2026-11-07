@@ -253,15 +253,20 @@ the expected source revision; failed fits/conflicts leave geometry/history intac
   from: members meshed once and joined per colour, drawn under a model transform. Never use
   `DrawInstanceDefinition` for scatter — per instance it is slow and leaks display memory until the
   GPU driver kills Rhino.
+- `TerrainController.ScatterPreview.cs` - optional capped native reference block preview for external
+  asset renderers; keeps definition metadata and Enscape instance user strings, excludes previews from
+  3dm, and purges them on hide, mode change or cache removal. Scatter bake batches layer/definition
+  and attribute preparation per card/block; attribute-bearing blocks keep key repair.
 - `TerrainRenderMeshProvider.cs` - publishes terrain preview geometry (terrain mesh, zone/auxiliary
   meshes, renderable marker blocks, scatter instances) to render engines via the RDK custom render mesh system, without creating
   document objects. Advertises each `TerrainDefinition.TerrainId` as a non-object id. Must stay
   `public` with a public parameterless constructor so `RenderMeshProvider.RegisterProviders` (called
   from `MoleHillRhinoPlugin.OnLoad`) discovers it. **Support is opt-in per renderer:** verified against
   Rhino's `ChangeQueue` pipeline (Raytraced/Cycles); V-Ray historically yes; Enscape has no known
-  support, so Bake remains the fallback there. Rhino render materials are retained from explicit
+  support, so Scatter's native-block preview or Bake supplies document instances there. Rhino render materials are retained from explicit
   assignments, layers, and block members where available. Ignores scatter `PreviewCap`/`PreviewMode`
-  (viewport budgets, not render budgets) and skips text/dots/curves, which have no render mesh.
+  (viewport budgets, not render budgets), except native-block mode which it skips to avoid duplicate
+  proxies, and skips text/dots/curves, which have no render mesh.
 - `TerrainDisplayColors.cs` - shared colour/transparency resolution for generated output. Used by both
   the conduit (`DisplayMaterial`) and the render mesh provider (`RenderMaterial`) so a render matches
   the viewport preview.

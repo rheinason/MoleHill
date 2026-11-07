@@ -14,5 +14,8 @@ public enum ScatterPreviewMode
     BoundingBox = 1,
 
     /// <summary>Draw real block geometry, capped at the preview limit.</summary>
-    Instances = 2
+    Instances = 2,
+
+    /// <summary>Temporary native reference instances, visible to external asset renderers.</summary>
+    RenderInstances = 4
 }

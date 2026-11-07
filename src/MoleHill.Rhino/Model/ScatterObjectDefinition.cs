@@ -21,6 +21,9 @@ public sealed class ScatterObjectDefinition : TerrainObjectDefinition
     /// <summary>Region mode: boundary region(s) to fill (closed planar curves and/or layers).</summary>
     public SourceReferenceSet Boundaries { get; set; } = new();
 
+    /// <summary>Reject placements whose transformed block bounds extend outside a region.</summary>
+    public bool KeepWholeBlocksInside { get; set; }
+
     /// <summary>Curve mode: open curve(s) to distribute along (curves and/or layers).</summary>
     public SourceReferenceSet Paths { get; set; } = new();
 
@@ -79,8 +82,10 @@ public sealed class ScatterObjectDefinition : TerrainObjectDefinition
     /// <summary>Orient instances to the terrain normal; when false they stay upright (world Z).</summary>
     public bool AlignToSlope { get; set; }
 
+    [NotBuildInput]
     public ScatterPreviewMode PreviewMode { get; set; } = ScatterPreviewMode.ShapePoints;
 
+    [NotBuildInput]
     public int PreviewCap { get; set; } = 2000;
 
     public override IEnumerable<SourceReferenceSet> EnumerateSourceSets()

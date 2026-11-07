@@ -30,7 +30,7 @@ internal sealed partial class TerrainBuildService
         {
             ThrowIfCancellationRequested(shouldCancel);
 
-            var blocks = ResolveScatterBlocks(snapshot, definition, out var extentByName);
+            var blocks = ResolveScatterBlocks(snapshot, definition, out var extentByName, out var boundsByName);
             if (blocks.Count == 0)
             {
                 build.Diagnostics.Add($"Scatter '{definition.Name}' skipped: no block instances were selected.");
@@ -62,6 +62,7 @@ internal sealed partial class TerrainBuildService
 
             // Sample the scatter domain into a flat list of (point, optional curve tangent).
             var samples = new List<(double X, double Y, double? Tangent)>();
+            var loops = new List<double[]>();
             if (definition.SourceMode == ScatterSourceMode.Curve)
             {
                 var paths = new List<double[]>();
@@ -109,7 +110,6 @@ internal sealed partial class TerrainBuildService
             }
             else
             {
-                var loops = new List<double[]>();
                 foreach (Curve curve in TerrainBuildSnapshotResolver.ResolveCurves(snapshot, definition.Boundaries))
                 {
                     if (TryCurveToXyLoop(curve, snapshot.ModelAbsoluteTolerance, out double[] loop))
@@ -190,6 +190,22 @@ internal sealed partial class TerrainBuildService
                 Transform random = CreateRandomPlacementTransform(definition, instanceKey, frame.Origin, up);
                 Transform instanceTransform = random * basePlacement;
 
+                if (definition.SourceMode == ScatterSourceMode.Region && definition.KeepWholeBlocksInside)
+                {
+                    if (!boundsByName.TryGetValue(blockName, out BoundingBox bounds) || !bounds.IsValid)
+                        continue;
+                    // A world-XY box around all eight transformed corners conservatively contains
+                    // the full block, including off-origin bases, slope tilt and random transforms.
+                    Point3d[] corners = bounds.GetCorners();
+                    for (int c = 0; c < corners.Length; c++)
+                        corners[c].Transform(instanceTransform);
+                    var plan = new BoundingBox(corners);
+                    double[] footprint = { plan.Min.X, plan.Min.Y, plan.Max.X, plan.Min.Y,
+                        plan.Max.X, plan.Max.Y, plan.Min.X, plan.Max.Y };
+                    if (!ScatterFootprint.IsInside(loops, footprint))
+                        continue;
+                }
+
                 build.ScatterObjects.Add(new GeneratedRhinoObject
                 {
                     Role = LayerRole.Scatter,
@@ -210,7 +226,8 @@ internal sealed partial class TerrainBuildService
     private static List<(string Name, double Weight)> ResolveScatterBlocks(
         TerrainBuildSnapshot snapshot,
         ScatterObjectDefinition definition,
-        out Dictionary<string, double> extentByName)
+        out Dictionary<string, double> extentByName,
+        out Dictionary<string, BoundingBox> blockBounds)
     {
         var weightByName = new Dictionary<string, double>(StringComparer.Ordinal);
         var boundsByName = new Dictionary<string, BoundingBox>(StringComparer.Ordinal);
@@ -288,6 +305,7 @@ internal sealed partial class TerrainBuildService
             extentByName[name] = WorstAlongExtent(bbox, definition);
         }
 
+        blockBounds = boundsByName;
         return order.Select(name => (name, weightByName[name])).ToList();
     }
 

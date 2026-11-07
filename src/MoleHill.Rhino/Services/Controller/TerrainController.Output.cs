@@ -667,11 +667,38 @@ internal sealed partial class TerrainController
                 bakedIds.Add(id);
         }
 
-        foreach (var scatter in displayState.ScatterObjects)
+        // Scatter carries only instance transforms. Resolve its layer/definition/attribute fields
+        // once per block and card rather than re-running layer styling for every placement.
+        bool redrawEnabled = doc.Views.RedrawEnabled;
+        doc.Views.RedrawEnabled = false;
+        try
         {
-            Guid id = AddBakedObject(doc, terrain, TerrainRuntimeCacheCloner.CloneGeneratedObject(scatter), blockAttributeRefreshIds);
-            if (id != Guid.Empty)
-                bakedIds.Add(id);
+            foreach (var group in displayState.ScatterObjects.GroupBy(item =>
+                         (item.ScatterDefinitionId, item.InstanceDefinitionName)))
+            {
+                GeneratedRhinoObject first = group.First();
+                InstanceDefinition? block = doc.InstanceDefinitions.Find(first.InstanceDefinitionName);
+                if (block == null)
+                    continue;
+                using ObjectAttributes attributes = CreateAttributes(doc, terrain, first, trackOwnership: false);
+                ApplyScatterAssetAttributes(attributes, block);
+                ApplyInstanceUserStrings(attributes, first.InstanceUserStrings);
+                ApplyBlockAttributeValues(attributes, block, first.InstanceUserStrings);
+                bool hasAttributeFields = GetBlockAttributeFieldDefinitions(block).Count > 0;
+                foreach (GeneratedRhinoObject scatter in group)
+                {
+                    Guid id = doc.Objects.AddInstanceObject(block.Index, scatter.InstanceTransform, attributes);
+                    if (id == Guid.Empty)
+                        continue;
+                    bakedIds.Add(id);
+                    if (hasAttributeFields && !EnsureBlockInstanceAttributeKeys(doc, id, block, scatter.InstanceUserStrings))
+                        blockAttributeRefreshIds.Add(id);
+                }
+            }
+        }
+        finally
+        {
+            doc.Views.RedrawEnabled = redrawEnabled;
         }
 
         terrain.BakedObjectIds.AddRange(bakedIds);

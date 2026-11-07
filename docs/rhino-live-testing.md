@@ -12,6 +12,25 @@ genuine pointer gestures only — they are blind, focus-dependent, and cannot re
 ## 0. Pending live checks
 
 Run these at the next live session, then delete each line once it has passed (say so in the commit).
+Scatter: verify **Enscape / native blocks** with a real Enscape asset and a running Enscape renderer.
+Native instance/metadata lifecycle is verified below; asset replacement inside Enscape is not.
+
+Scatter, 2026-11-07: exact Debug RHP `f186fa2a-bbe9-4330-a896-c36d5fdf7a00` loaded by ID (true)
+from this checkout in owned slot `aardvark`, PID 11080. `HostedScatterTests.Run` passed transformed
+whole-block region containment (45-degree yaw, 1.5 scale), preview cap 23, stable IDs on display
+refresh, preview source exclusion, disable/mode changes, hide/show, native 3dm save exclusion,
+472 persistent baked block instances with instance Enscape user strings retained, and delete cleanup.
+Rhino 8's transient instances report `IsReference == false` despite being excluded from the saved
+archive, so source exclusion uses the explicit preview tag as well. The isolated actual block-ratio
+editor was shown in a document-parented, Rhino-styled Eto form: double-click/type `25.5` + Enter,
+`99` + Esc restoring `25.50`, and `5.25` + Tab committed `5.25` to the callback. This verifies that
+editor, not the complete Objects tab layout. Native history/save/callback evidence is under
+`.artifacts/scatter/`. The owned slot was closed through the same standalone client.
+Build: `dotnet build src/MoleHill.Rhino/MoleHill.Rhino.csproj --no-restore --verbosity quiet`
+(zero warnings/errors). Full managed Core suite: 1,789 passed; full managed Rhino suite: 1,483 passed,
+179 native skips. The hosted scatter run is separate native evidence. No measured bake speedup is
+claimed; the bake change batches repeated preparation and redraw. No package was published.
+
 Plant/Orient: manually exercise Change Base's face/three-point picker through accept and Esc, and
 Show Base's finish prompt. The underlying base commit, rendered controls and placement lifecycle
 passed hosted checks on 2026-10-30; the interactive picking loop was not driven automatically.

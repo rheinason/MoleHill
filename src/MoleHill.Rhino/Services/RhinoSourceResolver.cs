@@ -8,6 +8,7 @@ namespace MoleHill.Rhino.Services;
 
 internal static class RhinoSourceResolver
 {
+    internal const string ScatterPreviewKey = "MoleHill.ScatterPreview";
     public static List<RhinoObject> ResolveObjects(RhinoDoc doc, SourceReferenceSet sourceSet)
     {
         return ResolveObjects(doc, sourceSet, out _);
@@ -45,7 +46,9 @@ internal static class RhinoSourceResolver
                 return;
             }
 
-            if (obj.IsReference)
+            // Rhino's transient instance overload excludes objects from saving, but on Rhino 8
+            // those instances can still report IsReference == false.
+            if (obj.IsReference || obj.Attributes.GetUserString(ScatterPreviewKey) != null)
             {
                 resultDiagnostics.RejectedReferenceObjects++;
                 return;

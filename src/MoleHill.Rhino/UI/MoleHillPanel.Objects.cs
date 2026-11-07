@@ -392,21 +392,22 @@ public sealed partial class MoleHillPanel
             Width = UiMetrics.SliderMin
         };
 
-        var valueLabel = new Label
+        var valueText = new TextBox
         {
             Width = UiMetrics.ShortLabel,
             TextColor = UiTheme.MutedText,
-            VerticalAlignment = VerticalAlignment.Center,
             TextAlignment = TextAlignment.Right
         };
 
         ApplyHelp(slider, help);
-        ApplyHelp(valueLabel, help);
+        ApplyHelp(valueText, help);
+        StyleTextBox(valueText);
 
         double committedValue = ClampSliderValue(value, 0.0, null);
         double pendingValue = committedValue;
         bool syncing = false;
         bool sliderEditActive = false;
+        bool textEditActive = false;
         var timer = new UITimer { Interval = UiTiming.SliderCommitSeconds };
 
         void BeginSliderEdit()
@@ -433,7 +434,8 @@ public sealed partial class MoleHillPanel
             syncing = true;
             ExpandSliderRange(numericValue, ref currentMin, ref currentMax);
             slider.Value = ToSliderValue(numericValue, currentMin, currentMax, slider.MaxValue);
-            valueLabel.Text = FormatSliderValue(numericValue, 2);
+            if (!textEditActive)
+                valueText.Text = FormatSliderValue(numericValue, 2);
             syncing = false;
         }
 
@@ -451,6 +453,30 @@ public sealed partial class MoleHillPanel
         }
 
         timer.Elapsed += (_, _) => Commit(pendingValue);
+        valueText.GotFocus += (_, _) =>
+        {
+            timer.Stop();
+            textEditActive = true;
+            BeginSliderEdit();
+        };
+        void CommitText(bool cancel = false)
+        {
+            double number = committedValue;
+            if (!cancel && (!TryParseUserNumber(valueText.Text, out number) || !double.IsFinite(number)))
+                number = committedValue;
+            textEditActive = false;
+            Commit(number);
+            EndSliderEdit();
+        }
+        valueText.LostFocus += (_, _) => CommitText();
+        valueText.KeyDown += (_, e) =>
+        {
+            if (e.Key is Keys.Enter or Keys.Escape)
+            {
+                CommitText(e.Key == Keys.Escape);
+                e.Handled = true;
+            }
+        };
         slider.MouseDown += (_, e) =>
         {
             if (e.Buttons == MouseButtons.Primary)
@@ -483,6 +509,7 @@ public sealed partial class MoleHillPanel
         slider.UnLoad += (_, _) =>
         {
             timer.Stop();
+            timer.Dispose();
             EndSliderEdit();
         };
 
@@ -496,7 +523,7 @@ public sealed partial class MoleHillPanel
             Items =
             {
                 new StackLayoutItem(slider, expand: true),
-                valueLabel
+                valueText
             }
         };
     }

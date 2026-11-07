@@ -264,6 +264,8 @@ internal sealed partial class TerrainController
         if (runtimeCache.DisplayState == null)
             return;
 
+        SyncScatterPreview(doc, terrain, runtimeCache.DisplayState);
+
         if (runtimeCache.DisplayState.IsPreview)
         {
             runtimeCache.DisplayState.PreviewTerrainMesh = runtimeCache.DisplayState.TerrainMesh;
@@ -991,6 +993,7 @@ internal sealed partial class TerrainController
         using TerrainUndoTransaction? undo = BeginTerrainUndoTransaction(
             doc, visible ? "Show MoleHill Terrain" : "Hide MoleHill Terrain");
         terrain.IsVisible = visible;
+        UpdateRuntimePreview(doc, terrain, GetRuntimeCache(doc.RuntimeSerialNumber, terrainId));
         Save(doc, state);
         // The render mesh provider gates on IsVisible, so hiding/showing changes what renders too.
         InvalidateTerrainRenderMeshes(doc, terrainId);

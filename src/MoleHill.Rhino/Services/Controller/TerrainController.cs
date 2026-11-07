@@ -10,7 +10,7 @@ namespace MoleHill.Rhino.Services;
 // The document-scoped terrain controller: its shared state (fields every partial reads), plug-in
 // lifecycle, and the read API the panel and commands query. Each concern lives in its own partial,
 // named for it: Terrains, Edits, Undo, Document, Selection, Build, RebuildState, Dependencies, Display,
-// Output, Objects, Events, Contours, Diagnostics, Sculpt, Grasshopper and Interop. Add a new concern as a new
+// Output, Objects, ScatterPreview, Events, Contours, Diagnostics, Sculpt, Grasshopper and Interop. Add a new concern as a new
 // partial rather than growing this file.
 internal sealed partial class TerrainController
 {

@@ -24,7 +24,7 @@ namespace MoleHill.Rhino.Services;
 /// non-object id list. Rhino's own Raytraced/Cycles does; V-Ray historically does; there is no
 /// evidence Enscape does (the same limitation that makes Grasshopper CustomPreview geometry
 /// invisible in Enscape). For renderers that ignore the RDK subsystem there is no workaround short
-/// of real document objects — i.e. Bake.
+/// of real document objects — Bake, or Scatter's optional temporary native-block preview.
 ///
 /// Must be public with a public parameterless constructor: RegisterProviders only discovers
 /// publicly-exported derived types.
@@ -218,10 +218,15 @@ public sealed class TerrainRenderMeshProvider : RenderMeshProvider
         Dictionary<string, DefinitionMeshPart[]> definitionMeshCache,
         Dictionary<RenderMaterialKey, RenderMaterial?> materialCache)
     {
-        // Deliberately ignores ScatterObjectDefinition.PreviewCap/PreviewMode: those exist to keep the
-        // interactive viewport responsive, not to limit a render. A render gets every instance.
+        // Conduit previews render without a cap. Native-block previews supply their own capped
+        // document instances and must be excluded here to avoid duplicate proxies.
+        var nativeDefinitions = terrain.Objects.OfType<ScatterObjectDefinition>()
+            .Where(definition => definition.PreviewMode == ScatterPreviewMode.RenderInstances)
+            .Select(definition => definition.Id).ToHashSet();
         foreach (GeneratedRhinoObject scatter in displayState.ScatterObjects)
         {
+            if (scatter.ScatterDefinitionId is Guid id && nativeDefinitions.Contains(id))
+                continue; // Native instances already reach the renderer; avoid duplicate proxies.
             RenderMaterial? material = GetMaterial(
                 materialCache,
                 doc,

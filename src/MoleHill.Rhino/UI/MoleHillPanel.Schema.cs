@@ -480,12 +480,17 @@ public sealed partial class MoleHillPanel
 
         void Commit(Action<TerrainObjectDefinition> apply)
         {
+            bool previewOnly = definition is ScatterObjectDefinition && parameter.Key is "previewMode" or "previewCap";
             MutateObjectDefinition(
                 terrainId,
                 definitionId,
                 apply,
+                scheduleRebuild: !previewOnly,
                 deferDocumentSave: parameter.LiveScrub,
                 suppressImmediateUiRefresh: parameter.LiveScrub);
+
+            if (previewOnly && RhinoDoc.ActiveDoc is { } previewDoc)
+                _controller.RefreshTerrainDisplay(previewDoc, terrainId);
 
             if (parameter.RebuildAfterCommit)
             {

@@ -59,6 +59,13 @@ internal sealed class ScatterObjectDescriptor : ObjectTypeDescriptor
                 "blocks",
                 "Block Mix",
                 "Weighted block definitions to scatter."),
+            ObjectParam.Bool(
+                "keepWholeBlocksInside",
+                "Keep whole blocks inside",
+                definition => ((ScatterObjectDefinition)definition).KeepWholeBlocksInside,
+                (definition, value) => ((ScatterObjectDefinition)definition).KeepWholeBlocksInside = value,
+                "Keep transformed block bounds inside a boundary in plan. Filters the requested samples; the final count may be lower.",
+                visibleWhen: IsRegion),
             ObjectParam.Choice(
                 "pattern",
                 "Pattern",
@@ -222,10 +229,10 @@ internal sealed class ScatterObjectDescriptor : ObjectTypeDescriptor
         parameters.Add(ObjectParam.Choice(
             "previewMode",
             "Preview",
-            new (string, string)[] { ("Points", "Point cloud"), ("ShapePoints", "Shape points"), ("BoundingBox", "Bounding boxes"), ("Instances", "Real (capped)") },
+            new (string, string)[] { ("Points", "Point cloud"), ("ShapePoints", "Shape points"), ("BoundingBox", "Bounding boxes"), ("Instances", "Real (capped)"), ("RenderInstances", "Enscape / native blocks") },
             definition => ((ScatterObjectDefinition)definition).PreviewMode.ToString(),
             (definition, value) => ((ScatterObjectDefinition)definition).PreviewMode = Enum.Parse<ScatterPreviewMode>(value!),
-            "How the scatter draws while editing. Bake always produces real block instances."));
+            "How the scatter draws while editing. Enscape / native blocks creates temporary document instances up to Preview Cap. Bake always produces all instances."));
         parameters.Add(ObjectParam.Number(
             "previewCap",
             "Preview Cap",

@@ -418,6 +418,8 @@ internal sealed class TerrainDisplayConduit : DisplayConduit
                 definitions.TryGetValue(key, out definition);
 
             ScatterPreviewMode mode = definition?.PreviewMode ?? ScatterPreviewMode.Instances;
+            if (mode == ScatterPreviewMode.RenderInstances)
+                continue; // Native reference objects already draw in Rhino and external renderers.
             if (shadowPass && mode != ScatterPreviewMode.Instances)
                 continue;
             ScatterObjectRange range = rangeEntry.Value;

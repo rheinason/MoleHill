@@ -50,6 +50,9 @@ internal sealed partial class TerrainController
 
             terrain.Modifiers.Remove(modifier);
             terrain.EnsureBaseModifier();
+            if (_runtimeCaches.TryGetValue((doc.RuntimeSerialNumber, terrainId), out var previewCache) &&
+                previewCache.DisplayState is { } display)
+                SyncScatterPreview(doc, terrain, display);
         });
     }
 

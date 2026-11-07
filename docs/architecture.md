@@ -1896,8 +1896,20 @@ block-instance). They reach three consumers:
   objects),
 - **rendered** by `TerrainRenderMeshProvider` (also from `TerrainDisplayState`, also no doc objects —
   see below), and
-- **materialised** as real doc objects only by `TerrainController.BakeTerrain`. Scatter is conduit-preview + render + bake only (it can produce thousands of
-  instances).
+- **materialised** as persistent doc objects by `TerrainController.BakeTerrain`. Scatter normally uses
+  conduit preview; its optional **Enscape / native blocks** preview uses temporary reference instances.
+
+Scatter's **Keep whole blocks inside** opt-in filters region placements using the World-XY bounds of
+all eight block-bound corners after the final placement transform (including slope tilt, random scale,
+rotation and offset). Core's `ScatterFootprint` checks containment including concave notches. The test
+is conservative: the full plan box must fit inside one boundary; overlapping boundaries are not merged.
+It filters samples rather than refilling them, so the requested count can decrease. Missing bounds
+reject a placement. Insertion-point filtering remains the default. Block mix ratios accept typed
+values in the compact slider's numeric text field, committed on Enter or focus loss; Esc cancels.
+
+Scatter bake groups by card and block, resolving definition, layer styling and attribute fields once
+per group and suppressing redraw during insertion. Attribute-bearing blocks retain the existing key
+repair path; scatter never creates a fallback marker definition when its source block is missing.
 
 ### Rendering without baking
 
@@ -1944,7 +1956,15 @@ from ~650 ms to ~185 ms.
 non-object id list. Verified working against Rhino's own `ChangeQueue` pipeline (which Raytraced/Cycles
 consumes); V-Ray has historically honoured it; there is no evidence Enscape does — the same limitation
 that makes Grasshopper `CustomPreview` geometry invisible in Enscape. For engines that ignore the RDK
-subsystem, Bake remains the only route.
+subsystem, Bake remains the general route. Scatter additionally offers **Enscape / native blocks**:
+`TerrainController.ScatterPreview` creates capped, locked native reference instances of the original
+definitions, preserving block metadata and copying Enscape user strings from existing instances.
+Reference instances do not persist in 3dm. They refresh with placement output, disappear when hidden,
+disabled or switched to another preview mode, and are purged when the runtime cache/terrain is removed.
+The conduit and RDK provider skip this mode to avoid duplicate geometry. External renderer asset
+replacement still requires a live renderer check; a native-instance lifecycle check alone is not
+evidence that an Enscape asset rendered. Preview Cap also limits this mode in external renderers;
+Bake always uses the full filtered result.
 
 Brep previews use the document's render-meshing parameters and cache the resulting mesh on each
 `GeneratedRhinoObject` instead of asking the display pipeline to tessellate the Brep again on every

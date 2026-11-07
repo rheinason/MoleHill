@@ -120,6 +120,7 @@ identity; see `Services/Objects`. Schema 33 retains legacy transform history for
 - **Objects** — `TerrainObjectDefinition` → `LowestPointObjectDefinition`,
   `SurfaceOrientedObjectDefinition`, `ScatterObjectDefinition` (+ `ScatterBlockEntry`,
   `ScatterPreviewMode`; reuses Core's `ScatterPattern`/`ScatterDensityMode`).
+  Scatter's `KeepWholeBlocksInside` defaults off; native-block preview is opt-in and capped.
 - **Markers** — `MarkerDefinition` → `ElevationMarkerDefinition`, `SlopeMarkerDefinition`.
 
 `ITerrainContentItem` (Id, Label, IsEnabled) is implemented by `AnalysisDefinition` and
