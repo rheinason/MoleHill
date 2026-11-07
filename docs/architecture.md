@@ -1911,6 +1911,38 @@ Scatter bake groups by card and block, resolving definition, layer styling and a
 per group and suppressing redraw during insertion. Attribute-bearing blocks retain the existing key
 repair path; scatter never creates a fallback marker definition when its source block is missing.
 
+Scatter region cards can use picked boundaries or selected terrain zones. Zone selection reads the
+**resolved zone meshes**, tagged by `GeneratedRhinoObject.ZoneId`, after zone priority has been applied.
+Selected zone meshes are joined before finding their plan borders, so shared edges between selected
+zones do not become setbacks. Nested border loops describe holes. `ScatterRegionMask` supplies the
+sampler's optional exact domain predicate and net plan area, so holes neither receive samples nor
+inflate per-area density. Exclusion curves and their clearance, boundary setback and a deterministic
+feather transition filter the resulting samples. These controls apply to region mode only. Whole-block
+containment additionally checks the transformed bounds against exclusions, holes and clearances.
+
+Each completed build publishes immutable `ScatterBuildSummary` records alongside its placements.
+They survive stage-cache hits and deferred-output display copies. The panel and planting report read
+those same counts; they never count preview instances or use Preview Cap as a quantity. Rejections
+are exclusive categories, and at most 500 rejected samples have optional, non-bakeable diagnostic
+dots through Show Issues. Invalid/stale/unbuilt output is not presented as current report quantities.
+
+Scatter cards group schema rows into Distribution, Block Mix, Placement, Filters and Preview. Block
+mix rows retain an enable checkbox separately from weight, with thumbnail, weight share and placed
+count. Density stays stored per square model unit; the display can use plants/m², plants/100 m²,
+plants/hectare or the legacy model-area unit without changing placements. Its gross-area estimate is
+before exclusions/setbacks/feathering (overlapping picked boundaries can overestimate gross area).
+
+**Bake this scatter** runs the same final-build eligibility and batch insertion as full terrain Bake,
+but scopes output and replacement to one card. Baked instances carry `MoleHill.ScatterDefinitionId`;
+only matching ids still tracked by the terrain are replaced. Other cards, terrain and annotations stay
+outside that replacement. Full terrain Bake continues to replace all tracked output. Older untagged
+bakes need a full Bake once before per-card replacement can identify them.
+
+The Report Table annotation's **Planting** section draws a block/species count and actual percentage
+table per scatter card, with totals. `mhExportTerrainReport` includes the same tables in CSV, including
+when planting is the only measured content. This extends the annotation report family; it does not add
+a planting analysis or measure planting through viewport geometry.
+
 ### Rendering without baking
 
 Conduit geometry is viewport-only and invisible to render engines, so historically rendering a terrain

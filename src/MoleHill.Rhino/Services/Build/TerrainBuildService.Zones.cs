@@ -136,6 +136,7 @@ internal sealed partial class TerrainBuildService
             build.ZoneObjects.Add(new GeneratedRhinoObject
             {
                 Role = LayerRole.Zones,
+                ZoneId = zone.ZoneId,
                 Geometry = subMesh,
                 Name = outputName,
                 ColorArgb = zone.UseColorOverride ? zone.ColorArgb : null,

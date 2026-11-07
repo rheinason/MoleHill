@@ -583,6 +583,7 @@ internal sealed partial class TerrainBuildService
         {
             RestoreCachedDiagnostics(build, cachedEntry);
             build.ScatterObjects.AddRange(TerrainRuntimeCacheCloner.CloneGeneratedObjects(cachedEntry.ScatterObjects));
+            build.ScatterSummaries.AddRange(cachedEntry.ScatterSummaries);
             timer.Stop();
             build.RecordTiming(stageName, timer.Elapsed, AppendCacheHitDetail(detailFactory()));
             return;
@@ -603,6 +604,7 @@ internal sealed partial class TerrainBuildService
             ResolvedInputFingerprint = stageFingerprint,
             OutputFingerprint = stageFingerprint,
             ScatterObjects = TerrainRuntimeCacheCloner.CloneGeneratedObjects(build.ScatterObjects.Skip(scatterStart)),
+            ScatterSummaries = build.ScatterSummaries.ToList(),
             Diagnostics = build.Diagnostics.Skip(diagnosticsStart).ToList(),
             StructuredDiagnostics = build.StructuredDiagnostics.Skip(structuredDiagnosticsStart).ToList(),
             RuntimeOverlays = TerrainRuntimeCacheCloner.CloneRuntimeOverlays(build.RuntimeOverlays.Skip(scatterOverlayStart))

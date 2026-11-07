@@ -8,7 +8,7 @@ namespace MoleHill.Rhino.UI;
 
 // The MoleHill dock panel: its controls and card state (fields every partial reads), construction, the
 // controller subscription, and RefreshUi. Everything else lives in a partial named for what it builds:
-// Toolbar, Settings, Status and Tabs for the fixed sections; Modifiers, Objects, ObjectPlacement, Zones, Analysis and
+// Toolbar, Settings, Status and Tabs for the fixed sections; Modifiers, Objects, Scatter, ObjectPlacement, Zones, Analysis and
 // Annotations for the tabs; Cards, Schema, Editors, Controls, Colors, ColorRamp, LayerPickers and
 // DragDrop for shared building blocks; Mutations and Actions for what edits the terrain. Add a new
 // section or tab as a new partial rather than growing this file.

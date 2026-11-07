@@ -16,4 +16,6 @@ public sealed class ScatterBlockEntry
     public SourceReferenceSet Source { get; set; } = new();
 
     public double Weight { get; set; } = 1.0;
+
+    public bool IsEnabled { get; set; } = true;
 }

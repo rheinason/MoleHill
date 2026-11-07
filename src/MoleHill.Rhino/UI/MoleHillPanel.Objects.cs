@@ -120,7 +120,8 @@ public sealed partial class MoleHillPanel
         {
             Control? schemaDiagnosticsRow = CreateRuntimeDiagnosticsRow(
                 terrain,
-                new RuntimeOverlayOwner(RuntimeOverlayOwnerKind.Object, definition.Id));
+                new RuntimeOverlayOwner(RuntimeOverlayOwnerKind.Object, definition.Id),
+                definition is ScatterObjectDefinition ? "Show rejected samples" : null);
             if (schemaDiagnosticsRow != null)
                 layout.AddRow(schemaDiagnosticsRow);
             return layout;
@@ -220,6 +221,12 @@ public sealed partial class MoleHillPanel
             scatter.Blocks.Count,
             (_, _) => AddScatterBlocksFromSelector(terrain, scatter.Id)));
 
+        var doc = RhinoDoc.ActiveDoc;
+        ScatterBuildSummary? result = doc == null ? null : _controller.GetScatterSummaries(doc, terrain.TerrainId)
+            .FirstOrDefault(item => item.DefinitionId == scatter.Id);
+        double totalWeight = scatter.Blocks.Where(entry => entry.IsEnabled).Sum(entry => Math.Max(0, entry.Weight) *
+            (!string.IsNullOrWhiteSpace(entry.BlockDefinitionName) ? 1 : doc == null ? 0 :
+                RhinoSourceResolver.ResolveObjects(doc, entry.Source).OfType<global::Rhino.DocObjects.InstanceObject>().Count()));
         for (int blockIndex = 0; blockIndex < scatter.Blocks.Count; blockIndex++)
         {
             int index = blockIndex;
@@ -230,7 +237,13 @@ public sealed partial class MoleHillPanel
                     entry.BlockDefinitionName!,
                     entry.Weight,
                     value => Mutate(s => { if (index < s.Blocks.Count) s.Blocks[index].Weight = value; }, live: true),
-                    () => Mutate(s => { if (index < s.Blocks.Count) s.Blocks.RemoveAt(index); })));
+                    () => Mutate(s => { if (index < s.Blocks.Count) s.Blocks.RemoveAt(index); }),
+                    entry.IsEnabled,
+                    enabled => Mutate(s => { if (index < s.Blocks.Count) s.Blocks[index].IsEnabled = enabled; }),
+                    (scatter.SourceMode == MoleHill.Core.Scattering.ScatterSourceMode.Curve && scatter.BlockOrder == MoleHill.Core.Scattering.ScatterBlockOrder.Sequence
+                        ? "In sequence · " : $"{(entry.IsEnabled && totalWeight > 0 ? 100 * Math.Max(0, entry.Weight) / totalWeight : 0):0.#}% mix · ") +
+                        (result == null ? "count pending" : $"{(result.BlockCounts.TryGetValue(entry.BlockDefinitionName!, out int count) ? count : 0):N0} placed")));
+
             }
             else
             {
@@ -241,6 +254,9 @@ public sealed partial class MoleHillPanel
                     RhinoObjectType.InstanceReference,
                     doc => _controller.GetSelectedLayerPaths(doc),
                     "Block instance(s) to scatter for this entry.");
+                var enabledCheck = new CheckBox { Text = "Include this source entry", Checked = entry.IsEnabled };
+                enabledCheck.CheckedChanged += (_, _) => Mutate(s => { if (index < s.Blocks.Count) s.Blocks[index].IsEnabled = enabledCheck.Checked == true; });
+                layout.AddRow(enabledCheck);
                 layout.AddRow(CreateLegacyScatterBlockRow(
                     sourceEditor,
                     entry.Weight,
@@ -259,7 +275,10 @@ public sealed partial class MoleHillPanel
         string blockName,
         double weight,
         Action<double> onWeightChanged,
-        Action onRemove)
+        Action onRemove,
+        bool enabled,
+        Action<bool> onEnabledChanged,
+        string quantities)
     {
         const string weightHelp = "Relative likelihood this block is chosen per instance.";
         const string removeHelp = "Remove this block from the scatter mix.";
@@ -276,19 +295,30 @@ public sealed partial class MoleHillPanel
         var weightEditor = CreateCompactScatterWeightEditor(weight, onWeightChanged, weightHelp);
         var removeButton = MakeIconButton(PanelButtonIcon.Clear, (_, _) => onRemove(), removeHelp);
 
-        var editor = new StackLayout
+        weightEditor.Enabled = enabled;
+        var include = new CheckBox { Checked = enabled };
+        ApplyHelp(include, "Include this block without removing it from the mix.");
+        include.CheckedChanged += (_, _) => onEnabledChanged(include.Checked == true);
+        var thumbnail = new ImageView { Size = new Size(28, 28) };
+        thumbnail.Shown += (_, _) =>
         {
-            Orientation = Orientation.Horizontal,
-            Spacing = 8,
-            VerticalContentAlignment = VerticalAlignment.Center,
+            if (RhinoDoc.ActiveDoc is { } doc && doc.InstanceDefinitions.Find(blockName) is { } block)
+                thumbnail.Image = BlockThumbnailRenderer.Get(doc, block, 28);
+        };
+        return new StackLayout
+        {
+            Orientation = Orientation.Vertical,
+            Spacing = 3,
             HorizontalContentAlignment = HorizontalAlignment.Stretch,
             Items =
             {
-                new StackLayoutItem(weightEditor, expand: true),
-                removeButton
+                new StackLayout { Orientation = Orientation.Horizontal, Spacing = 5,
+                    VerticalContentAlignment = VerticalAlignment.Center,
+                    Items = { include, thumbnail, new StackLayoutItem(nameLabel, expand: true), removeButton } },
+                new Label { Text = quantities, TextColor = UiTheme.MutedText, Wrap = WrapMode.Word },
+                weightEditor
             }
         };
-        return new PropertyRow(nameLabel, editor, expandWidget: true);
     }
 
     private Control CreateScatterBlockMixHeader(int blockCount, EventHandler<EventArgs> addBlocks)
@@ -296,7 +326,7 @@ public sealed partial class MoleHillPanel
         string countText = blockCount == 1 ? "1 block" : $"{blockCount} blocks";
         var label = new Label
         {
-            Text = "Block Mix",
+            Text = "Blocks",
             TextColor = UiTheme.MutedText,
             VerticalAlignment = VerticalAlignment.Center
         };

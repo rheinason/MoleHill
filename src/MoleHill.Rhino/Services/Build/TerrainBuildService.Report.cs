@@ -35,7 +35,7 @@ internal sealed partial class TerrainBuildService
                 snapshot.ResolvedUnitContext,
                 annotation.Unit,
                 DateTime.Now,
-                ResolveSections(annotation));
+                ResolveSections(annotation), build.ScatterSummaries);
 
             TerrainAnalysisSummary summary = TerrainReportTableBuilder.Build(
                 report,
@@ -68,6 +68,8 @@ internal sealed partial class TerrainBuildService
             sections |= TerrainReportSections.GradientCompliance;
         if (annotation.IncludeLandforms)
             sections |= TerrainReportSections.Landforms;
+        if (annotation.IncludePlanting)
+            sections |= TerrainReportSections.Planting;
         return sections;
     }
 

@@ -67,7 +67,9 @@ public static class ScatterSampler
             area += Math.Abs(Geometry2D.SignedArea(loop, count));
         }
 
-        if (area <= 0.0 || maxX <= minX || maxY <= minY)
+        if (request.DomainArea is double domainArea)
+            area = domainArea;
+        if (!double.IsFinite(area) || area <= 0.0 || maxX <= minX || maxY <= minY)
             return result;
 
         // Per-loop bounds, computed once. A candidate outside a loop's bounding box is outside that
@@ -102,7 +104,7 @@ public static class ScatterSampler
 
                 double[] loop = loops[i];
                 if (Geometry2D.PointInPolygon(x, y, loop, loop.Length / 2))
-                    return true;
+                    return request.DomainContains?.Invoke(x, y) ?? true;
             }
 
             return false;

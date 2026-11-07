@@ -572,22 +572,27 @@ internal sealed partial class TerrainController
         doc.Objects.Delete(ids, quiet: true);
     }
 
-    public void BakeTerrain(RhinoDoc doc, Guid terrainId)
+    public void BakeTerrain(RhinoDoc doc, Guid terrainId) => BakeTerrainCore(doc, terrainId, null);
+
+    public void BakeScatter(RhinoDoc doc, Guid terrainId, Guid scatterId) => BakeTerrainCore(doc, terrainId, scatterId);
+
+    private void BakeTerrainCore(RhinoDoc doc, Guid terrainId, Guid? scatterId)
     {
         if (!ModelUnitGuard.TryGet(doc, out MoleHill.Shared.ModelUnitContext unitContext))
             return;
 
         var state = GetState(doc);
         var terrain = state.Terrains.FirstOrDefault(t => t.TerrainId == terrainId);
-        if (terrain == null)
+        if (terrain == null || (scatterId.HasValue && !terrain.Objects.OfType<ScatterObjectDefinition>().Any(item => item.Id == scatterId && item.IsEnabled)))
             return;
 
-        using TerrainUndoTransaction? undo = BeginTerrainUndoTransaction(doc, "Bake MoleHill Terrain");
+        using TerrainUndoTransaction? undo = BeginTerrainUndoTransaction(doc, scatterId.HasValue ? "Bake MoleHill Scatter" : "Bake MoleHill Terrain");
         var runtimeCache = GetRuntimeCache(doc.RuntimeSerialNumber, terrain.TerrainId);
         bool requiresCurrentFinalBuild = runtimeCache.DisplayState?.TerrainMesh == null ||
                                          runtimeCache.DisplayState.IsPreview ||
                                          runtimeCache.DisplayState.HasDeferredOutputs ||
-                                         HasPendingFinalBuild(doc.RuntimeSerialNumber, terrain.TerrainId);
+                                         HasPendingFinalBuild(doc.RuntimeSerialNumber, terrain.TerrainId) ||
+                                         _unbuiltEdits.Contains((doc.RuntimeSerialNumber, terrain.TerrainId));
         if (requiresCurrentFinalBuild)
         {
             RemovePendingBuild(doc.RuntimeSerialNumber, terrain.TerrainId, TerrainBuildMode.Preview);
@@ -613,13 +618,16 @@ internal sealed partial class TerrainController
         PurgeOrphanedOwnedObjects(doc, terrain);
         if (terrain.ReplacePreviouslyBaked && terrain.BakedObjectIds.Count > 0)
         {
-            DeleteObjects(doc, terrain.BakedObjectIds);
-            terrain.BakedObjectIds.Clear();
+            var replacedIds = terrain.BakedObjectIds.Where(id => !scatterId.HasValue ||
+                doc.Objects.FindId(id)?.Attributes.GetUserString("MoleHill.ScatterDefinitionId") == scatterId.Value.ToString()).ToList();
+            DeleteObjects(doc, replacedIds);
+            var replacedSet = replacedIds.ToHashSet();
+            terrain.BakedObjectIds.RemoveAll(replacedSet.Contains);
         }
 
         var blockAttributeRefreshIds = new List<Guid>();
         var bakedIds = new List<Guid>();
-        if (terrain.ShowTerrainMesh)
+        if (!scatterId.HasValue && terrain.ShowTerrainMesh)
         {
             Mesh? terrainMesh = displayState.ActiveAnalysisId.HasValue
                 ? displayState.PreviewTerrainMesh
@@ -640,7 +648,7 @@ internal sealed partial class TerrainController
             }
         }
 
-        if (terrain.ShowZoneMeshes)
+        if (!scatterId.HasValue && terrain.ShowZoneMeshes)
         {
             foreach (var zoneObject in displayState.ZoneObjects)
             {
@@ -650,7 +658,7 @@ internal sealed partial class TerrainController
             }
         }
 
-        foreach (var auxiliary in displayState.AuxiliaryObjects)
+        foreach (var auxiliary in displayState.AuxiliaryObjects.Where(_ => !scatterId.HasValue))
         {
             if (!TerrainAnalysisPreviewBuilder.ShouldDisplayGeneratedOutput(terrain, auxiliary))
                 continue;
@@ -660,7 +668,7 @@ internal sealed partial class TerrainController
                 bakedIds.Add(id);
         }
 
-        foreach (var marker in displayState.MarkerObjects)
+        foreach (var marker in displayState.MarkerObjects.Where(_ => !scatterId.HasValue))
         {
             Guid id = AddBakedObject(doc, terrain, TerrainRuntimeCacheCloner.CloneGeneratedObject(marker), blockAttributeRefreshIds);
             if (id != Guid.Empty)
@@ -673,7 +681,7 @@ internal sealed partial class TerrainController
         doc.Views.RedrawEnabled = false;
         try
         {
-            foreach (var group in displayState.ScatterObjects.GroupBy(item =>
+            foreach (var group in displayState.ScatterObjects.Where(item => !scatterId.HasValue || item.ScatterDefinitionId == scatterId).GroupBy(item =>
                          (item.ScatterDefinitionId, item.InstanceDefinitionName)))
             {
                 GeneratedRhinoObject first = group.First();
@@ -682,6 +690,8 @@ internal sealed partial class TerrainController
                     continue;
                 using ObjectAttributes attributes = CreateAttributes(doc, terrain, first, trackOwnership: false);
                 ApplyScatterAssetAttributes(attributes, block);
+                if (first.ScatterDefinitionId.HasValue)
+                    attributes.SetUserString("MoleHill.ScatterDefinitionId", first.ScatterDefinitionId.Value.ToString());
                 ApplyInstanceUserStrings(attributes, first.InstanceUserStrings);
                 ApplyBlockAttributeValues(attributes, block, first.InstanceUserStrings);
                 bool hasAttributeFields = GetBlockAttributeFieldDefinitions(block).Count > 0;

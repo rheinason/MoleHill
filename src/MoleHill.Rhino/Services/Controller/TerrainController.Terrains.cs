@@ -179,8 +179,15 @@ internal sealed partial class TerrainController
             obj.Id = Guid.NewGuid();
             obj.PlacementStates.Clear();
         }
+        var zoneIdMap = new Dictionary<Guid, Guid>();
         foreach (var zone in clone.Zones)
+        {
+            Guid oldId = zone.ZoneId;
             zone.ZoneId = Guid.NewGuid();
+            zoneIdMap[oldId] = zone.ZoneId;
+        }
+        foreach (var scatter in clone.Objects.OfType<ScatterObjectDefinition>())
+            scatter.ZoneIds = scatter.ZoneIds.Select(id => zoneIdMap.TryGetValue(id, out Guid mapped) ? mapped : id).ToList();
         foreach (var analysis in clone.Analyses)
             analysis.Id = Guid.NewGuid();
         foreach (var annotation in clone.Annotations)

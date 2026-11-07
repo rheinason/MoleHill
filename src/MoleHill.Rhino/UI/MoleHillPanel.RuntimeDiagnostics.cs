@@ -10,7 +10,8 @@ public sealed partial class MoleHillPanel
 {
     private Control? CreateRuntimeDiagnosticsRow(
         TerrainDefinition terrain,
-        RuntimeOverlayOwner owner)
+        RuntimeOverlayOwner owner,
+        string? toggleLabel = null)
     {
         RhinoDoc? doc = RhinoDoc.ActiveDoc;
         if (doc == null)
@@ -22,7 +23,7 @@ public sealed partial class MoleHillPanel
 
         var showIssues = new CheckBox
         {
-            Text = "Show Issues",
+            Text = toggleLabel ?? "Show Issues",
             Checked = _controller.IsRuntimeDiagnosticsVisible(doc, terrain.TerrainId, owner)
         };
         ApplyHelp(showIssues, "Show this card's runtime diagnostic geometry in the viewport. This does not rebuild, bake, or alter the terrain definition.");

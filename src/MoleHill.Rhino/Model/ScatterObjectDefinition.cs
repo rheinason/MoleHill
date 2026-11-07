@@ -24,6 +24,24 @@ public sealed class ScatterObjectDefinition : TerrainObjectDefinition
     /// <summary>Reject placements whose transformed block bounds extend outside a region.</summary>
     public bool KeepWholeBlocksInside { get; set; }
 
+    public SourceReferenceSet Exclusions { get; set; } = new();
+
+    [ModelLength]
+    public double ExclusionClearance { get; set; }
+
+    [ModelLength]
+    public double BoundarySetback { get; set; }
+
+    [ModelLength]
+    public double BoundaryFeather { get; set; }
+
+    public bool UseTerrainZones { get; set; }
+
+    public List<Guid> ZoneIds { get; set; } = new();
+
+    [NotBuildInput]
+    public ScatterDensityUnit DensityUnit { get; set; } = ScatterDensityUnit.SquareMeter;
+
     /// <summary>Curve mode: open curve(s) to distribute along (curves and/or layers).</summary>
     public SourceReferenceSet Paths { get; set; } = new();
 
@@ -93,6 +111,7 @@ public sealed class ScatterObjectDefinition : TerrainObjectDefinition
         yield return Sources;
         yield return Boundaries;
         yield return Paths;
+        yield return Exclusions;
         foreach (var entry in Blocks)
             yield return entry.Source;
     }

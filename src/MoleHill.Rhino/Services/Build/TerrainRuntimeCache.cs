@@ -517,6 +517,8 @@ internal sealed class StageCacheEntry
 
     public List<GeneratedRhinoObject> ScatterObjects { get; init; } = new();
 
+    public List<ScatterBuildSummary> ScatterSummaries { get; init; } = new();
+
     public List<TerrainObjectPlacementGroup> ObjectPlacements { get; init; } = new();
 
     public List<ConstraintPolyline> PersistentHardConstraints { get; init; } = new();
@@ -796,6 +798,7 @@ internal static class TerrainRuntimeCacheCloner
             Name = generated.Name,
             Kind = generated.Kind,
             AnalysisId = generated.AnalysisId,
+            ZoneId = generated.ZoneId,
             ColorArgb = generated.ColorArgb,
             LayerPath = generated.LayerPath,
             SourceLayerPath = generated.SourceLayerPath,
@@ -879,6 +882,7 @@ internal static class TerrainRuntimeCacheCloner
             AuxiliaryObjects = entry.AuxiliaryObjects,
             MarkerObjects = entry.MarkerObjects,
             ScatterObjects = entry.ScatterObjects,
+            ScatterSummaries = entry.ScatterSummaries.ToList(),
             ObjectPlacements = entry.ObjectPlacements,
             PersistentHardConstraints = entry.PersistentHardConstraints,
             PersistentElevationConstraints = entry.PersistentElevationConstraints,

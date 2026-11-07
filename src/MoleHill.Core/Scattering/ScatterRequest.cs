@@ -11,6 +11,12 @@ public sealed class ScatterRequest
     /// <summary>Region mode: closed XY loops <c>[x0,y0,x1,y1,…]</c> (≥3 vertices) to fill.</summary>
     public IReadOnlyList<double[]> Boundaries { get; init; } = Array.Empty<double[]>();
 
+    /// <summary>Optional exact domain predicate for resolved regions with holes.</summary>
+    public Func<double, double, bool>? DomainContains { get; init; }
+
+    /// <summary>Optional resolved plan area, excluding holes, in square model units.</summary>
+    public double? DomainArea { get; init; }
+
     /// <summary>Curve mode: open XY polylines <c>[x0,y0,x1,y1,…]</c> (≥2 vertices) to distribute along.</summary>
     public IReadOnlyList<double[]> Paths { get; init; } = Array.Empty<double[]>();
 

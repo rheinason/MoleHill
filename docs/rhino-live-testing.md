@@ -11,6 +11,31 @@ genuine pointer gestures only — they are blind, focus-dependent, and cannot re
 
 ## 0. Pending live checks
 
+Scatter planting tranche, 2026-11-07: exact Debug RHP `e871d9cd-01ea-40f3-a3ff-f3baa00b5fb6`
+loaded by ID (true) from this checkout in owned slot `aardvark`, PID 26516, using standalone router
+0.4.0. `HostedScatterTrancheTests.Run` passed resolved zone priority/hole handling, exclusion clearance,
+boundary setback/feather, disabled mix blocks, exclusive rejection counts, cached pose/count stability,
+drawn planting report and real `CsvWriter` output, full Bake followed by per-card replacement of 807
+instances while other outputs kept their IDs. Selecting both zones removed their shared internal
+setback; duplicating the terrain remapped the scatter's selected zone IDs. The fixture used count
+2,000 before filtering; this is behavioral evidence, not a performance comparison.
+
+The actual Scatter card was rendered in a document-parented Rhino-styled form with the panel's real
+scrollable width handling. At 240 logical pixels its controls stacked, filter names wrapped under
+the compact active-count header, and quantities and per-card Bake remained readable. Native pointer
+selection changed 20 plants/100 m² to plants/hectare; re-rendering the isolated card showed 2,000
+plants/ha with stored density still 0.2/model m², the gross estimate still 80 and placed count still
+45. (The isolated form is manually re-rendered; the actual panel subscribes to its controller.)
+At the initial 300-pixel card inspection, zone selectors, disabled block controls, thumbnails and
+filter editors were also visible. Evidence: `.artifacts/scatter-tranche/native-history.txt` and
+`planting.csv`. No Enscape renderer was exercised. The owned slot closed through its creating client.
+
+Validation: `dotnet build src/MoleHill.Rhino/MoleHill.Rhino.csproj --no-restore --verbosity quiet`
+passed with zero warnings/errors. `dotnet test tests/MoleHill.Core.Tests/MoleHill.Core.Tests.csproj
+--no-restore --verbosity quiet`: 1,799 passed. `dotnet test tests/MoleHill.Rhino.Tests/MoleHill.Rhino.Tests.csproj
+--no-restore --verbosity quiet`: 1,492 passed, 179 native skips. The hosted tranche tests above ran
+separately inside Rhino. No package was published.
+
 Run these at the next live session, then delete each line once it has passed (say so in the commit).
 Scatter: verify **Enscape / native blocks** with a real Enscape asset and a running Enscape renderer.
 Native instance/metadata lifecycle is verified below; asset replacement inside Enscape is not.

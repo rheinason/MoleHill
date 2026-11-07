@@ -241,6 +241,14 @@ internal sealed partial class TerrainBuildService
                 builder.Add(ComputeSourceSetFingerprint(snapshot, sourceSet));
         }
 
+        if (terrain.Objects.OfType<ScatterObjectDefinition>().Any(item => item.IsEnabled && item.UseTerrainZones))
+            foreach (var zone in terrain.Zones.Where(zone => zone.IsEnabled))
+            {
+                AddSerializedFingerprint(ref builder, zone, zone.GetType());
+                builder.Add(ComputeSourceSetFingerprint(snapshot, zone.Boundaries));
+                builder.Add(ComputeZoneGradePathFingerprint(snapshot, terrain, zone));
+            }
+
         foreach (var entry in snapshot.BlockDefinitionBounds.OrderBy(static item => item.Key, StringComparer.Ordinal))
         {
             builder.Add(entry.Key);

@@ -129,6 +129,8 @@ internal sealed partial class TerrainBuildService
             ZoneAnalysisOutput = TerrainRuntimeCacheCloner.CloneZoneAnalyses(source.ZoneAnalysisOutput),
             AuxiliaryObjects = source.AuxiliaryObjects,
             MarkerObjects = source.MarkerObjects,
+            ScatterObjects = source.ScatterObjects,
+            ScatterSummaries = source.ScatterSummaries.ToList(),
             PersistentHardConstraints = source.PersistentHardConstraints,
             PersistentElevationConstraints = source.PersistentElevationConstraints,
             Diagnostics = source.Diagnostics,

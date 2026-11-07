@@ -359,10 +359,11 @@ internal static class DocumentCommandService
         IReadOnlyList<ZoneAnalysisSummary> zoneSummaries =
             TerrainController.Instance.GetZoneAnalysisResults(doc, terrain.TerrainId);
         IReadOnlyList<TerrainAnalysisSummary> analysisSummaries = terrain.LastAnalysisResults;
-        if (zoneSummaries.Count == 0 && analysisSummaries.Count == 0)
+        IReadOnlyList<ScatterBuildSummary> scatterSummaries = TerrainController.Instance.GetScatterSummaries(doc, terrain.TerrainId);
+        if (zoneSummaries.Count == 0 && analysisSummaries.Count == 0 && scatterSummaries.Count == 0)
         {
             RhinoApp.WriteLine(
-                "MoleHill: nothing to report yet — build the terrain, and add a zone or an analysis to measure.");
+                "MoleHill: nothing to report yet — build the terrain, and add a zone, analysis or scatter to report.");
             return Result.Nothing;
         }
 
@@ -372,7 +373,7 @@ internal static class DocumentCommandService
             analysisSummaries,
             documentUnits,
             SlopeUnitPreference.Current,
-            DateTime.Now);
+            DateTime.Now, scatterSummaries: scatterSummaries);
 
         var dialog = new SaveFileDialog { Title = "Export Terrain Report", FileName = $"{terrain.Name} report.csv" };
         dialog.Filters.Add(new FileFilter("CSV", ".csv"));

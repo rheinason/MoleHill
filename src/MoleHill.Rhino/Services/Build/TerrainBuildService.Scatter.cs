@@ -30,9 +30,14 @@ internal sealed partial class TerrainBuildService
         {
             ThrowIfCancellationRequested(shouldCancel);
 
+            void Skip(string reason)
+            {
+                build.ScatterSummaries.Add(new ScatterBuildSummary { DefinitionId = definition.Id, Message = reason });
+            }
             var blocks = ResolveScatterBlocks(snapshot, definition, out var extentByName, out var boundsByName);
             if (blocks.Count == 0)
             {
+                Skip("No enabled blocks with positive weights resolved.");
                 build.Diagnostics.Add($"Scatter '{definition.Name}' skipped: no block instances were selected.");
                 continue;
             }
@@ -40,6 +45,7 @@ internal sealed partial class TerrainBuildService
             double totalWeight = blocks.Sum(entry => entry.Weight);
             if (totalWeight <= 0.0)
             {
+                Skip("Block weights sum to zero.");
                 build.Diagnostics.Add($"Scatter '{definition.Name}' skipped: block weights sum to zero.");
                 continue;
             }
@@ -62,7 +68,13 @@ internal sealed partial class TerrainBuildService
 
             // Sample the scatter domain into a flat list of (point, optional curve tangent).
             var samples = new List<(double X, double Y, double? Tangent)>();
+            double? regionArea = null;
             var loops = new List<double[]>();
+            var regions = new List<IReadOnlyList<double[]>>();
+            var exclusions = new List<double[]>();
+            foreach (Curve curve in TerrainBuildSnapshotResolver.ResolveCurves(snapshot, definition.Exclusions))
+                if (curve.IsClosed && TryCurveToXyLoop(curve, snapshot.ModelAbsoluteTolerance, out double[] exclusion))
+                    exclusions.Add(exclusion);
             if (definition.SourceMode == ScatterSourceMode.Curve)
             {
                 var paths = new List<double[]>();
@@ -74,6 +86,7 @@ internal sealed partial class TerrainBuildService
 
                 if (paths.Count == 0)
                 {
+                    Skip("No curves resolved.");
                     build.Diagnostics.Add($"Scatter '{definition.Name}' skipped: no curves were resolved.");
                     continue;
                 }
@@ -110,21 +123,51 @@ internal sealed partial class TerrainBuildService
             }
             else
             {
-                foreach (Curve curve in TerrainBuildSnapshotResolver.ResolveCurves(snapshot, definition.Boundaries))
+                if (definition.UseTerrainZones)
                 {
-                    if (TryCurveToXyLoop(curve, snapshot.ModelAbsoluteTolerance, out double[] loop))
+                    using var joined = new RhinoMesh();
+                    joined.Append(build.ZoneObjects.Where(item => item.ZoneId.HasValue && definition.ZoneIds.Contains(item.ZoneId.Value))
+                        .Select(item => item.Geometry).OfType<RhinoMesh>());
+                    joined.Vertices.CombineIdentical(true, true);
+                    foreach (Polyline border in joined.GetNakedEdges() ?? Array.Empty<Polyline>())
+                    {
+                        if (!border.IsClosed || border.Count < 4) continue;
+                        double[] loop = new double[(border.Count - 1) * 2];
+                        for (int i = 0; i < border.Count - 1; i++)
+                        {
+                            loop[2 * i] = border[i].X;
+                            loop[2 * i + 1] = border[i].Y;
+                        }
                         loops.Add(loop);
+                    }
+                    if (loops.Count > 0) regions.Add(loops);
+                }
+                else
+                {
+                    foreach (Curve curve in TerrainBuildSnapshotResolver.ResolveCurves(snapshot, definition.Boundaries))
+                    {
+                        if (curve.IsClosed && TryCurveToXyLoop(curve, snapshot.ModelAbsoluteTolerance, out double[] loop))
+                        {
+                            loops.Add(loop);
+                            regions.Add(new[] { loop });
+                        }
+                    }
                 }
 
                 if (loops.Count == 0)
                 {
+                    Skip(definition.UseTerrainZones ? "No selected enabled zones have resolved area." : "No closed boundary curves resolved.");
                     build.Diagnostics.Add($"Scatter '{definition.Name}' skipped: no closed boundary curves were resolved.");
                     continue;
                 }
 
+                var domain = new ScatterRegionMask(regions, exclusions);
+                regionArea = domain.PlanArea;
                 var request = new ScatterRequest
                 {
                     Boundaries = loops,
+                    DomainContains = definition.UseTerrainZones ? domain.Contains : null,
+                    DomainArea = definition.UseTerrainZones ? domain.PlanArea : null,
                     Pattern = definition.Pattern,
                     DensityMode = definition.DensityMode,
                     Count = definition.Count,
@@ -140,6 +183,22 @@ internal sealed partial class TerrainBuildService
                     samples.Add((px, py, null));
             }
 
+            var mask = new ScatterRegionMask(regions, exclusions);
+            int outside = 0, excluded = 0, setback = 0, feathered = 0, misses = 0, slopeRejected = 0, elevationRejected = 0, footprintRejected = 0;
+            var blockCounts = new Dictionary<string, int>(StringComparer.Ordinal);
+            var rejected = new RuntimeOverlayItem
+            {
+                StableId = $"scatter:{definition.Id}:rejected", Owner = new RuntimeOverlayOwner(RuntimeOverlayOwnerKind.Object, definition.Id),
+                Code = "scatter.rejected", ShortLabel = "Rejected samples", Message = "Rejected scatter samples (up to 500 shown).",
+                Channel = RuntimeOverlayChannel.Diagnostic
+            };
+            void Reject(double x, double y, string reason)
+            {
+                if (rejected.Primitives.Count >= 500) return;
+                Point3d point = new(x, y, 0);
+                if (TryResolveTerrainPoint(snapshot, mesh, point, out Point3d hit, out _, out _)) point = hit;
+                rejected.Primitives.Add(RuntimeOverlayPrimitive.Dot(point, reason));
+            }
             int placed = 0;
             for (int index = 0; index < samples.Count; index++)
             {
@@ -147,19 +206,31 @@ internal sealed partial class TerrainBuildService
                     ThrowIfCancellationRequested(shouldCancel);
 
                 (double px, double py, double? tangent) = samples[index];
+                if (definition.SourceMode == ScatterSourceMode.Region)
+                {
+                    if (definition.UseTerrainZones && !mask.Contains(px, py)) { outside++; Reject(px, py, "Outside zone"); continue; }
+                    if (mask.IsExcluded(px, py, definition.ExclusionClearance)) { excluded++; Reject(px, py, "Exclusion"); continue; }
+                    double distance = definition.BoundarySetback > 0 || definition.BoundaryFeather > 0 ? mask.BoundaryDistance(px, py) : 0;
+                    if (distance < definition.BoundarySetback) { setback++; Reject(px, py, "Setback"); continue; }
+                    double probability = ScatterRegionMask.FeatherProbability(distance, definition.BoundarySetback, definition.BoundaryFeather);
+                    if (SampleDeterministicUnit(definition.Id, InstanceKeyFromIndex(index), definition.RandomSeed, 17) >= probability)
+                    { feathered++; Reject(px, py, "Feather"); continue; }
+                }
                 if (!TryResolveTerrainPoint(snapshot, mesh, new Point3d(px, py, 0.0), out Point3d terrainPoint, out Vector3d terrainNormal, out _))
-                    continue;
+                { misses++; Reject(px, py, "Terrain miss"); continue; }
 
                 if (definition.SlopeFilterEnabled)
                 {
                     double slopeDegrees = SlopeDegreesFromNormal(terrainNormal);
                     if (slopeDegrees < definition.SlopeMinDegrees - 1e-9 || slopeDegrees > definition.SlopeMaxDegrees + 1e-9)
-                        continue;
+                    { slopeRejected++; Reject(px, py, "Slope"); continue; }
                 }
 
                 if (definition.ElevationFilterEnabled &&
                     (terrainPoint.Z < definition.ElevationMin - 1e-9 || terrainPoint.Z > definition.ElevationMax + 1e-9))
                 {
+                    elevationRejected++;
+                    Reject(px, py, "Elevation");
                     continue;
                 }
 
@@ -193,7 +264,7 @@ internal sealed partial class TerrainBuildService
                 if (definition.SourceMode == ScatterSourceMode.Region && definition.KeepWholeBlocksInside)
                 {
                     if (!boundsByName.TryGetValue(blockName, out BoundingBox bounds) || !bounds.IsValid)
-                        continue;
+                    { footprintRejected++; Reject(px, py, "Whole block"); continue; }
                     // A world-XY box around all eight transformed corners conservatively contains
                     // the full block, including off-origin bases, slope tilt and random transforms.
                     Point3d[] corners = bounds.GetCorners();
@@ -202,8 +273,9 @@ internal sealed partial class TerrainBuildService
                     var plan = new BoundingBox(corners);
                     double[] footprint = { plan.Min.X, plan.Min.Y, plan.Max.X, plan.Min.Y,
                         plan.Max.X, plan.Max.Y, plan.Min.X, plan.Max.Y };
-                    if (!ScatterFootprint.IsInside(loops, footprint))
-                        continue;
+                    if (!ScatterFootprint.IsInside(loops, footprint) ||
+                        !mask.ContainsFootprint(footprint, definition.BoundarySetback, definition.ExclusionClearance))
+                    { footprintRejected++; Reject(px, py, "Whole block"); continue; }
                 }
 
                 build.ScatterObjects.Add(new GeneratedRhinoObject
@@ -216,7 +288,17 @@ internal sealed partial class TerrainBuildService
                     ScatterDefinitionId = definition.Id
                 });
                 placed++;
+                blockCounts.TryGetValue(blockName, out int currentCount);
+                blockCounts[blockName] = currentCount + 1;
             }
+            if (rejected.Primitives.Count > 0) build.RuntimeOverlays.Add(rejected);
+            build.ScatterSummaries.Add(new ScatterBuildSummary
+            {
+                DefinitionId = definition.Id, Sampled = samples.Count, RegionArea = regionArea, OutsideRegion = outside,
+                Excluded = excluded, Setback = setback, Feathered = feathered, TerrainMisses = misses,
+                SlopeRejected = slopeRejected, ElevationRejected = elevationRejected,
+                FootprintRejected = footprintRejected, BlockCounts = blockCounts
+            });
 
             if (placed == 0)
                 build.Diagnostics.Add($"Scatter '{definition.Name}' produced no instances (all samples fell outside the terrain or its filters).");
@@ -276,6 +358,8 @@ internal sealed partial class TerrainBuildService
         {
             foreach (var entry in definition.Blocks)
             {
+                if (!entry.IsEnabled)
+                    continue;
                 double weight = Math.Max(entry.Weight, 0.0);
                 if (weight <= 0.0)
                     continue;
@@ -284,7 +368,8 @@ internal sealed partial class TerrainBuildService
                 {
                     // Named blocks aren't resolved as source objects, so their size comes from the
                     // snapshot's block-bounds catalog (captured on the main thread).
-                    snapshot.BlockDefinitionBounds.TryGetValue(entry.BlockDefinitionName!, out BoundingBox bbox);
+                    if (!snapshot.BlockDefinitionBounds.TryGetValue(entry.BlockDefinitionName!, out BoundingBox bbox))
+                        continue;
                     Note(entry.BlockDefinitionName!, weight, bbox);
                 }
                 else

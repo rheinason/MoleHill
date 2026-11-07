@@ -46,6 +46,7 @@ internal sealed partial class TerrainController
             displayState.AuxiliaryObjects.AddRange(build.AuxiliaryObjects);
             displayState.MarkerObjects.AddRange(build.MarkerObjects);
             displayState.ScatterObjects.AddRange(build.ScatterObjects);
+            displayState.ScatterSummaries.AddRange(build.ScatterSummaries);
             displayState.RebuildScatterObjectRanges();
         }
         else if (previousDisplayState != null)

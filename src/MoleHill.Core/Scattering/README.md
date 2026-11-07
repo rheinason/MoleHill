@@ -23,5 +23,9 @@ eigensolver. Degenerate/non-finite samples are rejected. Rhino owns sampling, pe
   rows, including rejected candidates. Every
   candidate is tested against per-loop bounding boxes before any polygon edge is walked.
 - `ScatterRequest.cs` — the input bundle.
+  Resolved domains can supply `DomainContains` and `DomainArea` to sample holes with the correct density.
+- `ScatterRegionMask.cs` — plan region unions with nested holes, exclusions, distances, setback and
+  feather probabilities, plus conservative footprint clearance checks. Regions passed to `PlanArea`
+  must be disjoint; nested loops within one region use even/odd containment.
 - `ScatterFootprint.cs` — conservative plan containment of block bounds, checking entire edges across
   concave notches and accepting boundary contact. A footprint must fit inside one region.

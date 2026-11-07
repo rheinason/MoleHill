@@ -66,6 +66,8 @@ internal sealed class TerrainBuildResult
 
     public List<GeneratedRhinoObject> ScatterObjects { get; } = new();
 
+    public List<ScatterBuildSummary> ScatterSummaries { get; } = new();
+
     public List<TerrainObjectPlacementGroup> ObjectPlacements { get; } = new();
 
     public List<string> Diagnostics { get; } = new();

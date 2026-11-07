@@ -31,6 +31,8 @@ internal sealed class GeneratedRhinoObject
 
     public Guid? AnalysisId { get; init; }
 
+    public Guid? ZoneId { get; init; }
+
     public int? ColorArgb { get; init; }
 
     /// <summary>

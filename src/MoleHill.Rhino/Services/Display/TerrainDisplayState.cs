@@ -108,6 +108,8 @@ internal sealed class TerrainDisplayState
 
     public List<GeneratedRhinoObject> ScatterObjects { get; } = new();
 
+    public List<ScatterBuildSummary> ScatterSummaries { get; } = new();
+
     public Dictionary<Guid, ScatterObjectRange> ScatterObjectRanges { get; } = new();
 
     public List<RuntimeOverlayItem> RuntimeOverlays { get; } = new();
@@ -397,6 +399,7 @@ internal sealed class TerrainDisplayState
         AuxiliaryObjects.AddRange(previous.AuxiliaryObjects);
         MarkerObjects.AddRange(previous.MarkerObjects);
         ScatterObjects.AddRange(previous.ScatterObjects);
+        ScatterSummaries.AddRange(previous.ScatterSummaries);
         RebuildScatterObjectRanges();
     }
 
@@ -425,6 +428,7 @@ internal sealed class TerrainDisplayState
         clone.AuxiliaryObjects.AddRange(TerrainRuntimeCacheCloner.CloneGeneratedObjects(AuxiliaryObjects));
         clone.MarkerObjects.AddRange(TerrainRuntimeCacheCloner.CloneGeneratedObjects(MarkerObjects));
         clone.ScatterObjects.AddRange(TerrainRuntimeCacheCloner.CloneGeneratedObjects(ScatterObjects));
+        clone.ScatterSummaries.AddRange(ScatterSummaries);
         clone.RuntimeOverlays.AddRange(TerrainRuntimeCacheCloner.CloneRuntimeOverlays(RuntimeOverlays));
         clone.HardConstraints.AddRange(TerrainRuntimeCacheCloner.CloneConstraints(HardConstraints));
         clone.ElevationConstraints.AddRange(TerrainRuntimeCacheCloner.CloneConstraints(ElevationConstraints));

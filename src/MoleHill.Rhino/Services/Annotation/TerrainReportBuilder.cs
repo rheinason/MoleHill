@@ -34,7 +34,8 @@ internal static class TerrainReportBuilder
         ModelUnitContext unitContext,
         SlopeAnalyzer.SlopeUnit slopeUnit,
         DateTime generatedAt,
-        TerrainReportSections sections = TerrainReportSections.All)
+        TerrainReportSections sections = TerrainReportSections.All,
+        IReadOnlyList<ScatterBuildSummary>? scatterSummaries = null)
     {
         ArgumentNullException.ThrowIfNull(terrain);
         zoneSummaries ??= Array.Empty<ZoneAnalysisSummary>();
@@ -55,8 +56,27 @@ internal static class TerrainReportBuilder
             AppendGradientCompliance(document, terrain, analysisSummaries, unitContext, slopeUnit);
         if (sections.HasFlag(TerrainReportSections.Landforms))
             AppendLandforms(document, terrain, analysisSummaries, unitContext);
+        if (sections.HasFlag(TerrainReportSections.Planting))
+            AppendPlanting(document, terrain, scatterSummaries ?? Array.Empty<ScatterBuildSummary>());
         document.RemoveEmptyTables();
         return document;
+    }
+
+    private static void AppendPlanting(ReportDocument document, TerrainDefinition terrain, IReadOnlyList<ScatterBuildSummary> summaries)
+    {
+        foreach (ScatterBuildSummary summary in summaries)
+        {
+            var scatter = terrain.Objects.OfType<ScatterObjectDefinition>().FirstOrDefault(item => item.Id == summary.DefinitionId && item.IsEnabled);
+            if (scatter == null || summary.Message != null)
+                continue;
+            ReportTable table = document.AddTable($"Planting — {scatter.Name}",
+                new ReportColumn("Block / species"), new ReportColumn("Count", Alignment: ReportAlignment.Right),
+                new ReportColumn("Actual share", "%", ReportAlignment.Right));
+            foreach (var entry in summary.BlockCounts.OrderBy(item => item.Key, StringComparer.OrdinalIgnoreCase))
+                table.AddRow(entry.Key, entry.Value.ToString(CultureInfo.InvariantCulture),
+                    CsvWriter.Number(summary.Placed > 0 ? 100.0 * entry.Value / summary.Placed : 0));
+            table.AddRow("Total", summary.Placed.ToString(CultureInfo.InvariantCulture), summary.Placed > 0 ? "100" : "0");
+        }
     }
 
     private static void AppendOverview(

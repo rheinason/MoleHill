@@ -121,6 +121,10 @@ identity; see `Services/Objects`. Schema 33 retains legacy transform history for
   `SurfaceOrientedObjectDefinition`, `ScatterObjectDefinition` (+ `ScatterBlockEntry`,
   `ScatterPreviewMode`; reuses Core's `ScatterPattern`/`ScatterDensityMode`).
   Scatter's `KeepWholeBlocksInside` defaults off; native-block preview is opt-in and capped.
+  Region scatters can select resolved terrain zones (`ZoneIds`) or boundary curves, exclude curves
+  with clearance, and use boundary setback/feathering. Block entries retain `IsEnabled` independently
+  of weight. `ScatterDensityUnit` is display-only; stored density remains per square model unit.
+  Report Table's `IncludePlanting` includes completed scatter quantities in the annotation report.
 - **Markers** — `MarkerDefinition` → `ElevationMarkerDefinition`, `SlopeMarkerDefinition`.
 
 `ITerrainContentItem` (Id, Label, IsEnabled) is implemented by `AnalysisDefinition` and

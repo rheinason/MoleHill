@@ -155,6 +155,10 @@ margin on the scrollable, not the content: the pinning stopped the scan dialog's
 - `BlockSelectorDialog.cs` / `BlockThumbnailRenderer.cs` - the Insert-style block picker for Scatter (multi) and annotation cards (single).
   Scatter ratios use editable numeric text beside the slider (Enter/blur commits; Esc cancels).
   The Scatter schema exposes whole-block region filtering and capped Enscape/native-block preview.
+- `MoleHillPanel.Scatter.cs` - grouped Scatter schema sections, zone checkboxes, physical density
+  display with a gross-area estimate, completed-result/rejection counts, and the per-card bake action.
+  Block mix rows include thumbnail, enable, weight share and current placed count; stale counts are
+  labelled pending. Section expansion is retained across card refreshes.
   It opens from the lightweight definition-name list, then queues Eto-drawn isometric thumbnails only
   for rows the grid formats; one UI-timer tick renders one thumbnail so documents with hundreds of blocks
   do not pay the whole library's mesh/render cost before the dialog appears. Thumbnail cache keys include

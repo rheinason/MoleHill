@@ -11,6 +11,16 @@ internal sealed partial class TerrainController
 {
     private readonly Dictionary<(uint Document, Guid Terrain), List<(Guid Id, string Block, Transform Pose)>> _scatterPreviewInstances = new();
 
+    public IReadOnlyList<ScatterBuildSummary> GetScatterSummaries(RhinoDoc doc, Guid terrainId)
+    {
+        if (!_runtimeCaches.TryGetValue((doc.RuntimeSerialNumber, terrainId), out var cache) ||
+            cache.DisplayState is not { IsPreview: false, HasDeferredOutputs: false } display ||
+            display.OutputsAreStale || HasPendingFinalBuild(doc.RuntimeSerialNumber, terrainId) ||
+            _unbuiltEdits.Contains((doc.RuntimeSerialNumber, terrainId)))
+            return Array.Empty<ScatterBuildSummary>();
+        return display.ScatterSummaries;
+    }
+
     private void ClearScatterPreview(RhinoDoc doc, Guid terrainId)
     {
         if (!_scatterPreviewInstances.Remove((doc.RuntimeSerialNumber, terrainId), out var instances))

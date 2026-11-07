@@ -445,6 +445,12 @@ public sealed partial class MoleHillPanel
         if (descriptor == null || descriptor.Parameters.Count == 0)
             return false;
 
+        if (definition is ScatterObjectDefinition scatter)
+        {
+            BuildScatterSections(layout, terrain, scatter, descriptor.Parameters);
+            return true;
+        }
+
         var variation = UiLayouts.CardBody();
         bool isPlacement = definition is not ScatterObjectDefinition;
         foreach (var parameter in descriptor.Parameters)
@@ -477,10 +483,17 @@ public sealed partial class MoleHillPanel
     {
         Guid terrainId = terrain.TerrainId;
         Guid definitionId = definition.Id;
+        if (definition is ScatterObjectDefinition scatter)
+        {
+            if (parameter.Key == "zoneSelection")
+                return CreateScatterZoneSelector(terrain, scatter);
+            if (parameter.Key == "perAreaDensity")
+                return CreateScatterDensityEditor(terrain, scatter, parameter);
+        }
 
         void Commit(Action<TerrainObjectDefinition> apply)
         {
-            bool previewOnly = definition is ScatterObjectDefinition && parameter.Key is "previewMode" or "previewCap";
+            bool previewOnly = definition is ScatterObjectDefinition && parameter.Key is "previewMode" or "previewCap" or "densityUnit";
             MutateObjectDefinition(
                 terrainId,
                 definitionId,

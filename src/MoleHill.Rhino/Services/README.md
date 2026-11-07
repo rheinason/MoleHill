@@ -257,6 +257,10 @@ the expected source revision; failed fits/conflicts leave geometry/history intac
   asset renderers; keeps definition metadata and Enscape instance user strings, excludes previews from
   3dm, and purges them on hide, mode change or cache removal. Scatter bake batches layer/definition
   and attribute preparation per card/block; attribute-bearing blocks keep key repair.
+- `ScatterBuildSummary.cs` - immutable completed Scatter quantities and exclusive rejection counts,
+  retained by build/display/stage caches and read by the panel and report builder. Planting report
+  tables use placed counts, independent of preview limits. Per-card Bake scopes tracked replacement
+  through each baked instance's scatter-definition tag.
 - `TerrainRenderMeshProvider.cs` - publishes terrain preview geometry (terrain mesh, zone/auxiliary
   meshes, renderable marker blocks, scatter instances) to render engines via the RDK custom render mesh system, without creating
   document objects. Advertises each `TerrainDefinition.TerrainId` as a non-object id. Must stay
