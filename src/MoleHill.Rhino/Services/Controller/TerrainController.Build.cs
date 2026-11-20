@@ -52,27 +52,18 @@ internal sealed partial class TerrainController
     }
 
     /// <summary>
-    /// Gives the message loop something to process while a build is in flight, and counts how often it
-    /// gets to run - see <see cref="_buildWakeTicks"/>.
+    /// Runs a short timer while a build is in flight or a debounced request is waiting, and counts its
+    /// ticks - see <see cref="_buildWakeTicks"/>.
     ///
-    /// **This did not fix the wake, and is currently kept as instrumentation.** The cost it was aimed
-    /// at is real and dominant: measured in an interactive Rhino on 2026-09-19,
-    /// <c>worker-end -&gt; wake-posted</c> is 0.0 ms while <c>wake-posted -&gt; wake-ran</c> is a median
-    /// ~320 ms - 71% of edit-to-visible - against 8 ms of redraw and 74 ms of geometry, and a headless
-    /// slot reports the same ~320 ms, so it is the host's scheduling rather than a measurement artifact.
-    /// The reasoning was that posting a callback gives the host no reason to look at its queue once an
-    /// edit settles and no input is arriving, and that a timer tick, being a real Windows message, would
-    /// wake a loop that is otherwise waiting.
+    /// Its job is dispatch: Rhino raises Idle once when its queue empties and not again until a new
+    /// message arrives, so without a tick a request that falls due after the queue has gone quiet waits
+    /// for the next mouse move. It stops itself as soon as nothing is running or pending.
     ///
-    /// Re-measured with the timer running, the wake was **unchanged** at a ~299 ms median. That is the
-    /// second failed fix aimed at a starved queue (the first moved the post to Eto's invoke queue and
-    /// measured three times worse), which is strong evidence the queue is not what is slow. The tick
-    /// counter is there to say which of the two remaining explanations is right before anything else is
-    /// tried.
-    ///
-    /// It runs only while a build is in flight or a debounced request is waiting, and stops itself as
-    /// soon as neither is, so an idle Rhino is left alone. The second case is not instrumentation: the
-    /// tick is what dispatches a request that falls due after the message queue has gone quiet.
+    /// It was first added to cure a ~320 ms wait between a build finishing and its completion running,
+    /// on the theory that the host's queue was starved. It did not move that number, and neither did
+    /// posting through Eto's queue. The tick count settled it: zero ticks during the wait, so the UI
+    /// thread was occupied, and the occupant was MoleHill's own panel refreshes. See architecture.md,
+    /// "The UI thread is a shared queue".
     /// </summary>
     private void EnsureBuildWakeTimer()
     {
@@ -110,16 +101,10 @@ internal sealed partial class TerrainController
     }
 
     /// <summary>
-    /// Ticks of <see cref="_buildWakeTimer"/>, so the wake can report how many times the UI thread ran
-    /// a queued timer message while a finished build was waiting for it.
-    ///
-    /// This distinguishes the only two explanations left for the ~300 ms wake, which no amount of
-    /// reasoning about queues can separate: **many ticks** means the thread was free and running our
-    /// code all along, so the completion is being deprioritized behind something rather than starved;
-    /// **no ticks** means the thread was busy or the message was not delivered, and the wait is Rhino
-    /// doing its own work after an edit. Two fixes aimed at the "starved queue" reading - Eto's invoke
-    /// queue, then this timer - both failed to move the number, which is why the next step is a
-    /// measurement rather than a third fix.
+    /// Ticks of <see cref="_buildWakeTimer"/>, reported by the latency trace as how many times the UI
+    /// thread ran a queued timer message while a finished build waited for it. Many ticks mean the
+    /// thread was free and the completion was deprioritized; none mean the thread was busy. This is the
+    /// measurement that showed the wait was our own panel work rather than the host.
     /// </summary>
     private int _buildWakeTicks;
 

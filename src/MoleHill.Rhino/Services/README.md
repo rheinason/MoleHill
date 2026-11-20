@@ -270,7 +270,9 @@ the expected source revision; failed fits/conflicts leave geometry/history intac
   support, so Scatter's native-block preview or Bake supplies document instances there. Rhino render materials are retained from explicit
   assignments, layers, and block members where available. Ignores scatter `PreviewCap`/`PreviewMode`
   (viewport budgets, not render budgets), except native-block mode which it skips to avoid duplicate
-  proxies, and skips text/dots/curves, which have no render mesh.
+  proxies, and skips text/dots/curves, which have no render mesh. Recursively expands nested block
+  transforms with a depth/cycle guard, inherits parent materials and joins meshes by material once
+  per definition per request; a nested canopy must not disappear from the render path.
 - `TerrainDisplayColors.cs` - shared colour/transparency resolution for generated output. Used by both
   the conduit (`DisplayMaterial`) and the render mesh provider (`RenderMaterial`) so a render matches
   the viewport preview.

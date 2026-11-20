@@ -294,36 +294,58 @@ public sealed class TerrainRenderMeshProvider : RenderMeshProvider
         if (cache.TryGetValue(definitionName, out DefinitionMeshPart[]? cached))
             return cached;
 
-        var collected = new List<DefinitionMeshPart>();
-        InstanceDefinition? definition = doc.InstanceDefinitions.Find(definitionName);
-        if (definition != null)
+        // Keep nested instances in definition space and join by material once. Flattening only
+        // direct members silently dropped nested canopies/vehicles from the RDK render path.
+        var groups = new Dictionary<Guid, (Mesh Mesh, RenderMaterial? Material)>();
+        var ancestry = new HashSet<Guid>();
+        MeshingParameters meshingParameters = doc.GetMeshingParameters(doc.MeshingParameterStyle);
+        void Collect(InstanceDefinition definition, Transform transform, RenderMaterial? inheritedMaterial, int depth)
         {
-            MeshingParameters meshingParameters = doc.GetMeshingParameters(doc.MeshingParameterStyle);
+            if (depth > 8 || !ancestry.Add(definition.Id))
+                return;
             foreach (RhinoObject member in definition.GetObjects())
             {
                 if (member?.Geometry == null)
                     continue;
-
-                RenderMaterial? memberMaterial = member.Attributes.MaterialSource == ObjectMaterialSource.MaterialFromParent
-                    ? null
-                    : member.GetRenderMaterial(frontMaterial: true);
-
-                if (member.Geometry is Mesh mesh && mesh.Faces.Count > 0)
+                RenderMaterial? material = member.Attributes.MaterialSource == ObjectMaterialSource.MaterialFromParent
+                    ? inheritedMaterial
+                    : member.GetRenderMaterial(frontMaterial: true) ?? inheritedMaterial;
+                if (member is InstanceObject nested)
                 {
-                    collected.Add(new DefinitionMeshPart(mesh, memberMaterial));
+                    if (nested.InstanceDefinition != null)
+                        Collect(nested.InstanceDefinition, transform * nested.InstanceXform, material, depth + 1);
                     continue;
                 }
-
-                // Block members are not in the viewport, so usually carry no cached render mesh.
-                foreach (Mesh renderMesh in ScatterBlockPreview.MeshMember(member, meshingParameters))
+                foreach (Mesh source in ScatterBlockPreview.MeshMember(member, meshingParameters))
                 {
-                    if (renderMesh is { Faces.Count: > 0 })
-                        collected.Add(new DefinitionMeshPart(renderMesh, memberMaterial));
+                    if (source.Faces.Count == 0)
+                        continue;
+                    using Mesh copy = source.DuplicateMesh();
+                    if (!copy.Transform(transform))
+                        continue;
+                    Guid key = material?.Id ?? Guid.Empty;
+                    if (!groups.TryGetValue(key, out var group))
+                    {
+                        group = (new Mesh(), material);
+                        groups[key] = group;
+                    }
+                    group.Mesh.Append(copy);
                 }
             }
+            ancestry.Remove(definition.Id);
+        }
+        if (doc.InstanceDefinitions.Find(definitionName) is { } root)
+            Collect(root, Transform.Identity, null, 0);
+        // Append keeps normals only when every joined part had them; a member without normals leaves the
+        // joined mesh short, which renders faceted or black. Block winding is the author's, so compute
+        // vertex normals without unifying.
+        foreach (var group in groups.Values)
+        {
+            if (group.Mesh.Normals.Count != group.Mesh.Vertices.Count)
+                group.Mesh.Normals.ComputeNormals();
         }
 
-        DefinitionMeshPart[] result = collected.ToArray();
+        DefinitionMeshPart[] result = groups.Values.Select(group => new DefinitionMeshPart(group.Mesh, group.Material)).ToArray();
         cache[definitionName] = result;
         return result;
     }

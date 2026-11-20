@@ -3,6 +3,17 @@
 The dockable terrain panel (Eto.Forms) and its dialogs. Composes reusable card/editor primitives - add
 fields by composing them, not by copying boilerplate.
 
+A slider row that declares `LiveScrub` commits on a throttle while it is dragged
+(`UiTiming.SliderStreamSeconds`, `streamCommits` on `CreateSliderNumericEditor`), so the build
+scheduler sees a stream and the terrain follows the hand; one undo step still covers the gesture.
+Other sliders commit once the value rests, because their commit saves the document and relays the
+panel out. Plant and Orient opt out (`streamSliderCommits: false`): each of their builds moves
+document objects.
+
+Compact scatter ratio editors stop, unhook and dispose their debounce timer idempotently on UnLoad.
+Focus callbacks ignore unloaded controls; LoadComplete creates a fresh timer when a tab is reattached.
+UnLoad can fire more than once during a card refresh, so it must never stop an already disposed timer.
+
 Plant/Orient share schema rows for Sources, Heading, Scale and Offset, with seeded controls under
 Variation. `MoleHillPanel.ObjectPlacement.cs` adds Show Base, Change Base and Release Selected/All;
 the schema adds placed/skipped feedback. Picking and geometry changes stay in the controller; a

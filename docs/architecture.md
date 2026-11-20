@@ -1958,6 +1958,11 @@ first retains explicit, layer, and block-member Rhino render materials; when non
 transparency override requires simulation, it creates a transient `RenderMaterial` without adding
 materials to the document.
 
+Block definitions are traversed recursively (up to eight nested levels, with a cycle guard). Nested
+transforms compose in definition space; parent materials flow to members using MaterialFromParent.
+Leaf meshes are joined by render material and cached once per definition for the render request,
+so nested canopies reach rendering without re-expanding their geometry for every scatter instance.
+
 Cache coherence uses `TerrainDisplayState.RenderHash`, a sequence number stamped on each new display
 state and advanced for display-only, layer-material, and mutable sculpt-preview changes. The controller
 then notifies the RDK from the same build/display/sculpt lifecycle points. The notification statics still

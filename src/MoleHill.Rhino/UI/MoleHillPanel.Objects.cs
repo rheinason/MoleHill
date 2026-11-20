@@ -438,11 +438,13 @@ public sealed partial class MoleHillPanel
         bool syncing = false;
         bool sliderEditActive = false;
         bool textEditActive = false;
+        bool unloaded = false;
+        bool timerDisposed = false;
         var timer = new UITimer { Interval = UiTiming.SliderCommitSeconds };
 
         void BeginSliderEdit()
         {
-            if (sliderEditActive)
+            if (sliderEditActive || unloaded || timerDisposed)
                 return;
 
             sliderEditActive = true;
@@ -471,6 +473,8 @@ public sealed partial class MoleHillPanel
 
         void Commit(double numericValue)
         {
+            if (unloaded || timerDisposed)
+                return;
             timer.Stop();
             numericValue = ClampSliderValue(numericValue, 0.0, null);
             pendingValue = numericValue;
@@ -482,15 +486,20 @@ public sealed partial class MoleHillPanel
             onChanged(numericValue);
         }
 
-        timer.Elapsed += (_, _) => Commit(pendingValue);
+        void OnTimerElapsed(object? sender, EventArgs e) => Commit(pendingValue);
+        timer.Elapsed += OnTimerElapsed;
         valueText.GotFocus += (_, _) =>
         {
+            if (unloaded || timerDisposed)
+                return;
             timer.Stop();
             textEditActive = true;
             BeginSliderEdit();
         };
         void CommitText(bool cancel = false)
         {
+            if (unloaded || timerDisposed)
+                return;
             double number = committedValue;
             if (!cancel && (!TryParseUserNumber(valueText.Text, out number) || !double.IsFinite(number)))
                 number = committedValue;
@@ -527,7 +536,7 @@ public sealed partial class MoleHillPanel
         };
         slider.ValueChanged += (_, _) =>
         {
-            if (_isRefreshing || syncing)
+            if (_isRefreshing || syncing || unloaded || timerDisposed)
                 return;
 
             BeginSliderEdit();
@@ -538,9 +547,26 @@ public sealed partial class MoleHillPanel
         };
         slider.UnLoad += (_, _) =>
         {
-            timer.Stop();
-            timer.Dispose();
+            // UnLoad can repeat during card refresh, and a tab can load again.
+            unloaded = true;
+            if (!timerDisposed)
+            {
+                timerDisposed = true;
+                timer.Stop();
+                timer.Elapsed -= OnTimerElapsed;
+                timer.Dispose();
+            }
             EndSliderEdit();
+        };
+        slider.LoadComplete += (_, _) =>
+        {
+            if (timerDisposed)
+            {
+                timer = new UITimer { Interval = UiTiming.SliderCommitSeconds };
+                timer.Elapsed += OnTimerElapsed;
+                timerDisposed = false;
+            }
+            unloaded = false;
         };
 
         SyncControls(committedValue);

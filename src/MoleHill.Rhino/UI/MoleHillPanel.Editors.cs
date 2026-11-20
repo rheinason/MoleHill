@@ -447,7 +447,8 @@ public sealed partial class MoleHillPanel
         string? help = null,
         string? unitSuffix = null,
         Func<double, string>? formatValue = null,
-        Func<string, double?>? parseValue = null)
+        Func<string, double?>? parseValue = null,
+        bool streamCommits = false)
     {
         help ??= GetNumericHelp(label);
         double committedValue = ClampSliderValue(value, hardMin, hardMax);
@@ -474,7 +475,13 @@ public sealed partial class MoleHillPanel
         bool syncing = false;
         bool sliderEditActive = false;
         bool textEditActive = false;
-        var timer = new UITimer { Interval = UiTiming.SliderCommitSeconds };
+        // A streaming slider commits at most once per interval while it moves, so the terrain follows the
+        // drag. Any other slider commits once the value has rested, because its commit saves the document
+        // and relays the panel out. See UiTiming.SliderStreamSeconds.
+        var timer = new UITimer
+        {
+            Interval = streamCommits ? UiTiming.SliderStreamSeconds : UiTiming.SliderCommitSeconds
+        };
 
         void BeginSliderEdit()
         {
@@ -598,6 +605,15 @@ public sealed partial class MoleHillPanel
             BeginSliderEdit();
             pendingValue = FromSliderValue(slider.Value, currentMin, currentMax, slider.MaxValue);
             SyncControls(pendingValue, updateTextBox: !textEditActive);
+            if (streamCommits)
+            {
+                // Throttle: leave a running timer alone so it fires mid-drag. Restarting it on every
+                // tick is a trailing debounce, under which nothing is committed until the hand stops.
+                if (!timer.Started)
+                    timer.Start();
+                return;
+            }
+
             timer.Stop();
             timer.Start();
         };

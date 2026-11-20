@@ -11,6 +11,23 @@ genuine pointer gestures only — they are blind, focus-dependent, and cannot re
 
 ## 0. Pending live checks
 
+Scatter stress, 2026-11-07: `HostedScatterStressTests` exercised a three-level block containing
+80 nested mesh leaves (40,960 canopy faces) plus a Brep trunk on a 12,800-triangle terrain. Counts
+10,000 and 50,000 built and baked as block references; 200,000 built with capped point preview.
+The bake test hid its results before redraw: it does not establish full-geometry viewport throughput.
+Narrow strips (0.3 m and 2 m), oversized footprints, overlapping setbacks and rotated/scaled nested
+bounds passed. See `.artifacts/scatter-stress/REPORT.md` for single-run observations, not baselines.
+
+Found and fixed two defects: RDK dropped nested members, and the compact ratio timer was disposed
+on the first UnLoad but stopped again on a later UnLoad/focus callback. Final Debug RHP MVID
+`f5706d4a-b766-4282-bb8c-09721a410849`, loaded by ID from this checkout in owned PID 2280,
+passed a 10,000-count repeat, 41,124 faces in both mesh paths, and native preview cap/cleanup (16).
+The complete controller-subscribed panel in a document-parented Rhino-styled form passed actual
+pointer/keyboard Enter (3.5), Escape (99 restored to 3.5), Tab (5.25), tab unload/reload, and per-card
+Bake (2,472 tagged instances). The model retained 5.25 and no post-fix Eto exception was recorded.
+Live was disabled: edits correctly showed quantities pending until Bake rebuilt the result.
+This is full-panel lifecycle evidence; real Enscape assets/rendering remain pending below.
+
 Scatter planting tranche, 2026-11-07: exact Debug RHP `e871d9cd-01ea-40f3-a3ff-f3baa00b5fb6`
 loaded by ID (true) from this checkout in owned slot `aardvark`, PID 26516, using standalone router
 0.4.0. `HostedScatterTrancheTests.Run` passed resolved zone priority/hole handling, exclusion clearance,
@@ -35,6 +52,15 @@ passed with zero warnings/errors. `dotnet test tests/MoleHill.Core.Tests/MoleHil
 --no-restore --verbosity quiet`: 1,799 passed. `dotnet test tests/MoleHill.Rhino.Tests/MoleHill.Rhino.Tests.csproj
 --no-restore --verbosity quiet`: 1,492 passed, 179 native skips. The hosted tranche tests above ran
 separately inside Rhino. No package was published.
+
+Scatter bake timing, 2026-11-20: same scene in a fresh slot per build (Release, EcoQoS opted out,
+80x80-cell terrain, two simple blocks, 600 m square boundary, `BakeTerrain` timed, 3 samples, baked
+objects deleted and undo cleared between samples). Baseline `aa55a2a` (MVID `bef76a54`) against the
+working tree on `8c39f53` (MVID `4ca97484`), medians: 2,000 instances 103 -> 101 ms; 10,000 381 -> 352 ms;
+30,000 1,062 -> 914 ms. The grouped bake is 0-14% faster here; both are ~30 us per instance, dominated
+by Rhino's own instance insertion. A slow bake the user sees is therefore not this loop on a plain
+headless scene: open panel, renderer listeners (Enscape) or heavy block attributes are the candidates.
+Enscape is not installed on the maintainer's machine as of this date.
 
 Run these at the next live session, then delete each line once it has passed (say so in the commit).
 Scatter: verify **Enscape / native blocks** with a real Enscape asset and a running Enscape renderer.

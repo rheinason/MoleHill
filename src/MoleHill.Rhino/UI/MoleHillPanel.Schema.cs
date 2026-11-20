@@ -27,13 +27,18 @@ public sealed partial class MoleHillPanel
     /// <paramref name="bespoke"/> renders the kinds that are not expressible as a shared primitive; when
     /// it is null for such a kind the row is an empty panel, so a family simply never declaring that kind
     /// costs nothing.
+    ///
+    /// <paramref name="streamSliderCommits"/> lets a live-scrub slider commit while it is being dragged
+    /// rather than once it rests. A family passes false when a commit does more than rebuild the preview:
+    /// Plant and Orient move real document objects on every build.
     /// </summary>
     private Control BuildSchemaRow<TDef>(
         TerrainDefinition terrain,
         TDef definition,
         ParameterDescriptor<TDef> parameter,
         Action<Action<TDef>> commit,
-        Func<ParameterDescriptor<TDef>, TDef, Control>? bespoke = null)
+        Func<ParameterDescriptor<TDef>, TDef, Control>? bespoke = null,
+        bool streamSliderCommits = true)
         where TDef : class
     {
         string label = parameter.LabelFor?.Invoke(definition) ?? parameter.Label;
@@ -116,7 +121,9 @@ public sealed partial class MoleHillPanel
                         ? text => SlopeInput.TryParseToDegrees(text, SlopeUnitPreference.Current, out double degrees)
                             ? degrees
                             : null
-                        : null);
+                        : null,
+                    // Only a row whose commit is the cheap mid-gesture one may commit while it moves.
+                    streamCommits: streamSliderCommits && parameter.LiveScrub && !parameter.RebuildAfterCommit);
 
             case ParameterKind.Bool:
                 return CreateCheckEditor(
@@ -520,6 +527,8 @@ public sealed partial class MoleHillPanel
             Commit,
             (_, item) => item is ScatterObjectDefinition scatter
                 ? CreateScatterBlockMixEditor(terrain, scatter)
-                : new Panel());
+                : new Panel(),
+            // Scatter is conduit preview only; Plant and Orient transform document objects per build.
+            streamSliderCommits: definition is ScatterObjectDefinition);
     }
 }
