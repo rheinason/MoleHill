@@ -358,6 +358,13 @@ the DLL directory suffices — no longer holds. Repairing it means hosting the r
 (`Rhino.Inside` / `RhinoCore`) rather than pointing at a directory. Until then the native lane reports
 nothing, and `[RhinoNativeFact]` coverage is unverified on this machine.
 
+Last full in-Rhino run, 2026-11-20 (b933a3f, Rhino 8.36 on .NET 10): the net8.0 test assembly loaded
+into a slot in its own `AssemblyLoadContext` (as hosted-perf does), and every `[RhinoNativeFact]`
+outside the three benchmarks was invoked by reflection: 176 passed, 0 failed. The same day the
+hosted-perf baseline was re-recorded at b933a3f. The old a7416b6 baseline still reproduced its own
+meshes exactly on 8.36, so the three output changes since were the code's, each a deliberate fix:
+`bf35016` (Smooth clamp), `7df27ac` (Grade Pad corner fan), `505bb31` (Remesh pins rail chords).
+
 **The working detour, for a test you need an answer from now.** Rhino 8.35 runs on .NET 8, the same
 target as the test projects, so the test assembly loads straight into a live Rhino. Split the body out
 of its `[RhinoNativeFact]` wrapper into a `public static` entry that writes its result to a file, spawn
