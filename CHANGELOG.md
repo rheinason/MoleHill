@@ -3,6 +3,37 @@
 Released through Rhino's Package Manager (Yak) as `MoleHill`. Versions before 1.0.0 were
 beta prereleases. Earlier versions are recorded only in the git history.
 
+## 1.6.0 — 2026-11-20
+
+The first stable release since 1.4.0. It contains everything from the 1.4.1–1.5.5 betas below; their
+entries give the detail. The code is 1.5.5-beta's, with the Enscape preview labelled experimental.
+
+**Highlights since 1.4.0**
+- **Scan to Terrain** turns a drone or photogrammetry mesh, or a point cloud, into MoleHill input: ground,
+  contours, spot heights, buildings, walls and kerbs. **Terrain to Curves** turns a dense terrain into
+  editable contours and crease lines.
+- **Scatter** can keep whole blocks inside a boundary, plant into selected zones, avoid exclusion curves,
+  set back and feather edges, bake one card at a time, and report planting quantities.
+- **Plant and Orient** keep each object's base with the object through bake, moves, copies and saves, and
+  Undo after moving a placed object no longer duplicates it.
+- **Cut and fill volumes are exact** in Earthworks, Cut / Fill, zones and the graders (they were 9-16% off
+  on coarse terrains), and **Balance Pad** balances several pads at once.
+- New **Displace** modifier, **Round Creases** mode for Smooth and **Curvature** analysis.
+- Route tools: **Relax Route**, a reworked **Suggest Route**, **Slope Control Points**, **Merge Control
+  Points**, **Drape Curve Section**, and **Extract / Apply Profile** (prototype).
+- **Export With Georef** to any format Rhino exports, and **Copy With Georef**.
+- Grading follows one cut/fill rule, is checked against a grading envelope, and Grade Path stops where a
+  breakline, wall or pad edge enters its road instead of moving it.
+
+**Fixes since 1.4.0** include In-Situ Stair tearing walls and notching the border, Remesh Rebuild hanging,
+stair stringer rails moving through Remesh, Smooth making new peaks, zone seams zig-zagging on dense
+terrains, the terrain preview in layouts, nested blocks missing from renders, and text dots hidden under
+the terrain.
+
+**Known limitation**
+- The scatter **Enscape / native blocks (experimental)** preview has not yet been checked inside Enscape.
+  Bake is the reliable route to renderers.
+
 ## 1.5.5-beta — 2026-11-20
 
 **Fixes**
