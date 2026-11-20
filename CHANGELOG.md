@@ -3,12 +3,38 @@
 Released through Rhino's Package Manager (Yak) as `MoleHill`. Versions before 1.0.0 were
 beta prereleases. Earlier versions are recorded only in the git history.
 
-## Unreleased
+## 1.5.5-beta — 2026-11-20
 
 **Fixes**
 - Undo after moving an oriented or planted object no longer duplicates it. One Undo now takes back both the
   move and the live re-orientation that followed, and Redo restores both, with the object still on its card.
   This was the known issue in 1.5.4-beta.
+- Nested blocks (a block made of other blocks, such as a tree canopy) no longer vanish from renders of a
+  scatter. Only a block's top-level members were sent to the renderer.
+
+**Scatter**
+- **Keep whole blocks inside** keeps the whole block within the boundary, not just its insertion point. It
+  checks the block's bounds after rotation, scale, tilt and offset, and respects holes, exclusions and
+  setbacks. Blocks that do not fit are dropped rather than replaced, so you can get fewer than you asked for.
+- A scatter can be limited to selected terrain zones instead of picked boundaries. Shared edges between the
+  selected zones are not treated as borders, and holes in a zone receive nothing.
+- New planting controls: exclusion curves with a clearance, a boundary setback and a soft feathered edge.
+  Density can be shown per m², per 100 m² or per hectare.
+- The Block Mix shows each block's thumbnail, share and placed count, and each block can be switched off
+  without removing it. Ratios can be typed: double-click the number, type, and press Enter (Esc cancels).
+- Each scatter card shows how many blocks were placed and why the rest were rejected; **Show Issues** marks
+  rejected spots in the viewport.
+- **Bake this scatter** bakes and replaces one card's blocks without touching the rest of the terrain. Bake
+  is also somewhat faster (about 14% at 30,000 blocks).
+- New **Enscape / native blocks** preview places temporary copies of your real blocks in the document, up
+  to the Preview Cap, so renderers that only see document objects can show them. Baked blocks keep their
+  Enscape properties. This has not yet been checked inside Enscape itself.
+- The Report Table annotation has a **Planting** section listing counts and percentages per block, and
+  `mhExportTerrainReport` includes it in the CSV.
+
+**Panel**
+- Dragging a slider on cards that support live editing updates the terrain while you drag, not only when you
+  let go.
 
 ## 1.5.4-beta — 2026-11-02
 
