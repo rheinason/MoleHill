@@ -1,5 +1,8 @@
 # Backlog
 
+The separate [Rhino UI design backlog](ui-backlog.md) tracks approved Penpot
+directions, open visual issues and the next UI review decisions.
+
 Feature work that is agreed in principle but not scheduled. Ordered by tier, not by date. An item
 leaves this file when it ships (the architecture doc and the folder `README.md` absorb it) or when it
 is explicitly dropped (say so in the entry rather than deleting it).

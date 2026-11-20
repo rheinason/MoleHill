@@ -1,0 +1,33 @@
+import fs from 'node:fs';
+import path from 'node:path';
+const directory=import.meta.dirname,base='http://localhost:9001';
+const stateFile=path.join(directory,'project.local.json');
+const state=JSON.parse(fs.readFileSync(stateFile,'utf8'));
+const reviewDirectory=path.resolve(directory,'../../../.artifacts/penpot-selfhost/review');
+const audit=JSON.parse(fs.readFileSync(path.join(reviewDirectory,'audit.json'),'utf8'));
+const exports=JSON.parse(fs.readFileSync(path.join(reviewDirectory,'exports.json'),'utf8'));
+const currentId=state.fileIds[0];
+if(audit.fileId!==currentId||audit.missingRefs||audit.brokenStyleReferences||audit.outsideParentBounds||!audit.autoLayoutFrames||!audit.linkedColourReferences||!audit.linkedTypographyReferences)throw Error('The current file has not passed the structural/style review.');
+if(audit.brokenTokenReferences||audit.colorTokenValues!==24||!audit.tokenReferences)throw Error('The current file has not passed the semantic colour token review.');
+if(exports.length<12||exports.some(e=>e.fileId!==currentId))throw Error('A complete native export review is required.');
+const credentials=JSON.parse(fs.readFileSync(path.join(directory,'credentials.local.json'),'utf8'));let cookie='';
+async function rpc(command,body={}){
+    const response=await fetch(base+'/api/rpc/command/'+command,{method:'POST',headers:{Accept:'application/json','Content-Type':'application/json',Origin:base,Cookie:cookie},body:JSON.stringify(body),signal:AbortSignal.timeout(30000)});
+    const cookies=response.headers.getSetCookie();if(cookies.length)cookie=cookies.map(s=>s.split(';')[0]).join('; ');
+    const content=await response.text();if(!response.ok)throw Error(command+' failed ('+response.status+')');return content?JSON.parse(content):null;
+}
+await rpc('login-with-password',{email:credentials.email,password:credentials.password});
+const files=await rpc('get-project-files',{'project-id':state.projectId});
+const ids=new Set(files.map(f=>f.id));
+if(!ids.has(currentId))throw Error('Current file is not in the expected project.');
+for(const [i,id]of (state.previousFileIds??[]).entries())if(id!==currentId&&ids.has(id))await rpc('rename-file',{id,name:i===0?'Archive — Initial UI reference':'Archive — Superseded generated draft '+i});
+await rpc('rename-file',{id:currentId,name:'MoleHill • Rhino UI reference'});
+const native=JSON.parse(fs.readFileSync(path.join(reviewDirectory,'native-file.json'),'utf8'));
+state.workspaceUrl=base+'/#/workspace?team-id='+state.teamId+'&file-id='+currentId+'&page-id='+native.data.pages[0];
+state.nativeVisualVerified=true;
+state.visualVerification={method:'Penpot native export API',renderedBoards:exports.length,editorInteractionVerified:false,checkedAt:new Date().toISOString(),brokenReferences:audit.missingRefs,outsideParentBounds:audit.outsideParentBounds};
+fs.writeFileSync(stateFile,JSON.stringify(state,null,2));
+const validationPath=path.resolve(directory,'../output/validation.json'),validation=JSON.parse(fs.readFileSync(validationPath,'utf8'));
+fs.writeFileSync(validationPath,JSON.stringify({...validation,nativeVisualVerified:true,visualVerification:state.visualVerification},null,2));
+console.log('Promoted the verified reference; previous versions retained with Archive names.');
+console.log(state.workspaceUrl);

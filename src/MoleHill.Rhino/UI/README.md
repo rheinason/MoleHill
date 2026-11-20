@@ -1,5 +1,9 @@
 ﻿# MoleHill.Rhino/UI
 
+An editable Penpot reference generator lives in [`tools/penpot`](../../../tools/penpot/README.md).
+It builds card libraries and panel boards from the UI source, with explicit fidelity and
+native-import verification limits; it does not change the running panel.
+
 The dockable terrain panel (Eto.Forms) and its dialogs. Composes reusable card/editor primitives - add
 fields by composing them, not by copying boilerplate.
 

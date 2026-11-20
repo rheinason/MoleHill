@@ -1,0 +1,16 @@
+{
+  "name": "molehill-penpot",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "check": "node build.mjs"
+  },
+  "dependencies": {
+    "@penpot/library": "1.3.0",
+    "transit-js": "^0.8.874"
+  },
+  "devDependencies": {
+    "@resvg/resvg-js": "^2.6.2"
+  }
+}
