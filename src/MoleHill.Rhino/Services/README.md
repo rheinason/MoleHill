@@ -82,7 +82,7 @@ out of the document; all accepted replacements form one command Undo, with rollb
   idle loop into the panel Status card. Rhino command history receives only concise started/finished,
   cancelled, or failed lines; detailed progress, diagnostics, and timings remain in Status.
 - Triangulate flattens each source curve once and reuses the packed stations for constraints and TIN
-  input. Its Contour Mode is `Auto` / `Constrained` / `Vertices only`; Auto treats contour sets at or
+  input. Its Contour Mode is `Auto` / `Exact` / `Vertices` (saved as `auto` / `constrained` / `vertices`); Auto treats contour sets at or
   above 250,000 source vertices as unconstrained samples while breaklines stay exact. Data Clip filters
   raw inputs exactly; Outer/Hide/Show are cached conforming trims after the modifier stack and before all
   surface-derived output. The same roles trim the captured base mesh for comparative analyses.

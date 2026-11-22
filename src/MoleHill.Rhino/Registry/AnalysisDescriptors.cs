@@ -1020,14 +1020,14 @@ internal sealed class CurvatureAnalysisDescriptor : AnalysisTypeDescriptor
     private static readonly IReadOnlyList<(string Key, string Label)> DisplayOptions = new[]
     {
         (nameof(CurvatureDisplay.Landforms), "Landforms"),
-        (nameof(CurvatureDisplay.Curvature), "Curvature value"),
+        (nameof(CurvatureDisplay.Curvature), "Curvature"),
     };
 
     private static readonly IReadOnlyList<(string Key, string Label)> MeasureOptions = new[]
     {
         (nameof(CurvatureMeasure.Mean), "Mean"),
-        (nameof(CurvatureMeasure.Profile), "Profile (down the slope)"),
-        (nameof(CurvatureMeasure.Plan), "Plan (across the slope)"),
+        (nameof(CurvatureMeasure.Profile), "Along"),
+        (nameof(CurvatureMeasure.Plan), "Across"),
     };
 
     public override IReadOnlyList<AnalysisParam> Parameters { get; } = new[]
@@ -1041,7 +1041,7 @@ internal sealed class CurvatureAnalysisDescriptor : AnalysisTypeDescriptor
                 if (Enum.TryParse(key, out CurvatureDisplay display))
                     Curvature(a).Display = display;
             },
-            "Landforms colours each face convex, planar or concave. Curvature value colours it by how " +
+            "Landforms colours each face convex, planar or concave. Curvature colours it by how " +
             "sharply it bends, convex warm and concave cool. Both read the same measurement, so switching " +
             "recolours without measuring again.",
             refreshOnly: true),
@@ -1054,10 +1054,17 @@ internal sealed class CurvatureAnalysisDescriptor : AnalysisTypeDescriptor
                 if (Enum.TryParse(key, out CurvatureMeasure measure))
                     Curvature(a).Measure = measure;
             },
-            "Mean is how the ground bends overall. Profile is the bend along the fall line: positive where a " +
-            "slope steepens over an edge, negative where it eases out at the foot. Plan is the bend across " +
+            "Mean is how the ground bends overall. Along is the bend down the fall line: positive where a " +
+            "slope steepens over an edge, negative where it eases out at the foot. Across is the bend across " +
             "the fall line: positive on ridges and spurs that shed water, negative in valleys that gather it.",
             refreshOnly: true,
+            optionHelp: new Dictionary<string, string>
+            {
+                // Design review Step 73: tooltips explain the direction of each measure.
+                [nameof(CurvatureMeasure.Mean)] = "How the ground bends overall.",
+                [nameof(CurvatureMeasure.Profile)] = "The bend down the fall line: positive where a slope steepens over an edge, negative where it eases out at the foot.",
+                [nameof(CurvatureMeasure.Plan)] = "The bend across the fall line: positive on ridges and spurs that shed water, negative in valleys that gather it.",
+            },
             visibleWhen: a => Curvature(a).Display == CurvatureDisplay.Curvature),
         AnalysisParam.ColorRamp(
             "Colours the terrain by curvature in 1/model-unit, convex positive. The range is symmetric about " +

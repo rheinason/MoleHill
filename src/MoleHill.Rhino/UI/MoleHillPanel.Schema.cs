@@ -149,7 +149,7 @@ public sealed partial class MoleHillPanel
                 // one, stays a drop-down (design review: segmented controls for 2-3 meaningful modes).
                 bool modes = parameter.ChoiceOptionsFor == null && options.Count is 2 or 3 && !parameter.PreferDropDown;
                 return modes
-                    ? CreateSegmentedEditor(label, options, selected, choose, help)
+                    ? CreateSegmentedEditor(label, options, selected, choose, help, parameter.ChoiceOptionHelp)
                     : CreateDropDownEditor(label, options, selected, choose, help);
             }
 

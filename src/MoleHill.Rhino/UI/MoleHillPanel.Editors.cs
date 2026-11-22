@@ -788,7 +788,8 @@ public sealed partial class MoleHillPanel
         IReadOnlyList<(string Key, string Label)> options,
         string selectedKey,
         Action<string> onChanged,
-        string help)
+        string help,
+        IReadOnlyDictionary<string, string>? optionHelp = null)
     {
         int selectedIndex = Math.Max(0, options
             .Select((option, index) => (option, index))
@@ -796,7 +797,10 @@ public sealed partial class MoleHillPanel
             .Select(item => item.index)
             .DefaultIfEmpty(0)
             .First());
-        var segments = new SegmentedControl(options.Select(option => option.Label).ToList(), selectedIndex)
+        var segments = new SegmentedControl(
+            options.Select(option => option.Label).ToList(),
+            selectedIndex,
+            options.Select(option => optionHelp != null && optionHelp.TryGetValue(option.Key, out var text) ? text : null).ToList())
         {
             ToolTip = string.IsNullOrWhiteSpace(help)
                 ? string.Join(" · ", options.Select(option => option.Label))

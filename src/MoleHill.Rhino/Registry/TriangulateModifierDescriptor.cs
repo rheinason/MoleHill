@@ -11,9 +11,17 @@ internal sealed class TriangulateModifierDescriptor : ModifierTypeDescriptor
 {
     private static readonly IReadOnlyList<(string Key, string Label)> ContourModeOptions = new[]
     {
-        (TriangulateModifierDefinition.AutoContourMode, "Auto (fast for large sets)"),
-        (TriangulateModifierDefinition.ConstrainedContourMode, "Constrained (exact)"),
-        (TriangulateModifierDefinition.VerticesOnlyContourMode, "Vertices only (fastest)"),
+        (TriangulateModifierDefinition.AutoContourMode, "Auto"),
+        (TriangulateModifierDefinition.ConstrainedContourMode, "Exact"),
+        (TriangulateModifierDefinition.VerticesOnlyContourMode, "Vertices"),
+    };
+
+    // The former labels' own descriptions, kept on each segment.
+    private static readonly IReadOnlyDictionary<string, string> ContourModeHelp = new Dictionary<string, string>
+    {
+        [TriangulateModifierDefinition.AutoContourMode] = "Keeps contour edges on smaller sets and samples only the vertices of dense ones. Fast for large sets.",
+        [TriangulateModifierDefinition.ConstrainedContourMode] = "Keeps every contour segment as an edge. Exact, slower on large sets.",
+        [TriangulateModifierDefinition.VerticesOnlyContourMode] = "Samples contour vertices without inserting their edges. Fastest.",
     };
 
     public override string Kind => "triangulate";
@@ -88,6 +96,7 @@ internal sealed class TriangulateModifierDescriptor : ModifierTypeDescriptor
             "ContourMode", "Contour Mode", ContourModeOptions,
             m => ((TriangulateModifierDefinition)m).ContourMode,
             (m, v) => ((TriangulateModifierDefinition)m).ContourMode = v ?? TriangulateModifierDefinition.AutoContourMode,
-            $"Auto preserves contour edges below {TriangulateModifierDefinition.AutoUnconstrainedContourVertexThreshold:N0} source vertices, then treats dense contour stations as ordinary TIN samples for Grasshopper-like performance. Constrained preserves every contour segment. Vertices only always samples contour vertices without inserting their edges. Breaklines are kept in every mode."),
+            $"Auto preserves contour edges below {TriangulateModifierDefinition.AutoUnconstrainedContourVertexThreshold:N0} source vertices, then treats dense contour stations as ordinary TIN samples for Grasshopper-like performance. Exact preserves every contour segment. Vertices always samples contour vertices without inserting their edges. Breaklines are kept in every mode.",
+            optionHelp: ContourModeHelp),
     }.Concat(GeometryInputParameterCatalog.BoundaryPeel).ToArray();
 }

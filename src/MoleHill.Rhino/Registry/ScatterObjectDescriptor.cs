@@ -172,7 +172,7 @@ internal sealed class ScatterObjectDescriptor : ObjectTypeDescriptor
             ObjectParam.Choice(
                 "blockOrder",
                 "Block order",
-                new (string, string)[] { ("Random", "Random (by weight)"), ("Sequence", "In sequence") },
+                new (string, string)[] { ("Random", "Random"), ("Sequence", "Sequence") },
                 definition => ((ScatterObjectDefinition)definition).BlockOrder.ToString(),
                 (definition, value) => ((ScatterObjectDefinition)definition).BlockOrder = Enum.Parse<ScatterBlockOrder>(value!),
                 "Random: choose by weight. Sequence: cycle the block list in order.",

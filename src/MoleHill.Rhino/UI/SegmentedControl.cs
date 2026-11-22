@@ -14,13 +14,16 @@ namespace MoleHill.Rhino.UI;
 internal sealed class SegmentedControl : Drawable
 {
     private readonly IReadOnlyList<string> _labels;
+    private readonly IReadOnlyList<string?>? _help;
+    private string? _rowToolTip;
     private readonly Font _font = SystemFonts.Default();
     private int _selected;
     private int _hover = -1;
 
-    public SegmentedControl(IReadOnlyList<string> labels, int selectedIndex)
+    public SegmentedControl(IReadOnlyList<string> labels, int selectedIndex, IReadOnlyList<string?>? help = null)
     {
         _labels = labels;
+        _help = help;
         _selected = Math.Clamp(selectedIndex, 0, Math.Max(0, labels.Count - 1));
         Height = UiMetrics.ControlHeight;
         CanFocus = true;
@@ -73,7 +76,11 @@ internal sealed class SegmentedControl : Drawable
         if (index == _hover)
             return;
 
+        // The hovered segment's own help, when it has some, replaces the row's tooltip while over it.
+        _rowToolTip ??= ToolTip;
         _hover = index;
+        string? segmentHelp = index >= 0 && _help != null && index < _help.Count ? _help[index] : null;
+        ToolTip = segmentHelp ?? _rowToolTip;
         Invalidate();
     }
 

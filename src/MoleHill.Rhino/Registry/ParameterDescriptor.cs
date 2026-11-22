@@ -145,6 +145,12 @@ internal sealed class ParameterDescriptor<TDefinition>
     /// </summary>
     public bool PreferDropDown { get; init; }
 
+    /// <summary>
+    /// What each option does, by option key: shown as the tooltip of its segment, so a mode's trade-off is
+    /// explained where it is picked (the row's <see cref="Help"/> still describes the choice as a whole).
+    /// </summary>
+    public IReadOnlyDictionary<string, string>? ChoiceOptionHelp { get; init; }
+
     // ---- Color ----
     // Fallback and default text take the owning terrain as well as the definition: a colour row resolves
     // "by layer" against the item's own output layer, falling back to the terrain's layer for the family.
@@ -421,11 +427,13 @@ internal sealed class ParameterDescriptor<TDefinition>
         bool rebuildAfterCommit = false,
         Func<TDefinition, bool>? visibleWhen = null,
         Func<TDefinition, IReadOnlyList<(string Key, string Label)>>? optionsFor = null,
-        bool preferDropDown = false) =>
+        bool preferDropDown = false,
+        IReadOnlyDictionary<string, string>? optionHelp = null) =>
         new()
         {
             Kind = ParameterKind.Choice,
             PreferDropDown = preferDropDown,
+            ChoiceOptionHelp = optionHelp,
             Key = key,
             Label = label,
             ChoiceOptions = options,

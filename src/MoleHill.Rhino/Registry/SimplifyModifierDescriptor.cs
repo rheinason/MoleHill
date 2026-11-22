@@ -41,14 +41,21 @@ internal sealed class SimplifyModifierDescriptor : ModifierTypeDescriptor
             "Mode", "Mode",
             new[]
             {
-                (SimplifyModifierDefinition.MaximumDeviationMode, "Maximum deviation"),
-                (SimplifyModifierDefinition.TargetVertexCountMode, "Target vertex count"),
-                (SimplifyModifierDefinition.RetainPercentageMode, "Retain percentage")
+                (SimplifyModifierDefinition.MaximumDeviationMode, "Deviation"),
+                (SimplifyModifierDefinition.TargetVertexCountMode, "Vertices"),
+                (SimplifyModifierDefinition.RetainPercentageMode, "Keep %")
             },
             m => ((SimplifyModifierDefinition)m).Mode,
             (m, value) => ((SimplifyModifierDefinition)m).Mode = value ?? SimplifyModifierDefinition.MaximumDeviationMode,
             "Choose a certified vertical-error bound, an output vertex cap, or a percentage converted to a floor-rounded vertex cap. Count modes report achieved error but do not impose an error tolerance.",
-            rebuildAfterCommit: true),
+            rebuildAfterCommit: true,
+            optionHelp: new Dictionary<string, string>
+            {
+                // Design review Step 54.
+                [SimplifyModifierDefinition.MaximumDeviationMode] = "Limits the vertical difference from the incoming surface.",
+                [SimplifyModifierDefinition.TargetVertexCountMode] = "Caps the output vertex count. Reports the achieved error without imposing a deviation limit.",
+                [SimplifyModifierDefinition.RetainPercentageMode] = "Converts a percentage of the incoming vertex count to a cap, rounded down. Reports the achieved error without imposing a deviation limit.",
+            }),
         ModifierParam.Number(
             "MaximumDeviation", "Maximum Deviation",
             m => ((SimplifyModifierDefinition)m).MaximumDeviation,
