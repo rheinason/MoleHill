@@ -82,27 +82,20 @@ internal sealed class RetainingWallModifierDescriptor : ModifierTypeDescriptor
             m => ((RetainingWallModifierDefinition)m).SlopeAngle,
             "Cut slope override, used where terrain sits above the rail.",
             visibleWhen: Grades),
+        ModifierParam.Number(
+            "MaxDistance", "Max Distance",
+            m => ((RetainingWallModifierDefinition)m).MaxDistance,
+            (m, v) => ((RetainingWallModifierDefinition)m).MaxDistance = v,
+            "Maximum grading reach away from a rail. 0 means unlimited; smaller values stop the batter sooner.",
+            unit: ParameterUnit.ModelLength,
+            visibleWhen: Grades),
         ModifierParam.Bool(
-            "UseAsymmetricSides", "Asymmetric Sides",
+            "UseAsymmetricSides", "Separate Top and Toe Slopes",
             m => ((RetainingWallModifierDefinition)m).UseAsymmetricSides,
             (m, v) => ((RetainingWallModifierDefinition)m).UseAsymmetricSides = v,
             "Off: both faces of the wall use the slopes above. On: the toe side and the top side take their own slopes — a wall retaining a pad on one side and daylighting into the bank on the other.",
             visibleWhen: Grades,
             rebuildAfterCommit: true),
-        ModifierParam.OptionalSlope(
-            "ToeCutSlopeAngle", "Toe Cut Slope",
-            m => ((RetainingWallModifierDefinition)m).ToeCutSlopeAngle,
-            (m, v) => ((RetainingWallModifierDefinition)m).ToeCutSlopeAngle = v,
-            InheritedCut,
-            "Cut slope below the wall, running away from the lower rail. Blank inherits the shared cut slope.",
-            visibleWhen: GradesAsymmetric),
-        ModifierParam.OptionalSlope(
-            "ToeFillSlopeAngle", "Toe Fill Slope",
-            m => ((RetainingWallModifierDefinition)m).ToeFillSlopeAngle,
-            (m, v) => ((RetainingWallModifierDefinition)m).ToeFillSlopeAngle = v,
-            m => ((RetainingWallModifierDefinition)m).SlopeAngle,
-            "Fill slope below the wall. Blank inherits the shared fill slope.",
-            visibleWhen: GradesAsymmetric),
         ModifierParam.OptionalSlope(
             "TopCutSlopeAngle", "Top Cut Slope",
             m => ((RetainingWallModifierDefinition)m).TopCutSlopeAngle,
@@ -117,12 +110,19 @@ internal sealed class RetainingWallModifierDescriptor : ModifierTypeDescriptor
             m => ((RetainingWallModifierDefinition)m).SlopeAngle,
             "Fill slope above the wall. Blank inherits the shared fill slope.",
             visibleWhen: GradesAsymmetric),
-        ModifierParam.Number(
-            "MaxDistance", "Max Distance",
-            m => ((RetainingWallModifierDefinition)m).MaxDistance,
-            (m, v) => ((RetainingWallModifierDefinition)m).MaxDistance = v,
-            "Maximum grading reach away from a rail. 0 means unlimited; smaller values stop the batter sooner.",
-            unit: ParameterUnit.ModelLength,
-            visibleWhen: Grades),
+        ModifierParam.OptionalSlope(
+            "ToeCutSlopeAngle", "Toe Cut Slope",
+            m => ((RetainingWallModifierDefinition)m).ToeCutSlopeAngle,
+            (m, v) => ((RetainingWallModifierDefinition)m).ToeCutSlopeAngle = v,
+            InheritedCut,
+            "Cut slope below the wall, running away from the lower rail. Blank inherits the shared cut slope.",
+            visibleWhen: GradesAsymmetric),
+        ModifierParam.OptionalSlope(
+            "ToeFillSlopeAngle", "Toe Fill Slope",
+            m => ((RetainingWallModifierDefinition)m).ToeFillSlopeAngle,
+            (m, v) => ((RetainingWallModifierDefinition)m).ToeFillSlopeAngle = v,
+            m => ((RetainingWallModifierDefinition)m).SlopeAngle,
+            "Fill slope below the wall. Blank inherits the shared fill slope.",
+            visibleWhen: GradesAsymmetric),
     };
 }

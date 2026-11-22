@@ -51,44 +51,6 @@ internal sealed class GradeLineModifierDescriptor : ModifierTypeDescriptor
             (m, v) => ((GradeLineModifierDefinition)m).CutSlopeAngle = v,
             m => ((GradeLineModifierDefinition)m).SlopeAngle,
             "Cut slope override, used where terrain sits above the line."),
-        ModifierParam.Bool(
-            "UseAsymmetricSides", "Asymmetric Sides",
-            m => ((GradeLineModifierDefinition)m).UseAsymmetricSides,
-            (m, v) => ((GradeLineModifierDefinition)m).UseAsymmetricSides = v,
-            "Off: both sides use the slopes above. On: each side of the line takes its own cut and fill slope, which is how a ditch with a steep back and a flat front is drawn.",
-            rebuildAfterCommit: true),
-        ModifierParam.OptionalSlope(
-            "LeftCutSlopeAngle", "Left Cut Slope",
-            m => ((GradeLineModifierDefinition)m).LeftCutSlopeAngle,
-            (m, v) => ((GradeLineModifierDefinition)m).LeftCutSlopeAngle = v,
-            m => ((GradeLineModifierDefinition)m).CutSlopeAngle > 0.0
-                ? ((GradeLineModifierDefinition)m).CutSlopeAngle
-                : ((GradeLineModifierDefinition)m).SlopeAngle,
-            "Cut slope on the left of the line. Blank inherits the shared cut slope.",
-            visibleWhen: IsAsymmetric),
-        ModifierParam.OptionalSlope(
-            "LeftFillSlopeAngle", "Left Fill Slope",
-            m => ((GradeLineModifierDefinition)m).LeftFillSlopeAngle,
-            (m, v) => ((GradeLineModifierDefinition)m).LeftFillSlopeAngle = v,
-            m => ((GradeLineModifierDefinition)m).SlopeAngle,
-            "Fill slope on the left of the line. Blank inherits the shared fill slope.",
-            visibleWhen: IsAsymmetric),
-        ModifierParam.OptionalSlope(
-            "RightCutSlopeAngle", "Right Cut Slope",
-            m => ((GradeLineModifierDefinition)m).RightCutSlopeAngle,
-            (m, v) => ((GradeLineModifierDefinition)m).RightCutSlopeAngle = v,
-            m => ((GradeLineModifierDefinition)m).CutSlopeAngle > 0.0
-                ? ((GradeLineModifierDefinition)m).CutSlopeAngle
-                : ((GradeLineModifierDefinition)m).SlopeAngle,
-            "Cut slope on the right of the line. Blank inherits the shared cut slope.",
-            visibleWhen: IsAsymmetric),
-        ModifierParam.OptionalSlope(
-            "RightFillSlopeAngle", "Right Fill Slope",
-            m => ((GradeLineModifierDefinition)m).RightFillSlopeAngle,
-            (m, v) => ((GradeLineModifierDefinition)m).RightFillSlopeAngle = v,
-            m => ((GradeLineModifierDefinition)m).SlopeAngle,
-            "Fill slope on the right of the line. Blank inherits the shared fill slope.",
-            visibleWhen: IsAsymmetric),
         ModifierParam.Number(
             "MaxDistance", "Max Distance",
             m => ((GradeLineModifierDefinition)m).MaxDistance,
@@ -100,5 +62,43 @@ internal sealed class GradeLineModifierDescriptor : ModifierTypeDescriptor
             m => ((GradeLineModifierDefinition)m).GradeThroughBreaklines,
             (m, v) => ((GradeLineModifierDefinition)m).GradeThroughBreaklines = v,
             "Off: breaklines and graded edges from cards above are lines this grade may not cross. On: it regrades across them, and the parts it regraded are dropped."),
+        ModifierParam.Bool(
+            "UseAsymmetricSides", "Separate Left and Right Slopes",
+            m => ((GradeLineModifierDefinition)m).UseAsymmetricSides,
+            (m, v) => ((GradeLineModifierDefinition)m).UseAsymmetricSides = v,
+            "Off: both sides use the shared slopes. On: each side of the line takes its own cut and fill slope, which is how a ditch with a steep back and a flat front is drawn. Left and right are as seen looking from the start of the line toward its end.",
+            rebuildAfterCommit: true),
+        ModifierParam.OptionalSlope(
+            "LeftCutSlopeAngle", "Left Cut Slope",
+            m => ((GradeLineModifierDefinition)m).LeftCutSlopeAngle,
+            (m, v) => ((GradeLineModifierDefinition)m).LeftCutSlopeAngle = v,
+            m => ((GradeLineModifierDefinition)m).CutSlopeAngle > 0.0
+                ? ((GradeLineModifierDefinition)m).CutSlopeAngle
+                : ((GradeLineModifierDefinition)m).SlopeAngle,
+            "Cut slope on the left of the line, looking from its start toward its end. Blank inherits the shared cut slope.",
+            visibleWhen: IsAsymmetric),
+        ModifierParam.OptionalSlope(
+            "LeftFillSlopeAngle", "Left Fill Slope",
+            m => ((GradeLineModifierDefinition)m).LeftFillSlopeAngle,
+            (m, v) => ((GradeLineModifierDefinition)m).LeftFillSlopeAngle = v,
+            m => ((GradeLineModifierDefinition)m).SlopeAngle,
+            "Fill slope on the left of the line, looking from its start toward its end. Blank inherits the shared fill slope.",
+            visibleWhen: IsAsymmetric),
+        ModifierParam.OptionalSlope(
+            "RightCutSlopeAngle", "Right Cut Slope",
+            m => ((GradeLineModifierDefinition)m).RightCutSlopeAngle,
+            (m, v) => ((GradeLineModifierDefinition)m).RightCutSlopeAngle = v,
+            m => ((GradeLineModifierDefinition)m).CutSlopeAngle > 0.0
+                ? ((GradeLineModifierDefinition)m).CutSlopeAngle
+                : ((GradeLineModifierDefinition)m).SlopeAngle,
+            "Cut slope on the right of the line, looking from its start toward its end. Blank inherits the shared cut slope.",
+            visibleWhen: IsAsymmetric),
+        ModifierParam.OptionalSlope(
+            "RightFillSlopeAngle", "Right Fill Slope",
+            m => ((GradeLineModifierDefinition)m).RightFillSlopeAngle,
+            (m, v) => ((GradeLineModifierDefinition)m).RightFillSlopeAngle = v,
+            m => ((GradeLineModifierDefinition)m).SlopeAngle,
+            "Fill slope on the right of the line, looking from its start toward its end. Blank inherits the shared fill slope.",
+            visibleWhen: IsAsymmetric),
     };
 }

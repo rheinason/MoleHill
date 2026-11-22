@@ -58,11 +58,13 @@ internal sealed class GradePathModifierDescriptor : ModifierTypeDescriptor
             RhinoObjectType.Curve,
             "Roughly parallel plan curves. Each curve is matched uniquely to a centerline side; its Z is ignored and remapped from the centerline.",
             visibleWhen: static m => ((GradePathModifierDefinition)m).UseVariableWidth),
-        ModifierParam.Number(
+        // Design review Step 44: blank (0, as saved before) reads Auto, the four-times-Width fallback.
+        ModifierParam.OptionalNumber(
             "MaxEdgeDistance", "Edge Match Distance",
             m => ((GradePathModifierDefinition)m).MaxEdgeDistance,
             (m, v) => ((GradePathModifierDefinition)m).MaxEdgeDistance = v,
-            "Maximum plan distance for matching a width edge to a centerline. A larger value helps match edges on wide sites; set to 0 to use the automatic four-times-Width fallback.",
+            _ => 0.0,
+            "Maximum plan distance for matching a width edge to a centerline. Auto (blank) uses four times Width, so a 2 m path matches edges within 8 m; enter a distance to match edges further out on wide sites.",
             unit: ParameterUnit.ModelLength,
             visibleWhen: static m => ((GradePathModifierDefinition)m).UseVariableWidth),
         ModifierParam.Slope(

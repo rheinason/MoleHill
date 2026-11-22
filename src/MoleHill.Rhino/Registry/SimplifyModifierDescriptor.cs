@@ -58,7 +58,7 @@ internal sealed class SimplifyModifierDescriptor : ModifierTypeDescriptor
             },
             fullRow: true),
         ModifierParam.Number(
-            "MaximumDeviation", "Maximum Deviation",
+            "MaximumDeviation", "Max Deviation",
             m => ((SimplifyModifierDefinition)m).MaximumDeviation,
             (m, value) => ((SimplifyModifierDefinition)m).MaximumDeviation = value,
             "Largest permitted vertical difference from the terrain immediately before this modifier. The complete triangle overlay is verified; the mesh border and grading and wall breaklines are kept. If no smaller mesh can meet the bound, the incoming mesh is kept. Later modifiers may change the surface, and Earthworks can report a small volume difference because Simplify does not conserve volume.",
