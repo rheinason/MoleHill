@@ -341,11 +341,8 @@ public sealed partial class MoleHillPanel
     private static string GetAnalysisKind(AnalysisDefinition analysis) =>
         AnalysisTypeRegistry.ForType(analysis.GetType())?.Kind ?? string.Empty;
 
-    private static Color AnalysisTypeColor(string kind)
-    {
-        int argb = AnalysisTypeRegistry.ForKind(kind)?.AccentArgb ?? unchecked((int)0xFF787878);
-        return Color.FromArgb((argb >> 16) & 0xFF, (argb >> 8) & 0xFF, argb & 0xFF);
-    }
+    private static Color AnalysisTypeColor(string kind) =>
+        UiTheme.TypeAccent(AnalysisTypeRegistry.ForKind(kind)?.AccentArgb);
 
     private static string GetAnalysisIconLabel(AnalysisDefinition analysis) =>
         AnalysisTypeRegistry.ForType(analysis.GetType())?.IconLabel ?? "A";

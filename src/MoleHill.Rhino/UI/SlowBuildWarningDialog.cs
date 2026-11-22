@@ -27,7 +27,7 @@ internal static class SlowBuildWarningDialog
             Resizable = false,
             Maximizable = false,
             Minimizable = false,
-            Padding = new Padding(12),
+            Padding = new Padding(UiMetrics.DialogPadding),
             ClientSize = new Size(440, 150),
             MinimumSize = new Size(440, 150),
             DefaultButton = continueButton,
@@ -63,7 +63,7 @@ internal static class SlowBuildWarningDialog
 
         dialog.Content = new DynamicLayout
         {
-            DefaultSpacing = new Size(0, 10),
+            DefaultSpacing = new Size(0, UiMetrics.SpaceXLarge),
             Rows =
             {
                 new Label
@@ -76,7 +76,7 @@ internal static class SlowBuildWarningDialog
                 new StackLayout
                 {
                     Orientation = Orientation.Horizontal,
-                    Spacing = 8,
+                    Spacing = UiMetrics.DialogSpacing,
                     HorizontalContentAlignment = HorizontalAlignment.Right,
                     Items =
                     {

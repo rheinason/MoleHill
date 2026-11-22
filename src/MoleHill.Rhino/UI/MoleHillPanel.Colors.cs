@@ -64,7 +64,7 @@ public sealed partial class MoleHillPanel : Panel
         var summaryRow = new StackLayout
         {
             Orientation = Orientation.Horizontal,
-            Spacing = 4,
+            Spacing = UiMetrics.SpaceSmall,
             VerticalContentAlignment = VerticalAlignment.Center,
             HorizontalContentAlignment = HorizontalAlignment.Stretch,
             Items =
@@ -77,9 +77,9 @@ public sealed partial class MoleHillPanel : Panel
         var editor = new StackLayout
         {
             Orientation = Orientation.Horizontal,
-            Spacing = 4,
+            Spacing = UiMetrics.SpaceSmall,
             VerticalContentAlignment = VerticalAlignment.Center,
-            Padding = new Padding(0, 1),
+            Padding = new Padding(0, UiMetrics.SpaceHairline),
             HorizontalContentAlignment = HorizontalAlignment.Stretch,
             Items =
             {

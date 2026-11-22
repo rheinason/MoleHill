@@ -80,7 +80,7 @@ internal sealed class LayerTemplateEditorDialog : Dialog<bool>
             var bmp = new Bitmap(14, 14, PixelFormat.Format32bppRgba);
             using var g = new Graphics(bmp);
             g.Clear(fill);
-            g.DrawRectangle(Color.FromArgb(0, 0, 0, 90), 0, 0, 13, 13);
+            g.DrawRectangle(UiTheme.SwatchOutline, 0, 0, 13, 13);
             return bmp;
         }
     }
@@ -120,7 +120,7 @@ internal sealed class LayerTemplateEditorDialog : Dialog<bool>
 
         Title = "MoleHill Layer Templates";
         Resizable = true;
-        Padding = 12;
+        Padding = UiMetrics.DialogPadding;
         MinimumSize = new Size(620, 600);
         this.UseRhinoStyle();
 
@@ -141,7 +141,7 @@ internal sealed class LayerTemplateEditorDialog : Dialog<bool>
 
     private Control BuildLayout()
     {
-        var layout = new DynamicLayout { Spacing = new Size(8, 8) };
+        var layout = new DynamicLayout { Spacing = UiMetrics.DialogGap };
 
         layout.AddRow(new Label
         {
@@ -181,7 +181,7 @@ internal sealed class LayerTemplateEditorDialog : Dialog<bool>
         return new StackLayout
         {
             Orientation = Orientation.Horizontal,
-            Spacing = 6,
+            Spacing = UiMetrics.DialogRowSpacing,
             VerticalContentAlignment = VerticalAlignment.Center,
             Items =
             {
@@ -260,7 +260,7 @@ internal sealed class LayerTemplateEditorDialog : Dialog<bool>
         return new StackLayout
         {
             Orientation = Orientation.Horizontal,
-            Spacing = 6,
+            Spacing = UiMetrics.DialogRowSpacing,
             Items = { addChild, addSibling, delete, new Panel { Width = 16 }, _addMissingButton }
         };
     }
@@ -308,7 +308,7 @@ internal sealed class LayerTemplateEditorDialog : Dialog<bool>
         };
         _selectionDependent.Add(_annotationStylePicker);
 
-        var grid = new DynamicLayout { Spacing = new Size(8, 6), Padding = new Padding(0, 4) };
+        var grid = new DynamicLayout { Spacing = new Size(UiMetrics.SpaceLarge, UiMetrics.SpaceMedium), Padding = new Padding(0, UiMetrics.SpaceSmall) };
         grid.AddRow(new Label { Text = "Selected:", TextColor = UiTheme.MutedText }, _pathLabel, null);
         grid.AddRow(
             new Label { Text = "Color:", VerticalAlignment = VerticalAlignment.Center },
@@ -335,7 +335,7 @@ internal sealed class LayerTemplateEditorDialog : Dialog<bool>
         return new Panel
         {
             BackgroundColor = UiTheme.HeaderBackground,
-            Padding = new Padding(8),
+            Padding = new Padding(UiMetrics.SpaceLarge),
             Content = grid
         };
     }
@@ -343,7 +343,7 @@ internal sealed class LayerTemplateEditorDialog : Dialog<bool>
     private static Control SwatchRow(Panel swatch, Label hex, Button pick) => new StackLayout
     {
         Orientation = Orientation.Horizontal,
-        Spacing = 8,
+        Spacing = UiMetrics.DialogSpacing,
         VerticalContentAlignment = VerticalAlignment.Center,
         Items = { swatch, hex, pick }
     };
@@ -370,7 +370,7 @@ internal sealed class LayerTemplateEditorDialog : Dialog<bool>
         return new StackLayout
         {
             Orientation = Orientation.Horizontal,
-            Spacing = 8,
+            Spacing = UiMetrics.DialogSpacing,
             Items =
             {
                 importButton,
@@ -731,7 +731,7 @@ internal sealed class LayerTemplateEditorDialog : Dialog<bool>
         var dialog = new Dialog<bool>
         {
             Title = "Output for " + NodePath(node),
-            Padding = 12,
+            Padding = UiMetrics.DialogPadding,
             Resizable = true,
             MinimumSize = new Size(520, 420)
         };
@@ -747,7 +747,7 @@ internal sealed class LayerTemplateEditorDialog : Dialog<bool>
         dialog.Content = new StackLayout
         {
             Orientation = Orientation.Vertical,
-            Spacing = 8,
+            Spacing = UiMetrics.DialogSpacing,
             HorizontalContentAlignment = HorizontalAlignment.Stretch,
             Items =
             {
@@ -761,7 +761,7 @@ internal sealed class LayerTemplateEditorDialog : Dialog<bool>
                 new StackLayout
                 {
                     Orientation = Orientation.Horizontal,
-                    Spacing = 6,
+                    Spacing = UiMetrics.DialogRowSpacing,
                     HorizontalContentAlignment = HorizontalAlignment.Right,
                     Items = { null, ok, cancel }
                 }
@@ -1086,14 +1086,14 @@ internal sealed class LayerTemplateEditorDialog : Dialog<bool>
         var box = new TextBox { Text = initial, Width = 260 };
         var ok = new Button { Text = "OK" };
         var cancel = new Button { Text = "Cancel" };
-        var dialog = new Dialog<string?> { Title = title, Padding = 12, Resizable = false };
+        var dialog = new Dialog<string?> { Title = title, Padding = UiMetrics.DialogPadding, Resizable = false };
         dialog.DefaultButton = ok;
         dialog.AbortButton = cancel;
         ok.Click += (_, _) => { dialog.Result = box.Text?.Trim(); dialog.Close(); };
         cancel.Click += (_, _) => { dialog.Result = null; dialog.Close(); };
         dialog.Content = new StackLayout
         {
-            Spacing = 8,
+            Spacing = UiMetrics.DialogSpacing,
             Items =
             {
                 new Label { Text = title },
@@ -1101,7 +1101,7 @@ internal sealed class LayerTemplateEditorDialog : Dialog<bool>
                 new StackLayout
                 {
                     Orientation = Orientation.Horizontal,
-                    Spacing = 8,
+                    Spacing = UiMetrics.DialogSpacing,
                     Items = { null, ok, cancel }
                 }
             }

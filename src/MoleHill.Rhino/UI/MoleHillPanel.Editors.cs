@@ -878,7 +878,7 @@ public sealed partial class MoleHillPanel
         var widget = new StackLayout
         {
             Orientation = Orientation.Horizontal,
-            Spacing = 4,
+            Spacing = UiMetrics.SpaceSmall,
             VerticalContentAlignment = VerticalAlignment.Center,
             Items = { new StackLayoutItem(textBox, expand: true), browse }
         };

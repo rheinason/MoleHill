@@ -13,6 +13,9 @@ internal sealed class RemeshModifierDescriptor : ModifierTypeDescriptor
     public override Type DefinitionType => typeof(RemeshModifierDefinition);
     public override string DisplayName => "Remesh";
     public override string IconName => "ModRemesh";
+
+    public override int AccentArgb => unchecked((int)0xFF388E3C);
+
     public override int SortOrder => 2;
     public override string Subtitle => "Even triangles, creases kept";
     public override ModifierDefinition Create(UnitSystem unitSystem) => new RemeshModifierDefinition

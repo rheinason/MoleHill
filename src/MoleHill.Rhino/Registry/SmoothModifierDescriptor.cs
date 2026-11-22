@@ -13,6 +13,9 @@ internal sealed class SmoothModifierDescriptor : ModifierTypeDescriptor
     public override Type DefinitionType => typeof(SmoothModifierDefinition);
     public override string DisplayName => "Smooth";
     public override string IconName => "ModSmooth";
+
+    public override int AccentArgb => unchecked((int)0xFF7B1FA2);
+
     public override int SortOrder => 3;
     public override string Subtitle => "Smooth heights or round creases, keep plan";
     public override ModifierDefinition Create(UnitSystem unitSystem) => new SmoothModifierDefinition

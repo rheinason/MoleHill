@@ -13,6 +13,9 @@ internal sealed class ProjectToModifierDescriptor : ModifierTypeDescriptor
     public override Type DefinitionType => typeof(ProjectToModifierDefinition);
     public override string DisplayName => "Project To";
     public override string IconName => "ModProjectTo";
+
+    public override int AccentArgb => unchecked((int)0xFF00798C);
+
     public override int SortOrder => 9;
     public override string Subtitle => "Blend heights toward a target mesh";
 

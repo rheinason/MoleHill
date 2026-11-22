@@ -20,6 +20,9 @@ internal sealed class DisplaceModifierDescriptor : ModifierTypeDescriptor
     public override Type DefinitionType => typeof(DisplaceModifierDefinition);
     public override string DisplayName => "Displace";
     public override string IconName => "ModDisplace";
+
+    public override int AccentArgb => unchecked((int)0xFF3949AB);
+
     public override int SortOrder => 4;
     public override string Subtitle => "Raise and lower the ground by noise or an image";
 

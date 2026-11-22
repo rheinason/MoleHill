@@ -13,6 +13,9 @@ internal sealed class InSituStairModifierDescriptor : ModifierTypeDescriptor
     public override Type DefinitionType => typeof(InSituStairModifierDefinition);
     public override string DisplayName => "In-Situ Stair";
     public override string IconName => "ModGradePath";
+
+    public override int AccentArgb => unchecked((int)0xFF00796B);
+
     public override int SortOrder => 8;
     public override string Subtitle => "Stair solids on a support surface";
     public override ModifierDefinition Create(UnitSystem unitSystem) =>

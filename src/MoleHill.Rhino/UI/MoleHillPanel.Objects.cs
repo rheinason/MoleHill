@@ -308,11 +308,11 @@ public sealed partial class MoleHillPanel
         return new StackLayout
         {
             Orientation = Orientation.Vertical,
-            Spacing = 3,
+            Spacing = UiMetrics.SpaceSmall,
             HorizontalContentAlignment = HorizontalAlignment.Stretch,
             Items =
             {
-                new StackLayout { Orientation = Orientation.Horizontal, Spacing = 5,
+                new StackLayout { Orientation = Orientation.Horizontal, Spacing = UiMetrics.SpaceMedium,
                     VerticalContentAlignment = VerticalAlignment.Center,
                     Items = { include, thumbnail, new StackLayoutItem(nameLabel, expand: true), removeButton } },
                 new Label { Text = quantities, TextColor = UiTheme.MutedText, Wrap = WrapMode.Word },
@@ -341,8 +341,8 @@ public sealed partial class MoleHillPanel
         return new StackLayout
         {
             Orientation = Orientation.Horizontal,
-            Spacing = 6,
-            Padding = new Padding(0, 5, 0, 1),
+            Spacing = UiMetrics.SpaceMedium,
+            Padding = new Padding(0, UiMetrics.SpaceMedium, 0, UiMetrics.SpaceHairline),
             VerticalContentAlignment = VerticalAlignment.Center,
             HorizontalContentAlignment = HorizontalAlignment.Stretch,
             Items =
@@ -360,7 +360,7 @@ public sealed partial class MoleHillPanel
         return new Panel
         {
             BackgroundColor = UiTheme.InputBackground,
-            Padding = new Padding(8, 6),
+            Padding = new Padding(UiMetrics.SpaceLarge, UiMetrics.SpaceMedium),
             Content = new Label
             {
                 Text = "No blocks selected",
@@ -385,7 +385,7 @@ public sealed partial class MoleHillPanel
         var controls = new StackLayout
         {
             Orientation = Orientation.Horizontal,
-            Spacing = 6,
+            Spacing = UiMetrics.SpaceMedium,
             VerticalContentAlignment = VerticalAlignment.Center,
             HorizontalContentAlignment = HorizontalAlignment.Stretch,
             Items =
@@ -398,8 +398,8 @@ public sealed partial class MoleHillPanel
         return new StackLayout
         {
             Orientation = Orientation.Vertical,
-            Spacing = 4,
-            Padding = new Padding(0, 3),
+            Spacing = UiMetrics.SpaceSmall,
+            Padding = new Padding(0, UiMetrics.SpaceSmall),
             HorizontalContentAlignment = HorizontalAlignment.Stretch,
             Items =
             {
@@ -573,7 +573,7 @@ public sealed partial class MoleHillPanel
         return new StackLayout
         {
             Orientation = Orientation.Horizontal,
-            Spacing = 6,
+            Spacing = UiMetrics.SpaceMedium,
             VerticalContentAlignment = VerticalAlignment.Center,
             HorizontalContentAlignment = HorizontalAlignment.Stretch,
             Items =
@@ -629,11 +629,8 @@ public sealed partial class MoleHillPanel
     private static string GetTerrainObjectKind(TerrainObjectDefinition definition) =>
         ObjectTypeRegistry.ForType(definition.GetType())?.Kind ?? string.Empty;
 
-    private static Color TerrainObjectTypeColor(string kind)
-    {
-        int argb = ObjectTypeRegistry.ForKind(kind)?.AccentArgb ?? unchecked((int)0xFF787878);
-        return Color.FromArgb((argb >> 16) & 0xFF, (argb >> 8) & 0xFF, argb & 0xFF);
-    }
+    private static Color TerrainObjectTypeColor(string kind) =>
+        UiTheme.TypeAccent(ObjectTypeRegistry.ForKind(kind)?.AccentArgb);
 
     private static string GetTerrainObjectIconLabel(TerrainObjectDefinition definition) =>
         ObjectTypeRegistry.ForType(definition.GetType())?.IconLabel ?? "O";

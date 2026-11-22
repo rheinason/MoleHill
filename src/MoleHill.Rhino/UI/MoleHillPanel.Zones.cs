@@ -24,7 +24,7 @@ public sealed partial class MoleHillPanel
 
         _zonesStack.Items.Add(new StackLayoutItem(new Panel
         {
-            Padding = new Padding(6, 0, 6, 4),
+            Padding = new Padding(UiMetrics.SpaceMedium, 0, UiMetrics.SpaceMedium, UiMetrics.SpaceSmall),
             Content = new Label
             {
                 Text = "Later zones win. Use input Z when stacked inputs should resolve by elevation.",
@@ -38,9 +38,7 @@ public sealed partial class MoleHillPanel
         {
             var zoneId = zone.ZoneId;
 
-            var zoneInner = new Panel { BackgroundColor = Colors.Transparent };
-            var zoneOuter = new Panel { Height = 8, Padding = new Padding(0, 2), Content = zoneInner };
-            ApplyHelp(zoneOuter, "Drop here to reorder zones.");
+            var zoneOuter = CreateDropSeparator("Drop here to reorder zones.", out var zoneInner);
             _zoneSepMap[zoneId] = zoneInner;
             WireZoneSepDragDrop(zoneOuter, zoneInner, terrainId, zoneId);
             _zonesStack.Items.Add(new StackLayoutItem(zoneOuter, HorizontalAlignment.Stretch));
@@ -53,9 +51,7 @@ public sealed partial class MoleHillPanel
             _zonesStack.Items.Add(new StackLayoutItem(zoneWrapper, HorizontalAlignment.Stretch));
         }
 
-        var tailZoneInner = new Panel { BackgroundColor = Colors.Transparent };
-        var tailZoneOuter = new Panel { Height = 8, Padding = new Padding(0, 2), Content = tailZoneInner };
-        ApplyHelp(tailZoneOuter, "Drop here to reorder zones.");
+        var tailZoneOuter = CreateDropSeparator("Drop here to reorder zones.", out var tailZoneInner);
         _zoneSepMap[Guid.Empty] = tailZoneInner;
         WireZoneSepDragDrop(tailZoneOuter, tailZoneInner, terrainId, Guid.Empty);
         _zonesStack.Items.Add(new StackLayoutItem(tailZoneOuter, HorizontalAlignment.Stretch));
@@ -207,7 +203,7 @@ public sealed partial class MoleHillPanel
         var viewToggleRow = new StackLayout
         {
             Orientation = Orientation.Horizontal,
-            Spacing = 8,
+            Spacing = UiMetrics.SpaceLarge,
             VerticalContentAlignment = VerticalAlignment.Center,
             Items =
             {
@@ -417,7 +413,7 @@ public sealed partial class MoleHillPanel
         };
         var bordered = new Panel
         {
-            Padding = new Padding(1),
+            Padding = new Padding(UiMetrics.SpaceHairline),
             BackgroundColor = UiTheme.MutedText,
             Content = swatch
         };
@@ -478,8 +474,8 @@ public sealed partial class MoleHillPanel
         popup.Content = new StackLayout
         {
             Orientation = Orientation.Vertical,
-            Spacing = 6,
-            Padding = new Padding(8),
+            Spacing = UiMetrics.SpaceMedium,
+            Padding = new Padding(UiMetrics.SpaceLarge),
             HorizontalContentAlignment = HorizontalAlignment.Stretch,
             Items =
             {

@@ -85,8 +85,8 @@ internal sealed class RouteWeightTriangle : Drawable
         Label(g, font, "Gentle", GentleCorner, -0.5f, -14f);
 
         PointF dot = Blend(_distance, _steepness, _earthworks);
-        g.FillEllipse(Color.FromArgb(25, 157, 73), dot.X - DotRadius, dot.Y - DotRadius, 2 * DotRadius, 2 * DotRadius);
-        g.DrawEllipse(new Pen(Colors.White, 1.5f), dot.X - DotRadius, dot.Y - DotRadius, 2 * DotRadius, 2 * DotRadius);
+        g.FillEllipse(UiTheme.BrandAccent, dot.X - DotRadius, dot.Y - DotRadius, 2 * DotRadius, 2 * DotRadius);
+        g.DrawEllipse(new Pen(UiTheme.BrandAccentOutline, 1.5f), dot.X - DotRadius, dot.Y - DotRadius, 2 * DotRadius, 2 * DotRadius);
     }
 
     private static void Label(Graphics g, Font font, string text, PointF corner, float alignX, float offsetY)

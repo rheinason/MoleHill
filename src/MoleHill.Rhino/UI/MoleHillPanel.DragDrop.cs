@@ -9,10 +9,27 @@ namespace MoleHill.Rhino.UI;
 // targets, and the index arithmetic for a drop onto a separator.
 public sealed partial class MoleHillPanel : Panel
 {
+    /// <summary>
+    /// The drop target between two stack cards: an outer strip that receives the drag and an inner bar
+    /// that lights up while a card hovers over it.
+    /// </summary>
+    private Panel CreateDropSeparator(string help, out Panel highlight)
+    {
+        highlight = new Panel { BackgroundColor = Colors.Transparent };
+        var separator = new Panel
+        {
+            Height = UiMetrics.StackGap,
+            Padding = new Padding(0, UiMetrics.SpaceXSmall),
+            Content = highlight
+        };
+        ApplyHelp(separator, help);
+        return separator;
+    }
+
     private void WireAnalysisCardDragDrop(Control box, Guid terrainId, Guid analysisId)
     {
         box.AllowDrop = true;
-        var cardHighlight = Color.FromArgb(100, 120, 200, 255);
+        var cardHighlight = UiTheme.CardDropHighlight;
 
         box.DragEnter += (_, e) =>
         {
@@ -97,7 +114,7 @@ public sealed partial class MoleHillPanel : Panel
     private void WireAnnotationCardDragDrop(Control box, Guid terrainId, Guid annotationId)
     {
         box.AllowDrop = true;
-        var cardHighlight = Color.FromArgb(100, 120, 200, 255);
+        var cardHighlight = UiTheme.CardDropHighlight;
 
         box.DragEnter += (_, e) =>
         {
@@ -228,7 +245,7 @@ public sealed partial class MoleHillPanel : Panel
     private void WireModifierCardDragDrop(Control box, Guid terrainId, Guid modifierId)
     {
         box.AllowDrop = true;
-        var cardHighlight = Color.FromArgb(100, 120, 200, 255);
+        var cardHighlight = UiTheme.CardDropHighlight;
 
         box.DragEnter += (_, e) =>
         {

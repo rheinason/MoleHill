@@ -34,6 +34,24 @@ internal static class UiMetrics
     public const int SpaceLarge = 8;
     public const int SpaceXLarge = 12;
 
+    // Every padding and spacing number in the UI comes from the scale above, through these names where
+    // the intent recurs (UiTokenGuardTests fails on a bare number). A one-off value is a scale step, not a
+    // new number: the point is that changing the panel's rhythm is an edit here, not a sweep.
+
+    /// <summary>Gap between cards in a stack; also the height of the drop target between them.</summary>
+    public const int StackGap = SpaceLarge;
+
+    /// <summary>Inset around a dialog window's content.</summary>
+    public const int DialogPadding = SpaceXLarge;
+
+    /// <summary>Gap between a dialog's groups, and between its buttons.</summary>
+    public const int DialogSpacing = SpaceLarge;
+
+    /// <summary>Gap between the controls inside one dialog row.</summary>
+    public const int DialogRowSpacing = SpaceMedium;
+
+    public static Size DialogGap => new(DialogSpacing, DialogSpacing);
+
     public const int ControlHeight = 26;
     public const int CompactControlHeight = 22;
 

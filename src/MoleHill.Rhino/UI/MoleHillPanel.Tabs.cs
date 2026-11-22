@@ -91,8 +91,8 @@ public sealed partial class MoleHillPanel : Panel
             var mainPanel = new Panel
             {
                 Padding = toggleLabel == null
-                    ? new Padding(UiMetrics.SpaceLarge, 5)
-                    : new Padding(UiMetrics.SpaceLarge, 5, UiMetrics.SpaceMedium, 5),
+                    ? new Padding(UiMetrics.SpaceLarge, UiMetrics.SpaceMedium)
+                    : new Padding(UiMetrics.SpaceLarge, UiMetrics.SpaceMedium, UiMetrics.SpaceMedium, UiMetrics.SpaceMedium),
                 Content = mainRow
             };
 
@@ -117,7 +117,7 @@ public sealed partial class MoleHillPanel : Panel
                 };
                 var togglePanel = new Panel
                 {
-                    Padding = new Padding(UiMetrics.SpaceMedium, 5, UiMetrics.SpaceLarge, 5),
+                    Padding = new Padding(UiMetrics.SpaceMedium, UiMetrics.SpaceMedium, UiMetrics.SpaceLarge, UiMetrics.SpaceMedium),
                     Content = toggleLabel
                 };
 
@@ -132,7 +132,7 @@ public sealed partial class MoleHillPanel : Panel
             var outer = new Panel
             {
                 BackgroundColor = UiTheme.HeaderBackground,
-                Padding = new Padding(1),
+                Padding = new Padding(UiMetrics.SpaceHairline),
                 Content = inner
             };
 
@@ -370,9 +370,7 @@ public sealed partial class MoleHillPanel : Panel
         {
             var modifierId = modifier.Id;
 
-            var innerSep = new Panel { BackgroundColor = Colors.Transparent };
-            var outerSep = new Panel { Height = 8, Padding = new Padding(0, 2), Content = innerSep };
-            ApplyHelp(outerSep, "Drop here to reorder modifiers.");
+            var outerSep = CreateDropSeparator("Drop here to reorder modifiers.", out var innerSep);
             _modifierSepMap[modifierId] = innerSep;
             WireModifierSepDragDrop(outerSep, innerSep, terrainId, modifierId);
             _modifierStack.Items.Add(new StackLayoutItem(outerSep, HorizontalAlignment.Stretch));
@@ -392,9 +390,7 @@ public sealed partial class MoleHillPanel : Panel
             _modifierStack.Items.Add(new StackLayoutItem(wrapper, HorizontalAlignment.Stretch));
         }
 
-        var tailInner = new Panel { BackgroundColor = Colors.Transparent };
-        var tailOuter = new Panel { Height = 8, Padding = new Padding(0, 2), Content = tailInner };
-        ApplyHelp(tailOuter, "Drop here to reorder modifiers.");
+        var tailOuter = CreateDropSeparator("Drop here to reorder modifiers.", out var tailInner);
         _modifierSepMap[Guid.Empty] = tailInner;
         WireModifierSepDragDrop(tailOuter, tailInner, terrainId, Guid.Empty);
         _modifierStack.Items.Add(new StackLayoutItem(tailOuter, HorizontalAlignment.Stretch));
@@ -411,7 +407,7 @@ public sealed partial class MoleHillPanel : Panel
         {
             _objectsStack.Items.Add(new StackLayoutItem(new Panel
             {
-                Padding = new Padding(8),
+                Padding = new Padding(UiMetrics.SpaceLarge),
                 Content = new Label
                 {
                     Text = "No object definitions yet. Add one to project or orient Rhino objects onto the terrain while keeping their source layers.",
@@ -449,7 +445,7 @@ public sealed partial class MoleHillPanel : Panel
         {
             _analysisStack.Items.Add(new StackLayoutItem(new Panel
             {
-                Padding = new Padding(8),
+                Padding = new Padding(UiMetrics.SpaceLarge),
                 Content = new Label
                 {
                     Text = "No analyses yet. Add one to inspect slope, elevation, cut/fill, or earthworks.",
@@ -471,9 +467,7 @@ public sealed partial class MoleHillPanel : Panel
                 hasActiveAnalysis = true;
 
             var analysisId = analysisItem.Id;
-            var innerSep = new Panel { BackgroundColor = Colors.Transparent };
-            var outerSep = new Panel { Height = 8, Padding = new Padding(0, 2), Content = innerSep };
-            ApplyHelp(outerSep, "Drop here to reorder analyses.");
+            var outerSep = CreateDropSeparator("Drop here to reorder analyses.", out var innerSep);
             _analysisSepMap[analysisId] = innerSep;
             WireAnalysisSepDragDrop(outerSep, innerSep, terrainId, analysisId);
             _analysisStack.Items.Add(new StackLayoutItem(outerSep, HorizontalAlignment.Stretch));
@@ -490,9 +484,7 @@ public sealed partial class MoleHillPanel : Panel
             _analysisStack.Items.Add(new StackLayoutItem(wrapper, HorizontalAlignment.Stretch));
         }
 
-        var tailInner = new Panel { BackgroundColor = Colors.Transparent };
-        var tailOuter = new Panel { Height = 8, Padding = new Padding(0, 2), Content = tailInner };
-        ApplyHelp(tailOuter, "Drop here to reorder analyses.");
+        var tailOuter = CreateDropSeparator("Drop here to reorder analyses.", out var tailInner);
         _analysisSepMap[Guid.Empty] = tailInner;
         WireAnalysisSepDragDrop(tailOuter, tailInner, terrainId, Guid.Empty);
         _analysisStack.Items.Add(new StackLayoutItem(tailOuter, HorizontalAlignment.Stretch));
@@ -517,7 +509,7 @@ public sealed partial class MoleHillPanel : Panel
         {
             _annotationStack.Items.Add(new StackLayoutItem(new Panel
             {
-                Padding = new Padding(8),
+                Padding = new Padding(UiMetrics.SpaceLarge),
                 Content = new Label
                 {
                     Text = "No annotations yet. Add contours, elevation labels, or slope labels.",
@@ -532,9 +524,7 @@ public sealed partial class MoleHillPanel : Panel
         foreach (var analysisItem in annotationItems)
         {
             var analysisId = analysisItem.Id;
-            var innerSep = new Panel { BackgroundColor = Colors.Transparent };
-            var outerSep = new Panel { Height = 8, Padding = new Padding(0, 2), Content = innerSep };
-            ApplyHelp(outerSep, "Drop here to reorder annotations.");
+            var outerSep = CreateDropSeparator("Drop here to reorder annotations.", out var innerSep);
             _annotationSepMap[analysisId] = innerSep;
             WireAnnotationSepDragDrop(outerSep, innerSep, terrainId, analysisId);
             _annotationStack.Items.Add(new StackLayoutItem(outerSep, HorizontalAlignment.Stretch));
@@ -551,9 +541,7 @@ public sealed partial class MoleHillPanel : Panel
             _annotationStack.Items.Add(new StackLayoutItem(wrapper, HorizontalAlignment.Stretch));
         }
 
-        var tailInner = new Panel { BackgroundColor = Colors.Transparent };
-        var tailOuter = new Panel { Height = 8, Padding = new Padding(0, 2), Content = tailInner };
-        ApplyHelp(tailOuter, "Drop here to reorder annotations.");
+        var tailOuter = CreateDropSeparator("Drop here to reorder annotations.", out var tailInner);
         _annotationSepMap[Guid.Empty] = tailInner;
         WireAnnotationSepDragDrop(tailOuter, tailInner, terrainId, Guid.Empty);
         _annotationStack.Items.Add(new StackLayoutItem(tailOuter, HorizontalAlignment.Stretch));

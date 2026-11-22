@@ -13,6 +13,9 @@ internal sealed class GradePathModifierDescriptor : ModifierTypeDescriptor
     public override Type DefinitionType => typeof(GradePathModifierDefinition);
     public override string DisplayName => "Grade Path";
     public override string IconName => "ModGradePath";
+
+    public override int AccentArgb => unchecked((int)0xFF5D4037);
+
     public override int SortOrder => 6;
     public override string Subtitle => "Road corridor, batter to daylight";
     public override ModifierDefinition Create(UnitSystem unitSystem) =>

@@ -389,7 +389,7 @@ public sealed partial class MoleHillPanel : Panel
                 _liveUpdate.Checked = false;
                 SetStatusText("No active Rhino document.");
                 _layerTemplateLabel.Text = "-";
-                _terrainColorSwatch.BackgroundColor = Color.FromArgb(80, 80, 80);
+                _terrainColorSwatch.BackgroundColor = UiTheme.SwatchPlaceholder;
                 _terrainColorLabel.Text = "-";
                 _statusHintLabel.Text = string.Empty;
                 SetTerrainOpacityControls(100);

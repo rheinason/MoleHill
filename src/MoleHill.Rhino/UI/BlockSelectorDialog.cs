@@ -62,7 +62,7 @@ internal sealed class BlockSelectorDialog : Dialog<List<string>?>
         _doc = doc;
         Title = options.Title;
         Resizable = true;
-        Padding = 12;
+        Padding = UiMetrics.DialogPadding;
         MinimumSize = new Size(360, 480);
         this.UseRhinoStyle();
 
@@ -156,7 +156,7 @@ internal sealed class BlockSelectorDialog : Dialog<List<string>?>
             _thumbnailQueue.Clear();
         };
 
-        var layout = new DynamicLayout { Spacing = new Size(8, 8) };
+        var layout = new DynamicLayout { Spacing = UiMetrics.DialogGap };
         if (_allRows.Count == 0)
         {
             layout.AddRow(new Label
@@ -175,7 +175,7 @@ internal sealed class BlockSelectorDialog : Dialog<List<string>?>
         layout.AddRow(new StackLayout
         {
             Orientation = Orientation.Horizontal,
-            Spacing = 8,
+            Spacing = UiMetrics.DialogSpacing,
             Items = { null, DefaultButton, AbortButton }
         });
         Content = layout;

@@ -20,6 +20,9 @@ internal sealed class TriangulateModifierDescriptor : ModifierTypeDescriptor
     public override Type DefinitionType => typeof(TriangulateModifierDefinition);
     public override string DisplayName => "Triangulate";
     public override string IconName => "ModTriangulate";
+
+    public override int AccentArgb => unchecked((int)0xFF1976D2);
+
     public override bool CanCreateFromMenu => false; // pinned base modifier
     public override string Subtitle => "Terrain geometry";
     public override ModifierDefinition Create(UnitSystem unitSystem) => new TriangulateModifierDefinition();

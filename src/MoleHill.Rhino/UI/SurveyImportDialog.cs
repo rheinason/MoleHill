@@ -49,7 +49,7 @@ internal sealed class SurveyImportDialog : Dialog<bool>
 
         Title = "Import Survey Points";
         Resizable = true;
-        Padding = 12;
+        Padding = UiMetrics.DialogPadding;
         MinimumSize = new Size(760, 600);
         this.UseRhinoStyle();
 
@@ -86,14 +86,14 @@ internal sealed class SurveyImportDialog : Dialog<bool>
         DefaultButton = importButton;
         AbortButton = cancelButton;
 
-        var layout = new DynamicLayout { Spacing = new Size(8, 8) };
+        var layout = new DynamicLayout { Spacing = UiMetrics.DialogGap };
 
         layout.AddRow(new Label { Text = Path.GetFileName(_path), Font = SystemFonts.Bold() });
 
         layout.AddRow(new StackLayout
         {
             Orientation = Orientation.Horizontal,
-            Spacing = 6,
+            Spacing = UiMetrics.DialogRowSpacing,
             VerticalContentAlignment = VerticalAlignment.Center,
             Items =
             {
@@ -109,7 +109,7 @@ internal sealed class SurveyImportDialog : Dialog<bool>
         layout.AddRow(new StackLayout
         {
             Orientation = Orientation.Horizontal,
-            Spacing = 6,
+            Spacing = UiMetrics.DialogRowSpacing,
             VerticalContentAlignment = VerticalAlignment.Center,
             Items =
             {
@@ -144,7 +144,7 @@ internal sealed class SurveyImportDialog : Dialog<bool>
         layout.AddRow(new StackLayout
         {
             Orientation = Orientation.Horizontal,
-            Spacing = 6,
+            Spacing = UiMetrics.DialogRowSpacing,
             Items = { null, importButton, cancelButton }
         });
 

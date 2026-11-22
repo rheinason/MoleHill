@@ -13,6 +13,9 @@ internal sealed class GradePadModifierDescriptor : ModifierTypeDescriptor
     public override Type DefinitionType => typeof(GradePadModifierDefinition);
     public override string DisplayName => "Grade Pad";
     public override string IconName => "ModGradePad";
+
+    public override int AccentArgb => unchecked((int)0xFFF57C00);
+
     public override int SortOrder => 5;
     public override string Subtitle => "Level pad, batter to daylight";
     public override ModifierDefinition Create(UnitSystem unitSystem) => new GradePadModifierDefinition();

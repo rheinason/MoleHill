@@ -31,7 +31,7 @@ internal sealed class ZoneLayerPickerDialog : Dialog<bool>
     {
         Title = "Add Zones From Layers";
         Resizable = true;
-        Padding = 12;
+        Padding = UiMetrics.DialogPadding;
         MinimumSize = new Size(360, 440);
         this.UseRhinoStyle();
 
@@ -41,7 +41,7 @@ internal sealed class ZoneLayerPickerDialog : Dialog<bool>
         _list = new StackLayout
         {
             Orientation = Orientation.Vertical,
-            Spacing = 2,
+            Spacing = UiMetrics.SpaceXSmall,
             HorizontalContentAlignment = HorizontalAlignment.Stretch
         };
         var scroll = new Scrollable
@@ -75,9 +75,9 @@ internal sealed class ZoneLayerPickerDialog : Dialog<bool>
             var row = new StackLayout
             {
                 Orientation = Orientation.Horizontal,
-                Spacing = 6,
+                Spacing = UiMetrics.DialogRowSpacing,
                 VerticalContentAlignment = VerticalAlignment.Center,
-                Padding = new Padding(4, 2),
+                Padding = new Padding(UiMetrics.SpaceSmall, UiMetrics.SpaceXSmall),
                 Items = { dot, new StackLayoutItem(check, expand: true) }
             };
             _rows.Add(new LayerRow
@@ -109,7 +109,7 @@ internal sealed class ZoneLayerPickerDialog : Dialog<bool>
         DefaultButton = okButton;
         AbortButton = cancelButton;
 
-        var layout = new DynamicLayout { Spacing = new Size(8, 8) };
+        var layout = new DynamicLayout { Spacing = UiMetrics.DialogGap };
         layout.AddRow(new Label
         {
             Text = "Pick layers to turn into zones. Each checked layer becomes one zone.",
@@ -120,7 +120,7 @@ internal sealed class ZoneLayerPickerDialog : Dialog<bool>
         layout.AddRow(new StackLayout
         {
             Orientation = Orientation.Horizontal,
-            Spacing = 8,
+            Spacing = UiMetrics.DialogSpacing,
             Items = { null, okButton, cancelButton }
         });
         Content = layout;
@@ -150,7 +150,7 @@ internal sealed class ZoneLayerPickerDialog : Dialog<bool>
         {
             _list.Items.Add(new StackLayoutItem(new Panel
             {
-                Padding = new Padding(6, 4),
+                Padding = new Padding(UiMetrics.SpaceMedium, UiMetrics.SpaceSmall),
                 Content = new Label { Text = "No matching layers.", TextColor = UiTheme.MutedText }
             }, HorizontalAlignment.Stretch));
         }

@@ -13,6 +13,9 @@ internal sealed class SimplifyModifierDescriptor : ModifierTypeDescriptor
     public override Type DefinitionType => typeof(SimplifyModifierDefinition);
     public override string DisplayName => "Simplify";
     public override string IconName => "ModSimplify";
+
+    public override int AccentArgb => unchecked((int)0xFF00897B);
+
     public override int SortOrder => 1;
     public override string Subtitle => "Fewer vertices, error verified";
     public override ModifierDefinition Create(UnitSystem unitSystem) => new SimplifyModifierDefinition

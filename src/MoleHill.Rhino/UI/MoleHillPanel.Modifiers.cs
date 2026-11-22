@@ -1,4 +1,4 @@
-﻿﻿using Eto.Drawing;
+﻿using Eto.Drawing;
 using Eto.Forms;
 using MoleHill.Rhino.Model;
 using MoleHill.Rhino.Registry;
@@ -160,7 +160,7 @@ public sealed partial class MoleHillPanel
         return new Panel
         {
             BackgroundColor = UiTheme.WarningBackground,
-            Padding = new Padding(8, 6),
+            Padding = new Padding(UiMetrics.SpaceLarge, UiMetrics.SpaceMedium),
             Content = new Label
             {
                 Text = $"⚠ {warning}",
@@ -233,7 +233,7 @@ public sealed partial class MoleHillPanel
         var content = new DynamicLayout
         {
             DefaultSpacing = new Size(UiMetrics.SpaceMedium, UiMetrics.SpaceMedium),
-            Padding = new Padding(6, 2, 6, 6)
+            Padding = new Padding(UiMetrics.SpaceMedium, UiMetrics.SpaceXSmall, UiMetrics.SpaceMedium, UiMetrics.SpaceMedium)
         };
         content.AddRow(terrainEditor);
         content.AddRow(meshEditor);
@@ -472,8 +472,8 @@ public sealed partial class MoleHillPanel
 
         var content = new DynamicLayout
         {
-            DefaultSpacing = new Size(6, 6),
-            Padding = new Padding(6, 2, 6, 6)
+            DefaultSpacing = new Size(UiMetrics.SpaceMedium, UiMetrics.SpaceMedium),
+            Padding = new Padding(UiMetrics.SpaceMedium, UiMetrics.SpaceXSmall, UiMetrics.SpaceMedium, UiMetrics.SpaceMedium)
         };
         foreach (string key in new[] { "OuterBoundaries", "HideBoundaries", "ShowBoundaries" })
         {
@@ -522,8 +522,8 @@ public sealed partial class MoleHillPanel
     {
         var settings = new DynamicLayout
         {
-            DefaultSpacing = new Size(6, 6),
-            Padding = new Padding(6, 2, 6, 6)
+            DefaultSpacing = new Size(UiMetrics.SpaceMedium, UiMetrics.SpaceMedium),
+            Padding = new Padding(UiMetrics.SpaceMedium, UiMetrics.SpaceXSmall, UiMetrics.SpaceMedium, UiMetrics.SpaceMedium)
         };
 
         foreach (string key in GeometryInputParameterCatalog.BoundaryPeelKeys)
@@ -546,21 +546,8 @@ public sealed partial class MoleHillPanel
         };
     }
 
-    private static Color ModifierTypeColor(string kind) => kind switch
-    {
-        "triangulate"    => Color.FromArgb(25, 118, 210),
-        "add-geometry"   => Color.FromArgb(2, 136, 209),
-        "remesh"         => Color.FromArgb(56, 142, 60),
-        "smooth"         => Color.FromArgb(123, 31, 162),
-        "project-to"     => Color.FromArgb(0, 121, 140),
-        "retaining-wall" => Color.FromArgb(230, 74, 25),
-        "simplify"       => Color.FromArgb(0, 137, 123),
-        "grade-pad"      => Color.FromArgb(245, 124, 0),
-        "grade-path"     => Color.FromArgb(93, 64, 55),
-        "in-situ-stair"  => Color.FromArgb(0, 121, 107),
-        "displace"       => Color.FromArgb(57, 73, 171),
-        _                => Color.FromArgb(120, 120, 120)
-    };
+    private static Color ModifierTypeColor(string kind) =>
+        UiTheme.TypeAccent(TerrainTypeRegistry.ForModifierKind(kind)?.AccentArgb);
 
     private static string GetModifierKind(ModifierDefinition modifier) =>
         TerrainTypeRegistry.ForModifierType(modifier.GetType())?.Kind ?? string.Empty;

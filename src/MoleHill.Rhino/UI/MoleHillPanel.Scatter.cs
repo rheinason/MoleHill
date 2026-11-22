@@ -131,7 +131,7 @@ public sealed partial class MoleHillPanel
         ScatterBuildSummary? summary = doc == null ? null : _controller.GetScatterSummaries(doc, terrain.TerrainId).FirstOrDefault(item => item.DefinitionId == scatter.Id);
         return new StackLayout
         {
-            Orientation = Orientation.Vertical, HorizontalContentAlignment = HorizontalAlignment.Stretch, Spacing = 3,
+            Orientation = Orientation.Vertical, HorizontalContentAlignment = HorizontalAlignment.Stretch, Spacing = UiMetrics.SpaceSmall,
             Items = { numeric, new Label { Text = summary?.RegionArea is double regionArea
                 ? $"Gross-area estimate: {Math.Round(scatter.PerAreaDensity * regionArea):N0} before filters"
                 : "Build to estimate the planting area.", Wrap = WrapMode.Word, TextColor = UiTheme.MutedText } }

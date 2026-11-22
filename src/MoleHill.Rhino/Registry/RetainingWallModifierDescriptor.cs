@@ -13,6 +13,9 @@ internal sealed class RetainingWallModifierDescriptor : ModifierTypeDescriptor
     public override Type DefinitionType => typeof(RetainingWallModifierDefinition);
     public override string DisplayName => "Retaining Wall";
     public override string IconName => "ModRetainingWall";
+
+    public override int AccentArgb => unchecked((int)0xFFE64A19);
+
     public override int SortOrder => 4;
     public override string Subtitle => "Wall breaklines, optional batter";
     public override ModifierDefinition Create(UnitSystem unitSystem) =>

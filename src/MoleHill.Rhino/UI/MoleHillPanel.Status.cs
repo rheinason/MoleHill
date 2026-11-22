@@ -139,17 +139,17 @@ public sealed partial class MoleHillPanel
         if (structuredDiagnostics != null)
         {
             if (structuredDiagnostics.Any(static diagnostic => diagnostic.Severity == GradingDiagnosticSeverity.Error))
-                return Colors.Red;
+                return UiTheme.StatusError;
             if (structuredDiagnostics.Any(static diagnostic => diagnostic.Severity == GradingDiagnosticSeverity.Warning))
-                return Color.FromArgb(200, 120, 0);
+                return UiTheme.StatusWarning;
         }
 
         if (text.Contains("Error", StringComparison.OrdinalIgnoreCase) ||
             text.Contains("Failed", StringComparison.OrdinalIgnoreCase))
-            return Colors.Red;
+            return UiTheme.StatusError;
         if (text.Contains("Scheduled", StringComparison.OrdinalIgnoreCase) ||
             text.Contains("Building", StringComparison.OrdinalIgnoreCase))
-            return Color.FromArgb(200, 120, 0);
+            return UiTheme.StatusWarning;
         return UiTheme.PrimaryText;
     }
 

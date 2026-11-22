@@ -45,7 +45,7 @@ internal sealed class FieldCodeTableEditorDialog : Dialog<bool>
 
         Title = "MoleHill Field Codes";
         Resizable = true;
-        Padding = 12;
+        Padding = UiMetrics.DialogPadding;
         MinimumSize = new Size(720, 560);
         this.UseRhinoStyle();
 
@@ -91,7 +91,7 @@ internal sealed class FieldCodeTableEditorDialog : Dialog<bool>
         DefaultButton = saveButton;
         AbortButton = cancelButton;
 
-        var layout = new DynamicLayout { Spacing = new Size(8, 8) };
+        var layout = new DynamicLayout { Spacing = UiMetrics.DialogGap };
 
         layout.AddRow(new Label
         {
@@ -106,7 +106,7 @@ internal sealed class FieldCodeTableEditorDialog : Dialog<bool>
         layout.AddRow(new StackLayout
         {
             Orientation = Orientation.Horizontal,
-            Spacing = 6,
+            Spacing = UiMetrics.DialogRowSpacing,
             Items = { addButton, removeButton, null, defaultsButton, importButton, exportButton }
         });
 
@@ -124,7 +124,7 @@ internal sealed class FieldCodeTableEditorDialog : Dialog<bool>
         layout.AddRow(new StackLayout
         {
             Orientation = Orientation.Horizontal,
-            Spacing = 6,
+            Spacing = UiMetrics.DialogRowSpacing,
             VerticalContentAlignment = VerticalAlignment.Center,
             Items =
             {
@@ -140,7 +140,7 @@ internal sealed class FieldCodeTableEditorDialog : Dialog<bool>
         layout.AddRow(new StackLayout
         {
             Orientation = Orientation.Horizontal,
-            Spacing = 6,
+            Spacing = UiMetrics.DialogRowSpacing,
             Items = { null, saveButton, cancelButton }
         });
 
@@ -151,7 +151,7 @@ internal sealed class FieldCodeTableEditorDialog : Dialog<bool>
         new StackLayout
         {
             Orientation = Orientation.Horizontal,
-            Spacing = 6,
+            Spacing = UiMetrics.DialogRowSpacing,
             VerticalContentAlignment = VerticalAlignment.Center,
             Items =
             {

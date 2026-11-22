@@ -555,7 +555,7 @@ public sealed partial class MoleHillPanel
         var fields = new StackLayout
         {
             Orientation = Orientation.Horizontal,
-            Spacing = 6,
+            Spacing = UiMetrics.SpaceMedium,
             VerticalContentAlignment = VerticalAlignment.Center,
             HorizontalContentAlignment = HorizontalAlignment.Stretch,
             Items =
@@ -658,11 +658,8 @@ public sealed partial class MoleHillPanel
     private static string GetAnnotationSubtitle(AnnotationDefinition annotation) =>
         AnnotationTypeRegistry.ForType(annotation.GetType())?.Subtitle ?? string.Empty;
 
-    private static Color AnnotationTypeColor(string kind)
-    {
-        var descriptor = AnnotationTypeRegistry.ForKind(kind);
-        return descriptor == null ? UiTheme.MutedText : Color.FromArgb(descriptor.AccentArgb);
-    }
+    private static Color AnnotationTypeColor(string kind) =>
+        UiTheme.TypeAccent(AnnotationTypeRegistry.ForKind(kind)?.AccentArgb);
 
     private Panel CreateAnnotationCard(TerrainDefinition terrain, AnnotationDefinition annotation)
     {

@@ -32,7 +32,7 @@ internal sealed class TerrainInputValidationDialog : Dialog<TerrainValidationDia
         Title = "Validate Terrain Inputs";
         Owner = null;
         Resizable = false;
-        Padding = 12;
+        Padding = UiMetrics.DialogPadding;
         MinimumSize = new Size(460, 310);
         this.UseRhinoStyle();
         int toleranceDecimals = Math.Clamp(
@@ -67,7 +67,7 @@ internal sealed class TerrainInputValidationDialog : Dialog<TerrainValidationDia
 
         Content = new DynamicLayout
         {
-            DefaultSpacing = new Size(8, 8),
+            DefaultSpacing = UiMetrics.DialogGap,
             Rows =
             {
                 new Label
@@ -83,7 +83,7 @@ internal sealed class TerrainInputValidationDialog : Dialog<TerrainValidationDia
                 new StackLayout
                 {
                     Orientation = Orientation.Horizontal,
-                    Spacing = 8,
+                    Spacing = UiMetrics.DialogSpacing,
                     Items =
                     {
                         new Label { Text = "Tolerance:", VerticalAlignment = VerticalAlignment.Center },
@@ -95,7 +95,7 @@ internal sealed class TerrainInputValidationDialog : Dialog<TerrainValidationDia
                 new StackLayout
                 {
                     Orientation = Orientation.Horizontal,
-                    Spacing = 8,
+                    Spacing = UiMetrics.DialogSpacing,
                     HorizontalContentAlignment = HorizontalAlignment.Right,
                     Items =
                     {

@@ -217,6 +217,9 @@ margin on the scrollable, not the content: the pinning stopped the scan dialog's
   icons on one optical canvas for universal compact actions. Named workflow actions stay as text, while
   icon-only actions always use a standard hit box and tooltip. Card headers expose duplicate/delete as
   direct icon actions; `UiTheme.cs` owns semantic colours for custom surfaces and state.
+  `UiTokenGuardTests` holds both files to that: a colour literal or a literal padding/spacing anywhere
+  else in this folder fails the build. Card-family accents come from descriptors via
+  `UiTheme.TypeAccent`; the drop target between stack cards is `CreateDropSeparator`.
 
 Use native Eto controls for ordinary buttons, inputs, lists, and selectors. Use `Drawable` only for
 interaction or visualization Eto cannot express cleanly, such as ramps, scrub fields, swatches, and drag
