@@ -1,51 +1,161 @@
 using Eto.Drawing;
 using Eto.Forms;
-using MoleHill.Rhino.Model;
-using Rhino;
 
 namespace MoleHill.Rhino.UI;
 
-// Reusable building blocks for the collapsible "card" UI shared by the modifier, zone, and object
-// stacks. Each stack card has the same anatomy — a collapse chevron, a drag handle, an enable
-// checkbox, a title block (name + subtitle when expanded, name + summary when collapsed), and a
-// ctrl-collapses-all toggle — differing only in which model collection and collapsed-id set it is
-// bound to. These helpers capture that shared anatomy so a new card type is a few lines of binding
-// rather than a copy of the whole header.
+// The stack card. Modifier, object, zone, analysis and annotation cards differ only in what they bind —
+// a name, an enabled flag, a type, a summary, a body — so each family fills in a CardSpec and CreateCard
+// builds the same header for all of them. A header change is made here once, never per family.
 public sealed partial class MoleHillPanel
 {
-    /// <summary>
-    /// Configuration for <see cref="CreateSharedCardShell"/>: the header controls (drag handle,
-    /// chevron, icon plate, enable checkbox, title block), the status/action control rows, the body
-    /// shown when expanded, the collapsed flag, the collapse toggle, and the header/card colours.
-    /// </summary>
-    private sealed class SharedCardShellOptions
+    /// <summary>What one stack card shows and what its header controls do.</summary>
+    private sealed class CardSpec
     {
-        public required Control Handle { get; init; }
-        public required Control CollapseControl { get; init; }
-        public required Control IconPlate { get; init; }
-        public required Control EnabledControl { get; init; }
-        public required Control TitleBlock { get; init; }
-        public required Action<bool> ToggleCollapsed { get; init; }
-        public required bool Collapsed { get; init; }
+        public required CardStack Stack { get; init; }
+        public required Guid Id { get; init; }
+
+        /// <summary>The user's name for the card; editable when expanded.</summary>
+        public required string Name { get; init; }
+        public required string NameHelp { get; init; }
+        public required Action<string> Rename { get; init; }
+
+        public required bool IsEnabled { get; init; }
+        public string EnableHelp { get; init; } = "Enable or disable this card without deleting it.";
+        public required Action<bool> SetEnabled { get; init; }
+
+        /// <summary>The card's type ("Retaining Wall"), which leads the second line in both states.</summary>
+        public required string TypeName { get; init; }
+        public required Control TypeIcon { get; init; }
+
+        /// <summary>Second line when collapsed, after the type: counts and key values.</summary>
+        public required string Summary { get; init; }
+
+        /// <summary>Second line when expanded, after the type: what the card does.</summary>
+        public required string Subtitle { get; init; }
+
+        public required string HandleHelp { get; init; }
+        public bool Reorderable { get; init; } = true;
+
+        /// <summary>A short state word beside the actions ("Preview", "Pinned"); dropped first when narrow.</summary>
+        public Control? Status { get; init; }
+
+        public (Action Run, string Help)? Duplicate { get; init; }
+        public (Action Run, string Help)? Delete { get; init; }
+
+        public required Func<Control> Body { get; init; }
         public Color CardBackground { get; init; } = UiTheme.CardBackground;
         public Color HeaderBackground { get; init; } = UiTheme.HeaderBackground;
-        public IReadOnlyList<Control> StatusControls { get; init; } = Array.Empty<Control>();
-        public IReadOnlyList<Control> ActionControls { get; init; } = Array.Empty<Control>();
-        public Control? Body { get; init; }
     }
 
-    /// <summary>The expand/collapse chevron shown at the left of every stack card header.</summary>
-    private static Label CreateCollapseChevron(bool collapsed)
+    /// <summary>
+    /// Builds a stack card: a fixed two-line header over the body when expanded. Header order (design
+    /// review Steps 14 and 20): grip, disclosure arrow, enable, bare type icon, name, then status and
+    /// actions. The left controls and the actions centre on the name line; the type/summary line sits under
+    /// the name. Both lines ellipsize rather than wrap, so every header is the same height at every width.
+    /// Clicking the header toggles the card; Ctrl-click toggles the whole stack.
+    /// </summary>
+    private Panel CreateCard(CardSpec spec)
     {
-        var label = UiControls.Label(collapsed ? "▶" : "▼");
-        label.Width = UiMetrics.Chs(2);
-        return label;
+        bool collapsed = spec.Stack.IsCollapsed(spec.Id);
+
+        var enabled = new CheckBox { Checked = spec.IsEnabled };
+        ApplyHelp(enabled, spec.EnableHelp);
+        enabled.CheckedChanged += (_, _) => spec.SetEnabled(enabled.Checked == true);
+
+        Control nameLine;
+        if (collapsed)
+        {
+            nameLine = new TextLine(spec.Name, new Font(SystemFont.Bold), UiTheme.PrimaryText);
+        }
+        else
+        {
+            var nameBox = new TextBox { Text = spec.Name };
+            StyleTextBox(nameBox);
+            ApplyHelp(nameBox, spec.NameHelp);
+            BindCommittedText(nameBox, () => spec.Name, spec.Rename);
+            nameLine = nameBox;
+        }
+
+        string detail = collapsed ? spec.Summary : spec.Subtitle;
+        var metaLine = new TextLine(JoinMeta(spec.TypeName, detail), SystemFonts.Default(), UiTheme.MutedText);
+
+        var title = new StackLayout
+        {
+            Orientation = Orientation.Vertical,
+            Spacing = UiMetrics.CardHeaderLineGap,
+            HorizontalContentAlignment = HorizontalAlignment.Stretch,
+            Items = { NameLineSlot(nameLine), metaLine }
+        };
+
+        var header = new StackLayout
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = UiMetrics.SpaceMedium,
+            Padding = new Padding(UiMetrics.CardHorizontalPadding, UiMetrics.CardVerticalPadding),
+            BackgroundColor = spec.HeaderBackground,
+            VerticalContentAlignment = VerticalAlignment.Top,
+            Items =
+            {
+                NameLineSlot(spec.Stack.CreateHandle(spec.Id, spec.HandleHelp, spec.Reorderable)),
+                NameLineSlot(new DisclosureArrow(!collapsed)),
+                NameLineSlot(enabled),
+                NameLineSlot(spec.TypeIcon),
+                new StackLayoutItem(title, expand: true)
+            }
+        };
+
+        Panel? statusHost = null;
+        if (spec.Status != null)
+        {
+            statusHost = new Panel { Content = NameLineSlot(spec.Status) };
+            header.Items.Add(statusHost);
+        }
+        if (spec.Duplicate is { } duplicate)
+            header.Items.Add(NameLineSlot(MakeDuplicateIconButton(duplicate.Run, duplicate.Help)));
+        if (spec.Delete is { } delete)
+            header.Items.Add(NameLineSlot(MakeDeleteIconButton(delete.Run, delete.Help)));
+
+        // The status word is the one optional thing on the header: it goes before the name is squeezed.
+        if (statusHost != null)
+        {
+            header.SizeChanged += (_, _) =>
+                statusHost.Visible = header.Width <= 0 || header.Width >= UiMetrics.HeaderStatusBreak;
+        }
+
+        header.MouseDown += (_, e) => spec.Stack.ToggleCollapsed(spec.Id, e.Modifiers.HasFlag(Keys.Control));
+
+        var card = new StackLayout
+        {
+            Orientation = Orientation.Vertical,
+            Spacing = 0,
+            HorizontalContentAlignment = HorizontalAlignment.Stretch,
+            Items = { header }
+        };
+        if (!collapsed)
+            card.Items.Add(spec.Body());
+
+        return new Panel { BackgroundColor = spec.CardBackground, Content = card };
     }
+
+    /// <summary>"Type · detail", or just the type when the detail is empty or repeats it.</summary>
+    private static string JoinMeta(string typeName, string detail) =>
+        string.IsNullOrWhiteSpace(detail) || string.Equals(detail, typeName, StringComparison.OrdinalIgnoreCase)
+            ? typeName
+            : string.IsNullOrWhiteSpace(typeName) ? detail : $"{typeName} · {detail}";
+
+    /// <summary>Centres <paramref name="control"/> on the header's first line, the line the name sits on.</summary>
+    private static StackLayout NameLineSlot(Control control) => new()
+    {
+        Orientation = Orientation.Horizontal,
+        Height = UiMetrics.ControlHeight,
+        VerticalContentAlignment = VerticalAlignment.Center,
+        Items = { new StackLayoutItem(control, expand: control is TextBox or TextLine) }
+    };
 
     /// <summary>
     /// A heading for a group of rows that does not collapse: a small caption and a rule across the rest of
     /// the width. The panel's alternative was a GroupBox, whose border boxed in content that was already
-    /// visually grouped by the card around it — and a chevron here would promise a collapse that is not
+    /// visually grouped by the card around it — and an arrow here would promise a collapse that is not
     /// on offer.
     /// </summary>
     private static Control CreateSectionRule(string title) => new StackLayout
@@ -64,21 +174,17 @@ public sealed partial class MoleHillPanel
     };
 
     /// <summary>
-    /// A collapsible section header outside the card stack — Terrain Settings, Status, and the modifier
-    /// sub-sections.
-    ///
-    /// These used a boxed icon button to collapse while every card used a bare chevron glyph, so the panel
-    /// had two visual languages for the same gesture at two different heights. This is the card's: the same
-    /// <see cref="CreateCollapseChevron"/> glyph, the same header fill and padding, and the whole strip is
-    /// the hit target rather than a 28px button.
+    /// A collapsible section header outside the card stack — Terrain Settings and Status. It uses the
+    /// card's disclosure arrow, header fill and padding, and the whole strip is the hit target, so the same
+    /// gesture looks the same everywhere.
     /// </summary>
     private sealed class SectionHeader : Panel
     {
-        private readonly Label _chevron;
+        private readonly DisclosureArrow _arrow;
 
         public SectionHeader(string title, Control? trailing, bool expanded, Action<bool> onToggle)
         {
-            _chevron = CreateCollapseChevron(!expanded);
+            _arrow = new DisclosureArrow(expanded);
 
             var layout = new StackLayout
             {
@@ -86,7 +192,7 @@ public sealed partial class MoleHillPanel
                 Spacing = UiMetrics.SpaceMedium,
                 Padding = new Padding(UiMetrics.CardHorizontalPadding, UiMetrics.CardVerticalPadding),
                 VerticalContentAlignment = VerticalAlignment.Center,
-                Items = { _chevron, UiControls.Label(title, UiLabelRole.Section) }
+                Items = { _arrow, UiControls.Label(title, UiLabelRole.Section) }
             };
 
             if (trailing != null)
@@ -103,7 +209,7 @@ public sealed partial class MoleHillPanel
                     return;
 
                 Expanded = !Expanded;
-                _chevron.Text = Expanded ? "▼" : "▶";
+                _arrow.Expanded = Expanded;
                 onToggle(Expanded);
             };
         }
@@ -111,97 +217,7 @@ public sealed partial class MoleHillPanel
         public bool Expanded { get; private set; }
     }
 
-    /// <summary>
-    /// The two-line title block used by every stack card: when collapsed, a bold read-only name over
-    /// a summary line; when expanded, the editable <paramref name="nameBox"/> over a subtitle line.
-    /// </summary>
-    private static Control CreateCardTitleBlock(
-        bool collapsed,
-        string collapsedName,
-        string collapsedSummary,
-        TextBox nameBox,
-        string expandedSubtitle)
-    {
-        if (collapsed)
-        {
-            var title = UiControls.Label(collapsedName);
-            title.Font = new Font(SystemFont.Bold);
-            title.ToolTip = collapsedName;
-            return new ResponsiveCardTitle(title, CreateCardMetaLabel(collapsedSummary));
-        }
-
-        return new ResponsiveCardTitle(nameBox, CreateCardMetaLabel(expandedSubtitle));
-    }
-
-    /// <summary>Card metadata is useful context at normal widths, but the title and actions take
-    /// priority in a narrow panel. Hiding it also prevents compact cards becoming needlessly tall.</summary>
-    private sealed class ResponsiveCardTitle : Panel
-    {
-        private readonly Control _secondary;
-
-        public ResponsiveCardTitle(Control primary, Control secondary)
-        {
-            _secondary = secondary;
-            Content = new StackLayout
-            {
-                Orientation = Orientation.Vertical,
-                Spacing = UiMetrics.SpaceXSmall,
-                Items = { primary, secondary }
-            };
-            SizeChanged += (_, _) => UpdateDensity();
-        }
-
-        private void UpdateDensity()
-        {
-            if (Width > 0)
-                _secondary.Visible = Width >= UiMetrics.Chs(18);
-        }
-    }
-
-    /// <summary>
-    /// Toggles the collapsed state of a single stack card, or — when <paramref name="ctrlHeld"/> is
-    /// true — collapses every sibling card (or expands them all when the clicked card was the last
-    /// collapsed one). Centralises the ctrl-collapse-all behaviour that all three stacks share.
-    /// </summary>
-    private void ToggleCardCollapsed(
-        HashSet<Guid> collapsedIds,
-        Guid id,
-        bool ctrlHeld,
-        Func<TerrainDefinition, IEnumerable<Guid>> siblingIds,
-        Action<TerrainDefinition?> rebuild)
-    {
-        bool nowCollapsed = !collapsedIds.Contains(id);
-        var doc = RhinoDoc.ActiveDoc;
-        var terrain = doc == null ? null : _controller.GetSelectedTerrain(doc);
-
-        if (ctrlHeld)
-        {
-            if (terrain != null)
-            {
-                if (nowCollapsed)
-                {
-                    foreach (var siblingId in siblingIds(terrain))
-                        collapsedIds.Add(siblingId);
-                }
-                else
-                {
-                    collapsedIds.Clear();
-                }
-            }
-        }
-        else if (nowCollapsed)
-        {
-            collapsedIds.Add(id);
-        }
-        else
-        {
-            collapsedIds.Remove(id);
-        }
-
-        rebuild(terrain);
-    }
-
-    /// <summary>A muted secondary status pill used in card headers (type label, "Enabled", etc.).</summary>
+    /// <summary>A short state word on a card header ("Preview", "Pinned", "Disabled").</summary>
     private static Label CreateCardStatusLabel(string text, Color? textColor = null)
     {
         var label = UiControls.Label(text, UiLabelRole.Meta);
@@ -211,24 +227,15 @@ public sealed partial class MoleHillPanel
         return label;
     }
 
-    /// <summary>A muted subtitle/summary label used as the second line of a card title block.</summary>
-    private static Label CreateCardMetaLabel(string text)
-    {
-        var label = UiControls.Label(text, UiLabelRole.Meta);
-        label.ToolTip = text;
-        return label;
-    }
-
     /// <summary>
-    /// Builds a card's type-icon control: the 16×16 PNG named <paramref name="iconName"/> when it
-    /// resolves, otherwise a text-glyph label (<paramref name="glyphFallback"/>). Mirrors the modifier
-    /// card's icon handling so Object/Analysis/Annotation cards can carry real icons too.
+    /// A card's bare type glyph: the PNG named <paramref name="iconName"/> when it resolves, otherwise the
+    /// <paramref name="glyphFallback"/> text. No plate behind it (Step 19); the strip carries the colour.
     /// </summary>
     private static Control CreateCardIconControl(string? iconName, string glyphFallback)
     {
         var image = string.IsNullOrEmpty(iconName) ? null : PanelIcons.Load(iconName);
         return image != null
-            ? new ImageView { Image = image, Size = new Size(UiMetrics.IconSize, UiMetrics.IconSize) }
+            ? new ImageView { Image = image, Size = new Size(UiMetrics.CardTypeIconSize, UiMetrics.CardTypeIconSize) }
             : new Label
             {
                 Text = glyphFallback,
@@ -237,84 +244,6 @@ public sealed partial class MoleHillPanel
                 Wrap = WrapMode.None,
                 ToolTip = glyphFallback
             };
-    }
-
-    /// <summary>A tinted square plate holding a card's type icon, coloured by the card's accent.</summary>
-    private static Panel CreateIconPlate(Color accent, Control content)
-    {
-        return new Panel
-        {
-            BackgroundColor = new Color(accent.R, accent.G, accent.B, 0.20f),
-            Padding = new Padding(UiMetrics.SpaceSmall, UiMetrics.PropertyRowVerticalPadding),
-            Content = content
-        };
-    }
-
-    /// <summary>
-    /// Assembles a stack card from <paramref name="options"/>: a header (handle, chevron, icon,
-    /// enable check, title, and status/action controls) over an optional body. The header layout
-    /// adapts to the panel width — compact mode stacks the metadata, and narrow widths wrap the
-    /// action buttons onto their own row. Clicking the header toggles collapse (ctrl = all).
-    /// </summary>
-    private Panel CreateSharedCardShell(SharedCardShellOptions options)
-    {
-        var header = new StackLayout
-        {
-            Orientation = Orientation.Horizontal,
-            Spacing = UiMetrics.SpaceMedium,
-            Padding = new Padding(
-                UiMetrics.CardHorizontalPadding,
-                UiMetrics.CardVerticalPadding,
-                UiMetrics.CardHorizontalPadding,
-                UiMetrics.CardVerticalPadding),
-            BackgroundColor = options.HeaderBackground,
-            VerticalContentAlignment = VerticalAlignment.Center,
-            HorizontalContentAlignment = HorizontalAlignment.Stretch,
-            Items =
-            {
-                options.Handle,
-                options.CollapseControl,
-                options.IconPlate,
-                options.EnabledControl,
-                new StackLayoutItem(options.TitleBlock, expand: true)
-            }
-        };
-        var statusHosts = new List<Panel>();
-        foreach (var statusControl in options.StatusControls)
-        {
-            var host = new Panel { Content = statusControl };
-            statusHosts.Add(host);
-            header.Items.Add(new StackLayoutItem(host));
-        }
-        foreach (var actionControl in options.ActionControls)
-            header.Items.Add(new StackLayoutItem(actionControl));
-
-        void UpdateStatusVisibility()
-        {
-            bool showStatus = header.Width <= 0 || header.Width >= UiMetrics.HeaderStatusBreak;
-            foreach (var host in statusHosts)
-                host.Visible = showStatus;
-        }
-
-        header.SizeChanged += (_, _) => UpdateStatusVisibility();
-        UpdateStatusVisibility();
-
-        header.MouseDown += (_, e) => options.ToggleCollapsed(e.Modifiers.HasFlag(Keys.Control));
-
-        var card = new StackLayout
-        {
-            Orientation = Orientation.Vertical,
-            Spacing = 0
-        };
-        card.Items.Add(new StackLayoutItem(header, HorizontalAlignment.Stretch));
-        if (!options.Collapsed && options.Body != null)
-            card.Items.Add(new StackLayoutItem(options.Body, HorizontalAlignment.Stretch));
-
-        return new Panel
-        {
-            BackgroundColor = options.CardBackground,
-            Content = card
-        };
     }
 
     /// <summary>Stacked-squares "duplicate this card" icon button.</summary>

@@ -12,96 +12,50 @@ public sealed partial class MoleHillPanel
 {
     private Panel CreateModifierCard(TerrainDefinition terrain, ModifierDefinition modifier)
     {
-        bool collapsed = _collapsedModifiers.Contains(modifier.Id);
-        var collapseLabel = CreateCollapseChevron(collapsed);
-
-        var enabledCheck = new CheckBox { Checked = modifier.IsEnabled };
-        enabledCheck.CheckedChanged += (_, _) =>
-            MutateModifier(terrain.TerrainId, modifier.Id, item => item.IsEnabled = enabledCheck.Checked == true);
-
-        var capturedModifierId = modifier.Id;
-        var capturedTerrainId = terrain.TerrainId;
+        Guid terrainId = terrain.TerrainId, id = modifier.Id;
         string kind = GetModifierKind(modifier);
-        string typeLabel = GetModifierTypeLabel(modifier);
-        bool isPinnedBaseTriangulate = modifier is TriangulateModifierDefinition &&
-                                       terrain.Modifiers.Count > 0 &&
-                                       terrain.Modifiers[0].Id == modifier.Id;
+        string typeName = GetModifierTypeLabel(modifier);
+        bool pinned = modifier is TriangulateModifierDefinition && terrain.Modifiers[0].Id == id;
 
-        var nameBox = new TextBox { Text = modifier.Label };
-        StyleTextBox(nameBox);
-        ApplyHelp(nameBox, "Modifier label. Press Enter or click away to rename.");
-        BindCommittedText(nameBox, () => modifier.Label, text =>
-            MutateModifier(capturedTerrainId, capturedModifierId, item => item.Label = text, scheduleRebuild: false));
-
-        var handle = _modifierCards.CreateHandle(
-            capturedModifierId,
-            isPinnedBaseTriangulate
-                ? "The base triangulate modifier stays at the bottom of the stack."
-                : "Drag to reorder this modifier.",
-            enabled: !isPinnedBaseTriangulate);
-
-        var iconImage = PanelIcons.Load(GetModifierIconName(kind));
-        Control iconControl = iconImage != null
-            ? new ImageView { Image = iconImage, Size = new Size(UiMetrics.IconSize, UiMetrics.IconSize) }
-            : new Label { Text = typeLabel[..1], VerticalAlignment = VerticalAlignment.Center };
-        var accent = ModifierTypeColor(kind);
-        var iconPlate = CreateIconPlate(accent, iconControl);
-
-        Control titleBlock = CreateCardTitleBlock(
-            collapsed,
-            modifier.Label,
-            AppendRuntimeDiagnosticSummary(
-                GetCollapsedSummary(modifier),
-                terrain,
-                new RuntimeOverlayOwner(RuntimeOverlayOwnerKind.Modifier, modifier.Id)),
-            nameBox,
-            GetModifierSubtitle(modifier, isPinnedBaseTriangulate));
-
-        Control[] statusControls = isPinnedBaseTriangulate
-            ? new Control[] { CreateCardStatusLabel("Pinned", accent) }
-            : Array.Empty<Control>();
-
-        Control[] actionControls = Array.Empty<Control>();
-        if (!isPinnedBaseTriangulate)
+        void Duplicate()
         {
-            actionControls = new Control[]
-            {
-                MakeDuplicateIconButton(() =>
-                {
-                    var doc = RhinoDoc.ActiveDoc;
-                    if (doc != null)
-                        _controller.DuplicateModifier(doc, capturedTerrainId, capturedModifierId);
-                }, "Duplicate this modifier."),
-                MakeDeleteIconButton(() =>
-                {
-                    var doc = RhinoDoc.ActiveDoc;
-                    if (doc != null)
-                        _controller.RemoveModifier(doc, capturedTerrainId, capturedModifierId);
-                }, "Delete this modifier.")
-            };
+            if (RhinoDoc.ActiveDoc is { } doc)
+                _controller.DuplicateModifier(doc, terrainId, id);
         }
 
-        void ToggleCollapsed(bool ctrlHeld) => ToggleCardCollapsed(
-            _collapsedModifiers,
-            capturedModifierId,
-            ctrlHeld,
-            t => t.Modifiers.Select(m => m.Id),
-            RebuildModifierLayout);
-
-        return CreateSharedCardShell(new SharedCardShellOptions
+        void Delete()
         {
-            Handle = handle,
-            CollapseControl = collapseLabel,
-            IconPlate = iconPlate,
-            EnabledControl = enabledCheck,
-            TitleBlock = titleBlock,
-            StatusControls = statusControls,
-            ActionControls = actionControls,
-            ToggleCollapsed = ToggleCollapsed,
-            Collapsed = collapsed,
-            Body = collapsed ? null : CreateModifierBody(terrain, modifier),
-            HeaderBackground = isPinnedBaseTriangulate ? UiTheme.BaseCardBackground : UiTheme.HeaderBackground,
-            CardBackground = isPinnedBaseTriangulate ? UiTheme.BaseCardBackground : UiTheme.CardBackground
+            if (RhinoDoc.ActiveDoc is { } doc)
+                _controller.RemoveModifier(doc, terrainId, id);
+        }
+
+        return CreateCard(new CardSpec
+        {
+            Stack = _modifierCards,
+            Id = id,
+            Name = modifier.Label,
+            NameHelp = "Modifier label. Press Enter or click away to rename.",
+            Rename = text => MutateModifier(terrainId, id, item => item.Label = text, scheduleRebuild: false),
+            IsEnabled = modifier.IsEnabled,
+            EnableHelp = "Enable or disable this modifier without deleting it.",
+            SetEnabled = value => MutateModifier(terrainId, id, item => item.IsEnabled = value),
+            TypeName = typeName,
+            TypeIcon = CreateCardIconControl(GetModifierIconName(kind), typeName[..1]),
+            Summary = AppendRuntimeDiagnosticSummary(
+                GetCollapsedSummary(modifier),
+                terrain,
+                new RuntimeOverlayOwner(RuntimeOverlayOwnerKind.Modifier, id)),
+            Subtitle = GetModifierSubtitle(modifier, pinned),
+            HandleHelp = pinned
+                ? "The base triangulate modifier stays at the bottom of the stack."
+                : "Drag to reorder this modifier.",
+            Reorderable = !pinned,
+            Status = pinned ? CreateCardStatusLabel("Pinned", ModifierTypeColor(kind)) : null,
+            Duplicate = pinned ? null : (Duplicate, "Duplicate this modifier."),
+            Delete = pinned ? null : (Delete, "Delete this modifier."),
+            Body = () => CreateModifierBody(terrain, modifier),
+            HeaderBackground = pinned ? UiTheme.BaseCardBackground : UiTheme.HeaderBackground,
+            CardBackground = pinned ? UiTheme.BaseCardBackground : UiTheme.CardBackground
         });
     }
 

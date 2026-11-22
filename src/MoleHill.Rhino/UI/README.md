@@ -59,7 +59,7 @@ Escape closes the popup from either the search box or the grid.
   colour editor, ARGB/opacity packing), `.Mutations.cs` (the single
   path from a card edit to the controller);
   `.Actions.cs` (terrain-level create/copy/delete/convert/bake/rebuild/reset actions),
-  `.Cards.cs` (collapsible "stack card" framework), `.RuntimeDiagnostics.cs` (generic per-card issue
+  `.Cards.cs` (the stack card: every family fills a `CardSpec` and `CreateCard` builds the one fixed two-line header - grip, arrow, enable, bare type icon, name over "Type · summary", status, actions - with `TextLine` ellipsizing both lines and `DisclosureArrow` shared with section headers), `.RuntimeDiagnostics.cs` (generic per-card issue
   counts and redraw-only **Show Issues** binding), `.Editors.cs` (form-control vocabulary -
   `CreateSourceEditor`/`CreateNumericEditor`/`CreateDropDownEditor`/...), `.Schema.cs` (schema to
   card-row builder for registry-driven modifier, analysis and annotation cards), `.Status.cs` (the detailed live/final build log,
@@ -123,7 +123,7 @@ Escape closes the popup from either the search box or the grid.
   terrain state remain in one record for compound actions.
 - `MoleHillPanel.Cards.cs` also owns the two non-card grouping primitives, so the panel has one visual
   language for "a group of rows". `SectionHeader` is the collapsible one (Terrain Settings, Status,
-  Variable Width Matching): the card's own chevron glyph, the card's header fill and padding, and the
+  Variable Width Matching): the card's `DisclosureArrow`, the card's header fill and padding, and the
   whole strip is the hit target. `CreateSectionRule` is the static one (Peel Border, analysis summaries):
   a caption and a rule. Both replaced `GroupBox`, whose border boxed in content the surrounding card had
   already grouped, and a boxed icon-button chevron that was a different glyph at a different height from

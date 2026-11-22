@@ -12,6 +12,9 @@ public sealed partial class MoleHillPanel : Panel
     /// Applies a stack drag-and-drop reorder. Modifier and zone order changes the terrain, so it rebuilds;
     /// analysis and annotation order only changes what is drawn, so it redraws the preview instead.
     /// </summary>
+    private TerrainDefinition? SelectedTerrainOrNull() =>
+        RhinoDoc.ActiveDoc is { } doc ? _controller.GetSelectedTerrain(doc) : null;
+
     private void ReorderFromDrop(Guid terrainId, Action<TerrainDefinition> reorder, bool rebuild)
     {
         var doc = RhinoDoc.ActiveDoc;

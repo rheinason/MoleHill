@@ -23,24 +23,58 @@ internal sealed class CardStack
     private readonly string? _dragKey;
     private readonly string _dropHelp;
     private readonly DropHandler? _onDrop;
+    private readonly Action _rebuild;
+    private readonly HashSet<Guid> _collapsed = new();
+    private readonly List<Guid> _ids = new();
     private readonly Dictionary<Guid, Panel> _targets = new();
     private readonly Dictionary<Guid, (Panel Strip, Color Accent)> _strips = new();
     private Guid _terrainId;
     private Guid? _dragOver;
 
-    private CardStack(string? dragKey, string dropHelp, DropHandler? onDrop)
+    private CardStack(string? dragKey, string dropHelp, DropHandler? onDrop, Action rebuild)
     {
         _dragKey = dragKey;
         _dropHelp = dropHelp;
         _onDrop = onDrop;
+        _rebuild = rebuild;
     }
 
-    /// <summary>A stack whose cards the user can drag into a new order.</summary>
-    public static CardStack Reorderable(string dragKey, string dropHelp, DropHandler onDrop) =>
-        new(dragKey, dropHelp, onDrop);
+    /// <summary>A stack whose cards the user can drag into a new order. <paramref name="rebuild"/> redraws
+    /// the stack for the selected terrain (after a card is collapsed or expanded).</summary>
+    public static CardStack Reorderable(string dragKey, string dropHelp, DropHandler onDrop, Action rebuild) =>
+        new(dragKey, dropHelp, onDrop, rebuild);
 
     /// <summary>A stack in a fixed order: no handles, no drop targets.</summary>
-    public static CardStack Fixed() => new(null, string.Empty, null);
+    public static CardStack Fixed(Action rebuild) => new(null, string.Empty, null, rebuild);
+
+    /// <summary>Whether card <paramref name="id"/> shows only its header. Session state: not saved.</summary>
+    public bool IsCollapsed(Guid id) => _collapsed.Contains(id);
+
+    /// <summary>
+    /// Collapses or expands card <paramref name="id"/> and redraws. With <paramref name="all"/> (Ctrl-click)
+    /// the whole stack follows: collapsing one collapses every card, expanding one expands every card.
+    /// </summary>
+    public void ToggleCollapsed(Guid id, bool all)
+    {
+        bool collapse = !_collapsed.Contains(id);
+        if (all)
+        {
+            if (collapse)
+                _collapsed.UnionWith(_ids);
+            else
+                _collapsed.Clear();
+        }
+        else if (collapse)
+        {
+            _collapsed.Add(id);
+        }
+        else
+        {
+            _collapsed.Remove(id);
+        }
+
+        _rebuild();
+    }
 
     public StackLayout Layout { get; } = new()
     {
@@ -55,6 +89,7 @@ internal sealed class CardStack
         _terrainId = terrainId;
         _targets.Clear();
         _strips.Clear();
+        _ids.Clear();
         _dragOver = null;
         Layout.Items.Clear();
     }
@@ -73,6 +108,7 @@ internal sealed class CardStack
     /// <summary>Adds <paramref name="card"/> in its accent strip, with a drop target above it when reorderable.</summary>
     public void AddCard(Guid id, Control card, Color accent, Color? background = null)
     {
+        _ids.Add(id);
         if (_dragKey != null)
             AddDropTarget(id);
 

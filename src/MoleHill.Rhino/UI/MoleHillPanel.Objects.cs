@@ -42,74 +42,38 @@ public sealed partial class MoleHillPanel
 
     private Panel CreateObjectCard(TerrainDefinition terrain, TerrainObjectDefinition definition)
     {
-        bool collapsed = _collapsedObjects.Contains(definition.Id);
-        var collapseLabel = CreateCollapseChevron(collapsed);
+        Guid terrainId = terrain.TerrainId, id = definition.Id;
 
-        var enabledCheck = new CheckBox { Checked = definition.IsEnabled };
-        enabledCheck.CheckedChanged += (_, _) =>
-            MutateObjectDefinition(terrain.TerrainId, definition.Id, item => item.IsEnabled = enabledCheck.Checked == true);
-
-        var capturedDefinitionId = definition.Id;
-        var capturedTerrainId = terrain.TerrainId;
-        string kind = GetTerrainObjectKind(definition);
-        var nameBox = new TextBox { Text = definition.Name };
-        StyleTextBox(nameBox);
-        ApplyHelp(nameBox, "Object definition label. Press Enter or click away to rename.");
-        BindCommittedText(nameBox, () => definition.Name, text =>
-            MutateObjectDefinition(capturedTerrainId, capturedDefinitionId, item => item.Name = text, scheduleRebuild: false));
-
-        var handle = _objectCards.CreateHandle(capturedDefinitionId, "Object definition cards use the modifier card layout. Reordering is not enabled yet.", enabled: false);
-
-        var accent = TerrainObjectTypeColor(kind);
-        var iconPlate = CreateIconPlate(accent,
-            CreateCardIconControl(GetTerrainObjectIconName(definition), GetTerrainObjectIconLabel(definition)));
-
-        Control titleBlock = CreateCardTitleBlock(
-            collapsed,
-            definition.Name,
-            AppendRuntimeDiagnosticSummary(
+        return CreateCard(new CardSpec
+        {
+            Stack = _objectCards,
+            Id = id,
+            Name = definition.Name,
+            NameHelp = "Object definition label. Press Enter or click away to rename.",
+            Rename = text => MutateObjectDefinition(terrainId, id, item => item.Name = text, scheduleRebuild: false),
+            IsEnabled = definition.IsEnabled,
+            EnableHelp = "Enable or disable this object definition without deleting it.",
+            SetEnabled = value => MutateObjectDefinition(terrainId, id, item => item.IsEnabled = value),
+            TypeName = GetTerrainObjectTypeLabel(definition),
+            TypeIcon = CreateCardIconControl(GetTerrainObjectIconName(definition), GetTerrainObjectIconLabel(definition)),
+            Summary = AppendRuntimeDiagnosticSummary(
                 GetTerrainObjectCollapsedSummary(definition),
                 terrain,
-                new RuntimeOverlayOwner(RuntimeOverlayOwnerKind.Object, definition.Id)),
-            nameBox,
-            GetTerrainObjectSubtitle(definition));
-
-        var duplicateButton = MakeDuplicateIconButton(() =>
-        {
-            var doc = RhinoDoc.ActiveDoc;
-            if (doc != null)
-                _controller.DuplicateObjectDefinition(doc, capturedTerrainId, capturedDefinitionId);
-        }, "Duplicate this object definition.");
-        var deleteButton = MakeDeleteIconButton(() =>
-        {
-            var doc = RhinoDoc.ActiveDoc;
-            if (doc != null)
-                _controller.RemoveObjectDefinition(doc, capturedTerrainId, capturedDefinitionId);
-        }, "Delete this object definition and restore any currently placed objects.");
-
-        void ToggleCollapsed(bool ctrlHeld) => ToggleCardCollapsed(
-            _collapsedObjects,
-            capturedDefinitionId,
-            ctrlHeld,
-            t => t.Objects.Select(item => item.Id),
-            RebuildObjectsLayout);
-
-        return CreateSharedCardShell(new SharedCardShellOptions
-        {
-            Handle = handle,
-            CollapseControl = collapseLabel,
-            IconPlate = iconPlate,
-            EnabledControl = enabledCheck,
-            TitleBlock = titleBlock,
-            StatusControls = Array.Empty<Control>(),
-            ActionControls = new Control[]
+                new RuntimeOverlayOwner(RuntimeOverlayOwnerKind.Object, id)),
+            Subtitle = GetTerrainObjectSubtitle(definition),
+            HandleHelp = "Object definition cards use the modifier card layout. Reordering is not enabled yet.",
+            Reorderable = false,
+            Duplicate = (() =>
             {
-                duplicateButton,
-                deleteButton
-            },
-            ToggleCollapsed = ToggleCollapsed,
-            Collapsed = collapsed,
-            Body = collapsed ? null : CreateObjectBody(terrain, definition)
+                if (RhinoDoc.ActiveDoc is { } doc)
+                    _controller.DuplicateObjectDefinition(doc, terrainId, id);
+            }, "Duplicate this object definition."),
+            Delete = (() =>
+            {
+                if (RhinoDoc.ActiveDoc is { } doc)
+                    _controller.RemoveObjectDefinition(doc, terrainId, id);
+            }, "Delete this object definition and restore any currently placed objects."),
+            Body = () => CreateObjectBody(terrain, definition)
         });
     }
 
@@ -645,8 +609,7 @@ public sealed partial class MoleHillPanel
     {
         var parts = new List<string>
         {
-            $"{CountReferences(definition.Sources)} refs",
-            GetTerrainObjectTypeLabel(definition)
+            $"{CountReferences(definition.Sources)} refs"
         };
 
         if (definition.RandomRotationMinDegrees > 1e-6 ||

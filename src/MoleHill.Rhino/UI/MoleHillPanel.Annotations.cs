@@ -655,6 +655,9 @@ public sealed partial class MoleHillPanel
     private static string? GetAnnotationIconName(AnnotationDefinition annotation) =>
         AnnotationTypeRegistry.ForType(annotation.GetType())?.IconName;
 
+    private static string GetAnnotationTypeLabel(AnnotationDefinition annotation) =>
+        AnnotationTypeRegistry.ForType(annotation.GetType())?.TypeLabel ?? "Annotation";
+
     private static string GetAnnotationSubtitle(AnnotationDefinition annotation) =>
         AnnotationTypeRegistry.ForType(annotation.GetType())?.Subtitle ?? string.Empty;
 
@@ -663,108 +666,42 @@ public sealed partial class MoleHillPanel
 
     private Panel CreateAnnotationCard(TerrainDefinition terrain, AnnotationDefinition annotation)
     {
-        bool collapsed = _collapsedAnalyses.Contains(annotation.Id);
-        var collapseLabel = CreateCollapseChevron(collapsed);
+        Guid terrainId = terrain.TerrainId, id = annotation.Id;
 
-        var nameBox = new TextBox { Text = annotation.Label };
-        StyleTextBox(nameBox);
-        ApplyHelp(nameBox, "Friendly annotation name shown in the panel.");
-        BindCommittedText(nameBox, () => annotation.Label, text =>
-            MutateAnnotation(terrain.TerrainId, annotation.Id, item => item.Label = text, scheduleRebuild: false));
-
-        var enabledCheck = new CheckBox
+        return CreateCard(new CardSpec
         {
-            Checked = annotation.IsEnabled
-        };
-        ApplyHelp(enabledCheck, "Enable or disable this annotation card without deleting it.");
-        enabledCheck.CheckedChanged += (_, _) =>
-        {
-            MutateAnnotation(terrain.TerrainId, annotation.Id, item => item.IsEnabled = enabledCheck.Checked == true, scheduleRebuild: false);
-            RefreshTerrainPreview(terrain.TerrainId);
-        };
-
-        string kind = GetAnnotationKind(annotation);
-        string statusText = annotation.IsEnabled ? "Output" : "Disabled";
-        var badge = CreateCardStatusLabel(statusText, UiTheme.MutedText);
-
-        var handle = _annotationCards.CreateHandle(annotation.Id, "Drag to reorder this annotation.");
-
-        var accent = AnnotationTypeColor(kind);
-        var iconPlate = CreateIconPlate(accent,
-            CreateCardIconControl(GetAnnotationIconName(annotation), GetAnnotationIconLabel(annotation)));
-
-        Control titleBlock = CreateCardTitleBlock(
-            collapsed,
-            annotation.Label,
-            AppendRuntimeDiagnosticSummary(
+            Stack = _annotationCards,
+            Id = id,
+            Name = annotation.Label,
+            NameHelp = "Friendly annotation name shown in the panel.",
+            Rename = text => MutateAnnotation(terrainId, id, item => item.Label = text, scheduleRebuild: false),
+            IsEnabled = annotation.IsEnabled,
+            EnableHelp = "Enable or disable this annotation card without deleting it.",
+            SetEnabled = value =>
+            {
+                MutateAnnotation(terrainId, id, item => item.IsEnabled = value, scheduleRebuild: false);
+                RefreshTerrainPreview(terrainId);
+            },
+            TypeName = GetAnnotationTypeLabel(annotation),
+            TypeIcon = CreateCardIconControl(GetAnnotationIconName(annotation), GetAnnotationIconLabel(annotation)),
+            Summary = AppendRuntimeDiagnosticSummary(
                 GetAnnotationCollapsedSummary(terrain, annotation),
                 terrain,
-                new RuntimeOverlayOwner(RuntimeOverlayOwnerKind.Analysis, annotation.Id)),
-            nameBox,
-            GetAnnotationSubtitle(annotation));
-
-        var duplicateButton = MakeDuplicateIconButton(() =>
-        {
-            DuplicateAnnotation(terrain.TerrainId, annotation.Id);
-            RefreshTerrainPreview(terrain.TerrainId);
-        }, "Duplicate this annotation card.");
-        var deleteButton = MakeDeleteIconButton(() =>
-        {
-            RemoveAnnotation(terrain.TerrainId, annotation.Id);
-            RefreshTerrainPreview(terrain.TerrainId);
-        }, "Delete this annotation card.");
-
-        void ToggleCollapsed(bool ctrlHeld)
-        {
-            bool nowCollapsed = !_collapsedAnalyses.Contains(annotation.Id);
-            if (ctrlHeld)
+                new RuntimeOverlayOwner(RuntimeOverlayOwnerKind.Analysis, id)),
+            Subtitle = GetAnnotationSubtitle(annotation),
+            HandleHelp = "Drag to reorder this annotation.",
+            Status = CreateCardStatusLabel(annotation.IsEnabled ? "Output" : "Disabled", UiTheme.MutedText),
+            Duplicate = (() =>
             {
-                var doc2 = RhinoDoc.ActiveDoc;
-                var t = doc2 == null ? null : _controller.GetSelectedTerrain(doc2);
-                if (t != null)
-                {
-                    var visibleAnalyses = t.Annotations;
-
-                    if (nowCollapsed)
-                    {
-                        foreach (var item in visibleAnalyses)
-                            _collapsedAnalyses.Add(item.Id);
-                    }
-                    else
-                    {
-                        foreach (var item in visibleAnalyses)
-                            _collapsedAnalyses.Remove(item.Id);
-                    }
-                }
-            }
-            else
+                DuplicateAnnotation(terrainId, id);
+                RefreshTerrainPreview(terrainId);
+            }, "Duplicate this annotation card."),
+            Delete = (() =>
             {
-                if (nowCollapsed)
-                    _collapsedAnalyses.Add(annotation.Id);
-                else
-                    _collapsedAnalyses.Remove(annotation.Id);
-            }
-
-            var doc = RhinoDoc.ActiveDoc;
-            RebuildAnnotationLayout(doc == null ? null : _controller.GetSelectedTerrain(doc));
-        }
-
-        return CreateSharedCardShell(new SharedCardShellOptions
-        {
-            Handle = handle,
-            CollapseControl = collapseLabel,
-            IconPlate = iconPlate,
-            EnabledControl = enabledCheck,
-            TitleBlock = titleBlock,
-            StatusControls = new Control[] { badge },
-            ActionControls = new Control[]
-            {
-                duplicateButton,
-                deleteButton
-            },
-            ToggleCollapsed = ToggleCollapsed,
-            Collapsed = collapsed,
-            Body = collapsed ? null : CreateAnnotationBody(terrain, annotation)
+                RemoveAnnotation(terrainId, id);
+                RefreshTerrainPreview(terrainId);
+            }, "Delete this annotation card."),
+            Body = () => CreateAnnotationBody(terrain, annotation)
         });
     }
 

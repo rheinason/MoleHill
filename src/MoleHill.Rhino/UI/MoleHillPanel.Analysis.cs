@@ -16,27 +16,7 @@ public sealed partial class MoleHillPanel
 {
     private Panel CreateAnalysisCard(TerrainDefinition terrain, AnalysisDefinition analysis, bool isActive)
     {
-        bool collapsed = _collapsedAnalyses.Contains(analysis.Id);
-        var collapseLabel = CreateCollapseChevron(collapsed);
-
-        var nameBox = new TextBox { Text = analysis.Label };
-        StyleTextBox(nameBox);
-        ApplyHelp(nameBox, "Friendly analysis name shown in the panel.");
-        BindCommittedText(nameBox, () => analysis.Label, text =>
-            MutateAnalysis(terrain.TerrainId, analysis.Id, item => item.Label = text, scheduleRebuild: false));
-
-        var enabledCheck = new CheckBox
-        {
-            Checked = analysis.IsEnabled
-        };
-        ApplyHelp(enabledCheck, "Enable or disable this analysis card without deleting it.");
-        enabledCheck.CheckedChanged += (_, _) =>
-        {
-            MutateAnalysis(terrain.TerrainId, analysis.Id, item => item.IsEnabled = enabledCheck.Checked == true, scheduleRebuild: false);
-            RefreshTerrainPreview(terrain.TerrainId);
-        };
-
-        string kind = GetAnalysisKind(analysis);
+        Guid terrainId = terrain.TerrainId, id = analysis.Id;
         bool supportsPreview = TerrainAnalysisPreviewBuilder.SupportsTerrainPreview(analysis);
         bool producesOutput = TerrainAnalysisPreviewBuilder.ProducesGeneratedOutput(analysis);
         string statusText = isActive
@@ -44,86 +24,41 @@ public sealed partial class MoleHillPanel
             : analysis.IsEnabled
                 ? supportsPreview ? "Enabled" : producesOutput ? "Output" : "Summary"
                 : "Disabled";
-        var badge = CreateCardStatusLabel(statusText, isActive ? UiTheme.ActiveBadge : UiTheme.MutedText);
 
-        var handle = _analysisCards.CreateHandle(analysis.Id, "Drag to reorder this analysis.");
-
-        var accent = AnalysisTypeColor(kind);
-        var iconPlate = CreateIconPlate(accent,
-            CreateCardIconControl(GetAnalysisIconName(analysis), GetAnalysisIconLabel(analysis)));
-
-        Control titleBlock = CreateCardTitleBlock(
-            collapsed,
-            analysis.Label,
-            AppendRuntimeDiagnosticSummary(
+        return CreateCard(new CardSpec
+        {
+            Stack = _analysisCards,
+            Id = id,
+            Name = analysis.Label,
+            NameHelp = "Friendly analysis name shown in the panel.",
+            Rename = text => MutateAnalysis(terrainId, id, item => item.Label = text, scheduleRebuild: false),
+            IsEnabled = analysis.IsEnabled,
+            EnableHelp = "Enable or disable this analysis card without deleting it.",
+            SetEnabled = value =>
+            {
+                MutateAnalysis(terrainId, id, item => item.IsEnabled = value, scheduleRebuild: false);
+                RefreshTerrainPreview(terrainId);
+            },
+            TypeName = GetAnalysisTypeLabel(analysis),
+            TypeIcon = CreateCardIconControl(GetAnalysisIconName(analysis), GetAnalysisIconLabel(analysis)),
+            Summary = AppendRuntimeDiagnosticSummary(
                 GetAnalysisCollapsedSummary(terrain, analysis),
                 terrain,
-                new RuntimeOverlayOwner(RuntimeOverlayOwnerKind.Analysis, analysis.Id)),
-            nameBox,
-            GetAnalysisSubtitle(analysis, isActive));
-
-        var duplicateButton = MakeDuplicateIconButton(() =>
-        {
-            DuplicateAnalysis(terrain.TerrainId, analysis.Id);
-            RefreshTerrainPreview(terrain.TerrainId);
-        }, "Duplicate this analysis card.");
-        var deleteButton = MakeDeleteIconButton(() =>
-        {
-            RemoveAnalysis(terrain.TerrainId, analysis.Id);
-            RefreshTerrainPreview(terrain.TerrainId);
-        }, "Delete this analysis card.");
-
-        void ToggleCollapsed(bool ctrlHeld)
-        {
-            bool nowCollapsed = !_collapsedAnalyses.Contains(analysis.Id);
-            if (ctrlHeld)
+                new RuntimeOverlayOwner(RuntimeOverlayOwnerKind.Analysis, id)),
+            Subtitle = GetAnalysisSubtitle(analysis, isActive),
+            HandleHelp = "Drag to reorder this analysis.",
+            Status = CreateCardStatusLabel(statusText, isActive ? UiTheme.ActiveBadge : UiTheme.MutedText),
+            Duplicate = (() =>
             {
-                var doc2 = RhinoDoc.ActiveDoc;
-                var t = doc2 == null ? null : _controller.GetSelectedTerrain(doc2);
-                if (t != null)
-                {
-                    var visibleAnalyses = t.Analyses;
-
-                    if (nowCollapsed)
-                    {
-                        foreach (var item in visibleAnalyses)
-                            _collapsedAnalyses.Add(item.Id);
-                    }
-                    else
-                    {
-                        foreach (var item in visibleAnalyses)
-                            _collapsedAnalyses.Remove(item.Id);
-                    }
-                }
-            }
-            else
+                DuplicateAnalysis(terrainId, id);
+                RefreshTerrainPreview(terrainId);
+            }, "Duplicate this analysis card."),
+            Delete = (() =>
             {
-                if (nowCollapsed)
-                    _collapsedAnalyses.Add(analysis.Id);
-                else
-                    _collapsedAnalyses.Remove(analysis.Id);
-            }
-
-            var doc = RhinoDoc.ActiveDoc;
-            RebuildAnalysisLayout(doc == null ? null : _controller.GetSelectedTerrain(doc));
-        }
-
-        return CreateSharedCardShell(new SharedCardShellOptions
-        {
-            Handle = handle,
-            CollapseControl = collapseLabel,
-            IconPlate = iconPlate,
-            EnabledControl = enabledCheck,
-            TitleBlock = titleBlock,
-            StatusControls = new Control[] { badge },
-            ActionControls = new Control[]
-            {
-                duplicateButton,
-                deleteButton
-            },
-            ToggleCollapsed = ToggleCollapsed,
-            Collapsed = collapsed,
-            Body = collapsed ? null : CreateAnalysisBody(terrain, analysis)
+                RemoveAnalysis(terrainId, id);
+                RefreshTerrainPreview(terrainId);
+            }, "Delete this analysis card."),
+            Body = () => CreateAnalysisBody(terrain, analysis)
         });
     }
 

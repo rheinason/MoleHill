@@ -190,63 +190,26 @@ public sealed partial class MoleHillPanel
 
     private Panel CreateZoneCard(TerrainDefinition terrain, CollageZoneDefinition zone)
     {
-        bool collapsed = _collapsedZones.Contains(zone.ZoneId);
-        var collapseLabel = CreateCollapseChevron(collapsed);
+        Guid terrainId = terrain.TerrainId, id = zone.ZoneId;
 
-        var nameBox = new TextBox { Text = zone.Name };
-        StyleTextBox(nameBox);
-        ApplyHelp(nameBox, "Friendly zone name shown in the panel and on generated output objects.");
-        BindCommittedText(nameBox, () => zone.Name, text =>
-            MutateZone(terrain.TerrainId, zone.ZoneId, item => item.Name = text, scheduleRebuild: false));
-
-        var enabledCheck = new CheckBox { Checked = zone.IsEnabled };
-        ApplyHelp(enabledCheck, "Disable a zone without deleting it.");
-        enabledCheck.CheckedChanged += (_, _) =>
-            MutateZone(terrain.TerrainId, zone.ZoneId, item => item.IsEnabled = enabledCheck.Checked == true);
-
-        var capturedZoneId = zone.ZoneId;
-        var capturedTerrainId = terrain.TerrainId;
-
-        var handle = _zoneCards.CreateHandle(capturedZoneId, "Drag to reorder this zone. Later zones win when priorities tie.");
-
-        var iconPlate = CreateZoneColorSwatch(terrain, zone);
-
-        Control titleBlock = CreateCardTitleBlock(
-            collapsed,
-            zone.Name,
-            GetZoneCollapsedSummary(zone),
-            nameBox,
-            zone.UseInputElevationForPriority
-                ? "Higher inputs win overlaps"
-                : "Later zones win ties");
-
-        var badge = CreateCardStatusLabel(zone.IsEnabled ? "Enabled" : "Disabled");
-
-        var deleteButton = MakeDeleteIconButton(
-            () => RemoveZone(capturedTerrainId, capturedZoneId),
-            "Delete this zone.");
-        void ToggleCollapsed(bool ctrlHeld) => ToggleCardCollapsed(
-            _collapsedZones,
-            capturedZoneId,
-            ctrlHeld,
-            t => t.Zones.Select(item => item.ZoneId),
-            RebuildZonesLayout);
-
-        return CreateSharedCardShell(new SharedCardShellOptions
+        return CreateCard(new CardSpec
         {
-            Handle = handle,
-            CollapseControl = collapseLabel,
-            IconPlate = iconPlate,
-            EnabledControl = enabledCheck,
-            TitleBlock = titleBlock,
-            StatusControls = new Control[] { badge },
-            ActionControls = new Control[]
-            {
-                deleteButton
-            },
-            ToggleCollapsed = ToggleCollapsed,
-            Collapsed = collapsed,
-            Body = collapsed ? null : CreateZoneBody(terrain, zone)
+            Stack = _zoneCards,
+            Id = id,
+            Name = zone.Name,
+            NameHelp = "Friendly zone name shown in the panel and on generated output objects.",
+            Rename = text => MutateZone(terrainId, id, item => item.Name = text, scheduleRebuild: false),
+            IsEnabled = zone.IsEnabled,
+            EnableHelp = "Disable a zone without deleting it.",
+            SetEnabled = value => MutateZone(terrainId, id, item => item.IsEnabled = value),
+            TypeName = "Zone",
+            TypeIcon = CreateZoneColorSwatch(terrain, zone),
+            Summary = GetZoneCollapsedSummary(zone),
+            Subtitle = zone.UseInputElevationForPriority ? "Higher inputs win overlaps" : "Later zones win ties",
+            HandleHelp = "Drag to reorder this zone. Later zones win when priorities tie.",
+            Status = CreateCardStatusLabel(zone.IsEnabled ? "Enabled" : "Disabled"),
+            Delete = (() => RemoveZone(terrainId, id), "Delete this zone."),
+            Body = () => CreateZoneBody(terrain, zone)
         });
     }
 

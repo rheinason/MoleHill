@@ -63,6 +63,20 @@ internal static class UiMetrics
     public const int IconSize = 14;
 
     public const int IconButtonWidth = 22;
+
+    // ── Card header (design review Steps 13–20) ─────────────────────────────
+    // Two fixed lines at every width: grip, arrow, enable, type icon and actions centre on the first line
+    // (the name); the type/summary line sits under the name. No line ever hides, wraps or is added.
+
+    /// <summary>Width of the disclosure arrow's slot; the arrow itself is <see cref="DisclosureGlyph"/>.</summary>
+    public const int DisclosureSize = 12;
+    public const int DisclosureGlyph = 8;
+
+    /// <summary>The bare type glyph beside the card name (no plate behind it).</summary>
+    public const int CardTypeIconSize = 10;
+
+    /// <summary>Gap between the name line and the type/summary line.</summary>
+    public const int CardHeaderLineGap = SpaceXSmall;
     public const int CardAccentWidth = 5;
     public const int CardHorizontalPadding = 8;
     public const int CardVerticalPadding = 6;

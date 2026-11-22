@@ -52,17 +52,13 @@ public sealed partial class MoleHillPanel : Panel
     private Button _bakeButton = new();
     private Button _resetTerrainDataButton = new();
     private bool _isUpdatingTerrainSelector;
-    private readonly HashSet<Guid> _collapsedModifiers = new();
-    private readonly HashSet<Guid> _collapsedObjects = new();
-    private readonly HashSet<Guid> _collapsedZones = new();
     // The five tab stacks. Drops reorder the terrain's own list; analyses and annotations only redraw,
     // because their order changes output, not the terrain.
     private readonly CardStack _modifierCards;
-    private readonly CardStack _objectCards = CardStack.Fixed();
+    private readonly CardStack _objectCards;
     private readonly CardStack _zoneCards;
     private readonly CardStack _analysisCards;
     private readonly CardStack _annotationCards;
-    private readonly HashSet<Guid> _collapsedAnalyses = new();
     private readonly HashSet<Guid> _expandedColorRamps = new();
     private readonly Dictionary<Guid, int> _selectedColorRampStops = new();
     private readonly EventHandler _stateChangedHandler;
@@ -101,13 +97,18 @@ public sealed partial class MoleHillPanel : Panel
         _statusChangedHandler = HandleControllerStatusChanged;
 
         _modifierCards = CardStack.Reorderable("modifier-drag", "Drop here to reorder modifiers.", (terrainId, source, anchor) =>
-            ReorderFromDrop(terrainId, t => StackReorder.Move(t.Modifiers, m => m.Id, source, anchor, displayReversed: true), rebuild: true));
+            ReorderFromDrop(terrainId, t => StackReorder.Move(t.Modifiers, m => m.Id, source, anchor, displayReversed: true), rebuild: true),
+            () => RebuildModifierLayout(SelectedTerrainOrNull()));
+        _objectCards = CardStack.Fixed(() => RebuildObjectsLayout(SelectedTerrainOrNull()));
         _zoneCards = CardStack.Reorderable("zone-drag", "Drop here to reorder zones.", (terrainId, source, anchor) =>
-            ReorderFromDrop(terrainId, t => StackReorder.Move(t.Zones, z => z.ZoneId, source, anchor), rebuild: true));
+            ReorderFromDrop(terrainId, t => StackReorder.Move(t.Zones, z => z.ZoneId, source, anchor), rebuild: true),
+            () => RebuildZonesLayout(SelectedTerrainOrNull()));
         _analysisCards = CardStack.Reorderable("analysis-drag", "Drop here to reorder analyses.", (terrainId, source, anchor) =>
-            ReorderFromDrop(terrainId, t => StackReorder.Move(t.Analyses, a => a.Id, source, anchor), rebuild: false));
+            ReorderFromDrop(terrainId, t => StackReorder.Move(t.Analyses, a => a.Id, source, anchor), rebuild: false),
+            () => RebuildAnalysisLayout(SelectedTerrainOrNull()));
         _annotationCards = CardStack.Reorderable("annotation-drag", "Drop here to reorder annotations.", (terrainId, source, anchor) =>
-            ReorderFromDrop(terrainId, t => StackReorder.Move(t.Annotations, a => a.Id, source, anchor), rebuild: false));
+            ReorderFromDrop(terrainId, t => StackReorder.Move(t.Annotations, a => a.Id, source, anchor), rebuild: false),
+            () => RebuildAnnotationLayout(SelectedTerrainOrNull()));
 
         WireToolbarControls();
         WireSettingsControls();
