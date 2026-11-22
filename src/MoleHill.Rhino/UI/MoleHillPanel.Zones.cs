@@ -240,13 +240,12 @@ public sealed partial class MoleHillPanel
 
     private void AddZoneSummaryRows(DynamicLayout layout, TerrainDefinition terrain, CollageZoneDefinition zone)
     {
-        layout.AddSeparateRow(new Label
-        {
-            Text = "LAST BUILD",
-            TextColor = UiTheme.MutedText,
-            Font = new Font(SystemFont.Bold)
-        }, null);
+        AddResultRows(layout, "zone", DescribeZoneResult(terrain, zone));
+    }
 
+    private IReadOnlyList<ResultRow> DescribeZoneResult(TerrainDefinition terrain, CollageZoneDefinition zone)
+    {
+        var rows = new List<ResultRow>();
         var doc = RhinoDoc.ActiveDoc;
         ZoneAnalysisSummary? summary = doc == null
             ? null
@@ -254,34 +253,34 @@ public sealed partial class MoleHillPanel
                 .FirstOrDefault(item => item.ZoneId == zone.ZoneId);
         if (summary == null)
         {
-            layout.AddRow(CreateSelectableSummaryEditor(
+            rows.Add(ResultRow.Summary(
                 "Summary",
                 "Rebuild required",
                 "Zone quantities are populated after the last completed final build.",
                 minHeight: 42));
-            return;
+            return rows;
         }
 
         if (summary.OutputCount == 0)
         {
-            layout.AddRow(CreateReadOnlyValueRow(
+            rows.Add(ResultRow.Of(
                 "Summary",
                 "No resolved output",
                 "The zone has no mesh output in the last completed build."));
-            return;
+            return rows;
         }
 
-        layout.AddRow(CreateReadOnlyValueRow("Plan area", FormatZoneArea(summary.PlanArea), "Projected XY area of the resolved zone output."));
-        layout.AddRow(CreateReadOnlyValueRow("Surface area", FormatZoneArea(summary.SurfaceArea), "3D surface area of the resolved zone output."));
-        layout.AddRow(CreateReadOnlyValueRow(
+        rows.Add(ResultRow.Of("Plan area", FormatZoneArea(summary.PlanArea), "Projected XY area of the resolved zone output."));
+        rows.Add(ResultRow.Of("Surface area", FormatZoneArea(summary.SurfaceArea), "3D surface area of the resolved zone output."));
+        rows.Add(ResultRow.Of(
             "Elevation",
             $"{FormatZoneLength(summary.ElevationMinZ)} / {FormatZoneLength(summary.ElevationAverageZ)} / {FormatZoneLength(summary.ElevationMaxZ)}",
             "Minimum / area-weighted average / maximum elevation."));
-        layout.AddRow(CreateReadOnlyValueRow(
+        rows.Add(ResultRow.Of(
             "Slope",
             $"{summary.SlopeMinPercent:F1}% / {summary.SlopeAveragePercent:F1}% / {summary.SlopeMaxPercent:F1}%",
             "Minimum / area-weighted average / maximum slope."));
-        layout.AddRow(CreateReadOnlyValueRow(
+        rows.Add(ResultRow.Of(
             "Mesh output",
             $"{summary.OutputCount:N0} object(s) · {summary.TriangleCount:N0} triangle(s)",
             "Resolved zone mesh output from the last completed build."));
@@ -298,10 +297,12 @@ public sealed partial class MoleHillPanel
                 ? "Unavailable — zone has no resolved output in the last build"
                 : "Unavailable — enable Earthworks analysis";
         }
-        layout.AddRow(CreateSelectableSummaryEditor(
+        rows.Add(ResultRow.Summary(
             "Earthworks",
             earthworkText,
-            "Cut/fill is measured against the enabled Earthworks reference and uses the resolved zone output."));
+            "Cut/fill is measured against the enabled Earthworks reference and uses the resolved zone output.",
+            minHeight: 42));
+        return rows;
     }
 
     private static string FormatZoneArea(double value)

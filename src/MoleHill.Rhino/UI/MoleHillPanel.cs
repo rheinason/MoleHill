@@ -23,7 +23,8 @@ public sealed partial class MoleHillPanel : Panel
     private readonly Label _layerTemplateLabel = new() { VerticalAlignment = VerticalAlignment.Center, Wrap = WrapMode.Word };
     private readonly Panel _terrainColorSwatch = new() { Width = 18, Height = 18 };
     private readonly Label _terrainColorLabel = new() { VerticalAlignment = VerticalAlignment.Center };
-    private readonly Label _statusHintLabel   = new() { VerticalAlignment = VerticalAlignment.Center };
+    // Ellipsizes on the Status header rather than wrapping it onto a second line at narrow widths.
+    private readonly TextLine _statusHintLabel = new(string.Empty, SystemFonts.Default(), UiTheme.MutedText);
     private readonly NumberField _toleranceStepper = new();
     private readonly NumberField _terrainOpacityStepper = new();
     private readonly Slider _terrainOpacitySlider = new() { MinValue = 0, MaxValue = 100, Width = UiMetrics.SliderMin };

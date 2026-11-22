@@ -16,7 +16,7 @@ internal sealed class TextLine : Drawable
 {
     private string _text;
     private readonly Font _font;
-    private readonly Color _color;
+    private Color _color;
     private readonly float _lineHeight;
 
     public TextLine(string text, Font font, Color color)
@@ -33,6 +33,16 @@ internal sealed class TextLine : Drawable
             if (shown.Length > 0)
                 e.Graphics.DrawText(_font, _color, 0, (Height - _lineHeight) / 2f, shown);
         };
+    }
+
+    public Color TextColor
+    {
+        get => _color;
+        set
+        {
+            _color = value;
+            Invalidate();
+        }
     }
 
     public string Text

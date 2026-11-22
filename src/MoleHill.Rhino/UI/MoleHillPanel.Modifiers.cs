@@ -86,7 +86,7 @@ public sealed partial class MoleHillPanel
         if (TryBuildSchemaModifierBody(layout, terrain, modifier))
             AppendBespokeModifierRows(layout, terrain, modifier);
 
-        AddResultRows(layout, stageReport?.Rows);
+        AddResultRows(layout, GetModifierKind(modifier), stageReport?.Rows);
 
         Control? diagnosticsRow = CreateRuntimeDiagnosticsRow(
             terrain,

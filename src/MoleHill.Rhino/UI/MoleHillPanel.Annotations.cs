@@ -145,23 +145,33 @@ public sealed partial class MoleHillPanel
 
         AddResultRows(
             layout,
+            GetAnnotationKind(annotation),
             AnnotationTypeRegistry.ForType(annotation.GetType())?.DescribeResult(annotation, summary, ResultFormats));
     }
 
     /// <summary>The unit-aware formatters result rows need, bound to the active document and the user's slope unit.</summary>
     private static readonly ResultFormatter ResultFormats = new(FormatArea, FormatVolume, FormatZoneLength, AnalysisFormatting.FormatSlopeDegrees);
 
-    private void AddResultRows(DynamicLayout layout, IReadOnlyList<ResultRow>? rows)
+    /// <summary>
+    /// What the last build computed, under one Results section on every card that reports anything
+    /// (design review Step 71: "Results" for computed values). Open by default and remembered per card
+    /// type like every section; summaries stay selectable so their figures can be copied.
+    /// </summary>
+    private void AddResultRows(DynamicLayout layout, string cardKind, IReadOnlyList<ResultRow>? rows)
     {
-        if (rows == null)
+        if (rows == null || rows.Count == 0)
             return;
 
+        var body = UiLayouts.CardBody();
+        body.Padding = new Padding(0);
         foreach (ResultRow row in rows)
         {
-            layout.AddRow(row.Kind == ResultRowKind.SelectableSummary
+            body.AddRow(row.Kind == ResultRowKind.SelectableSummary
                 ? CreateSelectableSummaryEditor(row.Label, row.Value, row.Help, row.MinHeight)
                 : CreateReadOnlyValueRow(row.Label, row.Value, row.Help));
         }
+
+        layout.AddRow(new CardSection(cardKind, "results", "Results", true, null, body));
     }
 
     /// <summary>

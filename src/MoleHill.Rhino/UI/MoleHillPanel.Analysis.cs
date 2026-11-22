@@ -211,6 +211,7 @@ public sealed partial class MoleHillPanel
         // (AnalysisTypeDescriptor.DescribeResult), drawn by the same generic renderer annotations use.
         AddResultRows(
             layout,
+            GetAnalysisKind(analysis),
             AnalysisTypeRegistry.ForType(analysis.GetType())?.DescribeResult(analysis, summary, ResultFormats));
     }
 

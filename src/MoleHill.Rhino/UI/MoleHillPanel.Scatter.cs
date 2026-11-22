@@ -24,16 +24,16 @@ public sealed partial class MoleHillPanel
         ScatterBuildSummary? summary = doc == null ? null : _controller.GetScatterSummaries(doc, terrain.TerrainId)
             .FirstOrDefault(item => item.DefinitionId == scatter.Id);
         string requested = scatter.DensityMode == ScatterDensityMode.Count ? $"Requested {scatter.Count:N0} · " : string.Empty;
-        layout.AddRow(CreateReadOnlyValueRow("Result", summary == null ? "Build to update quantities" :
-            summary.Message ?? $"{requested}{summary.Sampled:N0} samples → {summary.Placed:N0} placed",
-            "Counts come from the current completed build. Filters remove samples; they do not refill the requested count."));
-        if (summary != null && summary.Message == null)
-            layout.AddRow(new Expander
-            {
-                Header = "Why samples were removed",
-                Content = new Label { Text = summary.Breakdown, Wrap = WrapMode.Word },
-                Expanded = summary.Placed == 0
-            });
+        // What the build placed, and why samples were dropped, in the card's shared Results section.
+        var results = new List<ResultRow>
+        {
+            ResultRow.Of("Placed", summary == null ? "Build to update quantities" :
+                summary.Message ?? $"{requested}{summary.Sampled:N0} samples → {summary.Placed:N0} placed",
+                "Counts come from the current completed build. Filters remove samples; they do not refill the requested count."),
+        };
+        if (summary != null && summary.Message == null && !string.IsNullOrWhiteSpace(summary.Breakdown))
+            results.Add(ResultRow.Summary("Removed", summary.Breakdown, "Why samples were removed before placement.", minHeight: 42));
+        AddResultRows(layout, kind, results);
         layout.AddRow(MakeInlineButton("Bake this scatter", (_, _) =>
         {
             if (RhinoDoc.ActiveDoc is { } activeDoc)

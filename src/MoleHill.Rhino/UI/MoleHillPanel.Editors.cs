@@ -117,8 +117,14 @@ public sealed partial class MoleHillPanel
             layersRow.Items.Add(layersClear);
 
         // ── Layout ────────────────────────────────────────────────
-        var titleLabel = UiControls.Label(label);
-        ApplyHelp(titleLabel, help ?? $"{label} accepts Rhino object picks and layers.");
+        // The total sits on the heading ("Sources — 3"), never on a row of its own (design review UI-13,
+        // UI-19); the tooltip says what it is made of.
+        int total = liveObjectIds.Count + lc;
+        var titleLabel = UiControls.Label(total > 0 ? $"{label} — {total}" : label);
+        string breakdown = total > 0
+            ? $"{Count(liveObjectIds.Count, "object", "objects")}, {Count(lc, "watched layer", "watched layers")}. "
+            : string.Empty;
+        ApplyHelp(titleLabel, breakdown + (help ?? $"{label} accepts Rhino object picks and layers."));
 
         var pillsLayout = new AdaptiveColumns(
             UiMetrics.SpaceSmall,

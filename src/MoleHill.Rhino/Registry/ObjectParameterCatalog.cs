@@ -33,11 +33,6 @@ internal static class ObjectParameterCatalog
             unit: ParameterUnit.ModelLength,
             liveEdit: true,
             liveScrub: true),
-        ObjectParam.ReadOnly(
-            "bindings",
-            "Bindings",
-            definition => $"{definition.Sources.ObjectIds.Count + definition.Sources.LayerPaths.Count} source refs",
-            "Explicit picks plus watched layers drive the objects in this definition."),
 
         // Seeded variation, closed until wanted: the same seed always places the same way.
         ObjectParam.Section("variation", "Variation"),

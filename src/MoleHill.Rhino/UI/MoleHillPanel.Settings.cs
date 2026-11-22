@@ -172,7 +172,7 @@ public sealed partial class MoleHillPanel : Panel
     private Control BuildSettingsCard()
     {
         // ── Settings card (collapsible, expanded by default) ─────────
-        var settingsDescription = UiControls.Label("Document defaults, layers, and terrain display", UiLabelRole.Meta);
+        var settingsDescription = new TextLine("Document defaults, layers, and terrain display", SystemFonts.Default(), UiTheme.MutedText);
         var settingsHeader = new SectionHeader(
             "Terrain Settings",
             settingsDescription,
@@ -182,7 +182,6 @@ public sealed partial class MoleHillPanel : Panel
                 _settingsExpanded = expanded;
                 _settingsContent!.Visible = expanded;
             });
-        settingsHeader.SizeChanged += (_, _) => settingsDescription.Visible = settingsHeader.Width <= 0 || settingsHeader.Width >= UiMetrics.HeaderStatusBreak;
 
         // Output routing and appearance both live in the layer template now, so the panel names the
         // template and opens the editor rather than carrying a layer picker per destination.

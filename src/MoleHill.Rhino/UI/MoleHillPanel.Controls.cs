@@ -82,6 +82,9 @@ public sealed partial class MoleHillPanel : Panel
         control.ToolTip = help;
     }
 
+    /// <summary>"1 object", "3 objects": a count with the right singular or plural noun.</summary>
+    private static string Count(int count, string one, string many) => $"{count} {(count == 1 ? one : many)}";
+
     private static int CountReferences(SourceReferenceSet sourceSet)
     {
         return sourceSet.ObjectIds.Count + sourceSet.LayerPaths.Count;
