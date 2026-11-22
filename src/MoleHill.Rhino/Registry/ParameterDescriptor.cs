@@ -139,6 +139,12 @@ internal sealed class ParameterDescriptor<TDefinition>
     /// value-format dropdown appends a "Custom" entry for a format string outside the standard presets).</summary>
     public Func<TDefinition, IReadOnlyList<(string Key, string Label)>>? ChoiceOptionsFor { get; init; }
 
+    /// <summary>
+    /// Keeps a fixed 2–3 option choice as a drop-down instead of segments, for options whose labels are too
+    /// long to sit side by side. Every other fixed choice of two or three modes is shown segmented.
+    /// </summary>
+    public bool PreferDropDown { get; init; }
+
     // ---- Color ----
     // Fallback and default text take the owning terrain as well as the definition: a colour row resolves
     // "by layer" against the item's own output layer, falling back to the terrain's layer for the family.
@@ -414,10 +420,12 @@ internal sealed class ParameterDescriptor<TDefinition>
         bool incrementalCommit = false,
         bool rebuildAfterCommit = false,
         Func<TDefinition, bool>? visibleWhen = null,
-        Func<TDefinition, IReadOnlyList<(string Key, string Label)>>? optionsFor = null) =>
+        Func<TDefinition, IReadOnlyList<(string Key, string Label)>>? optionsFor = null,
+        bool preferDropDown = false) =>
         new()
         {
             Kind = ParameterKind.Choice,
+            PreferDropDown = preferDropDown,
             Key = key,
             Label = label,
             ChoiceOptions = options,

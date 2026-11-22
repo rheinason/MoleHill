@@ -139,12 +139,19 @@ public sealed partial class MoleHillPanel
                     parameter.Help ?? string.Empty);
 
             case ParameterKind.Choice:
-                return CreateDropDownEditor(
-                    label,
-                    parameter.ChoiceOptionsFor?.Invoke(definition) ?? parameter.ChoiceOptions!,
-                    parameter.GetText!(definition) ?? string.Empty,
-                    value => commit(item => parameter.SetText!(item, value)),
-                    parameter.Help ?? string.Empty);
+            {
+                var options = parameter.ChoiceOptionsFor?.Invoke(definition) ?? parameter.ChoiceOptions!;
+                string selected = parameter.GetText!(definition) ?? string.Empty;
+                Action<string> choose = value => commit(item => parameter.SetText!(item, value));
+                string help = parameter.Help ?? string.Empty;
+
+                // Two or three fixed modes are segments; a list that depends on the document, or a longer
+                // one, stays a drop-down (design review: segmented controls for 2-3 meaningful modes).
+                bool modes = parameter.ChoiceOptionsFor == null && options.Count is 2 or 3 && !parameter.PreferDropDown;
+                return modes
+                    ? CreateSegmentedEditor(label, options, selected, choose, help)
+                    : CreateDropDownEditor(label, options, selected, choose, help);
+            }
 
             case ParameterKind.Color:
                 return CreateOptionalColorEditor(

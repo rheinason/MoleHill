@@ -72,6 +72,12 @@ internal static class UiTheme
     public static Color IconHover   => IsDark ? Color.FromArgb(66,  66,  66)  : Color.FromArgb(208, 208, 208);
     public static Color IconPressed => IsDark ? Color.FromArgb(84,  84,  84)  : Color.FromArgb(190, 190, 190);
 
+    /// <summary>Segmented mode controls: resting segments, their outline, and the selected segment.</summary>
+    public static Color SegmentBackground   => IsDark ? Color.FromArgb(56,  56,  56)  : Color.FromArgb(232, 232, 232);
+    public static Color SegmentBorder       => IsDark ? Color.FromArgb(92,  92,  92)  : Color.FromArgb(176, 176, 176);
+    public static Color SegmentSelected     => RampAccent;
+    public static Color SegmentSelectedText => RampAccentText;
+
     /// <summary>Ring round a drawn control while it has keyboard focus.</summary>
     public static Color FocusRing => IsDark ? Color.FromArgb(110, 170, 255) : Color.FromArgb(53, 96, 163);
 

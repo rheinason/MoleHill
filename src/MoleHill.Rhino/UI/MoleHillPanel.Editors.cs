@@ -782,6 +782,35 @@ public sealed partial class MoleHillPanel
         return new PropertyRow(CreateHelpLabel(label, help, 0), dropDown, expandWidget: true);
     }
 
+    /// <summary>A choice between two or three modes as side-by-side segments; see <see cref="SegmentedControl"/>.</summary>
+    private Control CreateSegmentedEditor(
+        string label,
+        IReadOnlyList<(string Key, string Label)> options,
+        string selectedKey,
+        Action<string> onChanged,
+        string help)
+    {
+        int selectedIndex = Math.Max(0, options
+            .Select((option, index) => (option, index))
+            .Where(item => string.Equals(item.option.Key, selectedKey, StringComparison.OrdinalIgnoreCase))
+            .Select(item => item.index)
+            .DefaultIfEmpty(0)
+            .First());
+        var segments = new SegmentedControl(options.Select(option => option.Label).ToList(), selectedIndex)
+        {
+            ToolTip = string.IsNullOrWhiteSpace(help)
+                ? string.Join(" · ", options.Select(option => option.Label))
+                : help
+        };
+        segments.SelectedIndexChanged += (_, _) =>
+        {
+            if (!_isRefreshing)
+                onChanged(options[segments.SelectedIndex].Key);
+        };
+
+        return new PropertyRow(CreateHelpLabel(label, help, 0), segments, expandWidget: true);
+    }
+
     private Control CreateCommittedTextEditor(
         string label,
         string value,
