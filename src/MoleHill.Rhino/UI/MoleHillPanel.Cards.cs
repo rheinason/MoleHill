@@ -27,11 +27,11 @@ public sealed partial class MoleHillPanel
         public required string TypeName { get; init; }
         public required Control TypeIcon { get; init; }
 
-        /// <summary>Second line when collapsed, after the type: counts and key values.</summary>
+        /// <summary>The second line, after the type, in both states: counts and key values.</summary>
         public required string Summary { get; init; }
 
-        /// <summary>Second line when expanded, after the type: what the card does.</summary>
-        public required string Subtitle { get; init; }
+        /// <summary>What the card does; the second line's tooltip.</summary>
+        public required string Description { get; init; }
 
         public required string HandleHelp { get; init; }
         public bool Reorderable { get; init; } = true;
@@ -48,11 +48,11 @@ public sealed partial class MoleHillPanel
     }
 
     /// <summary>
-    /// Builds a stack card: a fixed two-line header over the body when expanded. Header order (design
-    /// review Steps 14 and 20): grip, disclosure arrow, enable, bare type icon, name, then status and
-    /// actions. The left controls and the actions centre on the name line; the type/summary line sits under
-    /// the name. Both lines ellipsize rather than wrap, so every header is the same height at every width.
-    /// Clicking the header toggles the card; Ctrl-click toggles the whole stack.
+    /// Builds a stack card: a fixed two-line header over the body when expanded. The first line (design
+    /// review Steps 14 and 20) is grip, disclosure arrow, enable, bare type icon, name, then status and
+    /// actions, all centred on it. The second line, "Type · summary" in both states (Step 79), runs the full
+    /// width of the header from its left edge. Both lines ellipsize rather than wrap, so every header is the
+    /// same height at every width. Clicking the header toggles the card; Ctrl-click toggles the whole stack.
     /// </summary>
     private Panel CreateCard(CardSpec spec)
     {
@@ -76,44 +76,45 @@ public sealed partial class MoleHillPanel
             nameLine = nameBox;
         }
 
-        string detail = collapsed ? spec.Summary : spec.Subtitle;
-        var metaLine = new TextLine(JoinMeta(spec.TypeName, detail), SystemFonts.Default(), UiTheme.MutedText);
-
-        var title = new StackLayout
+        string meta = JoinMeta(spec.TypeName, spec.Summary);
+        var metaLine = new TextLine(meta, SystemFonts.Default(), UiTheme.MutedText)
         {
-            Orientation = Orientation.Vertical,
-            Spacing = UiMetrics.CardHeaderLineGap,
-            HorizontalContentAlignment = HorizontalAlignment.Stretch,
-            Items = { NameLineSlot(nameLine), metaLine }
+            ToolTip = string.IsNullOrWhiteSpace(spec.Description) ? meta : $"{meta}{Environment.NewLine}{spec.Description}"
         };
 
-        var header = new StackLayout
+        var firstLine = new StackLayout
         {
             Orientation = Orientation.Horizontal,
             Spacing = UiMetrics.SpaceMedium,
-            Padding = new Padding(UiMetrics.CardHorizontalPadding, UiMetrics.CardVerticalPadding),
-            BackgroundColor = spec.HeaderBackground,
-            VerticalContentAlignment = VerticalAlignment.Top,
+            Height = UiMetrics.ControlHeight,
+            VerticalContentAlignment = VerticalAlignment.Center,
             Items =
             {
-                NameLineSlot(spec.Stack.CreateHandle(spec.Id, spec.HandleHelp, spec.Reorderable)),
-                NameLineSlot(new DisclosureArrow(!collapsed)),
-                NameLineSlot(enabled),
-                NameLineSlot(spec.TypeIcon),
-                new StackLayoutItem(title, expand: true)
+                spec.Stack.CreateHandle(spec.Id, spec.HandleHelp, spec.Reorderable),
+                new DisclosureArrow(!collapsed),
+                enabled,
+                spec.TypeIcon,
+                new StackLayoutItem(nameLine, expand: true)
             }
         };
 
-        Panel? statusHost = null;
-        if (spec.Status != null)
-        {
-            statusHost = new Panel { Content = NameLineSlot(spec.Status) };
-            header.Items.Add(statusHost);
-        }
+        Control? statusHost = spec.Status;
+        if (statusHost != null)
+            firstLine.Items.Add(statusHost);
         if (spec.Duplicate is { } duplicate)
-            header.Items.Add(NameLineSlot(MakeDuplicateIconButton(duplicate.Run, duplicate.Help)));
+            firstLine.Items.Add(MakeDuplicateIconButton(duplicate.Run, duplicate.Help));
         if (spec.Delete is { } delete)
-            header.Items.Add(NameLineSlot(MakeDeleteIconButton(delete.Run, delete.Help)));
+            firstLine.Items.Add(MakeDeleteIconButton(delete.Run, delete.Help));
+
+        var header = new StackLayout
+        {
+            Orientation = Orientation.Vertical,
+            Spacing = UiMetrics.CardHeaderLineGap,
+            Padding = new Padding(UiMetrics.CardHorizontalPadding, UiMetrics.CardVerticalPadding),
+            BackgroundColor = spec.HeaderBackground,
+            HorizontalContentAlignment = HorizontalAlignment.Stretch,
+            Items = { firstLine, metaLine }
+        };
 
         // The status word is the one optional thing on the header: it goes before the name is squeezed.
         if (statusHost != null)
@@ -142,15 +143,6 @@ public sealed partial class MoleHillPanel
         string.IsNullOrWhiteSpace(detail) || string.Equals(detail, typeName, StringComparison.OrdinalIgnoreCase)
             ? typeName
             : string.IsNullOrWhiteSpace(typeName) ? detail : $"{typeName} · {detail}";
-
-    /// <summary>Centres <paramref name="control"/> on the header's first line, the line the name sits on.</summary>
-    private static StackLayout NameLineSlot(Control control) => new()
-    {
-        Orientation = Orientation.Horizontal,
-        Height = UiMetrics.ControlHeight,
-        VerticalContentAlignment = VerticalAlignment.Center,
-        Items = { new StackLayoutItem(control, expand: control is TextBox or TextLine) }
-    };
 
     /// <summary>
     /// A heading for a group of rows that does not collapse: a small caption and a rule across the rest of
@@ -247,10 +239,10 @@ public sealed partial class MoleHillPanel
     }
 
     /// <summary>Stacked-squares "duplicate this card" icon button.</summary>
-    private static Button MakeDuplicateIconButton(Action action, string help) =>
+    private static IconButton MakeDuplicateIconButton(Action action, string help) =>
         MakeIconButton(PanelButtonIcon.Duplicate, (_, _) => action(), help);
 
     /// <summary>Outline-bin "delete this card" icon button.</summary>
-    private static Button MakeDeleteIconButton(Action action, string help) =>
+    private static IconButton MakeDeleteIconButton(Action action, string help) =>
         MakeIconButton(PanelButtonIcon.Delete, (_, _) => action(), help);
 }

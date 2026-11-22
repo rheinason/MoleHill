@@ -45,7 +45,7 @@ public sealed partial class MoleHillPanel : Panel
         return UiControls.Button(text, onClick, toolTip, UiButtonRole.Toolbar);
     }
 
-    private static Button MakeIconButton(PanelButtonIcon icon, EventHandler<EventArgs> onClick, string? toolTip = null)
+    private static IconButton MakeIconButton(PanelButtonIcon icon, EventHandler<EventArgs> onClick, string? toolTip = null)
     {
         return UiControls.IconButton(icon, onClick, toolTip);
     }
@@ -55,7 +55,7 @@ public sealed partial class MoleHillPanel : Panel
         return UiControls.Button(text, onClick, toolTip, UiButtonRole.Inline);
     }
 
-    private static void SetButtonIcon(Button button, PanelButtonIcon icon, bool muted = false) =>
+    private static void SetButtonIcon(IconButton button, PanelButtonIcon icon, bool muted = false) =>
         PanelButtonIcons.Apply(button, icon, muted);
 
     private static Button MakePillButton(string text, string? tooltip = null)

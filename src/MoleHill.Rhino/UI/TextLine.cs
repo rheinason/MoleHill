@@ -19,19 +19,23 @@ internal sealed class TextLine : Drawable
     private string _text;
     private readonly Font _font;
     private readonly Color _color;
+    private readonly float _lineHeight;
 
     public TextLine(string text, Font font, Color color)
     {
         _text = text;
         _font = font;
         _color = color;
-        Height = (int)Math.Ceiling(font.LineHeight);
+        // Measured, not Font.LineHeight: on WPF that reports ~12 px for a font Eto draws ~16 px tall,
+        // which clipped the bottom of every line.
+        _lineHeight = font.MeasureString("Ag").Height;
+        Height = (int)Math.Ceiling(_lineHeight);
         ToolTip = text;
         Paint += (_, e) =>
         {
             string shown = Fit(_text, Width);
             if (shown.Length > 0)
-                e.Graphics.DrawText(_font, _color, 0, (Height - _font.LineHeight) / 2f, shown);
+                e.Graphics.DrawText(_font, _color, 0, (Height - _lineHeight) / 2f, shown);
         };
     }
 

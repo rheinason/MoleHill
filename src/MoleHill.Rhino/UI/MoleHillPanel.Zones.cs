@@ -205,7 +205,7 @@ public sealed partial class MoleHillPanel
             TypeName = "Zone",
             TypeIcon = CreateZoneColorSwatch(terrain, zone),
             Summary = GetZoneCollapsedSummary(zone),
-            Subtitle = zone.UseInputElevationForPriority ? "Higher inputs win overlaps" : "Later zones win ties",
+            Description = zone.UseInputElevationForPriority ? "Higher inputs win overlaps" : "Later zones win ties",
             HandleHelp = "Drag to reorder this zone. Later zones win when priorities tie.",
             Status = CreateCardStatusLabel(zone.IsEnabled ? "Enabled" : "Disabled"),
             Delete = (() => RemoveZone(terrainId, id), "Delete this zone."),

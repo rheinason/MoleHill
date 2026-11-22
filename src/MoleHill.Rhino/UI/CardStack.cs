@@ -137,7 +137,9 @@ internal sealed class CardStack
         {
             Orientation = Orientation.Horizontal,
             Spacing = 0,
-            HorizontalContentAlignment = HorizontalAlignment.Stretch,
+            // The cross axis of a horizontal row is vertical. This said HorizontalContentAlignment, so the
+            // strip (an empty panel) took its natural height, 0 px, and no card showed its colour.
+            VerticalContentAlignment = VerticalAlignment.Stretch,
             Items = { strip, new StackLayoutItem(card, expand: true) }
         }
     };

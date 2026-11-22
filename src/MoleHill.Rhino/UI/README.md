@@ -220,6 +220,12 @@ margin on the scrollable, not the content: the pinning stopped the scan dialog's
   `UiTokenGuardTests` holds both files to that: a colour literal or a literal padding/spacing anywhere
   else in this folder fails the build. Card-family accents come from descriptors via
   `UiTheme.TypeAccent`.
+- `IconButton.cs` - every icon-only action (toolbar and card headers): a drawn 22 x 22 control, bare glyph at
+  rest with hover/pressed fills and a focus ring, Enter/Space activate. Native WPF buttons always paint
+  their chrome (the old WinForms `FlatStyle` reflection was a no-op on WPF), and it marks its mouse
+  events handled so a click never also collapses the card behind it.
+- `TextLine.cs` / `DisclosureArrow.cs` - the header's ellipsizing single line (height measured, not
+  `Font.LineHeight`, which under-reports on WPF) and the drawn disclosure triangle.
 - `CardStack.cs` - every tab's card stack (modifiers, objects, zones, analyses, annotations): toolbar
   and notes, cards in their accent strips, and for a reorderable stack the drag grip, drop targets and
   drag feedback. Stacks differ only in drag key and drop action; the list arithmetic is

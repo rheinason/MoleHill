@@ -45,7 +45,7 @@ public sealed partial class MoleHillPanel
                 GetAnalysisCollapsedSummary(terrain, analysis),
                 terrain,
                 new RuntimeOverlayOwner(RuntimeOverlayOwnerKind.Analysis, id)),
-            Subtitle = GetAnalysisSubtitle(analysis, isActive),
+            Description = GetAnalysisSubtitle(analysis, isActive),
             HandleHelp = "Drag to reorder this analysis.",
             Status = CreateCardStatusLabel(statusText, isActive ? UiTheme.ActiveBadge : UiTheme.MutedText),
             Duplicate = (() =>

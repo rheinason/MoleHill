@@ -688,7 +688,7 @@ public sealed partial class MoleHillPanel
                 GetAnnotationCollapsedSummary(terrain, annotation),
                 terrain,
                 new RuntimeOverlayOwner(RuntimeOverlayOwnerKind.Analysis, id)),
-            Subtitle = GetAnnotationSubtitle(annotation),
+            Description = GetAnnotationSubtitle(annotation),
             HandleHelp = "Drag to reorder this annotation.",
             Status = CreateCardStatusLabel(annotation.IsEnabled ? "Output" : "Disabled", UiTheme.MutedText),
             Duplicate = (() =>

@@ -65,6 +65,13 @@ internal static class UiTheme
     public static Color ActiveBadge   => IsDark ? Color.FromArgb(255, 210, 80)       : Color.FromArgb(160, 100, 0);
     public static Color ListSelectionBackground => IsDark ? Color.FromArgb(58, 78, 108) : Color.FromArgb(220, 236, 255);
 
+    /// <summary>Icon actions are bare glyphs at rest; these are their hover and pressed fills.</summary>
+    public static Color IconHover   => IsDark ? Color.FromArgb(66,  66,  66)  : Color.FromArgb(208, 208, 208);
+    public static Color IconPressed => IsDark ? Color.FromArgb(84,  84,  84)  : Color.FromArgb(190, 190, 190);
+
+    /// <summary>Ring round a drawn control while it has keyboard focus.</summary>
+    public static Color FocusRing => IsDark ? Color.FromArgb(110, 170, 255) : Color.FromArgb(53, 96, 163);
+
     // ── Colour ramp card ───────────────────────────────────────────────────
     // The ramp card is a dense instrument panel: many small chips and fields packed together, where the
     // colours being edited are the content. Its chrome therefore needs to be quieter than a normal card's,

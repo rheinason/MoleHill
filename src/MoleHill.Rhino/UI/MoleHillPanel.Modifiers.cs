@@ -45,7 +45,7 @@ public sealed partial class MoleHillPanel
                 GetCollapsedSummary(modifier),
                 terrain,
                 new RuntimeOverlayOwner(RuntimeOverlayOwnerKind.Modifier, id)),
-            Subtitle = GetModifierSubtitle(modifier, pinned),
+            Description = GetModifierSubtitle(modifier, pinned),
             HandleHelp = pinned
                 ? "The base triangulate modifier stays at the bottom of the stack."
                 : "Drag to reorder this modifier.",

@@ -53,11 +53,8 @@ internal static class PanelButtonIcons
         }
     }
 
-    internal static void Apply(Button button, PanelButtonIcon icon, bool muted = false)
-    {
-        button.Text = string.Empty;
+    internal static void Apply(IconButton button, PanelButtonIcon icon, bool muted = false) =>
         button.Image = Get(icon, muted);
-    }
 
     private static Bitmap Render(PanelButtonIcon icon, bool muted, int size)
     {

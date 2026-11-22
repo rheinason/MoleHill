@@ -42,14 +42,14 @@ public sealed partial class MoleHillPanel : Panel
     private bool _isUpdatingOpacityControls;
     private Panel? _settingsContent;
     private Panel? _statusContent;
-    private readonly Button _visibilityButton = new();
-    private readonly Button _lockButton = new();
-    private Button _dupButton = new();
-    private Button _newButton = new();
-    private Button _deleteButton = new();
-    private Button _rebuildButton = new();
-    private Button _resetBuildButton = new();
-    private Button _bakeButton = new();
+    private readonly IconButton _visibilityButton = new();
+    private readonly IconButton _lockButton = new();
+    private IconButton _dupButton = new();
+    private IconButton _newButton = new();
+    private IconButton _deleteButton = new();
+    private IconButton _rebuildButton = new();
+    private IconButton _resetBuildButton = new();
+    private IconButton _bakeButton = new();
     private Button _resetTerrainDataButton = new();
     private bool _isUpdatingTerrainSelector;
     // The five tab stacks. Drops reorder the terrain's own list; analyses and annotations only redraw,

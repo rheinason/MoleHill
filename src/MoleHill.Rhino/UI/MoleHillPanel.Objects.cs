@@ -60,7 +60,7 @@ public sealed partial class MoleHillPanel
                 GetTerrainObjectCollapsedSummary(definition),
                 terrain,
                 new RuntimeOverlayOwner(RuntimeOverlayOwnerKind.Object, id)),
-            Subtitle = GetTerrainObjectSubtitle(definition),
+            Description = GetTerrainObjectSubtitle(definition),
             HandleHelp = "Object definition cards use the modifier card layout. Reordering is not enabled yet.",
             Reorderable = false,
             Duplicate = (() =>
