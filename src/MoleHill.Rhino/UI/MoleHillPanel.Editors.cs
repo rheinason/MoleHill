@@ -789,7 +789,8 @@ public sealed partial class MoleHillPanel
         string selectedKey,
         Action<string> onChanged,
         string help,
-        IReadOnlyDictionary<string, string>? optionHelp = null)
+        IReadOnlyDictionary<string, string>? optionHelp = null,
+        bool fullRow = false)
     {
         int selectedIndex = Math.Max(0, options
             .Select((option, index) => (option, index))
@@ -811,6 +812,10 @@ public sealed partial class MoleHillPanel
             if (!_isRefreshing)
                 onChanged(options[segments.SelectedIndex].Key);
         };
+
+        // A card's primary mode spans the whole row, unlabelled: its segments are the heading of the card.
+        if (fullRow)
+            return new Panel { Padding = new Eto.Drawing.Padding(0, UiMetrics.PropertyRowVerticalPadding), Content = segments };
 
         return new PropertyRow(CreateHelpLabel(label, help, 0), segments, expandWidget: true);
     }

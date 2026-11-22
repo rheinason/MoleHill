@@ -23,6 +23,24 @@ internal static class ObjectParameterCatalog
             (definition, value) => definition.PlacementScale = value,
             "Uniform multiple of the source size. Replaces the previous adjustment.",
             min: 0.01, unit: ParameterUnit.None, liveEdit: true, liveScrub: true),
+        ObjectParam.Number(
+            "zOffset",
+            "Offset",
+            definition => definition.ZOffset,
+            (definition, value) => definition.ZOffset = value,
+            "Lift or sink along World Z for Plant, or the fitted terrain normal for Orient.",
+            min: null,
+            unit: ParameterUnit.ModelLength,
+            liveEdit: true,
+            liveScrub: true),
+        ObjectParam.ReadOnly(
+            "bindings",
+            "Bindings",
+            definition => $"{definition.Sources.ObjectIds.Count + definition.Sources.LayerPaths.Count} source refs",
+            "Explicit picks plus watched layers drive the objects in this definition."),
+
+        // Seeded variation, closed until wanted: the same seed always places the same way.
+        ObjectParam.Section("variation", "Variation"),
         ObjectParam.Slider(
             "randomRotationMinDegrees",
             "Rotate Min",
@@ -82,21 +100,6 @@ internal static class ObjectParameterCatalog
             decimalPlaces: 0,
             liveEdit: true,
             liveScrub: true),
-        ObjectParam.Number(
-            "zOffset",
-            "Offset",
-            definition => definition.ZOffset,
-            (definition, value) => definition.ZOffset = value,
-            "Lift or sink along World Z for Plant, or the fitted terrain normal for Orient.",
-            min: null,
-            unit: ParameterUnit.ModelLength,
-            liveEdit: true,
-            liveScrub: true),
-        ObjectParam.ReadOnly(
-            "bindings",
-            "Bindings",
-            definition => $"{definition.Sources.ObjectIds.Count + definition.Sources.LayerPaths.Count} source refs",
-            "Explicit picks plus watched layers drive the objects in this definition."),
     };
 
     public static IReadOnlyList<ObjectParam> CommonTransforms => Common

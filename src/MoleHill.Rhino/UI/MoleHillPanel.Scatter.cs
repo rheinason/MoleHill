@@ -11,52 +11,14 @@ namespace MoleHill.Rhino.UI;
 // Scatter's section layout, zone selection, density display and completed-result quantities.
 public sealed partial class MoleHillPanel
 {
-    private readonly Dictionary<(Guid Card, string Section), bool> _scatterSectionExpansion = new();
 
     private void BuildScatterSections(DynamicLayout layout, TerrainDefinition terrain, ScatterObjectDefinition scatter,
         IReadOnlyList<ParameterDescriptor<TerrainObjectDefinition>> parameters)
     {
-        string Section(string key) => key switch
-        {
-            "blocks" => "Block Mix",
-            "sourceMode" or "scatterSource" or "useTerrainZones" or "zoneSelection" or "pattern" or
-                "densityMode" or "densityUnit" or "perAreaDensity" or "spacing" or "edgeGap" or "count" or "alongJitter" or "blockOrder" => "Distribution",
-            "exclusions" or "exclusionClearance" or "boundarySetback" or "boundaryFeather" or "keepWholeBlocksInside" or
-                "slopeFilterEnabled" or "slopeMinDegrees" or "slopeMaxDegrees" or "elevationFilterEnabled" or "elevationMin" or "elevationMax" => "Filters",
-            "previewMode" or "previewCap" => "Preview",
-            _ => "Placement"
-        };
-        foreach (string section in new[] { "Distribution", "Block Mix", "Placement", "Filters", "Preview" })
-        {
-            var content = UiLayouts.CardBody();
-            foreach (var parameter in parameters.Where(parameter => Section(parameter.Key) == section))
-                if (parameter.VisibleWhen == null || parameter.VisibleWhen(scatter))
-                    content.AddRow(BuildObjectSchemaRow(terrain, scatter, parameter));
-            var key = (scatter.Id, section);
-            bool expanded = _scatterSectionExpansion.TryGetValue(key, out bool saved) ? saved : section is "Distribution" or "Block Mix";
-            string header = section;
-            string? filterSummary = null;
-            if (section == "Filters")
-            {
-                var active = new List<string>();
-                if (scatter.Exclusions.HasReferences) active.Add("Exclusions");
-                if (scatter.BoundarySetback > 0) active.Add("Setback");
-                if (scatter.BoundaryFeather > 0) active.Add("Feather");
-                if (scatter.KeepWholeBlocksInside) active.Add("Whole blocks");
-                if (scatter.SlopeFilterEnabled) active.Add("Slope");
-                if (scatter.ElevationFilterEnabled) active.Add("Elevation");
-                header += active.Count > 0 ? $" · {active.Count} active" : " · None";
-                if (active.Count > 0) filterSummary = string.Join(", ", active);
-            }
-            var expander = new Expander { Header = header, Content = content, Expanded = expanded };
-            expander.ExpandedChanged += (_, _) =>
-            {
-                _scatterSectionExpansion[key] = expander.Expanded;
-            };
-            layout.AddRow(expander);
-            if (filterSummary != null)
-                layout.AddRow(new Label { Text = filterSummary, Wrap = WrapMode.Word, TextColor = UiTheme.MutedText });
-        }
+        // Sections are declared by the Scatter descriptor (Distribution, Block Mix, Placement, Filters, Preview).
+        string kind = ObjectTypeRegistry.ForType(scatter.GetType())?.Kind ?? "scatter";
+        AddSchemaRows(layout, kind, (TerrainObjectDefinition)scatter, parameters,
+            parameter => BuildObjectSchemaRow(terrain, scatter, parameter));
 
         var doc = RhinoDoc.ActiveDoc;
         ScatterBuildSummary? summary = doc == null ? null : _controller.GetScatterSummaries(doc, terrain.TerrainId)

@@ -271,6 +271,56 @@ internal sealed class ScatterObjectDescriptor : ObjectTypeDescriptor
             decimalPlaces: 0,
             liveEdit: true,
             liveScrub: true));
-        return parameters;
+        return Sectioned(parameters);
+    }
+
+    // The card reads where, what, then how (design review: Scatter follows where, what, then how).
+    private static readonly (string Key, string Title, bool Expanded)[] SectionOrder =
+    {
+        ("distribution", "Distribution", true),
+        ("blockMix", "Block Mix", true),
+        ("placement", "Placement", false),
+        ("filters", "Filters", false),
+        ("preview", "Preview", false),
+    };
+
+    private static string SectionOf(string key) => key switch
+    {
+        "blocks" => "blockMix",
+        "sourceMode" or "scatterSource" or "useTerrainZones" or "zoneSelection" or "pattern" or
+            "densityMode" or "densityUnit" or "perAreaDensity" or "spacing" or "edgeGap" or "count" or "alongJitter" or "blockOrder" => "distribution",
+        "exclusions" or "exclusionClearance" or "boundarySetback" or "boundaryFeather" or "keepWholeBlocksInside" or
+            "slopeFilterEnabled" or "slopeMinDegrees" or "slopeMaxDegrees" or "elevationFilterEnabled" or "elevationMin" or "elevationMax" => "filters",
+        "previewMode" or "previewCap" => "preview",
+        _ => "placement",
+    };
+
+    /// <summary>The rows in section order, each group opened by its declared section.</summary>
+    private static IReadOnlyList<ObjectParam> Sectioned(List<ObjectParam> parameters)
+    {
+        var result = new List<ObjectParam>(parameters.Count + SectionOrder.Length);
+        foreach (var (key, title, expanded) in SectionOrder)
+        {
+            result.Add(ObjectParam.Section(key, title, expanded, summary: key == "filters" ? ActiveFilters : null));
+            result.AddRange(parameters.Where(parameter => SectionOf(parameter.Key) == key));
+        }
+
+        return result;
+    }
+
+    /// <summary>Names the filters in force, so a closed Filters section still says what it removes.</summary>
+    private static string? ActiveFilters(TerrainObjectDefinition definition)
+    {
+        if (definition is not ScatterObjectDefinition scatter)
+            return null;
+
+        var active = new List<string>();
+        if (scatter.Exclusions.HasReferences) active.Add("Exclusions");
+        if (scatter.BoundarySetback > 0) active.Add("Setback");
+        if (scatter.BoundaryFeather > 0) active.Add("Feather");
+        if (scatter.KeepWholeBlocksInside) active.Add("Whole blocks");
+        if (scatter.SlopeFilterEnabled) active.Add("Slope");
+        if (scatter.ElevationFilterEnabled) active.Add("Elevation");
+        return active.Count == 0 ? "None" : string.Join(", ", active);
     }
 }

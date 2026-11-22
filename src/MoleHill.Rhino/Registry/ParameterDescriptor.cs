@@ -22,6 +22,13 @@ internal enum ParameterKind
     BlockMix,
 
     /// <summary>
+    /// Not an input: the heading of a collapsible group of rows (Settings, Boundaries, Variation). The rows
+    /// declared after it, up to the next section, belong to it. Whether it is open is a per-user preference
+    /// per card type, so a section changes nothing a build reads.
+    /// </summary>
+    Section,
+
+    /// <summary>
     /// A gradient compliance card's ramp going table: one row per gradient, edited in place, rows added
     /// and removed on the card. Analyses only — gradient compliance is the sole declarer.
     /// </summary>
@@ -150,6 +157,21 @@ internal sealed class ParameterDescriptor<TDefinition>
     /// explained where it is picked (the row's <see cref="Help"/> still describes the choice as a whole).
     /// </summary>
     public IReadOnlyDictionary<string, string>? ChoiceOptionHelp { get; init; }
+
+    /// <summary>
+    /// A card's primary mode: the choice takes the whole row with no field label beside it (design review
+    /// Step 37), so its segments get the full card width.
+    /// </summary>
+    public bool FullRow { get; init; }
+
+    // ---- Section ----
+
+    /// <summary>Whether a section starts open before the user has opened or closed it.</summary>
+    public bool ExpandedByDefault { get; init; }
+
+    /// <summary>Short state shown after the section title ("2 active"), so a closed section still says
+    /// whether anything inside it is set.</summary>
+    public Func<TDefinition, string?>? SummaryFor { get; init; }
 
     // ---- Color ----
     // Fallback and default text take the owning terrain as well as the definition: a colour row resolves
@@ -428,11 +450,13 @@ internal sealed class ParameterDescriptor<TDefinition>
         Func<TDefinition, bool>? visibleWhen = null,
         Func<TDefinition, IReadOnlyList<(string Key, string Label)>>? optionsFor = null,
         bool preferDropDown = false,
-        IReadOnlyDictionary<string, string>? optionHelp = null) =>
+        IReadOnlyDictionary<string, string>? optionHelp = null,
+        bool fullRow = false) =>
         new()
         {
             Kind = ParameterKind.Choice,
             PreferDropDown = preferDropDown,
+            FullRow = fullRow,
             ChoiceOptionHelp = optionHelp,
             Key = key,
             Label = label,
@@ -444,6 +468,26 @@ internal sealed class ParameterDescriptor<TDefinition>
             RefreshOnly = refreshOnly,
             IncrementalCommit = incrementalCommit,
             RebuildAfterCommit = rebuildAfterCommit,
+            VisibleWhen = visibleWhen,
+        };
+
+    /// <summary>
+    /// Opens a collapsible section titled <paramref name="title"/>; the rows declared after it, up to the
+    /// next section, belong to it. <paramref name="key"/> names it in the per-user open/closed preference.
+    /// </summary>
+    public static ParameterDescriptor<TDefinition> Section(
+        string key,
+        string title,
+        bool expanded = false,
+        Func<TDefinition, string?>? summary = null,
+        Func<TDefinition, bool>? visibleWhen = null) =>
+        new()
+        {
+            Kind = ParameterKind.Section,
+            Key = key,
+            Label = title,
+            ExpandedByDefault = expanded,
+            SummaryFor = summary,
             VisibleWhen = visibleWhen,
         };
 

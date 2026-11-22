@@ -149,7 +149,7 @@ public sealed partial class MoleHillPanel
                 // one, stays a drop-down (design review: segmented controls for 2-3 meaningful modes).
                 bool modes = parameter.ChoiceOptionsFor == null && options.Count is 2 or 3 && !parameter.PreferDropDown;
                 return modes
-                    ? CreateSegmentedEditor(label, options, selected, choose, help, parameter.ChoiceOptionHelp)
+                    ? CreateSegmentedEditor(label, options, selected, choose, help, parameter.ChoiceOptionHelp, parameter.FullRow)
                     : CreateDropDownEditor(label, options, selected, choose, help);
             }
 
@@ -217,6 +217,82 @@ public sealed partial class MoleHillPanel
         _ => null
     };
 
+    /// <summary>
+    /// Appends <paramref name="definition"/>'s declared rows to <paramref name="layout"/>, in order: every
+    /// family's card body goes through here. A <see cref="ParameterKind.Section"/> entry collects the rows
+    /// after it, up to the next section, into a <see cref="CardSection"/>; a section none of whose rows is
+    /// visible is not drawn, and a section hidden by its own <c>VisibleWhen</c> hides its rows.
+    /// <paramref name="buildRow"/> returns null for a row the card places elsewhere.
+    /// </summary>
+    private static void AddSchemaRows<TDef>(
+        DynamicLayout layout,
+        string cardKind,
+        TDef definition,
+        IEnumerable<ParameterDescriptor<TDef>> parameters,
+        Func<ParameterDescriptor<TDef>, Control?> buildRow)
+        where TDef : class
+    {
+        ParameterDescriptor<TDef>? section = null;
+        DynamicLayout? sectionBody = null;
+        int sectionRows = 0;
+        bool skippingSection = false;
+
+        void CloseSection()
+        {
+            if (section != null && sectionBody != null && sectionRows > 0)
+            {
+                layout.AddRow(new CardSection(
+                    cardKind,
+                    section.Key,
+                    section.Label,
+                    section.ExpandedByDefault,
+                    section.SummaryFor?.Invoke(definition),
+                    sectionBody));
+            }
+
+            section = null;
+            sectionBody = null;
+            sectionRows = 0;
+        }
+
+        foreach (var parameter in parameters)
+        {
+            bool visible = parameter.VisibleWhen == null || parameter.VisibleWhen(definition);
+            if (parameter.Kind == ParameterKind.Section)
+            {
+                CloseSection();
+                skippingSection = !visible;
+                if (visible)
+                {
+                    section = parameter;
+                    sectionBody = UiLayouts.CardBody();
+                    sectionBody.Padding = new Eto.Drawing.Padding(0);
+                }
+
+                continue;
+            }
+
+            if (!visible || skippingSection)
+                continue;
+
+            Control? row = buildRow(parameter);
+            if (row == null)
+                continue;
+
+            if (sectionBody != null)
+            {
+                sectionBody.AddRow(row);
+                sectionRows++;
+            }
+            else
+            {
+                layout.AddRow(row);
+            }
+        }
+
+        CloseSection();
+    }
+
     // ---- Modifiers ----
 
     /// <summary>
@@ -229,16 +305,10 @@ public sealed partial class MoleHillPanel
         if (descriptor == null || descriptor.Parameters.Count == 0)
             return false;
 
-        foreach (var parameter in descriptor.Parameters)
-        {
-            if (parameter.VisibleWhen != null && !parameter.VisibleWhen(modifier))
-                continue;
-            if (IsBespokePositionedModifierParameter(modifier, parameter))
-                continue;
-
-            layout.AddRow(BuildModifierSchemaRow(terrain, modifier, parameter));
-        }
-
+        AddSchemaRows(layout, descriptor.Kind, modifier, descriptor.Parameters, parameter =>
+            IsBespokePositionedModifierParameter(modifier, parameter)
+                ? null
+                : BuildModifierSchemaRow(terrain, modifier, parameter));
         return true;
     }
 
@@ -303,14 +373,8 @@ public sealed partial class MoleHillPanel
         if (descriptor == null || descriptor.Parameters.Count == 0)
             return false;
 
-        foreach (var parameter in descriptor.Parameters)
-        {
-            if (parameter.VisibleWhen != null && !parameter.VisibleWhen(analysis))
-                continue;
-
-            layout.AddRow(BuildAnalysisSchemaRow(terrain, analysis, parameter));
-        }
-
+        AddSchemaRows(layout, descriptor.Kind, analysis, descriptor.Parameters,
+            parameter => BuildAnalysisSchemaRow(terrain, analysis, parameter));
         return true;
     }
 
@@ -385,14 +449,8 @@ public sealed partial class MoleHillPanel
         if (descriptor == null || descriptor.Parameters.Count == 0)
             return false;
 
-        foreach (var parameter in descriptor.Parameters)
-        {
-            if (parameter.VisibleWhen != null && !parameter.VisibleWhen(annotation))
-                continue;
-
-            layout.AddRow(BuildAnnotationSchemaRow(terrain, annotation, parameter));
-        }
-
+        AddSchemaRows(layout, descriptor.Kind, annotation, descriptor.Parameters,
+            parameter => BuildAnnotationSchemaRow(terrain, annotation, parameter));
         return true;
     }
 
@@ -465,27 +523,12 @@ public sealed partial class MoleHillPanel
             return true;
         }
 
-        var variation = UiLayouts.CardBody();
-        bool isPlacement = definition is not ScatterObjectDefinition;
-        foreach (var parameter in descriptor.Parameters)
-        {
-            if (parameter.VisibleWhen != null && !parameter.VisibleWhen(definition))
-                continue;
-
-            if (isPlacement && parameter.Key.StartsWith("random", StringComparison.Ordinal))
-                variation.AddRow(BuildObjectSchemaRow(terrain, definition, parameter));
-            else
-                layout.AddRow(BuildObjectSchemaRow(terrain, definition, parameter));
-        }
-
-        if (isPlacement)
-        {
-            layout.AddRow(new Expander { Header = "Variation", Content = variation, Expanded = false });
-            layout.AddRow(CreateObjectPlacementActions(terrain, definition));
-            layout.AddRow(CreateReadOnlyValueRow("Placement",
-                $"{definition.LastPlacedObjectCount} placed · {definition.LastSkippedObjectCount} skipped",
-                $"{definition.ReleasedObjectIds.Count} released objects are excluded from this card. Bake keeps objects live. Release leaves them placed and stops this card controlling them. Failed placements leave the object unchanged; see diagnostics below."));
-        }
+        AddSchemaRows(layout, descriptor.Kind, definition, descriptor.Parameters,
+            parameter => BuildObjectSchemaRow(terrain, definition, parameter));
+        layout.AddRow(CreateObjectPlacementActions(terrain, definition, descriptor.Kind));
+        layout.AddRow(CreateReadOnlyValueRow("Placement",
+            $"{definition.LastPlacedObjectCount} placed · {definition.LastSkippedObjectCount} skipped",
+            $"{definition.ReleasedObjectIds.Count} released objects are excluded from this card. Bake keeps objects live. Release leaves them placed and stops this card controlling them. Failed placements leave the object unchanged; see diagnostics below."));
 
         return true;
     }

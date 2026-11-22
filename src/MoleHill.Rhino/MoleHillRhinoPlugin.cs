@@ -18,6 +18,7 @@ namespace MoleHill.Rhino;
 public sealed class MoleHillRhinoPlugin : PlugIn
 {
     private const string SlopeUnitSettingKey = "SlopeInputUnit";
+    private const string SectionSettingPrefix = "CardSection.";
 
     private readonly TerrainDocumentStore _documentStore = new();
     private readonly LayerTemplateStore _layerTemplateStore = new();
@@ -50,6 +51,11 @@ public sealed class MoleHillRhinoPlugin : PlugIn
             SlopeUnitSettingKey,
             (int)SlopeUnitPreference.DefaultUnit);
         SlopeUnitPreference.Writer = unit => Settings.SetInteger(SlopeUnitSettingKey, (int)unit);
+
+        // Which card sections are open, per card type. Also a per-user display preference.
+        SectionExpansionPreference.Provider = key =>
+            Settings.TryGetBool(SectionSettingPrefix + key, out bool expanded) ? expanded : null;
+        SectionExpansionPreference.Writer = (key, expanded) => Settings.SetBool(SectionSettingPrefix + key, expanded);
 
         TerrainController.Instance.Initialize();
 

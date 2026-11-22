@@ -104,6 +104,10 @@ public class ParameterSchemaGuardTests
                 AssertSet(type, parameter, "GetReadOnly", where);
                 break;
 
+            case ParameterKind.Section:
+                // A heading, not an input: it has no value to read or write.
+                break;
+
             case ParameterKind.ColorRamp:
             case ParameterKind.BlockMix:
             case ParameterKind.GoingTable:
