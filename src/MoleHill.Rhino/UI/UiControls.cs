@@ -197,6 +197,43 @@ internal static class UiControls
         textBox.TextColor = UiTheme.InputText;
     }
 
+    public static void StyleInput(NumericStepper stepper)
+    {
+        stepper.BackgroundColor = UiTheme.InputBackground;
+        stepper.TextColor = UiTheme.InputText;
+    }
+
+    /// <summary>
+    /// Gives every text-entry control under <paramref name="root"/> the one input look (dark field, light
+    /// border). Cards run their whole tree through this as they enter a stack, so an input looks the same
+    /// whichever editor built it: steppers used to keep Rhino's grey native fill beside dark text boxes.
+    /// Drop-downs and buttons are choices, not entry, and keep their own look.
+    /// </summary>
+    public static void StyleInputs(Control root)
+    {
+        IEnumerable<Control> all = root is Container container
+            ? container.Children.Prepend(root)
+            : new[] { root };
+        foreach (var control in all)
+        {
+            switch (control)
+            {
+                case TextBox textBox:
+                    StyleInput(textBox);
+                    break;
+                case NumericStepper stepper:
+                    StyleInput(stepper);
+                    break;
+                case TextArea textArea:
+                    StyleInput(textArea);
+                    break;
+                case ComboBox comboBox:
+                    StyleInput(comboBox);
+                    break;
+            }
+        }
+    }
+
     private static void ApplyHelp(Control control, string? toolTip)
     {
         if (!string.IsNullOrWhiteSpace(toolTip))

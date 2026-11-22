@@ -112,6 +112,7 @@ internal sealed class CardStack
         if (_dragKey != null)
             AddDropTarget(id);
 
+        UiControls.StyleInputs(card);
         var strip = CreateStrip(accent);
         var wrapper = WrapCard(card, strip, background ?? UiTheme.CardBackground);
 
@@ -249,8 +250,7 @@ internal sealed class CardStack
         var handle = new Drawable { Width = 16, Height = 22, Cursor = Cursors.Move };
         handle.Paint += (_, e) =>
         {
-            var ink = SystemColors.ControlText;
-            var dot = new Color(ink.R, ink.G, ink.B, 0.6f);
+            var dot = UiTheme.GripDots;
             float[] xs = { 5f, 10f };
             float[] ys = { 6f, 11f, 16f };
             foreach (var x in xs)

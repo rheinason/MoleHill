@@ -13,7 +13,9 @@ namespace MoleHill.Rhino.Tests;
 ///
 /// Flagged: a colour built from literal numbers (<c>Color.FromArgb(80, 80, 80)</c>,
 /// <c>new Color(0f, 0f, 0f, 0.5f)</c>), a named Eto colour other than <c>Colors.Transparent</c>, and a
-/// non-zero literal padding or spacing. Colours converted from data (a layer, a zone, a ramp stop) are
+/// non-zero literal padding or spacing. <c>SystemColors</c> is flagged too: Rhino themes its panels apart
+/// from the system palette, so a system colour (black control ink in a dark Rhino) is as foreign as a
+/// literal. Colours converted from data (a layer, a zone, a ramp stop) are
 /// not literals and pass. Only <c>UiTheme.cs</c> and <c>UiMetrics.cs</c> may hold the numbers.
 /// </summary>
 public class UiTokenGuardTests
@@ -29,7 +31,8 @@ public class UiTokenGuardTests
     private static readonly Regex LiteralColour = new(
         @"Color\.From(?:Argb|Rgb)\(\s*\d+(?:\s*,\s*\d+)*\s*\)" +
         @"|new\s+Color\(\s*[\d.]+f?(?:\s*,\s*[\d.]+f?)+\s*\)" +
-        @"|\bColors\.(?!Transparent\b)\w+",
+        @"|\bColors\.(?!Transparent\b)\w+" +
+        @"|\bSystemColors\.\w+",
         RegexOptions.Compiled);
 
     private static readonly Regex LiteralSpacing = new(

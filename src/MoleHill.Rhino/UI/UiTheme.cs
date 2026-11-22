@@ -65,6 +65,9 @@ internal static class UiTheme
     public static Color ActiveBadge   => IsDark ? Color.FromArgb(255, 210, 80)       : Color.FromArgb(160, 100, 0);
     public static Color ListSelectionBackground => IsDark ? Color.FromArgb(58, 78, 108) : Color.FromArgb(220, 236, 255);
 
+    /// <summary>The drag grip's dots: quiet like secondary text, never the system's black control ink.</summary>
+    public static Color GripDots => MutedText;
+
     /// <summary>Icon actions are bare glyphs at rest; these are their hover and pressed fills.</summary>
     public static Color IconHover   => IsDark ? Color.FromArgb(66,  66,  66)  : Color.FromArgb(208, 208, 208);
     public static Color IconPressed => IsDark ? Color.FromArgb(84,  84,  84)  : Color.FromArgb(190, 190, 190);
