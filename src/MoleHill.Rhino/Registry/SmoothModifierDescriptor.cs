@@ -63,18 +63,6 @@ internal sealed class SmoothModifierDescriptor : ModifierTypeDescriptor
             m => ((SmoothModifierDefinition)m).Boundaries,
             RhinoObjectType.Curve,
             "Closed curves that limit the edit to the terrain inside them. Leave empty to edit the whole terrain. Rounding fades out over half the Rounding Length approaching a boundary."),
-        ModifierParam.Sources(
-            "Breaklines", "Protect",
-            m => ((SmoothModifierDefinition)m).Breaklines,
-            RhinoObjectType.Curve,
-            "Curves that protect their height from the edit while the terrain around them changes. Smooth: how firmly is set by Protect Hold. Round Creases: creases along them stay sharp and rounding fades out approaching them - protect a kerb, a road edge or a pad edge that must stay crisp."),
-        ModifierParam.Slider(
-            "Iterations", "Iterations",
-            m => ((SmoothModifierDefinition)m).Iterations,
-            (m, v) => ((SmoothModifierDefinition)m).Iterations = (int)Math.Round(v),
-            softMin: 0.0, softMax: 12.0, decimalPlaces: 0, hardMin: 0.0, liveScrub: true,
-            help: "How many smoothing passes to run. Scrub for quick changes, or type larger values directly when you need more than the slider's soft range.",
-            visibleWhen: IsSmooth),
         ModifierParam.Slider(
             "Strength", "Strength",
             m => ((SmoothModifierDefinition)m).Strength,
@@ -83,11 +71,11 @@ internal sealed class SmoothModifierDescriptor : ModifierTypeDescriptor
             help: "How strongly each pass moves vertex heights. Scrub within the usual 0-1 range, or type a value directly if you need something unusual.",
             visibleWhen: IsSmooth),
         ModifierParam.Slider(
-            "BreaklineFixity", "Protect Hold",
-            m => ((SmoothModifierDefinition)m).BreaklineFixity,
-            (m, v) => ((SmoothModifierDefinition)m).BreaklineFixity = v,
-            softMin: 0.0, softMax: 1.0, decimalPlaces: 3, hardMin: 0.0, hardMax: 1.0, liveScrub: true,
-            help: "How firmly protected curves hold their height against smoothing: 1 keeps them exactly as they are, 0 smooths them like any other vertex. Scrub in the common range, or type a precise value directly.",
+            "Iterations", "Iterations",
+            m => ((SmoothModifierDefinition)m).Iterations,
+            (m, v) => ((SmoothModifierDefinition)m).Iterations = (int)Math.Round(v),
+            softMin: 0.0, softMax: 12.0, decimalPlaces: 0, hardMin: 0.0, liveScrub: true,
+            help: "How many smoothing passes to run. Scrub for quick changes, or type larger values directly when you need more than the slider's soft range.",
             visibleWhen: IsSmooth),
         ModifierParam.Number(
             "RoundingLength", "Rounding Length",
@@ -107,5 +95,17 @@ internal sealed class SmoothModifierDescriptor : ModifierTypeDescriptor
             max: 179.0,
             unit: ParameterUnit.Degrees,
             visibleWhen: IsRound),
+        ModifierParam.Sources(
+            "Breaklines", "Protect",
+            m => ((SmoothModifierDefinition)m).Breaklines,
+            RhinoObjectType.Curve,
+            "Curves that protect their height from the edit while the terrain around them changes. Smooth: how firmly is set by Height Protection. Round Creases: creases along them stay sharp and rounding fades out approaching them - protect a kerb, a road edge or a pad edge that must stay crisp."),
+        ModifierParam.Slider(
+            "BreaklineFixity", "Height Protection",
+            m => ((SmoothModifierDefinition)m).BreaklineFixity,
+            (m, v) => ((SmoothModifierDefinition)m).BreaklineFixity = v,
+            softMin: 0.0, softMax: 1.0, decimalPlaces: 3, hardMin: 0.0, hardMax: 1.0, liveScrub: true,
+            help: "How firmly protected curves hold their height against smoothing: 1 keeps them exactly as they are, 0 smooths them like any other vertex. Scrub in the common range, or type a precise value directly.",
+            visibleWhen: IsSmooth),
     };
 }

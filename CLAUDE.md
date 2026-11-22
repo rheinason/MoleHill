@@ -255,7 +255,7 @@ When Triangle.NET inserts Steiner points, their Z must be interpolated. Check in
   that scopes a region is a **boundary**; the mesh's outer edge is its **border** (never "TIN boundary");
   a fold detected from the mesh is a **crease**; the stage input is the **incoming mesh** (never
   "upstream mesh"); **Protect** is a curve that shields terrain from an edit and adds no mesh edge — Sculpt's strokes, and
-  Smooth's smoothing (whose **Protect Hold** is how firmly those curves keep their height). "Constraint", "feature", "pinned" and "fixity" are
+  Smooth's smoothing (whose **Height Protection** is how firmly those curves keep their height). "Constraint", "feature", "pinned" and "fixity" are
   retired from user-facing text — storage keys (`Constraints`, `BreaklineFixity`, `ConstraintFeather`)
   keep their names because they are JSON on disk. `ModifierVocabularyGuardTests` fails on a retired
   word in any modifier label, help or subtitle. Panel summaries (`GetCollapsedSummary`) use the row's

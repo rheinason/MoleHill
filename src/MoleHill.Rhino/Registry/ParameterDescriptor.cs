@@ -480,12 +480,14 @@ internal sealed class ParameterDescriptor<TDefinition>
         string title,
         bool expanded = false,
         Func<TDefinition, string?>? summary = null,
-        Func<TDefinition, bool>? visibleWhen = null) =>
+        Func<TDefinition, bool>? visibleWhen = null,
+        Func<TDefinition, string>? titleFor = null) =>
         new()
         {
             Kind = ParameterKind.Section,
             Key = key,
             Label = title,
+            LabelFor = titleFor,
             ExpandedByDefault = expanded,
             SummaryFor = summary,
             VisibleWhen = visibleWhen,

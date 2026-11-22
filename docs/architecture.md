@@ -551,7 +551,7 @@ The modifier cards share one set of words, because the same idea used to carry t
 | **Crease** | A fold detected from the mesh (Remesh/Retopo Crease Angle keep them; Smooth's Round Creases rounds them); never saved as a breakline | "feature edge" |
 | **Incoming mesh** | The stage's input — what Simplify measures against and what a failed stage keeps | "upstream mesh", "original mesh" |
 | **Protect** | Sculpt, Smooth and Displace: curves that shield terrain from the edit and add no mesh edge (Sculpt: closed = interior, open = the line; Smooth and Displace: the line's own vertices, and in Round Creases the creases along it stay sharp) | breakline |
-| **Protect Hold** | Smooth only: how firmly protected curves keep their height (`BreaklineFixity` on disk) | "fixity" |
+| **Height Protection** | Smooth only: how firmly protected curves keep their height (`BreaklineFixity` on disk) | "fixity" |
 | **Batter** | The graded slope surface between a rail/edge and daylight; a *slope* is the angle that shapes it | "shoulder" |
 
 Rules: storage keys and JSON discriminators never change for wording (documents are on disk), so a

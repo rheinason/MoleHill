@@ -246,9 +246,9 @@ public sealed partial class MoleHillPanel
                 layout.AddRow(new CardSection(
                     cardKind,
                     section.Key,
-                    section.Label,
+                    section.LabelFor?.Invoke(definition) ?? section.Label,
                     section.ExpandedByDefault,
-                    section.SummaryFor?.Invoke(definition),
+                    section.SummaryFor == null ? null : SummaryText.Invariant(() => section.SummaryFor(definition)),
                     sectionBody));
             }
 
