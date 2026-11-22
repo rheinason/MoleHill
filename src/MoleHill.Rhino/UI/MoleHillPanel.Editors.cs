@@ -83,7 +83,7 @@ public sealed partial class MoleHillPanel
 
         // ── Layers pill ───────────────────────────────────────────
         int lc = sourceSet.LayerPaths.Count;
-        string layText = lc == 0 ? "Layers" : $"{lc} Layers";
+        string layText = lc == 0 ? "Layers" : Count(lc, "Layer", "Layers");
         var layersPill = MakePillButton(layText, lc == 0 ? "Manage input layers." : $"Manage input layers. {lc} assigned.");
         layersPill.Click += (_, _) => ShowLayerSourcePopover(
             layersPill,

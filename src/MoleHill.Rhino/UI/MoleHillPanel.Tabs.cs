@@ -62,9 +62,16 @@ public sealed partial class MoleHillPanel : Panel
             return label;
         }
 
-        Control MakeTabHeader(string text, string iconName, int tabIndex, Label? toggleLabel = null)
+        // What each tab needs with its label showing, so the strip can tell whether all five fit.
+        var tabLabelWidths = new List<float>();
+
+        Control MakeTabHeader(string text, string purpose, string iconName, int tabIndex, Label? toggleLabel = null)
         {
             var textLabel = UiControls.Label(text);
+            float textWidth = (textLabel.Font ?? SystemFonts.Default()).MeasureString(text).Width;
+            tabLabelWidths.Add(
+                2 * UiMetrics.SpaceLarge + UiMetrics.IconSize + UiMetrics.SpaceSmall + textWidth + 2 * UiMetrics.SpaceHairline +
+                (toggleLabel == null ? 0 : UiMetrics.SpaceHairline + UiMetrics.SpaceMedium + UiMetrics.Chs(2) + UiMetrics.SpaceLarge));
             var mainRow = new StackLayout
             {
                 Orientation = Orientation.Horizontal,
@@ -135,6 +142,8 @@ public sealed partial class MoleHillPanel : Panel
                 Padding = new Padding(UiMetrics.SpaceHairline),
                 Content = inner
             };
+            // The name stays reachable when the strip is icons only (design review UI-R1).
+            mainPanel.ToolTip = $"{text}: {purpose}";
 
             void SelectThisTab()
             {
@@ -222,24 +231,27 @@ public sealed partial class MoleHillPanel : Panel
             HorizontalContentAlignment = HorizontalAlignment.Stretch,
             Items =
             {
-                new StackLayoutItem(MakeTabHeader("Modifiers", "TabModifiers", 0), expand: true),
-                new StackLayoutItem(MakeTabHeader("Objects", "TabObjects", 1), expand: true),
-                new StackLayoutItem(MakeTabHeader("Zones", "TabZones", 2, _zonesEyeButton), expand: true),
-                new StackLayoutItem(MakeTabHeader("Analysis", "TabAnalysis", 3, _analysisEyeButton), expand: true),
-                new StackLayoutItem(MakeTabHeader("Annotation", "TabAnnotation", 4), expand: true)
+                new StackLayoutItem(MakeTabHeader("Modifiers", "shape the terrain, a stack applied from the bottom up.", "TabModifiers", 0), expand: true),
+                new StackLayoutItem(MakeTabHeader("Objects", "place and scatter Rhino objects on the terrain.", "TabObjects", 1), expand: true),
+                new StackLayoutItem(MakeTabHeader("Zones", "split the terrain into areas with their own layers and colours.", "TabZones", 2, _zonesEyeButton), expand: true),
+                new StackLayoutItem(MakeTabHeader("Analysis", "measure the terrain: slope, elevation, cut/fill, water.", "TabAnalysis", 3, _analysisEyeButton), expand: true),
+                new StackLayoutItem(MakeTabHeader("Annotation", "draw contours, labels, sections and tables.", "TabAnnotation", 4), expand: true)
             }
         };
         UpdateTabSelectionStyles();
 
-        // Icons-only once the panel is too narrow for five full labels (Blender-style: shrink to fit,
-        // never wrap/clip). Threshold is per-tab share of the strip width against a "short label" budget.
+        // Icons only once the five labelled tabs do not all fit (UI-07: one row, shrink in the Blender way,
+        // never wrap or clip). Measured from each tab's own label, icon, padding and view toggle: a fixed
+        // per-tab share ignored the Zones and Analysis toggles and clipped their labels to "Zon", "Ana".
         void UpdateTabTextVisibility()
         {
-            int tabCount = _tabChipLabelMap.Count;
-            if (tabCount == 0)
+            if (_tabChipLabelMap.Count == 0 || tabStrip.Width <= 0)
                 return;
 
-            bool showText = tabStrip.Width / tabCount >= UiMetrics.Chs(9);
+            float needed = tabLabelWidths.Sum()
+                + UiMetrics.SpaceXSmall * (tabLabelWidths.Count - 1)
+                + 2 * UiMetrics.SpaceSmall;
+            bool showText = needed <= tabStrip.Width;
             foreach (var label in _tabChipLabelMap.Values)
                 label.Visible = showText;
         }
