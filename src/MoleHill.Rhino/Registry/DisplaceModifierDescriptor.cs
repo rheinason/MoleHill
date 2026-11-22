@@ -255,7 +255,8 @@ internal sealed class DisplaceModifierDescriptor : ModifierTypeDescriptor
             "Source", "Source", SourceOptions,
             m => ((DisplaceModifierDefinition)m).Source,
             (m, v) => ((DisplaceModifierDefinition)m).Source = v ?? DisplaceSources.Noise,
-            "Noise raises and lowers the ground in random bumps from a seed, the same on every machine. Image raises and lowers it by a greyscale image laid on the ground at a real-world size: white up, black down."),
+            "Noise raises and lowers the ground in random bumps from a seed, the same on every machine. Image raises and lowers it by a greyscale image laid on the ground at a real-world size: white up, black down.",
+            fullRow: true),
         ModifierParam.Sources(
             "Boundaries", "Boundaries",
             m => ((DisplaceModifierDefinition)m).Boundaries,

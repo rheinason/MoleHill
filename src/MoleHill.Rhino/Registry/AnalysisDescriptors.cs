@@ -1044,7 +1044,8 @@ internal sealed class CurvatureAnalysisDescriptor : AnalysisTypeDescriptor
             "Landforms colours each face convex, planar or concave. Curvature colours it by how " +
             "sharply it bends, convex warm and concave cool. Both read the same measurement, so switching " +
             "recolours without measuring again.",
-            refreshOnly: true),
+            refreshOnly: true,
+            fullRow: true),
         AnalysisParam.Choice(
             "Measure", "Measure",
             MeasureOptions,

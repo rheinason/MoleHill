@@ -68,6 +68,9 @@ internal static class UiMetrics
     public const int SpinnerWidth = 14;
     public const int SpinnerGlyph = 9;
 
+    /// <summary>Segment labels drop to this fraction of the UI font before they are ellipsized.</summary>
+    public const float SegmentCompactScale = 0.88f;
+
     // ── Card header (design review Steps 13–20) ─────────────────────────────
     // Two fixed lines at every width: grip, arrow, enable, type icon and actions centre on the first line
     // (the name); the type/summary line sits under the name. No line ever hides, wraps or is added.

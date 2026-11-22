@@ -63,15 +63,15 @@ internal sealed class TriangulateModifierDescriptor : ModifierTypeDescriptor
             RhinoObjectType.Point | RhinoObjectType.PointSet,
             "Points that become terrain vertices at their own height."),
         ModifierParam.Sources(
-            "Breaklines", "Breaklines",
-            m => ((TriangulateModifierDefinition)m).Breaklines,
-            RhinoObjectType.Curve,
-            "Curves whose edges the mesh keeps. Each vertex sets the height along the edge."),
-        ModifierParam.Sources(
             "Contours", "Contours",
             m => ((TriangulateModifierDefinition)m).Contours,
             RhinoObjectType.Curve,
             "Contour curves. Their vertices set terrain height. Contour Mode controls whether the edges between them are kept."),
+        ModifierParam.Sources(
+            "Breaklines", "Breaklines",
+            m => ((TriangulateModifierDefinition)m).Breaklines,
+            RhinoObjectType.Curve,
+            "Curves whose edges the mesh keeps. Each vertex sets the height along the edge."),
         ModifierParam.Sources(
             "OuterBoundaries", "Outer",
             m => ((TriangulateModifierDefinition)m).OuterBoundaries,

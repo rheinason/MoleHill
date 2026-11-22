@@ -224,6 +224,15 @@ margin on the scrollable, not the content: the pinning stopped the scan dialog's
   rest with hover/pressed fills and a focus ring, Enter/Space activate. Native WPF buttons always paint
   their chrome (the old WinForms `FlatStyle` reflection was a no-op on WPF), and it marks its mouse
   events handled so a click never also collapses the card behind it.
+- `CardSection.cs` - every collapsible group inside a card (Settings, Boundaries, Variation, Base): the shared
+  disclosure arrow, a bold heading, a rule and an optional summary of what is set. Schema rows declare them
+  with `ParameterDescriptor.Section` (rows after it belong to it) and `AddSchemaRows` draws them for every
+  family; hand-placed cards (Triangulate) construct one directly. Open/closed is a per-user preference per
+  card type (`Services/SectionExpansionPreference`, plug-in settings), never document state.
+- `SegmentedControl.cs` - fixed 2-3 mode choices (schema rule; document lists and longer lists stay
+  drop-downs, `PreferDropDown` opts out). Segments are sized to their labels, drop one font step before
+  ellipsizing, and show per-option help (`ChoiceOptionHelp`). A `FullRow` choice is a card's primary mode:
+  first, unlabelled, full width.
 - `NumberField.cs` - every number a user types, card rows and dialogs alike: a native text box with the
   unit inside ("2.500 m") and drawn arrows, read by Core `UserNumber` ("3.5", "3,5", "2,5 m" on any
   machine). It keeps the NumericStepper surface (Value, DecimalPlaces, Min/MaxValue, Increment,

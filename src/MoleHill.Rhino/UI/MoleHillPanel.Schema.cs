@@ -316,7 +316,7 @@ public sealed partial class MoleHillPanel
         ModifierDefinition modifier,
         ParameterDescriptor<ModifierDefinition> parameter) =>
         (modifier is TriangulateModifierDefinition &&
-         parameter.Key is "DemSurface" or "ContourMode" or "OuterBoundaries" or "HideBoundaries" or "ShowBoundaries" or "DataClipBoundaries") ||
+         parameter.Key is "TinMesh" or "DemSurface" or "ContourMode" or "OuterBoundaries" or "HideBoundaries" or "ShowBoundaries" or "DataClipBoundaries") ||
         (modifier is GradePathModifierDefinition &&
          parameter.Key is "Paths" or "Width" or "UseVariableWidth" or "WidthEdges" or "MaxEdgeDistance") ||
         (modifier is ProjectToModifierDefinition && parameter.Key == "TargetMesh") ||

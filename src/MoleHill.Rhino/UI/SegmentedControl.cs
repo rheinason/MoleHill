@@ -17,6 +17,10 @@ internal sealed class SegmentedControl : Drawable
     private readonly IReadOnlyList<string?>? _help;
     private string? _rowToolTip;
     private readonly Font _font = SystemFonts.Default();
+
+    // One step down for a narrow panel, as the reviewed segments are set (Step 47): tried before any
+    // label is shortened, and applied to every segment so one control never mixes sizes.
+    private readonly Font _compactFont = SystemFonts.Default(SystemFonts.Default().Size * UiMetrics.SegmentCompactScale);
     private int _selected;
     private int _hover = -1;
 
@@ -89,7 +93,45 @@ internal sealed class SegmentedControl : Drawable
         if (_labels.Count == 0 || Width <= 0)
             return -1;
 
-        return Math.Clamp((int)(x / (Width / (float)_labels.Count)), 0, _labels.Count - 1);
+        var (edges, _) = Layout();
+        for (int i = 0; i < _labels.Count; i++)
+        {
+            if (x < edges[i + 1])
+                return i;
+        }
+
+        return _labels.Count - 1;
+    }
+
+    /// <summary>
+    /// Segment edges and the font to draw with. Each segment is as wide as its label plus an equal share of
+    /// what is left, so labels of different lengths all fit where equal widths would cut the longest; when
+    /// even that is too narrow the smaller font is tried, and only then are labels shortened, each by the
+    /// same proportion.
+    /// </summary>
+    private (float[] Edges, Font Font) Layout()
+    {
+        int count = _labels.Count;
+        float pad = 2 * UiMetrics.SpaceSmall;
+        Font font = _font;
+        float[] natural = _labels.Select(label => font.MeasureString(label).Width + pad).ToArray();
+        if (natural.Sum() > Width)
+        {
+            font = _compactFont;
+            natural = _labels.Select(label => font.MeasureString(label).Width + pad).ToArray();
+        }
+
+        // Spare room is shared equally; a shortfall is taken in proportion, so the longest label loses no
+        // more of its text than the others do.
+        float total = natural.Sum();
+        float[] widths = total <= Width
+            ? natural.Select(width => width + (Width - total) / count).ToArray()
+            : natural.Select(width => width * Width / total).ToArray();
+
+        var edges = new float[count + 1];
+        for (int i = 0; i < count; i++)
+            edges[i + 1] = edges[i] + widths[i];
+        return (edges, font);
     }
 
     private void Draw(Graphics g)
@@ -98,28 +140,29 @@ internal sealed class SegmentedControl : Drawable
         if (count == 0)
             return;
 
-        float segment = Width / (float)count;
-        float lineHeight = TextFit.LineHeight(_font);
+        var (edges, font) = Layout();
+        float lineHeight = TextFit.LineHeight(font);
         for (int i = 0; i < count; i++)
         {
-            var box = new RectangleF(i * segment, 0, segment, Height);
+            float segment = edges[i + 1] - edges[i];
+            var box = new RectangleF(edges[i], 0, segment, Height);
             bool selected = i == _selected;
             Color fill = selected
                 ? UiTheme.SegmentSelected
                 : Enabled && i == _hover ? UiTheme.IconHover : UiTheme.SegmentBackground;
             g.FillRectangle(fill, box);
 
-            string text = TextFit.Ellipsize(_font, _labels[i], segment - 2 * UiMetrics.SpaceSmall);
-            float textWidth = _font.MeasureString(text).Width;
+            string text = TextFit.Ellipsize(font, _labels[i], segment - 2 * UiMetrics.SpaceSmall);
+            float textWidth = font.MeasureString(text).Width;
             Color ink = selected ? UiTheme.SegmentSelectedText : Enabled ? UiTheme.PrimaryText : UiTheme.MutedText;
-            g.DrawText(_font, ink, box.X + (segment - textWidth) / 2f, (Height - lineHeight) / 2f, text);
+            g.DrawText(font, ink, box.X + (segment - textWidth) / 2f, (Height - lineHeight) / 2f, text);
         }
 
         // Dividers between unselected neighbours, then the outer border, then focus on top.
         for (int i = 1; i < count; i++)
         {
             if (i != _selected && i - 1 != _selected)
-                g.DrawLine(UiTheme.SegmentBorder, i * segment, 3, i * segment, Height - 3);
+                g.DrawLine(UiTheme.SegmentBorder, edges[i], 3, edges[i], Height - 3);
         }
 
         g.DrawRectangle(UiTheme.SegmentBorder, 0.5f, 0.5f, Width - 1f, Height - 1f);

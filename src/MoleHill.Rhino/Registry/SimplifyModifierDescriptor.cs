@@ -55,7 +55,8 @@ internal sealed class SimplifyModifierDescriptor : ModifierTypeDescriptor
                 [SimplifyModifierDefinition.MaximumDeviationMode] = "Limits the vertical difference from the incoming surface.",
                 [SimplifyModifierDefinition.TargetVertexCountMode] = "Caps the output vertex count. Reports the achieved error without imposing a deviation limit.",
                 [SimplifyModifierDefinition.RetainPercentageMode] = "Converts a percentage of the incoming vertex count to a cap, rounded down. Reports the achieved error without imposing a deviation limit.",
-            }),
+            },
+            fullRow: true),
         ModifierParam.Number(
             "MaximumDeviation", "Maximum Deviation",
             m => ((SimplifyModifierDefinition)m).MaximumDeviation,

@@ -137,12 +137,7 @@ public sealed partial class MoleHillPanel
         switch (modifier)
         {
             case TriangulateModifierDefinition triangulate:
-                layout.AddRow(CreateDemSurfaceRow(terrain, triangulate));
-                layout.AddRow(CreateBoundaryRolesGroup(terrain, triangulate));
-                Control? contourModeRow = BuildBespokePositionedModifierRow(terrain, modifier, "ContourMode");
-                if (contourModeRow != null)
-                    layout.AddRow(contourModeRow);
-                layout.AddRow(CreateBoundaryPeelSettingsGroup(terrain, triangulate));
+                AppendTriangulateSections(layout, terrain, triangulate);
                 break;
             case AddGeometryModifierDefinition addGeometry:
                 layout.AddRow(CreateBoundaryPeelSettingsGroup(terrain, addGeometry));
@@ -315,6 +310,43 @@ public sealed partial class MoleHillPanel
         return false;
     }
 
+    /// <summary>
+    /// Triangulate below its three everyday sources (design review UI-01 to UI-04): the rarer sources, the
+    /// boundary roles and the settings each sit in a closed section, whose summary names what is set.
+    /// </summary>
+    private void AppendTriangulateSections(DynamicLayout layout, TerrainDefinition terrain, TriangulateModifierDefinition modifier)
+    {
+        const string Kind = "triangulate";
+
+        static string? Named(params (string Name, bool Set)[] roles)
+        {
+            string[] set = roles.Where(role => role.Set).Select(role => role.Name).ToArray();
+            return set.Length == 0 ? null : string.Join(", ", set);
+        }
+
+        var additional = new DynamicLayout { DefaultSpacing = new Size(UiMetrics.SpaceMedium, UiMetrics.SpaceMedium) };
+        if (BuildBespokePositionedModifierRow(terrain, modifier, "TinMesh") is { } tinRow)
+            additional.AddRow(tinRow);
+        additional.AddRow(CreateDemSurfaceRow(terrain, modifier));
+        layout.AddRow(new CardSection(Kind, "additionalSources", "Additional Sources", false,
+            Named(("TIN", modifier.TinMesh.HasReferences), ("DEM", modifier.DemSurface.HasReferences)),
+            additional));
+
+        layout.AddRow(new CardSection(Kind, "boundaries", "Boundaries", false,
+            Named(
+                ("Outer", modifier.OuterBoundaries.HasReferences),
+                ("Hide", modifier.HideBoundaries.HasReferences),
+                ("Show", modifier.ShowBoundaries.HasReferences),
+                ("Data Clip", modifier.DataClipBoundaries.HasReferences)),
+            CreateBoundaryRolesGroup(terrain, modifier)));
+
+        var settings = new DynamicLayout { DefaultSpacing = new Size(UiMetrics.SpaceMedium, UiMetrics.SpaceMedium) };
+        if (BuildBespokePositionedModifierRow(terrain, modifier, "ContourMode") is { } contourModeRow)
+            settings.AddRow(contourModeRow);
+        settings.AddRow(CreateBoundaryPeelSettingsGroup(terrain, modifier));
+        layout.AddRow(new CardSection(Kind, "settings", "Settings", false, null, settings));
+    }
+
     private Control CreateDemSurfaceRow(TerrainDefinition terrain, TriangulateModifierDefinition modifier)
     {
         Control? sourceEditor = BuildBespokePositionedModifierRow(terrain, modifier, "DemSurface");
@@ -429,8 +461,7 @@ public sealed partial class MoleHillPanel
 
         var content = new DynamicLayout
         {
-            DefaultSpacing = new Size(UiMetrics.SpaceMedium, UiMetrics.SpaceMedium),
-            Padding = new Padding(UiMetrics.SpaceMedium, UiMetrics.SpaceXSmall, UiMetrics.SpaceMedium, UiMetrics.SpaceMedium)
+            DefaultSpacing = new Size(UiMetrics.SpaceMedium, UiMetrics.SpaceMedium)
         };
         foreach (string key in new[] { "OuterBoundaries", "HideBoundaries", "ShowBoundaries" })
         {
@@ -453,17 +484,7 @@ public sealed partial class MoleHillPanel
                 rectangleButton));
         }
 
-        return new StackLayout
-        {
-            Orientation = Orientation.Vertical,
-            Spacing = 0,
-            HorizontalContentAlignment = HorizontalAlignment.Stretch,
-            Items =
-            {
-                new StackLayoutItem(CreateSectionRule("Boundaries"), HorizontalAlignment.Stretch),
-                new StackLayoutItem(content, HorizontalAlignment.Stretch)
-            }
-        };
+        return content;
     }
 
     /// <summary>

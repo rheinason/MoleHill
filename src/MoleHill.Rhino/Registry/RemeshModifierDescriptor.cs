@@ -51,17 +51,18 @@ internal sealed class RemeshModifierDescriptor : ModifierTypeDescriptor
 
     public override IReadOnlyList<ModifierParam> Parameters { get; } = new[]
     {
-        ModifierParam.Sources(
-            "Constraints", "Breaklines",
-            m => ((RemeshModifierDefinition)m).Constraints,
-            RhinoObjectType.Curve,
-            "Curves whose edges the remesh keeps. Creases detected from the mesh are kept as well (see Crease Angle)."),
         ModifierParam.Choice(
             "Mode", "Mode", ModeOptions,
             m => ((RemeshModifierDefinition)m).Mode,
             (m, v) => ((RemeshModifierDefinition)m).Mode = v ?? "isotropic",
             "Even Triangles regularizes the whole terrain to even triangles (best overall quality, can be slow on very large terrains and may occasionally cross retaining walls on shallow wall angles). Full Rebuild is the classic constrained-Delaunay re-triangulation — never crosses a wall or breakline, coarser triangle shapes. Local Refine only splits/flips triangles in place, preserving existing topology exactly — fastest and safest on huge terrains, coarsest quality.",
-            optionHelp: ModeHelp),
+            optionHelp: ModeHelp,
+            fullRow: true),
+        ModifierParam.Sources(
+            "Constraints", "Breaklines",
+            m => ((RemeshModifierDefinition)m).Constraints,
+            RhinoObjectType.Curve,
+            "Curves whose edges the remesh keeps. Creases detected from the mesh are kept as well (see Crease Angle)."),
         ModifierParam.Number(
             "EdgeLength", "Edge Length",
             m => ((RemeshModifierDefinition)m).EdgeLength,

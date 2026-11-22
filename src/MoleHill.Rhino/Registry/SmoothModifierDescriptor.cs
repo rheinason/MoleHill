@@ -56,7 +56,8 @@ internal sealed class SmoothModifierDescriptor : ModifierTypeDescriptor
             "Mode", "Mode", ModeOptions,
             m => ((SmoothModifierDefinition)m).Mode,
             (m, v) => ((SmoothModifierDefinition)m).Mode = v ?? SmoothModes.Smooth,
-            "Smooth evens out heights everywhere it reaches. Round Creases leaves the ground alone except across its creases - batter crests, toes and slope breaks - which it rounds with a curve of the Rounding Length: crests drop, toes rise, and the plan never moves."),
+            "Smooth evens out heights everywhere it reaches. Round Creases leaves the ground alone except across its creases - batter crests, toes and slope breaks - which it rounds with a curve of the Rounding Length: crests drop, toes rise, and the plan never moves.",
+            fullRow: true),
         ModifierParam.Sources(
             "Boundaries", "Boundaries",
             m => ((SmoothModifierDefinition)m).Boundaries,

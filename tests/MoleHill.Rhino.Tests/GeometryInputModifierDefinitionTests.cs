@@ -16,12 +16,13 @@ public class GeometryInputModifierDefinitionTests
             .ToArray();
 
         // The source rows, then Contour Mode, then the shared boundary-peel rows. The panel re-positions
-        // DemSurface, ContourMode and the peel rows into its own groups, but this order is the schema's
-        // contract for every other consumer.
+        // TinMesh, DemSurface, ContourMode and the peel rows into its own sections, but this order is the
+        // schema's contract for every other consumer. Points, Contours, Breaklines is the reviewed order
+        // (design review UI-01).
         Assert.Equal(
             new[]
             {
-                "TinMesh", "DemSurface", "Points", "Breaklines", "Contours",
+                "TinMesh", "DemSurface", "Points", "Contours", "Breaklines",
                 "OuterBoundaries", "HideBoundaries", "ShowBoundaries", "DataClipBoundaries", "ContourMode",
                 "PeelBoundaryTriangles", "MaxBoundaryEdgeLength", "MaxBoundaryAngleDegrees",
                 "MaxBoundarySlopeDegrees",
