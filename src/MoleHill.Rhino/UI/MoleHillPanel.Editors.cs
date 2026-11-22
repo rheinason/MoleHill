@@ -142,12 +142,15 @@ public sealed partial class MoleHillPanel
         string? unitSuffix = null)
     {
         help ??= GetNumericHelp(label);
+        // Point decimal whatever the Windows locale, as Rhino writes numbers, and the unit inside the
+        // field (design review Steps 45-46). The native stepper reads "2.5 m" and "2.5" alike.
         var stepper = new NumericStepper
         {
             Value = value,
             DecimalPlaces = decimalPlaces,
             Increment = step ?? (decimalPlaces == 0 ? 1 : 0.1),
-            Width = UiMetrics.NumericField
+            CultureInfo = CultureInfo.InvariantCulture,
+            FormatString = StepperFormat(decimalPlaces, unitSuffix)
         };
         if (minValue.HasValue)
             stepper.MinValue = minValue.Value;
@@ -227,7 +230,15 @@ public sealed partial class MoleHillPanel
             timer.Stop();
             EndEdit();
         };
-        return new PropertyRow(CreateHelpLabel(label, help, 0), WithUnitSuffix(stepper, unitSuffix));
+        return new PropertyRow(CreateHelpLabel(label, help, 0), stepper, expandWidget: true);
+    }
+
+    /// <summary>A stepper's display format: fixed decimals, then its unit as quoted literal text.</summary>
+    private static string StepperFormat(int decimalPlaces, string? unit)
+    {
+        string number = decimalPlaces <= 0 ? "0" : "0." + new string('0', decimalPlaces);
+        string suffix = UserNumber.WithUnit(string.Empty, unit);
+        return suffix.Length == 0 || suffix.Contains('\'') ? number : number + "'" + suffix + "'";
     }
 
     /// <summary>
@@ -246,12 +257,12 @@ public sealed partial class MoleHillPanel
         string? unitSuffix = null)
     {
         help ??= GetNumericHelp(label);
+        string Show(double number) => UserNumber.WithUnit(UserNumber.Format(number, decimalPlaces), unitSuffix);
         var textBox = new TextBox
         {
-            Width = UiMetrics.NumericField,
-            Text = value > 0.0 ? FormatUserNumber(value, decimalPlaces) : string.Empty,
+            Text = value > 0.0 ? Show(value) : string.Empty,
             // Greyed: what a blank box stands for. Nothing resolved yet (0) reads as Auto.
-            PlaceholderText = inheritedValue > 0.0 ? FormatUserNumber(inheritedValue, decimalPlaces) : "Auto"
+            PlaceholderText = inheritedValue > 0.0 ? Show(inheritedValue) : "Auto"
         };
         ApplyHelp(textBox, help);
 
@@ -260,10 +271,13 @@ public sealed partial class MoleHillPanel
         {
             double parsed = 0.0;
             string text = textBox.Text?.Trim() ?? string.Empty;
-            if (text.Length > 0 && TryParseUserNumber(text, out double v) && v > 0.0)
+            if (text.Length > 0 && UserNumber.TryParseLeading(text, out double v) && v > 0.0)
             {
                 parsed = v;
             }
+
+            // Echo the reading back with its unit, so "3" becomes "3 m" and a rejected entry clears.
+            textBox.Text = parsed > 0.0 ? Show(parsed) : string.Empty;
 
             if (!TerrainCommitGuard.HasMeaningfulNumericChange(committedValue, parsed))
                 return;
@@ -289,31 +303,7 @@ public sealed partial class MoleHillPanel
             Commit();
         };
 
-        return new PropertyRow(CreateHelpLabel(label, help, 0), WithUnitSuffix(textBox, unitSuffix));
-    }
-
-    /// <summary>
-    /// Pairs an input widget with the dim trailing label that says what its number is in. Without one a
-    /// card row is a bare number: "Fill Slope 3" reads as degrees, percent or 1:3 with nothing on screen
-    /// to settle it. Passing no suffix returns the widget untouched, so unitless rows cost nothing.
-    /// </summary>
-    private static Control WithUnitSuffix(Control widget, string? unitSuffix, bool expandWidget = false)
-    {
-        if (string.IsNullOrEmpty(unitSuffix))
-            return widget;
-
-        return new StackLayout
-        {
-            Orientation = Orientation.Horizontal,
-            Spacing = UiMetrics.SpaceSmall,
-            VerticalContentAlignment = VerticalAlignment.Center,
-            HorizontalContentAlignment = HorizontalAlignment.Stretch,
-            Items =
-            {
-                new StackLayoutItem(widget, expand: expandWidget),
-                UiControls.Label(unitSuffix, UiLabelRole.Meta)
-            }
-        };
+        return new PropertyRow(CreateHelpLabel(label, help, 0), textBox, expandWidget: true);
     }
 
     /// <summary>
@@ -343,13 +333,16 @@ public sealed partial class MoleHillPanel
 
         help = ComposeSlopeHelp(help ?? GetNumericHelp(label), optional);
 
+        // The unit is part of the text ("25%", "1:3"), which SlopeInput reads back as written.
+        string Show(double slopeDegrees) => UserNumber.WithUnit(
+            SlopeInput.FormatDegreesAsUnit(slopeDegrees, unit),
+            unit == SlopeAnalyzer.SlopeUnit.Ratio ? null : SlopeInput.Suffix(unit));
         var textBox = new TextBox
         {
-            Width = UiMetrics.NumericField,
-            Text = optional && degrees <= 0.0 ? string.Empty : SlopeInput.FormatDegreesAsUnit(degrees, unit)
+            Text = optional && degrees <= 0.0 ? string.Empty : Show(degrees)
         };
         if (optional)
-            textBox.PlaceholderText = SlopeInput.FormatDegreesAsUnit(inheritedDegrees!.Value, unit);
+            textBox.PlaceholderText = Show(inheritedDegrees!.Value);
         StyleTextBox(textBox);
         ApplyHelp(textBox, help);
 
@@ -363,7 +356,7 @@ public sealed partial class MoleHillPanel
                 // should be read as a slope of zero the user asked for.
                 if (!optional)
                 {
-                    textBox.Text = SlopeInput.FormatDegreesAsUnit(committedValue, unit);
+                    textBox.Text = Show(committedValue);
                     return;
                 }
 
@@ -381,14 +374,14 @@ public sealed partial class MoleHillPanel
                 // a silently wrong batter.
                 textBox.Text = optional && committedValue <= 0.0
                     ? string.Empty
-                    : SlopeInput.FormatDegreesAsUnit(committedValue, unit);
+                    : Show(committedValue);
                 return;
             }
 
             parsedDegrees = Math.Clamp(Math.Abs(parsedDegrees), 0.0, SlopeInput.MaxSlopeDegrees);
 
             // Echo the canonical text back so "1:3" resolves visibly into the display unit.
-            textBox.Text = SlopeInput.FormatDegreesAsUnit(parsedDegrees, unit);
+            textBox.Text = Show(parsedDegrees);
             if (!TerrainCommitGuard.HasMeaningfulNumericChange(committedValue, parsedDegrees))
                 return;
 
@@ -414,9 +407,7 @@ public sealed partial class MoleHillPanel
             Commit();
         };
 
-        return new PropertyRow(
-            CreateHelpLabel(label, help, 0),
-            WithUnitSuffix(textBox, SlopeInput.Suffix(unit)));
+        return new PropertyRow(CreateHelpLabel(label, help, 0), textBox, expandWidget: true);
     }
 
     /// <summary>Appends the typed-unit cheat sheet to a slope field's own help text.</summary>
@@ -526,7 +517,9 @@ public sealed partial class MoleHillPanel
             ExpandSliderRange(numericValue, ref currentMin, ref currentMax);
             ClampSliderRangeToHardBounds(ref currentMin, ref currentMax, hardMin, hardMax);
             if (updateTextBox)
-                textBox.Text = formatValue?.Invoke(numericValue) ?? FormatSliderValue(numericValue, decimalPlaces);
+                textBox.Text = UserNumber.WithUnit(
+                    formatValue?.Invoke(numericValue) ?? FormatSliderValue(numericValue, decimalPlaces),
+                    unitSuffix);
             slider.Value = ToSliderValue(numericValue, currentMin, currentMax, slider.MaxValue);
             syncing = false;
         }
@@ -569,7 +562,7 @@ public sealed partial class MoleHillPanel
                 return;
             }
 
-            if (!TryParseUserNumber(text, out double numericValue))
+            if (!UserNumber.TryParseLeading(text, out double numericValue))
             {
                 SyncControls(committedValue);
                 return;
@@ -658,10 +651,7 @@ public sealed partial class MoleHillPanel
                 textBox
             }
         };
-        return new PropertyRow(
-            CreateHelpLabel(label, help, 0),
-            WithUnitSuffix(editor, unitSuffix, expandWidget: true),
-            expandWidget: true);
+        return new PropertyRow(CreateHelpLabel(label, help, 0), editor, expandWidget: true);
     }
 
     private static void ExpandSliderRange(double value, ref double min, ref double max)
@@ -708,29 +698,8 @@ public sealed partial class MoleHillPanel
     private static string FormatSliderValue(double value, int decimalPlaces)
     {
         return decimalPlaces == 0
-            ? ((int)Math.Round(value)).ToString(CultureInfo.InvariantCulture)
-            : value.ToString($"F{decimalPlaces}", CultureInfo.InvariantCulture);
-    }
-
-    /// <summary>
-    /// Shared numeric parse for free-typed text fields (slider text box, optional numeric editor, …).
-    /// No AllowThousands: text may have been formatted with InvariantCulture (e.g. "1.000"), and in locales
-    /// where '.' is the group separator (de-DE, nb-NO, …) AllowThousands would re-read that as 1000. Without
-    /// it, a '.' is only ever a decimal point — CurrentCulture parse fails for "1.000" in those locales
-    /// and the InvariantCulture fallback yields 1.0, while locale decimals (e.g. "1,5") still parse.
-    /// </summary>
-    private static bool TryParseUserNumber(string text, out double value)
-    {
-        const NumberStyles Styles = NumberStyles.Float;
-        return double.TryParse(text, Styles, CultureInfo.CurrentCulture, out value) ||
-               double.TryParse(text, Styles, CultureInfo.InvariantCulture, out value);
-    }
-
-    /// <summary>Shared numeric format for free-typed text fields — pairs with <see cref="TryParseUserNumber"/>.</summary>
-    private static string FormatUserNumber(double value, int decimalPlaces)
-    {
-        string format = decimalPlaces <= 0 ? "0" : "0." + new string('#', decimalPlaces);
-        return value.ToString(format, CultureInfo.CurrentCulture);
+            ? UserNumber.Format(Math.Round(value), "0")
+            : UserNumber.Format(value, $"F{decimalPlaces}");
     }
 
     private static double ClampSliderValue(double value, double? hardMin, double? hardMax)

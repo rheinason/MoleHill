@@ -140,6 +140,9 @@ public sealed partial class MoleHillPanel : Panel
                 new StackLayoutItem(statusCard, HorizontalAlignment.Stretch)
             }
         };
+        // The fixed top (toolbar, Terrain Settings, Status) gets the one input look here; stack cards get it
+        // as they enter their stack (CardStack.AddCard).
+        UiControls.StyleInputs(top);
 
         var tabsContainer = BuildTabs();
 

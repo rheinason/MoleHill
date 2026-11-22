@@ -98,13 +98,15 @@ internal static class UiMetrics
 
     public static int ShortLabel => Chs(8);
 
+    /// <summary>A fixed-width number box outside the card rows (card rows span the editor column).</summary>
     public static int NumericField => Chs(9);
 
     public static int DropDown => Chs(13);
 
     public static int SliderMin => Chs(10);
 
-    public static int SliderText => Chs(8);
+    /// <summary>The text box beside a slider; holds a value and its unit ("30.000 °").</summary>
+    public static int SliderText => Chs(10);
 
     // Keep ordinary label/editor rows side-by-side at Blender-like narrow panel widths. Only below
     // this point is a second line more usable than two compressed columns.

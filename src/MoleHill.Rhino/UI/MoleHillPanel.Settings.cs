@@ -132,7 +132,7 @@ public sealed partial class MoleHillPanel : Panel
                 return;
 
             double weight = _previewLineWeightSlider.Value / 10.0;
-            _previewLineWeightValue.Text = weight.ToString("0.0", CultureInfo.CurrentCulture) + "x";
+            _previewLineWeightValue.Text = UserNumber.Format(weight, "0.0") + "x";
             MutateSelectedTerrainLive(terrain => terrain.PreviewLineWeight = weight);
         };
         var (beginLineWeightDeferral, endLineWeightDeferral) = CreatePairedRefreshDeferral();
@@ -314,7 +314,6 @@ public sealed partial class MoleHillPanel : Panel
         // Same left accent strip + outer padding every stack card uses, so this reads as one more card
         // in the stack rather than a plain toolbar block. Neutral gray (ZoneStripColor) since it isn't a
         // typed card with its own accent color.
-        UiControls.StyleInputs(settingsCardBody);
         var settingsCard = CardStack.WrapCard(settingsCardBody, CardStack.CreateStrip(UiTheme.ZoneStripColor), UiTheme.CardBackground);
 
         return settingsCard;
@@ -397,6 +396,6 @@ public sealed partial class MoleHillPanel : Panel
     {
         double clamped = Math.Clamp(weight > 0.0 ? weight : 1.0, 0.3, 4.0);
         _previewLineWeightSlider.Value = (int)Math.Round(clamped * 10.0);
-        _previewLineWeightValue.Text = clamped.ToString("0.0", CultureInfo.CurrentCulture) + "x";
+        _previewLineWeightValue.Text = UserNumber.Format(clamped, "0.0") + "x";
     }
 }

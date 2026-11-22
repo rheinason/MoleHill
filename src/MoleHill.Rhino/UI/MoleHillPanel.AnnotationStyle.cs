@@ -86,7 +86,7 @@ public sealed partial class MoleHillPanel
 
         double height = AnnotationStyleService.GetEffectiveTextHeight(style);
         string font = style.Font?.FamilyName ?? string.Empty;
-        string size = $"{height.ToString("0.###", CultureInfo.CurrentCulture)} {ModelUnits.Abbreviation(doc.ModelUnitSystem)} text";
+        string size = $"{MoleHill.Core.Analysis.UserNumber.Format(height, "0.###")} {ModelUnits.Abbreviation(doc.ModelUnitSystem)} text";
         return string.IsNullOrWhiteSpace(font) ? size : $"{size} · {font}";
     }
 

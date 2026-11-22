@@ -1,5 +1,6 @@
 using Eto.Drawing;
 using Eto.Forms;
+using MoleHill.Core.Analysis;
 using MoleHill.Rhino.Model;
 using MoleHill.Rhino.Registry;
 using MoleHill.Rhino.Services;
@@ -465,7 +466,7 @@ public sealed partial class MoleHillPanel
             if (unloaded || timerDisposed)
                 return;
             double number = committedValue;
-            if (!cancel && (!TryParseUserNumber(valueText.Text, out number) || !double.IsFinite(number)))
+            if (!cancel && (!UserNumber.TryParseLeading(valueText.Text, out number) || !double.IsFinite(number)))
                 number = committedValue;
             textEditActive = false;
             Commit(number);

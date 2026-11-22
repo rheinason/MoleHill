@@ -63,6 +63,23 @@ public class UiTokenGuardTests
             Environment.NewLine + string.Join(Environment.NewLine, offenders));
     }
 
+    private static readonly Regex LocaleNumber = new(@"CultureInfo\.CurrentCulture", RegexOptions.Compiled);
+
+    /// <summary>
+    /// Numbers in the panel are written with a point, as Rhino writes them, and read through
+    /// <c>UserNumber</c>. The panel mixed the Windows locale ("64,941") with the steppers' point ("0.000"),
+    /// and a stepper read a typed "3.5" as 35 or 0 on a comma-decimal machine.
+    /// </summary>
+    [Fact]
+    public void UiNumbers_GoThroughUserNumber()
+    {
+        var offenders = FindMatches(LocaleNumber);
+        Assert.True(
+            offenders.Count == 0,
+            "A number formatted or parsed with the Windows locale in UI/. Use MoleHill.Core.Analysis.UserNumber " +
+            "(point decimal, tolerant read):" + Environment.NewLine + string.Join(Environment.NewLine, offenders));
+    }
+
     private static List<string> FindMatches(Regex pattern)
     {
         string root = RepositoryPaths.FindRoot();

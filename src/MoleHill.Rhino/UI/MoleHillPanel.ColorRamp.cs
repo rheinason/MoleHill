@@ -96,13 +96,6 @@ public sealed partial class MoleHillPanel
                 : null;
         }
 
-        return text => TryParseNumber(text, out double value) ? value : null;
-    }
-
-    private static bool TryParseNumber(string? text, out double value)
-    {
-        const NumberStyles styles = NumberStyles.Float;
-        return double.TryParse(text, styles, CultureInfo.CurrentCulture, out value) ||
-               double.TryParse(text, styles, CultureInfo.InvariantCulture, out value);
+        return text => UserNumber.TryParseLeading(text, out double value) ? value : null;
     }
 }

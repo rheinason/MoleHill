@@ -349,7 +349,7 @@ internal sealed class ColorRampControl : Panel
         };
 
         var position = UiControls.Label(
-            (stop.Position * 100.0).ToString("0", CultureInfo.CurrentCulture) + "%");
+            UserNumber.Format(stop.Position * 100.0, "0") + "%");
         position.TextColor = selected ? UiTheme.RampAccentText : UiTheme.MutedText;
         position.Width = UiMetrics.Chs(4);
         position.TextAlignment = TextAlignment.Right;
