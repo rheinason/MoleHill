@@ -149,6 +149,9 @@ internal sealed class ContourAnnotationDescriptor : AnnotationTypeDescriptor
     public override int SortOrder => 0;
     public override AnnotationDefinition Create() => new ContourAnnotationDefinition();
 
+    public override bool DrawsText(AnnotationDefinition annotation) =>
+        ((ContourAnnotationDefinition)annotation).ShowLabels;
+
     public override TerrainAnalysisSummary? Build(AnalysisBuildContext c, AnnotationDefinition annotation) =>
         TerrainBuildService.BuildContourSummary(c.Terrain, c.CurrentMesh, (ContourAnnotationDefinition)annotation, c.ElevationMinZ, c.ElevationMaxZ, c.Snapshot.ModelAbsoluteTolerance, c.Build, c.Snapshot.AnnotationStyle, c.Snapshot.LayerRoles);
 
@@ -181,32 +184,17 @@ internal sealed class ContourAnnotationDescriptor : AnnotationTypeDescriptor
             "Vertical spacing between generated contour levels.",
             min: 0.0, incrementalCommit: true),
         AnnotationParam.Number(
-            "StartZ", "Start Z",
+            "StartZ", "Base Elevation",
             a => ((ContourAnnotationDefinition)a).StartZ,
             (a, v) => ((ContourAnnotationDefinition)a).StartZ = v,
-            "Base elevation offset from which contour levels are stepped.",
+            "The reference elevation the contour levels are stepped from: a level falls on it and every Interval above and below. Not a lower cutoff; levels continue below it.",
             min: null, incrementalCommit: true),
         AnnotationParam.Number(
-            "MajorEveryNth", "Major Every Nth",
+            "MajorEveryNth", "Major Every",
             a => ((ContourAnnotationDefinition)a).MajorEveryNth,
             (a, v) => ((ContourAnnotationDefinition)a).MajorEveryNth = Math.Max(1, (int)Math.Round(v)),
-            "Every Nth level is a major (index) contour. 5 is the usual survey convention; 1 makes every contour major.",
+            "How often a level is major (index): 5 makes every fifth contour level major, the usual survey convention; 1 makes every contour major.",
             min: 1, decimalPlaces: 0, incrementalCommit: true),
-        AnnotationParam.Bool(
-            "SeparateMajorMinorLayers", "Split Major / Minor",
-            a => ((ContourAnnotationDefinition)a).SeparateMajorMinorLayers,
-            (a, v) => ((ContourAnnotationDefinition)a).SeparateMajorMinorLayers = v,
-            "Send major and minor contours to separate Contours::Major and Contours::Minor sublayers so print width and linetype are controlled per layer in Rhino.",
-            incrementalCommit: true),
-        AnnotationParam.Color(
-            "ColorArgb", "Color",
-            a => ((ContourAnnotationDefinition)a).ColorArgb,
-            (a, v) => ((ContourAnnotationDefinition)a).ColorArgb = v,
-            "Explicit display and bake color for generated contour curves. Clear to take the colour from the layer its role routes to.",
-            fallbackColor: (terrain, _) => AnalysisFormatting.ResolveLayerColorArgb(
-                AnalysisFormatting.GetRoleLayerPath(terrain, LayerRole.Contours)),
-            defaultText: (terrain, _) => AnalysisFormatting.GetRoleColorText(terrain, LayerRole.Contours),
-            incrementalCommit: true),
         AnnotationParam.Bool(
             "ShowLabels", "Label Contours",
             a => ((ContourAnnotationDefinition)a).ShowLabels,
@@ -217,21 +205,41 @@ internal sealed class ContourAnnotationDescriptor : AnnotationTypeDescriptor
             "LabelInterval", "Label Interval",
             a => ((ContourAnnotationDefinition)a).LabelInterval,
             (a, v) => ((ContourAnnotationDefinition)a).LabelInterval = Math.Max(0.0, v),
-            "Spacing between repeated labels along each contour. 0 places one label per contour curve.",
-            min: 0.0, incrementalCommit: true),
+            "Distance along each contour between repeated labels. 0 places one label per contour curve.",
+            min: 0.0, incrementalCommit: true,
+            visibleWhen: a => ((ContourAnnotationDefinition)a).ShowLabels),
         AnnotationParam.Number(
-            "LabelEveryNth", "Label Every Nth",
+            "LabelEveryNth", "Label Every",
             a => ((ContourAnnotationDefinition)a).LabelEveryNth,
             (a, v) => ((ContourAnnotationDefinition)a).LabelEveryNth = Math.Max(1, (int)Math.Round(v)),
-            "Label only every Nth contour level (index contours). 1 labels every level.",
-            min: 1, decimalPlaces: 0, incrementalCommit: true),
+            "How often a level is labelled: 5 labels every fifth contour level; 1 labels every level.",
+            min: 1, decimalPlaces: 0, incrementalCommit: true,
+            visibleWhen: a => ((ContourAnnotationDefinition)a).ShowLabels),
         AnnotationParam.Choice(
             "LabelFormat", "Label Decimals", null,
             a => ((ContourAnnotationDefinition)a).LabelFormat,
             (a, v) => ((ContourAnnotationDefinition)a).LabelFormat = v ?? "F2",
             "Number of decimal places shown in contour elevation labels.",
             incrementalCommit: true,
+            visibleWhen: a => ((ContourAnnotationDefinition)a).ShowLabels,
             optionsFor: a => AnalysisFormatting.GetValueFormatOptions(((ContourAnnotationDefinition)a).LabelFormat)),
+        // Design review UI-R4: appearance is set once and then left, so it sits closed below the labels.
+        AnnotationParam.Section("appearance", "Appearance"),
+        AnnotationParam.Color(
+            "ColorArgb", "Color",
+            a => ((ContourAnnotationDefinition)a).ColorArgb,
+            (a, v) => ((ContourAnnotationDefinition)a).ColorArgb = v,
+            "Explicit display and bake color for generated contour curves. Clear to take the colour from the layer its role routes to.",
+            fallbackColor: (terrain, _) => AnalysisFormatting.ResolveLayerColorArgb(
+                AnalysisFormatting.GetRoleLayerPath(terrain, LayerRole.Contours)),
+            defaultText: (terrain, _) => AnalysisFormatting.GetRoleColorText(terrain, LayerRole.Contours),
+            incrementalCommit: true),
+        AnnotationParam.Bool(
+            "SeparateMajorMinorLayers", "Separate Layers",
+            a => ((ContourAnnotationDefinition)a).SeparateMajorMinorLayers,
+            (a, v) => ((ContourAnnotationDefinition)a).SeparateMajorMinorLayers = v,
+            "Send major and minor contours to separate Contours::Major and Contours::Minor sublayers so print width and linetype are controlled per layer in Rhino.",
+            incrementalCommit: true),
     };
 }
 

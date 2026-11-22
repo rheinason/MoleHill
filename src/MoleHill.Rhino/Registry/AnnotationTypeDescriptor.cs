@@ -63,6 +63,10 @@ internal abstract class AnnotationTypeDescriptor
     /// </summary>
     public virtual string? DescribeBlocker(TerrainDefinition terrain, AnnotationDefinition annotation) => null;
 
+    /// <summary>Whether this card currently draws text, so its Text Size row has anything to describe
+    /// (Contours draw text only while their labels are on).</summary>
+    public virtual bool DrawsText(AnnotationDefinition annotation) => true;
+
     /// <summary>
     /// A quiet statement of how this annotation is currently set up, or null when there is nothing worth
     /// saying. Rendered as muted text, not as a warning.

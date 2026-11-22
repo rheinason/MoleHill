@@ -2,6 +2,7 @@ using System.Globalization;
 using Eto.Drawing;
 using Eto.Forms;
 using MoleHill.Rhino.Model;
+using MoleHill.Rhino.Registry;
 using MoleHill.Rhino.Services;
 using Rhino;
 using Rhino.DocObjects;
@@ -129,6 +130,10 @@ public sealed partial class MoleHillPanel
     /// </summary>
     private void AppendAnnotationTextSizeRows(DynamicLayout layout, TerrainDefinition terrain, AnnotationDefinition annotation)
     {
+        // Nothing to size while the card draws no text (Contours with their labels off).
+        if (AnnotationTypeRegistry.ForType(annotation.GetType())?.DrawsText(annotation) == false)
+            return;
+
         RhinoDoc? doc = RhinoDoc.ActiveDoc;
         string styleName = doc == null ? AnnotationStyleService.DefaultStyleName : LayerRoleService.ResolveAnnotationStyleName(doc, terrain);
         bool blocks = annotation is BlockAttributeAnnotationDefinition and not GradeBetweenPointsAnnotationDefinition;
