@@ -525,6 +525,9 @@ internal sealed class CatchmentAnalysisDescriptor : AnalysisTypeDescriptor
 internal sealed class PondingAnalysisDescriptor : AnalysisTypeDescriptor
 {
     public override string Kind => "ponding";
+
+    // Design review Step 69: the ponding figures are looked up now and then, so Results starts closed.
+    public override bool ResultsExpandedByDefault => false;
     public override Type DefinitionType => typeof(PondingAnalysisDefinition);
     public override string TypeLabel => "Ponding";
     public override string MenuLabel => "Ponding";

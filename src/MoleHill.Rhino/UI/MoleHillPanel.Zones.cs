@@ -225,7 +225,6 @@ public sealed partial class MoleHillPanel
         useInputElevationCheck.CheckedChanged += (_, _) =>
             MutateZone(terrain.TerrainId, zone.ZoneId, item => item.UseInputElevationForPriority = useInputElevationCheck.Checked == true);
 
-        AddZoneSummaryRows(layout, terrain, zone);
 
         layout.AddRow(CreateSourceEditor(
             "Zone Area",
@@ -235,12 +234,15 @@ public sealed partial class MoleHillPanel
             doc => _controller.GetSelectedLayerPaths(doc),
             "Assign the closed curves, hatches and layers that define this zone's area."));
         layout.AddSeparateRow(useInputElevationCheck, null);
+        // Inputs first, then what they produced (design review Step 65).
+        AddZoneSummaryRows(layout, terrain, zone);
         return layout;
     }
 
     private void AddZoneSummaryRows(DynamicLayout layout, TerrainDefinition terrain, CollageZoneDefinition zone)
     {
-        AddResultRows(layout, "zone", () => DescribeZoneResult(terrain, zone));
+        // Design review Step 65: a zone's quantities sit closed under the inputs that make them.
+        AddResultRows(layout, "zone", () => DescribeZoneResult(terrain, zone), expandedByDefault: false);
     }
 
     private IReadOnlyList<ResultRow> DescribeZoneResult(TerrainDefinition terrain, CollageZoneDefinition zone)

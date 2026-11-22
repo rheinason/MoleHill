@@ -163,7 +163,7 @@ public sealed partial class MoleHillPanel
     /// (design review Step 71: "Results" for computed values). Open by default and remembered per card
     /// type like every section; summaries stay selectable so their figures can be copied.
     /// </summary>
-    private void AddResultRows(DynamicLayout layout, string cardKind, Func<IReadOnlyList<ResultRow>?> produce)
+    private void AddResultRows(DynamicLayout layout, string cardKind, Func<IReadOnlyList<ResultRow>?> produce, bool expandedByDefault = true)
     {
         IReadOnlyList<ResultRow>? rows = SummaryText.Invariant(produce);
         if (rows == null || rows.Count == 0)
@@ -178,7 +178,7 @@ public sealed partial class MoleHillPanel
                 : CreateReadOnlyValueRow(row.Label, row.Value, row.Help));
         }
 
-        layout.AddRow(new CardSection(cardKind, "results", "Results", true, null, body));
+        layout.AddRow(new CardSection(cardKind, "results", "Results", expandedByDefault, null, body));
     }
 
     /// <summary>

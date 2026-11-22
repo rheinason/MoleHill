@@ -212,7 +212,8 @@ public sealed partial class MoleHillPanel
         AddResultRows(
             layout,
             GetAnalysisKind(analysis),
-            () => AnalysisTypeRegistry.ForType(analysis.GetType())?.DescribeResult(analysis, summary, ResultFormats));
+            () => AnalysisTypeRegistry.ForType(analysis.GetType())?.DescribeResult(analysis, summary, ResultFormats),
+            AnalysisTypeRegistry.ForType(analysis.GetType())?.ResultsExpandedByDefault ?? true);
     }
 
     private static string FormatArea(double value)

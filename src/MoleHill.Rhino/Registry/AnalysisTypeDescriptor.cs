@@ -73,6 +73,9 @@ internal abstract class AnalysisTypeDescriptor
     /// </summary>
     public virtual string? DescribeBasis(TerrainDefinition terrain, AnalysisDefinition analysis) => null;
 
+    /// <summary>Whether the card's Results section starts open (until the user opens or closes it).</summary>
+    public virtual bool ResultsExpandedByDefault => true;
+
     /// <summary>
     /// Computes this analysis's summary (and emits any generated objects onto <c>context.Build</c>) during
     /// the analysis pass, or returns null when the type produces nothing there. The pass has already
