@@ -42,6 +42,58 @@ public class ParameterSchemaGuardTests
         return data;
     }
 
+    /// <summary>
+    /// A number row over a model-length property shows a length unit: left blank, it takes it from the
+    /// property (<see cref="ParameterUnits"/>); declared, it must not say anything else. Before the rule,
+    /// 24 such rows showed a bare "1.000" with nothing to tell metres from millimetres.
+    /// </summary>
+    [Fact]
+    public void LengthFields_ShowALengthUnit()
+    {
+        var descriptors = new List<(string Kind, Type Definition, IEnumerable<object> Rows)>();
+        descriptors.AddRange(TerrainTypeRegistry.Modifiers.Select(d => (d.Kind, d.DefinitionType, d.Parameters.Cast<object>())));
+        descriptors.AddRange(AnalysisTypeRegistry.Analyses.Select(d => (d.Kind, d.DefinitionType, d.Parameters.Cast<object>())));
+        descriptors.AddRange(AnnotationTypeRegistry.Annotations.Select(d => (d.Kind, d.DefinitionType, d.Parameters.Cast<object>())));
+        descriptors.AddRange(ObjectTypeRegistry.Objects.Select(d => (d.Kind, d.DefinitionType, d.Parameters.Cast<object>())));
+
+        var offenders = new List<string>();
+        foreach (var (kind, definition, rows) in descriptors)
+        {
+            foreach (object row in rows)
+            {
+                Type type = row.GetType();
+                var rowKind = Get<ParameterKind>(type, row, "Kind");
+                if (rowKind is not (ParameterKind.Number or ParameterKind.OptionalNumber or ParameterKind.Slider))
+                    continue;
+
+                string key = Get<string>(type, row, "Key");
+                var property = definition.GetProperty(
+                    key,
+                    System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.IgnoreCase);
+                if (property == null || !Attribute.IsDefined(property, typeof(ModelLengthAttribute)))
+                    continue;
+
+                var declared = Get<ParameterUnit>(type, row, "Unit");
+                if (declared is not (ParameterUnit.None or ParameterUnit.ModelLength))
+                    offenders.Add($"{kind}/{key} declares {declared}");
+            }
+        }
+
+        Assert.True(
+            offenders.Count == 0,
+            "Number rows over a [ModelLength] property that declare a different unit: " +
+            string.Join(", ", offenders));
+    }
+
+    [Fact]
+    public void LengthField_WithNoDeclaredUnit_ShowsTheModelLengthUnit()
+    {
+        var descriptor = TerrainTypeRegistry.ForModifierKind("retaining-wall")!;
+        var maxWallWidth = descriptor.Parameters.First(parameter => parameter.Key == "MaxWallWidth");
+
+        Assert.Equal(ParameterUnit.ModelLength, ParameterUnits.Effective(maxWallWidth, descriptor.DefinitionType));
+    }
+
     [Theory]
     [MemberData(nameof(AllSchemas))]
     public void EveryParameter_HasTheAccessorsItsKindRequires(string family, string typeKind, object parameter)

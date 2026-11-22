@@ -30,7 +30,7 @@ internal sealed class RemeshModifierDescriptor : ModifierTypeDescriptor
         var r = (RemeshModifierDefinition)modifier;
         string remeshEdge = r.EdgeLength > 0 ? $"Edge Length {r.EdgeLength:G4}" : "Edge Length auto";
         return r.CreaseAngle > 0
-            ? $"{remeshEdge} | Crease Angle {r.CreaseAngle:G4} deg"
+            ? $"{remeshEdge} · Crease Angle {r.CreaseAngle:G4} deg"
             : remeshEdge;
     }
 

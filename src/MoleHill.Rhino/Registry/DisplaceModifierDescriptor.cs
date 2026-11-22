@@ -42,8 +42,8 @@ internal sealed class DisplaceModifierDescriptor : ModifierTypeDescriptor
         var d = (DisplaceModifierDefinition)modifier;
         string region = d.Boundaries.HasReferences ? Count(CountSources(d.Boundaries), "boundary", "boundaries") : "whole terrain";
         return DisplaceSources.IsImage(d)
-            ? $"Image {DescribeFileName(d.ImagePath)} | {(d.Mapping.HasReferences ? "Tile from rectangle" : $"Tile {d.TileSizeX:G4} x {d.TileSizeY:G4}")} | Height {d.Height:G4} | {region}"
-            : $"Noise | Size {d.NoiseSize:G4} | Height {d.Height:G4} | Seed {d.Seed} | {region}";
+            ? $"Image {DescribeFileName(d.ImagePath)} · {(d.Mapping.HasReferences ? "Tile from rectangle" : $"Tile {d.TileSizeX:G4} x {d.TileSizeY:G4}")} · Height {d.Height:G4} · {region}"
+            : $"Noise · Size {d.NoiseSize:G4} · Height {d.Height:G4} · Seed {d.Seed} · {region}";
     }
 
     public override string? InertReason(ModifierDefinition modifier, TerrainBuildSnapshot snapshot)

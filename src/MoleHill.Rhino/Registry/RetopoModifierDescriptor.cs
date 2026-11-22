@@ -22,7 +22,7 @@ internal sealed class RetopoModifierDescriptor : ModifierTypeDescriptor
     {
         var retopo = (RetopoModifierDefinition)modifier;
         string retopoEdge = retopo.TargetEdgeLength > 0 ? $"Edge Length {retopo.TargetEdgeLength:G4}" : "Edge Length auto";
-        return $"{retopoEdge} | {(retopo.Quads ? "Quads on" : "field preview")}";
+        return $"{retopoEdge} · {(retopo.Quads ? "Quads on" : "field preview")}";
     }
 
     public override IReadOnlyList<ModifierParam> Parameters { get; } = new[]

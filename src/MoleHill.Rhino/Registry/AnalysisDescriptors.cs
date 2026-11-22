@@ -243,7 +243,7 @@ internal sealed class CutFillAnalysisDescriptor : AnalysisTypeDescriptor
                 : cutFill.ShowBalanceLine ? "None — no sign change" : "Off";
             rows.Add(ResultRow.Of(
                 "Drawn",
-                $"{summary.CutFillDeltaContourCount:N0} delta contour(s) | balance: {balance}",
+                $"{summary.CutFillDeltaContourCount:N0} delta contour(s) · balance: {balance}",
                 "Delta lines drawn on the last build. A balance line only exists where the " +
                 "delta changes sign — a site that is all fill has none."));
         }
@@ -352,7 +352,7 @@ internal sealed class WaterflowAnalysisDescriptor : AnalysisTypeDescriptor
                 "Waterflow paths traced from the point sources across the final terrain."),
             ResultRow.Of(
                 "Ends",
-                $"{summary.WaterflowBoundaryCount} boundary | {summary.WaterflowSinkCount} sink | {summary.WaterflowRejectedCount} outside",
+                $"{summary.WaterflowBoundaryCount} boundary · {summary.WaterflowSinkCount} sink · {summary.WaterflowRejectedCount} outside",
                 "How the point paths ended during the last terrain build.")
         };
     }
@@ -427,7 +427,7 @@ internal sealed class CatchmentAnalysisDescriptor : AnalysisTypeDescriptor
             ResultRow.Of(
                 "Catchments",
                 summary.CatchmentLargestArea is { } largest
-                    ? $"{summary.CatchmentBasinCount:N0} | largest {format.Area(largest)}"
+                    ? $"{summary.CatchmentBasinCount:N0} · largest {format.Area(largest)}"
                     : $"{summary.CatchmentBasinCount:N0}",
                 "Catchments resolved on the last build, after any small ones were merged. " +
                 "Raise “Merge Below” if there are too many to read."),

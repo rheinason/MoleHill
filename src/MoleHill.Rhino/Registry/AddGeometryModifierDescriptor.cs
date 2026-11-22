@@ -24,7 +24,7 @@ internal sealed class AddGeometryModifierDescriptor : ModifierTypeDescriptor
     public override string Summarize(ModifierDefinition modifier)
     {
         var a = (AddGeometryModifierDefinition)modifier;
-        return $"{Count(CountSources(a.Points), "point", "points")} | {Count(CountSources(a.Breaklines), "breakline", "breaklines")} | " +
+        return $"{Count(CountSources(a.Points), "point", "points")} · {Count(CountSources(a.Breaklines), "breakline", "breaklines")} · " +
             $"{Count(CountSources(a.Contours), "contour", "contours")}";
     }
 

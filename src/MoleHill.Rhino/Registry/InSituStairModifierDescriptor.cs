@@ -27,8 +27,8 @@ internal sealed class InSituStairModifierDescriptor : ModifierTypeDescriptor
         var stair = (InSituStairModifierDefinition)modifier;
         int refs = CountSources(stair.ReferenceSurface);
         return !string.IsNullOrWhiteSpace(stair.ComputedTreadDepthSummary)
-            ? $"{stair.ComputedSurfaceCount ?? refs} surfaces | Tread Depth {stair.ComputedTreadDepthSummary}"
-            : $"{refs} reference surfaces | Riser Height {stair.RiserHeight:G4}";
+            ? $"{stair.ComputedSurfaceCount ?? refs} surfaces · Tread Depth {stair.ComputedTreadDepthSummary}"
+            : $"{refs} reference surfaces · Riser Height {stair.RiserHeight:G4}";
     }
 
     public override string? InertReason(ModifierDefinition modifier, TerrainBuildSnapshot snapshot) =>

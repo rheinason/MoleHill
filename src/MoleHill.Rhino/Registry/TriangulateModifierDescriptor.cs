@@ -39,8 +39,8 @@ internal sealed class TriangulateModifierDescriptor : ModifierTypeDescriptor
     public override string Summarize(ModifierDefinition modifier)
     {
         var t = (TriangulateModifierDefinition)modifier;
-        return $"{CountSources(t.DemSurface)} DEM | {Count(CountSources(t.Points), "point", "points")} | " +
-            $"{Count(CountSources(t.Breaklines), "breakline", "breaklines")} | {Count(CountSources(t.Contours), "contour", "contours")}";
+        return $"{CountSources(t.DemSurface)} DEM · {Count(CountSources(t.Points), "point", "points")} · " +
+            $"{Count(CountSources(t.Breaklines), "breakline", "breaklines")} · {Count(CountSources(t.Contours), "contour", "contours")}";
     }
 
     // Source rows first, then settings. The panel defers Contour Mode and the boundary-peel rows to its

@@ -928,7 +928,7 @@ internal sealed class ReportTableAnnotationDescriptor : AnnotationTypeDescriptor
             ResultRow.Of(
                 "Drawn",
                 summary.ReportRowCount > 0
-                    ? $"{summary.ReportTableCount} table(s) | {summary.ReportRowCount} row(s)"
+                    ? $"{summary.ReportTableCount} table(s) · {summary.ReportRowCount} row(s)"
                     : "Nothing measured yet",
                 "Tables and data rows drawn by the last build. A section that measured nothing is not drawn.")
         };

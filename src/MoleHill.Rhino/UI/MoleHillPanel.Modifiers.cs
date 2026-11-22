@@ -41,7 +41,7 @@ public sealed partial class MoleHillPanel
             SetEnabled = value => MutateModifier(terrainId, id, item => item.IsEnabled = value),
             TypeName = typeName,
             TypeIcon = CreateCardIconControl(GetModifierIconName(kind), typeName[..1]),
-            Summary = AppendRuntimeDiagnosticSummary(
+            Summary = () => AppendRuntimeDiagnosticSummary(
                 GetCollapsedSummary(modifier),
                 terrain,
                 new RuntimeOverlayOwner(RuntimeOverlayOwnerKind.Modifier, id)),
@@ -86,7 +86,7 @@ public sealed partial class MoleHillPanel
         if (TryBuildSchemaModifierBody(layout, terrain, modifier))
             AppendBespokeModifierRows(layout, terrain, modifier);
 
-        AddResultRows(layout, GetModifierKind(modifier), stageReport?.Rows);
+        AddResultRows(layout, GetModifierKind(modifier), () => stageReport?.Rows);
 
         Control? diagnosticsRow = CreateRuntimeDiagnosticsRow(
             terrain,

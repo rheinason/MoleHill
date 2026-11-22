@@ -41,7 +41,7 @@ public sealed partial class MoleHillPanel
             },
             TypeName = GetAnalysisTypeLabel(analysis),
             TypeIcon = CreateCardIconControl(GetAnalysisIconName(analysis), GetAnalysisIconLabel(analysis)),
-            Summary = AppendRuntimeDiagnosticSummary(
+            Summary = () => AppendRuntimeDiagnosticSummary(
                 GetAnalysisCollapsedSummary(terrain, analysis),
                 terrain,
                 new RuntimeOverlayOwner(RuntimeOverlayOwnerKind.Analysis, id)),
@@ -212,7 +212,7 @@ public sealed partial class MoleHillPanel
         AddResultRows(
             layout,
             GetAnalysisKind(analysis),
-            AnalysisTypeRegistry.ForType(analysis.GetType())?.DescribeResult(analysis, summary, ResultFormats));
+            () => AnalysisTypeRegistry.ForType(analysis.GetType())?.DescribeResult(analysis, summary, ResultFormats));
     }
 
     private static string FormatArea(double value)
@@ -301,16 +301,16 @@ public sealed partial class MoleHillPanel
         return analysis switch
         {
             EarthworkAnalysisDefinition earthwork => summary != null
-                ? $"Net {FormatVolume(summary.NetVolume)} | {(summary.EarthworkIsEstimated ? "Estimated" : "Exact")}"
-                : $"{CountReferences(earthwork.Reference)} refs | {CountReferences(earthwork.Boundary)} bounds",
+                ? $"Net {FormatVolume(summary.NetVolume)} · {(summary.EarthworkIsEstimated ? "Estimated" : "Exact")}"
+                : $"{CountReferences(earthwork.Reference)} refs · {CountReferences(earthwork.Boundary)} bounds",
             SlopeAnalysisDefinition slope => $"{FormatSlopeValue(slope.RangeLow, slope.Unit)} to {(slope.RangeHigh > slope.RangeLow ? FormatSlopeValue(slope.RangeHigh, slope.Unit) : "Auto")}",
             ElevationAnalysisDefinition elevation => $"{elevation.RangeLow:G4} to {(elevation.RangeHigh > elevation.RangeLow ? elevation.RangeHigh.ToString("G4") : "Auto")}",
             CutFillAnalysisDefinition cutFill => summary != null
                 ? $"{summary.CutVolume:F2} / {summary.FillVolume:F2} / {summary.NetVolume:F2}"
-                : $"{CountReferences(cutFill.Reference)} refs | {CountReferences(cutFill.Boundary)} bounds",
+                : $"{CountReferences(cutFill.Reference)} refs · {CountReferences(cutFill.Boundary)} bounds",
             WaterflowAnalysisDefinition waterflow => summary != null
-                ? $"{summary.GeneratedOutputCount} paths | {summary.WaterflowBoundaryCount} boundary"
-                : $"{CountReferences(waterflow.Sources)} refs | downhill paths",
+                ? $"{summary.GeneratedOutputCount} paths · {summary.WaterflowBoundaryCount} boundary"
+                : $"{CountReferences(waterflow.Sources)} refs · downhill paths",
             _ => string.Empty
         };
     }

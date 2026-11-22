@@ -42,6 +42,8 @@ public sealed partial class MoleHillPanel
         where TDef : class
     {
         string label = parameter.LabelFor?.Invoke(definition) ?? parameter.Label;
+        // Declared, or taken from the definition property the row edits (a [ModelLength] field shows "m").
+        ParameterUnit unit = ParameterUnits.Effective(parameter, definition.GetType());
 
         switch (parameter.Kind)
         {
@@ -77,7 +79,7 @@ public sealed partial class MoleHillPanel
                     parameter.Max,
                     liveEdit: parameter.LiveEdit,
                     step: parameter.Step,
-                    unitSuffix: ResolveUnitSuffix(parameter.Unit));
+                    unitSuffix: ResolveUnitSuffix(unit));
 
             case ParameterKind.OptionalNumber:
                 if (parameter.Unit == ParameterUnit.Slope)
@@ -97,7 +99,7 @@ public sealed partial class MoleHillPanel
                     value => commit(item => parameter.SetNumber!(item, value)),
                     parameter.DecimalPlaces,
                     parameter.Help,
-                    unitSuffix: ResolveUnitSuffix(parameter.Unit));
+                    unitSuffix: ResolveUnitSuffix(unit));
 
             case ParameterKind.Slider:
                 // The slider track stays in the stored unit (degrees for a slope — the only bounded
@@ -113,7 +115,7 @@ public sealed partial class MoleHillPanel
                     parameter.Min,
                     parameter.Max,
                     parameter.Help,
-                    unitSuffix: ResolveUnitSuffix(parameter.Unit),
+                    unitSuffix: ResolveUnitSuffix(unit),
                     formatValue: slopeSlider
                         ? degrees => SlopeInput.FormatDegreesAsUnit(degrees, SlopeUnitPreference.Current)
                         : null,

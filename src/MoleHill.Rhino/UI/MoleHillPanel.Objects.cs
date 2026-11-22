@@ -57,7 +57,7 @@ public sealed partial class MoleHillPanel
             SetEnabled = value => MutateObjectDefinition(terrainId, id, item => item.IsEnabled = value),
             TypeName = GetTerrainObjectTypeLabel(definition),
             TypeIcon = CreateCardIconControl(GetTerrainObjectIconName(definition), GetTerrainObjectIconLabel(definition)),
-            Summary = AppendRuntimeDiagnosticSummary(
+            Summary = () => AppendRuntimeDiagnosticSummary(
                 GetTerrainObjectCollapsedSummary(definition),
                 terrain,
                 new RuntimeOverlayOwner(RuntimeOverlayOwnerKind.Object, id)),
@@ -628,6 +628,6 @@ public sealed partial class MoleHillPanel
         if (Math.Abs(definition.ZOffset) > 1e-6)
             parts.Add($"Z {definition.ZOffset:G4}");
 
-        return string.Join(" | ", parts);
+        return string.Join(" · ", parts);
     }
 }

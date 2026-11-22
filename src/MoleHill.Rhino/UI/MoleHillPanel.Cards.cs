@@ -1,5 +1,6 @@
 using Eto.Drawing;
 using Eto.Forms;
+using MoleHill.Rhino.Registry;
 
 namespace MoleHill.Rhino.UI;
 
@@ -27,8 +28,9 @@ public sealed partial class MoleHillPanel
         public required string TypeName { get; init; }
         public required Control TypeIcon { get; init; }
 
-        /// <summary>The second line, after the type, in both states: counts and key values.</summary>
-        public required string Summary { get; init; }
+        /// <summary>The second line, after the type, in both states: counts and key values. Produced
+        /// through <see cref="SummaryText.Invariant{T}"/>, so its numbers read with a point.</summary>
+        public required Func<string> Summary { get; init; }
 
         /// <summary>What the card does; the second line's tooltip.</summary>
         public required string Description { get; init; }
@@ -76,7 +78,7 @@ public sealed partial class MoleHillPanel
             nameLine = nameBox;
         }
 
-        string meta = JoinMeta(spec.TypeName, spec.Summary);
+        string meta = JoinMeta(spec.TypeName, SummaryText.Invariant(spec.Summary));
         var metaLine = new TextLine(meta, SystemFonts.Default(), UiTheme.MutedText)
         {
             ToolTip = string.IsNullOrWhiteSpace(spec.Description) ? meta : $"{meta}{Environment.NewLine}{spec.Description}"
@@ -142,7 +144,7 @@ public sealed partial class MoleHillPanel
     private static string JoinMeta(string typeName, string detail) =>
         string.IsNullOrWhiteSpace(detail) || string.Equals(detail, typeName, StringComparison.OrdinalIgnoreCase)
             ? typeName
-            : string.IsNullOrWhiteSpace(typeName) ? detail : $"{typeName} · {detail}";
+            : SummaryText.Join(typeName, detail);
 
     /// <summary>
     /// A heading for a group of rows that does not collapse: a small caption and a rule across the rest of

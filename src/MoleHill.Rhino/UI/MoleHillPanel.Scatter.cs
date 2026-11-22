@@ -33,7 +33,7 @@ public sealed partial class MoleHillPanel
         };
         if (summary != null && summary.Message == null && !string.IsNullOrWhiteSpace(summary.Breakdown))
             results.Add(ResultRow.Summary("Removed", summary.Breakdown, "Why samples were removed before placement.", minHeight: 42));
-        AddResultRows(layout, kind, results);
+        AddResultRows(layout, kind, () => results);
         layout.AddRow(MakeInlineButton("Bake this scatter", (_, _) =>
         {
             if (RhinoDoc.ActiveDoc is { } activeDoc)

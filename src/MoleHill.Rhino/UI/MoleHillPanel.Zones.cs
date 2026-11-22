@@ -204,7 +204,7 @@ public sealed partial class MoleHillPanel
             SetEnabled = value => MutateZone(terrainId, id, item => item.IsEnabled = value),
             TypeName = "Zone",
             TypeIcon = CreateZoneColorSwatch(terrain, zone),
-            Summary = GetZoneCollapsedSummary(zone),
+            Summary = () => GetZoneCollapsedSummary(zone),
             Description = zone.UseInputElevationForPriority ? "Higher inputs win overlaps" : "Later zones win ties",
             HandleHelp = "Drag to reorder this zone. Later zones win when priorities tie.",
             Status = CreateCardStatusLabel(zone.IsEnabled ? "Enabled" : "Disabled"),
@@ -240,7 +240,7 @@ public sealed partial class MoleHillPanel
 
     private void AddZoneSummaryRows(DynamicLayout layout, TerrainDefinition terrain, CollageZoneDefinition zone)
     {
-        AddResultRows(layout, "zone", DescribeZoneResult(terrain, zone));
+        AddResultRows(layout, "zone", () => DescribeZoneResult(terrain, zone));
     }
 
     private IReadOnlyList<ResultRow> DescribeZoneResult(TerrainDefinition terrain, CollageZoneDefinition zone)
@@ -456,6 +456,6 @@ public sealed partial class MoleHillPanel
 
         parts.Add(zone.UseInputElevationForPriority ? "Elevation priority" : "Stack order");
         parts.Add($"{CountReferences(zone.Boundaries)} refs");
-        return string.Join(" | ", parts);
+        return string.Join(" · ", parts);
     }
 }

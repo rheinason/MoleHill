@@ -161,7 +161,7 @@ public class ResultRowTests
         var rows = Analysis(drawn, summary);
         Assert.Equal(2, rows.Count);
         Assert.Equal("Drawn", rows[1].Label);
-        Assert.Equal("1,200 delta contour(s) | balance: None — no sign change", rows[1].Value);
+        Assert.Equal("1,200 delta contour(s) · balance: None — no sign change", rows[1].Value);
     }
 
     [Fact]
@@ -178,7 +178,7 @@ public class ResultRowTests
         var rows = Analysis(new CatchmentAnalysisDefinition { ShowBoundaries = true, ShowFlowPaths = false }, summary);
 
         Assert.Equal(new[] { "Catchments", "Closed depressions", "Drawn" }, rows.Select(r => r.Label).ToArray());
-        Assert.Equal("7 | largest 40 m2", rows[0].Value);
+        Assert.Equal("7 · largest 40 m2", rows[0].Value);
         Assert.Equal("2 — water has nowhere to go", rows[1].Value);
         Assert.Equal("9 curve(s)", rows[2].Value);
 
@@ -230,7 +230,7 @@ public class ResultRowTests
         });
 
         Assert.Equal("4 point(s) -> 4 path(s)", rows[0].Value);
-        Assert.Equal("2 boundary | 1 sink | 1 outside", rows[1].Value);
+        Assert.Equal("2 boundary · 1 sink · 1 outside", rows[1].Value);
     }
 
     [Fact]
@@ -409,7 +409,7 @@ public class ResultRowTests
             ReportRowCount = 14
         }));
         Assert.Equal("Drawn", drawn.Label);
-        Assert.Equal("2 table(s) | 14 row(s)", drawn.Value);
+        Assert.Equal("2 table(s) · 14 row(s)", drawn.Value);
 
         ResultRow empty = Assert.Single(Annotation(new ReportTableAnnotationDefinition(), new TerrainAnalysisSummary()));
         Assert.Equal("Nothing measured yet", empty.Value);

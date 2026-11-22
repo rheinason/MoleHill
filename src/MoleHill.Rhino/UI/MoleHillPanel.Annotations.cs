@@ -146,7 +146,7 @@ public sealed partial class MoleHillPanel
         AddResultRows(
             layout,
             GetAnnotationKind(annotation),
-            AnnotationTypeRegistry.ForType(annotation.GetType())?.DescribeResult(annotation, summary, ResultFormats));
+            () => AnnotationTypeRegistry.ForType(annotation.GetType())?.DescribeResult(annotation, summary, ResultFormats));
     }
 
     /// <summary>The unit-aware formatters result rows need, bound to the active document and the user's slope unit.</summary>
@@ -157,8 +157,9 @@ public sealed partial class MoleHillPanel
     /// (design review Step 71: "Results" for computed values). Open by default and remembered per card
     /// type like every section; summaries stay selectable so their figures can be copied.
     /// </summary>
-    private void AddResultRows(DynamicLayout layout, string cardKind, IReadOnlyList<ResultRow>? rows)
+    private void AddResultRows(DynamicLayout layout, string cardKind, Func<IReadOnlyList<ResultRow>?> produce)
     {
+        IReadOnlyList<ResultRow>? rows = SummaryText.Invariant(produce);
         if (rows == null || rows.Count == 0)
             return;
 
@@ -694,7 +695,7 @@ public sealed partial class MoleHillPanel
             },
             TypeName = GetAnnotationTypeLabel(annotation),
             TypeIcon = CreateCardIconControl(GetAnnotationIconName(annotation), GetAnnotationIconLabel(annotation)),
-            Summary = AppendRuntimeDiagnosticSummary(
+            Summary = () => AppendRuntimeDiagnosticSummary(
                 GetAnnotationCollapsedSummary(terrain, annotation),
                 terrain,
                 new RuntimeOverlayOwner(RuntimeOverlayOwnerKind.Analysis, id)),
@@ -721,39 +722,39 @@ public sealed partial class MoleHillPanel
         return annotation switch
         {
             ContourAnnotationDefinition contour => summary != null
-                ? $"{summary.ContourCurveCount} curves | {contour.Interval:G4} @ {contour.StartZ:G4}"
-                : $"{contour.Interval:G4} every | start {contour.StartZ:G4}",
+                ? $"{summary.ContourCurveCount} curves · {contour.Interval:G4} @ {contour.StartZ:G4}"
+                : $"{contour.Interval:G4} every · start {contour.StartZ:G4}",
             CurveElevationLabelAnnotationDefinition curveElevation => summary != null
                 ? summary.GeneratedOutputCount > 0
-                    ? $"{summary.GeneratedOutputCount} labels | {FormatAnalysisValue(summary.SampleAverageValue, curveElevation.ValueFormat)} avg"
+                    ? $"{summary.GeneratedOutputCount} labels · {FormatAnalysisValue(summary.SampleAverageValue, curveElevation.ValueFormat)} avg"
                     : "0 labels"
-                : $"{CountReferences(curveElevation.Sources)} refs | {curveElevation.Interval:G4} every",
+                : $"{CountReferences(curveElevation.Sources)} refs · {curveElevation.Interval:G4} every",
             CurveSlopeLabelAnnotationDefinition curveSlope => summary != null
                 ? summary.GeneratedOutputCount > 0
-                    ? $"{summary.GeneratedOutputCount} labels | {FormatSlopeValue(summary.SampleAverageValue, curveSlope.Unit)} avg"
+                    ? $"{summary.GeneratedOutputCount} labels · {FormatSlopeValue(summary.SampleAverageValue, curveSlope.Unit)} avg"
                     : "0 labels"
-                : $"{CountReferences(curveSlope.Sources)} refs | {curveSlope.Interval:G4} every",
+                : $"{CountReferences(curveSlope.Sources)} refs · {curveSlope.Interval:G4} every",
             ProjectedElevationLabelAnnotationDefinition projectedElevation => summary != null
                 ? summary.GeneratedOutputCount > 0
-                    ? $"{summary.GeneratedOutputCount} labels | {FormatAnalysisValue(summary.SampleMinValue, projectedElevation.ValueFormat)} to {FormatAnalysisValue(summary.SampleMaxValue, projectedElevation.ValueFormat)}"
+                    ? $"{summary.GeneratedOutputCount} labels · {FormatAnalysisValue(summary.SampleMinValue, projectedElevation.ValueFormat)} to {FormatAnalysisValue(summary.SampleMaxValue, projectedElevation.ValueFormat)}"
                     : "0 labels"
-                : $"{CountReferences(projectedElevation.Sources)} refs | projected Z",
+                : $"{CountReferences(projectedElevation.Sources)} refs · projected Z",
             PointSlopeLabelAnnotationDefinition pointSlope => summary != null
                 ? summary.GeneratedOutputCount > 0
-                    ? $"{summary.GeneratedOutputCount} labels | {FormatSlopeValue(summary.SampleAverageValue, pointSlope.Unit)} avg"
+                    ? $"{summary.GeneratedOutputCount} labels · {FormatSlopeValue(summary.SampleAverageValue, pointSlope.Unit)} avg"
                     : "0 labels"
-                : $"{CountReferences(pointSlope.Sources)} refs | terrain slope",
+                : $"{CountReferences(pointSlope.Sources)} refs · terrain slope",
             TerrainSectionAnnotationDefinition section => summary != null
-                ? $"{summary.GeneratedOutputCount} objects | {summary.SampleSourceCount} cuts"
-                : $"{CountReferences(section.Sources)} refs | profile",
+                ? $"{summary.GeneratedOutputCount} objects · {summary.SampleSourceCount} cuts"
+                : $"{CountReferences(section.Sources)} refs · profile",
             CrossSectionStationAnnotationDefinition crossSection => summary != null
-                ? $"{summary.GeneratedOutputCount} objects | {crossSection.StationInterval:G4} every"
-                : $"{CountReferences(crossSection.Sources)} refs | {crossSection.StationInterval:G4} stations",
+                ? $"{summary.GeneratedOutputCount} objects · {crossSection.StationInterval:G4} every"
+                : $"{CountReferences(crossSection.Sources)} refs · {crossSection.StationInterval:G4} stations",
             LongitudinalSectionAnnotationDefinition longitudinal => summary != null
-                ? $"{summary.GeneratedOutputCount} objects | V exag {longitudinal.VerticalExaggeration:G3}"
-                : $"{CountReferences(longitudinal.Sources)} refs | sample {longitudinal.SampleInterval:G4}",
+                ? $"{summary.GeneratedOutputCount} objects · V exag {longitudinal.VerticalExaggeration:G3}"
+                : $"{CountReferences(longitudinal.Sources)} refs · sample {longitudinal.SampleInterval:G4}",
             ReportTableAnnotationDefinition => summary != null
-                ? $"{summary.ReportTableCount} tables | {summary.ReportRowCount} rows"
+                ? $"{summary.ReportTableCount} tables · {summary.ReportRowCount} rows"
                 : "measured quantities",
             LegendAnnotationDefinition => TerrainAnalysisPreviewBuilder.FindColoringAnalysis(terrain) is { } coloring
                 && TerrainLegendBuilder.DescribeUnavailable(terrain) == null

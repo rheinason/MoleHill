@@ -96,7 +96,25 @@ public class UiTokenGuardTests
             Environment.NewLine + string.Join(Environment.NewLine, offenders));
     }
 
-    private static List<string> FindMatches(Regex pattern)
+    // A " | " inside a string: summary and result text written with the old separator.
+    private static readonly Regex PipeSeparator = new(@"""[^""]*\s\|\s|\s\|\s[^""]*""", RegexOptions.Compiled);
+
+    /// <summary>
+    /// Card summaries and results join their parts with <c>SummaryText.Separator</c> (" · "), the design's
+    /// "Type · n objects · n layers". They were written with " | " in about sixty places; this keeps that
+    /// from coming back one string at a time. Descriptors live in Registry/, so it scans both folders.
+    /// </summary>
+    [Fact]
+    public void CardText_JoinsPartsWithTheSummarySeparator()
+    {
+        var offenders = FindMatches(PipeSeparator, "src/MoleHill.Rhino/Registry/");
+        Assert.True(
+            offenders.Count == 0,
+            "A \" | \" separator in card text. Join parts with SummaryText.Separator (\" · \") or SummaryText.Join:" +
+            Environment.NewLine + string.Join(Environment.NewLine, offenders));
+    }
+
+    private static List<string> FindMatches(Regex pattern, string? alsoFolder = null)
     {
         string root = RepositoryPaths.FindRoot();
         var offenders = new List<string>();
@@ -104,7 +122,9 @@ public class UiTokenGuardTests
         foreach (string file in RepositoryPaths.EnumerateShippedSources(root))
         {
             string relative = Path.GetRelativePath(root, file).Replace('\\', '/');
-            if (!relative.StartsWith(UiFolder, StringComparison.Ordinal) || TokenFiles.Contains(relative))
+            bool inScope = relative.StartsWith(UiFolder, StringComparison.Ordinal) ||
+                           (alsoFolder != null && relative.StartsWith(alsoFolder, StringComparison.Ordinal));
+            if (!inScope || TokenFiles.Contains(relative))
                 continue;
 
             int lineNumber = 0;

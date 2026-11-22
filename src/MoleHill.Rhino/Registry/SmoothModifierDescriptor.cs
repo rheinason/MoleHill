@@ -28,8 +28,8 @@ internal sealed class SmoothModifierDescriptor : ModifierTypeDescriptor
     {
         var s = (SmoothModifierDefinition)modifier;
         return SmoothModes.IsRound(s)
-            ? $"Round Creases | Rounding Length {s.RoundingLength:G4} | Crease Angle {s.CreaseAngle:G4} deg | {Count(CountSources(s.Breaklines), "protect curve", "protect curves")}"
-            : $"{s.Iterations} iterations | Strength {s.Strength:G3} | {Count(CountSources(s.Breaklines), "protect curve", "protect curves")}";
+            ? $"Round Creases · Rounding Length {s.RoundingLength:G4} · Crease Angle {s.CreaseAngle:G4} deg · {Count(CountSources(s.Breaklines), "protect curve", "protect curves")}"
+            : $"{s.Iterations} iterations · Strength {s.Strength:G3} · {Count(CountSources(s.Breaklines), "protect curve", "protect curves")}";
     }
 
     public override string? InertReason(ModifierDefinition modifier, TerrainBuildSnapshot snapshot)
