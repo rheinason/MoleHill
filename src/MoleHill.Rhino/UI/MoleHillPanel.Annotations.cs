@@ -687,7 +687,7 @@ public sealed partial class MoleHillPanel
         string statusText = annotation.IsEnabled ? "Output" : "Disabled";
         var badge = CreateCardStatusLabel(statusText, UiTheme.MutedText);
 
-        var handle = CreateReorderHandle(annotation.Id, "annotation-drag", "Drag to reorder this annotation.");
+        var handle = _annotationCards.CreateHandle(annotation.Id, "Drag to reorder this annotation.");
 
         var accent = AnnotationTypeColor(kind);
         var iconPlate = CreateIconPlate(accent,

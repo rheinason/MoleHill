@@ -159,36 +159,6 @@ public sealed partial class MoleHillPanel
     }
 
     /// <summary>
-    /// A drag handle wired to start a reorder drag carrying <paramref name="id"/> under the given
-    /// <paramref name="dragKey"/> data format (the format the matching drop target listens for).
-    /// </summary>
-    private Drawable CreateReorderHandle(Guid id, string dragKey, string help)
-    {
-        var handle = CreateDragHandle();
-        ApplyHelp(handle, help);
-        handle.MouseDown += (_, e) =>
-        {
-            if (e.Buttons != MouseButtons.Primary)
-                return;
-
-            var data = new DataObject();
-            data.SetString(id.ToString(), dragKey);
-            handle.DoDragDrop(data, DragEffects.Move);
-        };
-        return handle;
-    }
-
-    /// <summary>A non-reorderable drag handle placeholder (greyed out) with an explanatory tooltip.</summary>
-    private Drawable CreateDisabledReorderHandle(string help)
-    {
-        var handle = CreateDragHandle();
-        handle.Enabled = false;
-        handle.Cursor = Cursors.Default;
-        ApplyHelp(handle, help);
-        return handle;
-    }
-
-    /// <summary>
     /// Toggles the collapsed state of a single stack card, or — when <paramref name="ctrlHeld"/> is
     /// true — collapses every sibling card (or expands them all when the clicked card was the last
     /// collapsed one). Centralises the ctrl-collapse-all behaviour that all three stacks share.
@@ -280,27 +250,6 @@ public sealed partial class MoleHillPanel
         };
     }
 
-    /// <summary>Wraps a finished card in its left accent strip and outer padding/background.</summary>
-    private static Panel WrapCardControl(Control card, Panel accentStrip, Color backgroundColor)
-    {
-        return new Panel
-        {
-            Padding = new Padding(UiMetrics.SpaceSmall, UiMetrics.SpaceXSmall),
-            BackgroundColor = backgroundColor,
-            Content = new StackLayout
-            {
-                Orientation = Orientation.Horizontal,
-                Spacing = 0,
-                HorizontalContentAlignment = HorizontalAlignment.Stretch,
-                Items =
-                {
-                    accentStrip,
-                    new StackLayoutItem(card, expand: true)
-                }
-            }
-        };
-    }
-
     /// <summary>
     /// Assembles a stack card from <paramref name="options"/>: a header (handle, chevron, icon,
     /// enable check, title, and status/action controls) over an optional body. The header layout
@@ -375,21 +324,4 @@ public sealed partial class MoleHillPanel
     /// <summary>Outline-bin "delete this card" icon button.</summary>
     private static Button MakeDeleteIconButton(Action action, string help) =>
         MakeIconButton(PanelButtonIcon.Delete, (_, _) => action(), help);
-
-    private static Drawable CreateDragHandle()
-    {
-        var handle = new Drawable { Width = 16, Height = 22, Cursor = Cursors.Move };
-        handle.Paint += (_, e) =>
-        {
-            var g = e.Graphics;
-            var ctl = SystemColors.ControlText;
-            var dot = new Color(ctl.R, ctl.G, ctl.B, 0.6f);
-            float[] xs = { 5f, 10f };
-            float[] ys = { 6f, 11f, 16f };
-            foreach (var x in xs)
-                foreach (var y in ys)
-                    g.FillEllipse(dot, x - 1.5f, y - 1.5f, 3f, 3f);
-        };
-        return handle;
-    }
 }

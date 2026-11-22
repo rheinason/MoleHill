@@ -46,7 +46,7 @@ public sealed partial class MoleHillPanel
                 : "Disabled";
         var badge = CreateCardStatusLabel(statusText, isActive ? UiTheme.ActiveBadge : UiTheme.MutedText);
 
-        var handle = CreateReorderHandle(analysis.Id, "analysis-drag", "Drag to reorder this analysis.");
+        var handle = _analysisCards.CreateHandle(analysis.Id, "Drag to reorder this analysis.");
 
         var accent = AnalysisTypeColor(kind);
         var iconPlate = CreateIconPlate(accent,

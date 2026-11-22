@@ -14,47 +14,16 @@ public sealed partial class MoleHillPanel
 {
     private void RebuildZonesLayout(TerrainDefinition? terrain)
     {
-        _zoneCardMap.Clear();
-        _zoneSepMap.Clear();
-        _zonesStack.Items.Clear();
-        _zonesStack.Items.Add(new StackLayoutItem(BuildZonesToolbar(terrain), HorizontalAlignment.Stretch));
-
+        _zoneCards.Clear(terrain?.TerrainId ?? Guid.Empty);
+        _zoneCards.Add(BuildZonesToolbar(terrain));
         if (terrain == null)
             return;
 
-        _zonesStack.Items.Add(new StackLayoutItem(new Panel
-        {
-            Padding = new Padding(UiMetrics.SpaceMedium, 0, UiMetrics.SpaceMedium, UiMetrics.SpaceSmall),
-            Content = new Label
-            {
-                Text = "Later zones win. Use input Z when stacked inputs should resolve by elevation.",
-                TextColor = UiTheme.MutedText,
-                Wrap = WrapMode.Word
-            }
-        }, HorizontalAlignment.Stretch));
-
-        var terrainId = terrain.TerrainId;
+        _zoneCards.AddNote("Later zones win. Use input Z when stacked inputs should resolve by elevation.");
         foreach (var zone in terrain.Zones)
-        {
-            var zoneId = zone.ZoneId;
+            _zoneCards.AddCard(zone.ZoneId, CreateZoneCard(terrain, zone), UiTheme.ZoneStripColor);
 
-            var zoneOuter = CreateDropSeparator("Drop here to reorder zones.", out var zoneInner);
-            _zoneSepMap[zoneId] = zoneInner;
-            WireZoneSepDragDrop(zoneOuter, zoneInner, terrainId, zoneId);
-            _zonesStack.Items.Add(new StackLayoutItem(zoneOuter, HorizontalAlignment.Stretch));
-
-            var box = CreateZoneCard(terrain, zone);
-            var zoneStrip = new Panel { Width = UiMetrics.CardAccentWidth, BackgroundColor = UiTheme.ZoneStripColor };
-            var zoneWrapper = WrapCardControl(box, zoneStrip, UiTheme.CardBackground);
-            _zoneCardMap[zoneId] = zoneWrapper;
-            WireZoneCardDragDrop(zoneWrapper, terrainId, zoneId);
-            _zonesStack.Items.Add(new StackLayoutItem(zoneWrapper, HorizontalAlignment.Stretch));
-        }
-
-        var tailZoneOuter = CreateDropSeparator("Drop here to reorder zones.", out var tailZoneInner);
-        _zoneSepMap[Guid.Empty] = tailZoneInner;
-        WireZoneSepDragDrop(tailZoneOuter, tailZoneInner, terrainId, Guid.Empty);
-        _zonesStack.Items.Add(new StackLayoutItem(tailZoneOuter, HorizontalAlignment.Stretch));
+        _zoneCards.AddTail();
     }
 
     private Control BuildZonesToolbar(TerrainDefinition? terrain)
@@ -238,7 +207,7 @@ public sealed partial class MoleHillPanel
         var capturedZoneId = zone.ZoneId;
         var capturedTerrainId = terrain.TerrainId;
 
-        var handle = CreateReorderHandle(capturedZoneId, "zone-drag", "Drag to reorder this zone. Later zones win when priorities tie.");
+        var handle = _zoneCards.CreateHandle(capturedZoneId, "Drag to reorder this zone. Later zones win when priorities tie.");
 
         var iconPlate = CreateZoneColorSwatch(terrain, zone);
 
@@ -524,106 +493,5 @@ public sealed partial class MoleHillPanel
         parts.Add(zone.UseInputElevationForPriority ? "Elevation priority" : "Stack order");
         parts.Add($"{CountReferences(zone.Boundaries)} refs");
         return string.Join(" | ", parts);
-    }
-
-    private void WireZoneCardDragDrop(Control box, Guid terrainId, Guid zoneId)
-    {
-        box.AllowDrop = true;
-        var cardHighlight = UiTheme.DragHighlight;
-
-        box.DragEnter += (_, e) =>
-        {
-            if (!e.Data.Contains("zone-drag")) return;
-            e.Effects = DragEffects.Move;
-            if (_dragOverZoneId.HasValue && _zoneCardMap.TryGetValue(_dragOverZoneId.Value, out var prevCard))
-                prevCard.BackgroundColor = UiTheme.CardBackground;
-            _dragOverZoneId = zoneId;
-            if (_zoneCardMap.TryGetValue(zoneId, out var card))
-                card.BackgroundColor = cardHighlight;
-            ClearAllSepHighlights(_zoneSepMap);
-            if (_zoneSepMap.TryGetValue(zoneId, out var sep))
-                sep.BackgroundColor = UiTheme.SepHighlight;
-        };
-
-        box.DragLeave += (_, _) =>
-        {
-            if (_dragOverZoneId == zoneId)
-            {
-                if (_zoneCardMap.TryGetValue(zoneId, out var card))
-                    card.BackgroundColor = UiTheme.CardBackground;
-                _dragOverZoneId = null;
-                ClearAllSepHighlights(_zoneSepMap);
-            }
-        };
-
-        box.DragDrop += (_, e) =>
-        {
-            if (!e.Data.Contains("zone-drag")) return;
-            var idStr = e.Data.GetString("zone-drag");
-            if (!Guid.TryParse(idStr, out var sourceId)) return;
-
-            if (_zoneCardMap.TryGetValue(zoneId, out var card))
-                card.BackgroundColor = UiTheme.CardBackground;
-            _dragOverZoneId = null;
-            ClearAllSepHighlights(_zoneSepMap);
-
-            var doc = RhinoDoc.ActiveDoc;
-            if (doc == null) return;
-            _controller.MutateTerrain(doc, terrainId, t => MoveZoneToDisplaySeparator(t, sourceId, zoneId));
-        };
-    }
-
-    private void WireZoneSepDragDrop(Panel outerSep, Panel innerSep, Guid terrainId, Guid insertBeforeId)
-    {
-        outerSep.AllowDrop = true;
-
-        outerSep.DragEnter += (_, e) =>
-        {
-            if (!e.Data.Contains("zone-drag")) return;
-            e.Effects = DragEffects.Move;
-            if (_dragOverZoneId.HasValue && _zoneCardMap.TryGetValue(_dragOverZoneId.Value, out var prevCard))
-                prevCard.BackgroundColor = UiTheme.CardBackground;
-            _dragOverZoneId = null;
-            ClearAllSepHighlights(_zoneSepMap);
-            innerSep.BackgroundColor = UiTheme.SepHighlight;
-        };
-
-        outerSep.DragLeave += (_, _) => innerSep.BackgroundColor = Colors.Transparent;
-
-        outerSep.DragDrop += (_, e) =>
-        {
-            if (!e.Data.Contains("zone-drag")) return;
-            var idStr = e.Data.GetString("zone-drag");
-            if (!Guid.TryParse(idStr, out var sourceId)) return;
-
-            innerSep.BackgroundColor = Colors.Transparent;
-            ClearAllSepHighlights(_zoneSepMap);
-
-            var doc = RhinoDoc.ActiveDoc;
-            if (doc == null) return;
-            _controller.MutateTerrain(doc, terrainId, t => MoveZoneToDisplaySeparator(t, sourceId, insertBeforeId));
-        };
-    }
-
-    private static void MoveZoneToDisplaySeparator(TerrainDefinition terrain, Guid sourceId, Guid insertBeforeId)
-    {
-        if (sourceId == insertBeforeId)
-            return;
-
-        int fromIdx = terrain.Zones.FindIndex(zone => zone.ZoneId == sourceId);
-        if (fromIdx < 0)
-            return;
-
-        var item = terrain.Zones[fromIdx];
-        terrain.Zones.RemoveAt(fromIdx);
-
-        if (insertBeforeId == Guid.Empty)
-        {
-            terrain.Zones.Add(item);
-            return;
-        }
-
-        int insertIdx = terrain.Zones.FindIndex(zone => zone.ZoneId == insertBeforeId);
-        terrain.Zones.Insert(insertIdx >= 0 ? insertIdx : terrain.Zones.Count, item);
     }
 }

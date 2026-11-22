@@ -58,7 +58,7 @@ public sealed partial class MoleHillPanel
         BindCommittedText(nameBox, () => definition.Name, text =>
             MutateObjectDefinition(capturedTerrainId, capturedDefinitionId, item => item.Name = text, scheduleRebuild: false));
 
-        var handle = CreateDisabledReorderHandle("Object definition cards use the modifier card layout. Reordering is not enabled yet.");
+        var handle = _objectCards.CreateHandle(capturedDefinitionId, "Object definition cards use the modifier card layout. Reordering is not enabled yet.", enabled: false);
 
         var accent = TerrainObjectTypeColor(kind);
         var iconPlate = CreateIconPlate(accent,

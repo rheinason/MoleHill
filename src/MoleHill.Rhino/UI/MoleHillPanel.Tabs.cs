@@ -17,11 +17,11 @@ public sealed partial class MoleHillPanel : Panel
         // ── Custom tab strip with eye toggles on Zones and Analysis ──────
         var tabScrollables = new[]
         {
-            BuildScrollable(_modifierStack),
-            BuildScrollable(_objectsStack),
-            BuildScrollable(_zonesStack),
-            BuildScrollable(_analysisStack),
-            BuildScrollable(_annotationStack)
+            BuildScrollable(_modifierCards.Layout),
+            BuildScrollable(_objectCards.Layout),
+            BuildScrollable(_zoneCards.Layout),
+            BuildScrollable(_analysisCards.Layout),
+            BuildScrollable(_annotationCards.Layout)
         };
 
         _tabScrollables = tabScrollables;
@@ -355,110 +355,58 @@ public sealed partial class MoleHillPanel : Panel
 
     private void RebuildModifierLayout(TerrainDefinition? terrain)
     {
-        _modifierCardMap.Clear();
-        _modifierSepMap.Clear();
-        _modifierStripMap.Clear();
-        _modifierStripColors.Clear();
-        _modifierStack.Items.Clear();
-        _modifierStack.Items.Add(new StackLayoutItem(BuildAddModifierBar(terrain), HorizontalAlignment.Stretch));
-
+        _modifierCards.Clear(terrain?.TerrainId ?? Guid.Empty);
+        _modifierCards.Add(BuildAddModifierBar(terrain));
         if (terrain == null)
             return;
 
-        var terrainId = terrain.TerrainId;
+        // Drawn bottom to top: Triangulate, the first modifier, is the bottom card.
         foreach (var modifier in Enumerable.Reverse(terrain.Modifiers))
         {
-            var modifierId = modifier.Id;
-
-            var outerSep = CreateDropSeparator("Drop here to reorder modifiers.", out var innerSep);
-            _modifierSepMap[modifierId] = innerSep;
-            WireModifierSepDragDrop(outerSep, innerSep, terrainId, modifierId);
-            _modifierStack.Items.Add(new StackLayoutItem(outerSep, HorizontalAlignment.Stretch));
-
-            var box = CreateModifierCard(terrain, modifier);
-            _modifierCardMap[modifierId] = box;
-            var kind = GetModifierKind(modifier);
-            var typeColor = ModifierTypeColor(kind);
             bool isPinnedBaseTriangulate = modifier is TriangulateModifierDefinition &&
-                                           terrain.Modifiers.Count > 0 &&
-                                           terrain.Modifiers[0].Id == modifierId;
-            var strip = new Panel { Width = UiMetrics.CardAccentWidth, BackgroundColor = typeColor };
-            _modifierStripMap[modifierId] = strip;
-            _modifierStripColors[modifierId] = typeColor;
-            var wrapper = WrapCardControl(box, strip, isPinnedBaseTriangulate ? UiTheme.BaseCardBackground : UiTheme.CardBackground);
-            WireModifierCardDragDrop(wrapper, terrainId, modifierId);
-            _modifierStack.Items.Add(new StackLayoutItem(wrapper, HorizontalAlignment.Stretch));
+                                           terrain.Modifiers[0].Id == modifier.Id;
+            _modifierCards.AddCard(
+                modifier.Id,
+                CreateModifierCard(terrain, modifier),
+                ModifierTypeColor(GetModifierKind(modifier)),
+                isPinnedBaseTriangulate ? UiTheme.BaseCardBackground : UiTheme.CardBackground);
         }
 
-        var tailOuter = CreateDropSeparator("Drop here to reorder modifiers.", out var tailInner);
-        _modifierSepMap[Guid.Empty] = tailInner;
-        WireModifierSepDragDrop(tailOuter, tailInner, terrainId, Guid.Empty);
-        _modifierStack.Items.Add(new StackLayoutItem(tailOuter, HorizontalAlignment.Stretch));
+        _modifierCards.AddTail();
     }
 
     private void RebuildObjectsLayout(TerrainDefinition? terrain)
     {
-        _objectsStack.Items.Clear();
+        _objectCards.Clear(terrain?.TerrainId ?? Guid.Empty);
         if (terrain == null)
             return;
 
-        _objectsStack.Items.Add(new StackLayoutItem(BuildObjectAddButtons(terrain), HorizontalAlignment.Stretch));
+        _objectCards.Add(BuildObjectAddButtons(terrain));
         if (terrain.Objects.Count == 0)
         {
-            _objectsStack.Items.Add(new StackLayoutItem(new Panel
-            {
-                Padding = new Padding(UiMetrics.SpaceLarge),
-                Content = new Label
-                {
-                    Text = "No object definitions yet. Add one to project or orient Rhino objects onto the terrain while keeping their source layers.",
-                    TextColor = UiTheme.MutedText,
-                    Wrap = WrapMode.Word
-                }
-            }, HorizontalAlignment.Stretch));
+            _objectCards.AddNote("No object definitions yet. Add one to project or orient Rhino objects onto the terrain while keeping their source layers.");
             return;
         }
 
         foreach (var definition in terrain.Objects)
-        {
-            var box = CreateObjectCard(terrain, definition);
-            var strip = new Panel { Width = UiMetrics.CardAccentWidth, BackgroundColor = TerrainObjectTypeColor(GetTerrainObjectKind(definition)) };
-            var wrapper = WrapCardControl(box, strip, UiTheme.CardBackground);
-            _objectsStack.Items.Add(new StackLayoutItem(wrapper, HorizontalAlignment.Stretch));
-        }
+            _objectCards.AddCard(definition.Id, CreateObjectCard(terrain, definition), TerrainObjectTypeColor(GetTerrainObjectKind(definition)));
     }
 
     private void RebuildAnalysisLayout(TerrainDefinition? terrain)
     {
-        _analysisCardMap.Clear();
-        _analysisSepMap.Clear();
-        _analysisStripMap.Clear();
-        _analysisStripColors.Clear();
-        _analysisStack.Items.Clear();
-
+        _analysisCards.Clear(terrain?.TerrainId ?? Guid.Empty);
         if (terrain == null)
             return;
 
-        _analysisStack.Items.Add(new StackLayoutItem(BuildAnalysisToolbar(terrain), HorizontalAlignment.Stretch));
-
-        var visualAnalyses = terrain.Analyses;
-        if (visualAnalyses.Count == 0)
+        _analysisCards.Add(BuildAnalysisToolbar(terrain));
+        if (terrain.Analyses.Count == 0)
         {
-            _analysisStack.Items.Add(new StackLayoutItem(new Panel
-            {
-                Padding = new Padding(UiMetrics.SpaceLarge),
-                Content = new Label
-                {
-                    Text = "No analyses yet. Add one to inspect slope, elevation, cut/fill, or earthworks.",
-                    TextColor = UiTheme.MutedText,
-                    Wrap = WrapMode.Word
-                }
-            }, HorizontalAlignment.Stretch));
+            _analysisCards.AddNote("No analyses yet. Add one to inspect slope, elevation, cut/fill, or earthworks.");
             return;
         }
 
         bool hasActiveAnalysis = false;
-        var terrainId = terrain.TerrainId;
-        foreach (var analysisItem in visualAnalyses)
+        foreach (var analysisItem in terrain.Analyses)
         {
             bool isActive = !hasActiveAnalysis &&
                             analysisItem.IsEnabled &&
@@ -466,85 +414,38 @@ public sealed partial class MoleHillPanel : Panel
             if (isActive)
                 hasActiveAnalysis = true;
 
-            var analysisId = analysisItem.Id;
-            var outerSep = CreateDropSeparator("Drop here to reorder analyses.", out var innerSep);
-            _analysisSepMap[analysisId] = innerSep;
-            WireAnalysisSepDragDrop(outerSep, innerSep, terrainId, analysisId);
-            _analysisStack.Items.Add(new StackLayoutItem(outerSep, HorizontalAlignment.Stretch));
-
-            var box = CreateAnalysisCard(terrain, analysisItem, isActive);
-            _analysisCardMap[analysisId] = box;
-            var kind = GetAnalysisKind(analysisItem);
-            var typeColor = AnalysisTypeColor(kind);
-            var strip = new Panel { Width = UiMetrics.CardAccentWidth, BackgroundColor = typeColor };
-            _analysisStripMap[analysisId] = strip;
-            _analysisStripColors[analysisId] = typeColor;
-            var wrapper = WrapCardControl(box, strip, UiTheme.CardBackground);
-            WireAnalysisCardDragDrop(wrapper, terrainId, analysisId);
-            _analysisStack.Items.Add(new StackLayoutItem(wrapper, HorizontalAlignment.Stretch));
+            _analysisCards.AddCard(
+                analysisItem.Id,
+                CreateAnalysisCard(terrain, analysisItem, isActive),
+                AnalysisTypeColor(GetAnalysisKind(analysisItem)));
         }
 
-        var tailOuter = CreateDropSeparator("Drop here to reorder analyses.", out var tailInner);
-        _analysisSepMap[Guid.Empty] = tailInner;
-        WireAnalysisSepDragDrop(tailOuter, tailInner, terrainId, Guid.Empty);
-        _analysisStack.Items.Add(new StackLayoutItem(tailOuter, HorizontalAlignment.Stretch));
+        _analysisCards.AddTail();
     }
 
     private void RebuildAnnotationLayout(TerrainDefinition? terrain)
     {
-        _annotationCardMap.Clear();
-        _annotationSepMap.Clear();
-        _annotationStripMap.Clear();
-        _annotationStripColors.Clear();
-        _annotationStack.Items.Clear();
-
+        _annotationCards.Clear(terrain?.TerrainId ?? Guid.Empty);
         if (terrain == null)
             return;
 
-        _annotationStack.Items.Add(new StackLayoutItem(BuildAnnotationToolbar(terrain), HorizontalAlignment.Stretch));
-        _annotationStack.Items.Add(new StackLayoutItem(BuildAnnotationStyleRow(terrain), HorizontalAlignment.Stretch));
-
-        var annotationItems = terrain.Annotations;
-        if (annotationItems.Count == 0)
+        _annotationCards.Add(BuildAnnotationToolbar(terrain));
+        _annotationCards.Add(BuildAnnotationStyleRow(terrain));
+        if (terrain.Annotations.Count == 0)
         {
-            _annotationStack.Items.Add(new StackLayoutItem(new Panel
-            {
-                Padding = new Padding(UiMetrics.SpaceLarge),
-                Content = new Label
-                {
-                    Text = "No annotations yet. Add contours, elevation labels, or slope labels.",
-                    TextColor = UiTheme.MutedText,
-                    Wrap = WrapMode.Word
-                }
-            }, HorizontalAlignment.Stretch));
+            _annotationCards.AddNote("No annotations yet. Add contours, elevation labels, or slope labels.");
             return;
         }
 
-        var terrainId = terrain.TerrainId;
-        foreach (var analysisItem in annotationItems)
+        foreach (var annotation in terrain.Annotations)
         {
-            var analysisId = analysisItem.Id;
-            var outerSep = CreateDropSeparator("Drop here to reorder annotations.", out var innerSep);
-            _annotationSepMap[analysisId] = innerSep;
-            WireAnnotationSepDragDrop(outerSep, innerSep, terrainId, analysisId);
-            _annotationStack.Items.Add(new StackLayoutItem(outerSep, HorizontalAlignment.Stretch));
-
-            var box = CreateAnnotationCard(terrain, analysisItem);
-            _annotationCardMap[analysisId] = box;
-            var kind = GetAnnotationKind(analysisItem);
-            var typeColor = AnnotationTypeColor(kind);
-            var strip = new Panel { Width = UiMetrics.CardAccentWidth, BackgroundColor = typeColor };
-            _annotationStripMap[analysisId] = strip;
-            _annotationStripColors[analysisId] = typeColor;
-            var wrapper = WrapCardControl(box, strip, UiTheme.CardBackground);
-            WireAnnotationCardDragDrop(wrapper, terrainId, analysisId);
-            _annotationStack.Items.Add(new StackLayoutItem(wrapper, HorizontalAlignment.Stretch));
+            _annotationCards.AddCard(
+                annotation.Id,
+                CreateAnnotationCard(terrain, annotation),
+                AnnotationTypeColor(GetAnnotationKind(annotation)));
         }
 
-        var tailOuter = CreateDropSeparator("Drop here to reorder annotations.", out var tailInner);
-        _annotationSepMap[Guid.Empty] = tailInner;
-        WireAnnotationSepDragDrop(tailOuter, tailInner, terrainId, Guid.Empty);
-        _annotationStack.Items.Add(new StackLayoutItem(tailOuter, HorizontalAlignment.Stretch));
+        _annotationCards.AddTail();
     }
 
     private Control CreateSectionToolbar(string title, Button primaryButton, string? helperText = null, Control? trailingControl = null)

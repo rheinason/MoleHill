@@ -55,57 +55,16 @@ public sealed partial class MoleHillPanel : Panel
     private readonly HashSet<Guid> _collapsedModifiers = new();
     private readonly HashSet<Guid> _collapsedObjects = new();
     private readonly HashSet<Guid> _collapsedZones = new();
-    private readonly StackLayout _modifierStack = new()
-    {
-        Orientation = Orientation.Vertical,
-        Spacing = 0,
-        HorizontalContentAlignment = HorizontalAlignment.Stretch
-    };
-    private readonly StackLayout _objectsStack = new()
-    {
-        Orientation = Orientation.Vertical,
-        Spacing = 0,
-        HorizontalContentAlignment = HorizontalAlignment.Stretch
-    };
-    private readonly StackLayout _zonesStack = new()
-    {
-        Orientation = Orientation.Vertical,
-        Spacing = 0,
-        HorizontalContentAlignment = HorizontalAlignment.Stretch
-    };
-    private readonly StackLayout _analysisStack = new()
-    {
-        Orientation = Orientation.Vertical,
-        Spacing = 0,
-        HorizontalContentAlignment = HorizontalAlignment.Stretch
-    };
-    private readonly StackLayout _annotationStack = new()
-    {
-        Orientation = Orientation.Vertical,
-        Spacing = 0,
-        HorizontalContentAlignment = HorizontalAlignment.Stretch
-    };
+    // The five tab stacks. Drops reorder the terrain's own list; analyses and annotations only redraw,
+    // because their order changes output, not the terrain.
+    private readonly CardStack _modifierCards;
+    private readonly CardStack _objectCards = CardStack.Fixed();
+    private readonly CardStack _zoneCards;
+    private readonly CardStack _analysisCards;
+    private readonly CardStack _annotationCards;
     private readonly HashSet<Guid> _collapsedAnalyses = new();
     private readonly HashSet<Guid> _expandedColorRamps = new();
     private readonly Dictionary<Guid, int> _selectedColorRampStops = new();
-    private readonly Dictionary<Guid, Panel>    _modifierCardMap      = new();
-    private readonly Dictionary<Guid, Panel>    _modifierSepMap       = new();
-    private readonly Dictionary<Guid, Panel>    _modifierStripMap     = new();
-    private readonly Dictionary<Guid, Color>    _modifierStripColors  = new();
-    private readonly Dictionary<Guid, Panel>    _analysisCardMap      = new();
-    private readonly Dictionary<Guid, Panel>    _analysisSepMap       = new();
-    private readonly Dictionary<Guid, Panel>    _analysisStripMap     = new();
-    private readonly Dictionary<Guid, Color>    _analysisStripColors  = new();
-    private readonly Dictionary<Guid, Panel>    _annotationCardMap    = new();
-    private readonly Dictionary<Guid, Panel>    _annotationSepMap     = new();
-    private readonly Dictionary<Guid, Panel>    _annotationStripMap   = new();
-    private readonly Dictionary<Guid, Color>    _annotationStripColors = new();
-    private readonly Dictionary<Guid, Panel>    _zoneCardMap          = new();
-    private readonly Dictionary<Guid, Panel>    _zoneSepMap           = new();
-    private Guid? _dragOverModifierId;
-    private Guid? _dragOverAnalysisId;
-    private Guid? _dragOverAnnotationId;
-    private Guid? _dragOverZoneId;
     private readonly EventHandler _stateChangedHandler;
     private readonly EventHandler _statusChangedHandler;
     private bool _statusRefreshPosted;
@@ -140,6 +99,15 @@ public sealed partial class MoleHillPanel : Panel
     {
         _stateChangedHandler = HandleControllerStateChanged;
         _statusChangedHandler = HandleControllerStatusChanged;
+
+        _modifierCards = CardStack.Reorderable("modifier-drag", "Drop here to reorder modifiers.", (terrainId, source, anchor) =>
+            ReorderFromDrop(terrainId, t => StackReorder.Move(t.Modifiers, m => m.Id, source, anchor, displayReversed: true), rebuild: true));
+        _zoneCards = CardStack.Reorderable("zone-drag", "Drop here to reorder zones.", (terrainId, source, anchor) =>
+            ReorderFromDrop(terrainId, t => StackReorder.Move(t.Zones, z => z.ZoneId, source, anchor), rebuild: true));
+        _analysisCards = CardStack.Reorderable("analysis-drag", "Drop here to reorder analyses.", (terrainId, source, anchor) =>
+            ReorderFromDrop(terrainId, t => StackReorder.Move(t.Analyses, a => a.Id, source, anchor), rebuild: false));
+        _annotationCards = CardStack.Reorderable("annotation-drag", "Drop here to reorder annotations.", (terrainId, source, anchor) =>
+            ReorderFromDrop(terrainId, t => StackReorder.Move(t.Annotations, a => a.Id, source, anchor), rebuild: false));
 
         WireToolbarControls();
         WireSettingsControls();
@@ -410,11 +378,11 @@ public sealed partial class MoleHillPanel : Panel
                 _lockButton.ToolTip = "Terrain unlocked. Click to lock.";
                 SetActionButtonsEnabled(false);
                 _terrainSelector.Enabled = false;
-                _modifierStack.Items.Clear();
-                _objectsStack.Items.Clear();
-                _zonesStack.Items.Clear();
-                _analysisStack.Items.Clear();
-                _annotationStack.Items.Clear();
+                _modifierCards.Clear();
+                _objectCards.Clear();
+                _zoneCards.Clear();
+                _analysisCards.Clear();
+                _annotationCards.Clear();
                 _resetTerrainDataButton.Visible = false;
                 return;
             }

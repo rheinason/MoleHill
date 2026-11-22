@@ -56,7 +56,7 @@ Escape closes the popup from either the search box or the grid.
   selector, New/Copy/Delete, Rebuild/Live, Bake/visibility/lock), `.Settings.cs` (the Terrain Settings
   card), `.Tabs.cs` (tab strip, lazy rebuild of the visible tab, scroll restore, each tab's add
   toolbar); shared pieces: `.Controls.cs` (styling, button factories, help), `.Colors.cs` (optional
-  colour editor, ARGB/opacity packing), `.DragDrop.cs` (stack reordering), `.Mutations.cs` (the single
+  colour editor, ARGB/opacity packing), `.Mutations.cs` (the single
   path from a card edit to the controller);
   `.Actions.cs` (terrain-level create/copy/delete/convert/bake/rebuild/reset actions),
   `.Cards.cs` (collapsible "stack card" framework), `.RuntimeDiagnostics.cs` (generic per-card issue
@@ -219,7 +219,11 @@ margin on the scrollable, not the content: the pinning stopped the scan dialog's
   direct icon actions; `UiTheme.cs` owns semantic colours for custom surfaces and state.
   `UiTokenGuardTests` holds both files to that: a colour literal or a literal padding/spacing anywhere
   else in this folder fails the build. Card-family accents come from descriptors via
-  `UiTheme.TypeAccent`; the drop target between stack cards is `CreateDropSeparator`.
+  `UiTheme.TypeAccent`.
+- `CardStack.cs` - every tab's card stack (modifiers, objects, zones, analyses, annotations): toolbar
+  and notes, cards in their accent strips, and for a reorderable stack the drag grip, drop targets and
+  drag feedback. Stacks differ only in drag key and drop action; the list arithmetic is
+  `Services/Controller/StackReorder` (modifiers are drawn bottom to top).
 
 Use native Eto controls for ordinary buttons, inputs, lists, and selectors. Use `Drawable` only for
 interaction or visualization Eto cannot express cleanly, such as ramps, scrub fields, swatches, and drag

@@ -314,8 +314,7 @@ public sealed partial class MoleHillPanel : Panel
         // Same left accent strip + outer padding every stack card uses, so this reads as one more card
         // in the stack rather than a plain toolbar block. Neutral gray (ZoneStripColor) since it isn't a
         // typed card with its own accent color.
-        var settingsStrip = new Panel { Width = UiMetrics.CardAccentWidth, BackgroundColor = UiTheme.ZoneStripColor };
-        var settingsCard = WrapCardControl(settingsCardBody, settingsStrip, UiTheme.CardBackground);
+        var settingsCard = CardStack.WrapCard(settingsCardBody, CardStack.CreateStrip(UiTheme.ZoneStripColor), UiTheme.CardBackground);
 
         return settingsCard;
     }

@@ -33,9 +33,12 @@ public sealed partial class MoleHillPanel
         BindCommittedText(nameBox, () => modifier.Label, text =>
             MutateModifier(capturedTerrainId, capturedModifierId, item => item.Label = text, scheduleRebuild: false));
 
-        var handle = isPinnedBaseTriangulate
-            ? CreateDisabledReorderHandle("The base triangulate modifier stays at the bottom of the stack.")
-            : CreateReorderHandle(capturedModifierId, "modifier-drag", "Drag to reorder this modifier.");
+        var handle = _modifierCards.CreateHandle(
+            capturedModifierId,
+            isPinnedBaseTriangulate
+                ? "The base triangulate modifier stays at the bottom of the stack."
+                : "Drag to reorder this modifier.",
+            enabled: !isPinnedBaseTriangulate);
 
         var iconImage = PanelIcons.Load(GetModifierIconName(kind));
         Control iconControl = iconImage != null
