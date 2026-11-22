@@ -21,7 +21,7 @@ public sealed partial class MoleHillPanel : Panel
         _toleranceStepper.Increment = 0.1;
         _toleranceStepper.MinValue = 0;
         ApplyHelp(_toleranceStepper, "Smallest terrain detail to preserve automatically. Smaller values keep more detail; larger values simplify and merge nearby geometry more aggressively.");
-        void CommitTolerance()
+        void CommitTolerance(double value)
         {
             if (_isRefreshing)
                 return;
@@ -31,7 +31,6 @@ public sealed partial class MoleHillPanel : Panel
             if (terrain == null)
                 return;
 
-            double value = _toleranceStepper.Value;
             if (!TerrainCommitGuard.HasMeaningfulNumericChange(terrain.GlobalTolerance, value))
                 return;
 
@@ -42,18 +41,19 @@ public sealed partial class MoleHillPanel : Panel
         toleranceTimer.Elapsed += (_, _) =>
         {
             toleranceTimer.Stop();
-            CommitTolerance();
+            if (_toleranceStepper.TryReadTyped(out double typed))
+                CommitTolerance(typed);
         };
-        _toleranceStepper.ValueChanged += (_, _) =>
+        _toleranceStepper.Edited += (_, _) =>
         {
             if (_isRefreshing) return;
             toleranceTimer.Stop();
             toleranceTimer.Start();
         };
-        _toleranceStepper.LostFocus += (_, _) =>
+        _toleranceStepper.ValueChanged += (_, _) =>
         {
             toleranceTimer.Stop();
-            CommitTolerance();
+            CommitTolerance(_toleranceStepper.Value);
         };
 
         _terrainOpacityStepper.DecimalPlaces = 0;
@@ -64,42 +64,29 @@ public sealed partial class MoleHillPanel : Panel
         ApplyHelp(_terrainOpacitySlider, "Drag to adjust terrain opacity for preview and bake.");
         ApplyHelp(_terrainColorSwatch, "Click to pick the terrain display color.");
         var (beginStepperDeferral, endStepperDeferral) = CreatePairedRefreshDeferral();
-        _terrainOpacityStepper.GotFocus += (_, _) => beginStepperDeferral();
+        _terrainOpacityStepper.TextBox.GotFocus += (_, _) => beginStepperDeferral();
         _terrainColorSwatch.MouseDown += (_, e) =>
         {
             if (e.Buttons == MouseButtons.Primary)
                 OnPickTerrainColor(_, EventArgs.Empty);
         };
-        _terrainOpacityStepper.ValueChanged += (_, _) =>
+        // Typing previews the opacity live; a commit (Enter, leaving, an arrow) settles it.
+        void ApplyOpacity(double value)
         {
             if (_isRefreshing || _isUpdatingOpacityControls)
                 return;
 
-            int opacityPercent = (int)Math.Round(_terrainOpacityStepper.Value);
+            int opacityPercent = (int)Math.Round(value);
             SetTerrainOpacityControls(opacityPercent);
             ApplyTerrainOpacity(opacityPercent);
-        };
-        _terrainOpacityStepper.LostFocus += (_, _) =>
+        }
+        _terrainOpacityStepper.Edited += (_, _) =>
         {
-            if (!_isRefreshing)
-            {
-                int opacityPercent = (int)Math.Round(_terrainOpacityStepper.Value);
-                SetTerrainOpacityControls(opacityPercent);
-                ApplyTerrainOpacity(opacityPercent);
-            }
-            endStepperDeferral();
+            if (_terrainOpacityStepper.TryReadTyped(out double typed))
+                ApplyOpacity(typed);
         };
-        _terrainOpacityStepper.KeyDown += (_, e) =>
-        {
-            if (e.Key != Keys.Enter || _isRefreshing)
-                return;
-
-            int opacityPercent = (int)Math.Round(_terrainOpacityStepper.Value);
-            SetTerrainOpacityControls(opacityPercent);
-            ApplyTerrainOpacity(opacityPercent);
-            endStepperDeferral();
-            e.Handled = true;
-        };
+        _terrainOpacityStepper.ValueChanged += (_, _) => ApplyOpacity(_terrainOpacityStepper.Value);
+        _terrainOpacityStepper.TextBox.LostFocus += (_, _) => endStepperDeferral();
         var (beginOpacitySliderDeferral, endOpacitySliderDeferral) = CreatePairedRefreshDeferral();
         _terrainOpacitySlider.MouseDown += (_, e) =>
         {

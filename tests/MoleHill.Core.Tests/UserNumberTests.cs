@@ -32,13 +32,28 @@ public class UserNumberTests
         Assert.Equal(1.0, InCulture(culture, () => UserNumber.TryParse("1.000", out double v) ? v : double.NaN));
     }
 
-    [Fact]
-    public void TryParse_LocaleCommaDecimal_IsStillUnderstood() =>
-        Assert.Equal(3.5, InCulture("fo-FO", () => UserNumber.TryParse("3,5", out double v) ? v : double.NaN));
+    [Theory]
+    [MemberData(nameof(Cultures))]
+    public void TryParse_DecimalComma_IsADecimalInEveryLocale(string culture)
+    {
+        Assert.Equal(3.5, InCulture(culture, () => UserNumber.TryParse("3,5", out double v) ? v : double.NaN));
+        Assert.Equal(-0.25, InCulture(culture, () => UserNumber.TryParse("-0,25", out double v) ? v : double.NaN));
+    }
 
-    [Fact]
-    public void TryParse_CommaInPointDecimalLocale_IsRejectedNotReadAsThousands() =>
-        Assert.False(InCulture("en-US", () => UserNumber.TryParse("3,5", out _)));
+    [Theory]
+    [MemberData(nameof(Cultures))]
+    public void TryParse_NeverReadsThousands(string culture)
+    {
+        // "1,000" is one, not a thousand; "1.000,5" and "1,2,3" are not numbers.
+        Assert.Equal(1.0, InCulture(culture, () => UserNumber.TryParse("1,000", out double v) ? v : double.NaN));
+        Assert.False(InCulture(culture, () => UserNumber.TryParse("1.000,5", out _)));
+        Assert.False(InCulture(culture, () => UserNumber.TryParse("1,2,3", out _)));
+    }
+
+    [Theory]
+    [MemberData(nameof(Cultures))]
+    public void TryParseLeading_DecimalCommaWithUnit_Reads(string culture) =>
+        Assert.Equal(2.5, InCulture(culture, () => UserNumber.TryParseLeading("2,5 m", out double v) ? v : double.NaN));
 
     [Theory]
     [InlineData("2.5 m", 2.5)]

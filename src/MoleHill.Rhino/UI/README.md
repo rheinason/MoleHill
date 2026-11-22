@@ -224,6 +224,10 @@ margin on the scrollable, not the content: the pinning stopped the scan dialog's
   rest with hover/pressed fills and a focus ring, Enter/Space activate. Native WPF buttons always paint
   their chrome (the old WinForms `FlatStyle` reflection was a no-op on WPF), and it marks its mouse
   events handled so a click never also collapses the card behind it.
+- `NumberField.cs` - every number a user types, card rows and dialogs alike: a native text box with the
+  unit inside ("2.500 m") and drawn arrows, read by Core `UserNumber` ("3.5", "3,5", "2,5 m" on any
+  machine). It keeps the NumericStepper surface (Value, DecimalPlaces, Min/MaxValue, Increment,
+  ValueChanged on commit, never per keystroke); the stepper read "3,5" as 35, and a guard keeps it out of UI/.
 - `TextLine.cs` / `DisclosureArrow.cs` - the header's ellipsizing single line (height measured, not
   `Font.LineHeight`, which under-reports on WPF) and the drawn disclosure triangle.
 - `CardStack.cs` - every tab's card stack (modifiers, objects, zones, analyses, annotations): toolbar

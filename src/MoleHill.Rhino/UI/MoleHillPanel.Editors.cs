@@ -142,23 +142,19 @@ public sealed partial class MoleHillPanel
         string? unitSuffix = null)
     {
         help ??= GetNumericHelp(label);
-        // Point decimal whatever the Windows locale, as Rhino writes numbers, and the unit inside the
-        // field (design review Steps 45-46). The native stepper reads "2.5 m" and "2.5" alike.
-        var stepper = new NumericStepper
+        // The unit inside the field and one reading of typed text for every number row (NumberField).
+        var field = new NumberField
         {
-            Value = value,
             DecimalPlaces = decimalPlaces,
+            Unit = unitSuffix,
+            MinValue = minValue ?? double.MinValue,
+            MaxValue = maxValue ?? double.MaxValue,
             Increment = step ?? (decimalPlaces == 0 ? 1 : 0.1),
-            CultureInfo = CultureInfo.InvariantCulture,
-            FormatString = StepperFormat(decimalPlaces, unitSuffix)
+            Value = value
         };
-        if (minValue.HasValue)
-            stepper.MinValue = minValue.Value;
-        if (maxValue.HasValue)
-            stepper.MaxValue = maxValue.Value;
-        ApplyHelp(stepper, help);
+        ApplyHelp(field.TextBox, help);
         var timer = new UITimer { Interval = UiTiming.NumericCommitSeconds };
-        double committedValue = value;
+        double committedValue = field.Value;
         void Commit(double numericValue)
         {
             timer.Stop();
@@ -190,55 +186,39 @@ public sealed partial class MoleHillPanel
             EndControllerRefreshDeferral();
         }
         if (liveEdit)
-            stepper.GotFocus += (_, _) => BeginEdit();
-        timer.Elapsed += (_, _) => Commit(stepper.Value);
-        stepper.ValueChanged += (_, _) =>
+            field.TextBox.GotFocus += (_, _) => BeginEdit();
+
+        // Only liveEdit rows commit while typing, debounced, and only text that already reads as a number;
+        // other rows wait for Enter, leaving the field or an arrow, so "1" is never committed on the way
+        // to "125".
+        timer.Elapsed += (_, _) =>
         {
-            if (_isRefreshing)
+            if (field.TryReadTyped(out double typed))
+                Commit(typed);
+        };
+        field.Edited += (_, _) =>
+        {
+            if (_isRefreshing || !liveEdit)
                 return;
 
             BeginEdit();
-            // Only liveEdit fields debounce-commit while typing; plain fields commit on Enter/blur only
-            // (NumericStepper.ValueChanged fires per keystroke, so debouncing here would commit garbage
-            // intermediate values, e.g. "1" while the user is still typing "125").
-            if (liveEdit)
-            {
-                timer.Stop();
-                timer.Start();
-            }
-        };
-        stepper.KeyDown += (_, e) =>
-        {
-            if (e.Key != Keys.Enter)
-                return;
-
             timer.Stop();
-            Commit(stepper.Value);
-            e.Handled = true;
+            timer.Start();
         };
-        stepper.LostFocus += (_, _) =>
+        field.ValueChanged += (_, _) =>
         {
             if (_isRefreshing)
                 return;
 
-            timer.Stop();
-            Commit(stepper.Value);
-            EndEdit();
+            Commit(field.Value);
         };
-        stepper.UnLoad += (_, _) =>
+        field.TextBox.LostFocus += (_, _) => EndEdit();
+        field.UnLoad += (_, _) =>
         {
             timer.Stop();
             EndEdit();
         };
-        return new PropertyRow(CreateHelpLabel(label, help, 0), stepper, expandWidget: true);
-    }
-
-    /// <summary>A stepper's display format: fixed decimals, then its unit as quoted literal text.</summary>
-    private static string StepperFormat(int decimalPlaces, string? unit)
-    {
-        string number = decimalPlaces <= 0 ? "0" : "0." + new string('0', decimalPlaces);
-        string suffix = UserNumber.WithUnit(string.Empty, unit);
-        return suffix.Length == 0 || suffix.Contains('\'') ? number : number + "'" + suffix + "'";
+        return new PropertyRow(CreateHelpLabel(label, help, 0), field, expandWidget: true);
     }
 
     /// <summary>

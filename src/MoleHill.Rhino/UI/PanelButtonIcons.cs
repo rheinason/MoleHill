@@ -15,6 +15,7 @@ internal enum PanelButtonIcon
     Unlock,
     More,
     ChevronDown,
+    ChevronUp,
     ChevronRight,
     TerrainMesh,
     ZoneMeshes,
@@ -186,6 +187,10 @@ internal static class PanelButtonIcons
 
             case PanelButtonIcon.ChevronDown:
                 Stroke(P(4.25f, 6.25f), P(8, 10), P(11.75f, 6.25f));
+                break;
+
+            case PanelButtonIcon.ChevronUp:
+                Stroke(P(4.25f, 9.75f), P(8, 6), P(11.75f, 9.75f));
                 break;
 
             case PanelButtonIcon.ChevronRight:

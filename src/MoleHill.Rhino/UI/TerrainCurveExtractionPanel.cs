@@ -31,7 +31,7 @@ internal sealed partial class TerrainCurveExtractionPanel : Form
     private readonly Label _summary;
     private readonly Label _status = new() { Text = "Preparing preview…", Wrap = WrapMode.Word, Width = 460 };
     private readonly Dictionary<string, CheckBox> _visibility = new();
-    private readonly Dictionary<string, NumericStepper> _numbers = new();
+    private readonly Dictionary<string, NumberField> _numbers = new();
     private readonly Dictionary<DynamicLayout, DynamicLayout> _noteHosts = new();
     private readonly Task<string>? _loading;
     private readonly string _prompt;
@@ -243,7 +243,7 @@ internal sealed partial class TerrainCurveExtractionPanel : Form
         var property = Settings.GetType().GetProperty(propertyName)!;
         double value = Convert.ToDouble(property.GetValue(Settings));
         double min = minimum ?? _doc.ModelAbsoluteTolerance;
-        var number = new NumericStepper
+        var number = new NumberField
         {
             DecimalPlaces = decimals,
             MinValue = min,

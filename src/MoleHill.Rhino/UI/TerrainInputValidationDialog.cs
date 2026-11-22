@@ -21,7 +21,7 @@ internal sealed class TerrainInputValidationDialog : Dialog<TerrainValidationDia
     private readonly CheckBox _joinEndpoints = new() { Text = "Join near endpoints (same layer only)", Checked = true };
     private readonly CheckBox _collapseShort = new() { Text = "Collapse short segments", Checked = true };
     private readonly CheckBox _cleanDuplicates = new() { Text = "Clean duplicate curve vertices", Checked = true };
-    private readonly NumericStepper _tolerance = new() { MinValue = 0.000000001 };
+    private readonly NumberField _tolerance = new() { MinValue = 0.000000001 };
     private readonly Label _summary = new() { TextColor = UiTheme.MutedText, Wrap = WrapMode.Word };
     private TerrainValidationPreparation? _preview;
 

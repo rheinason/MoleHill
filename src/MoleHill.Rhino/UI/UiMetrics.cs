@@ -64,6 +64,10 @@ internal static class UiMetrics
 
     public const int IconButtonWidth = 22;
 
+    /// <summary>The ▴▾ pair at the end of a number field: each arrow is this wide and half a row tall.</summary>
+    public const int SpinnerWidth = 14;
+    public const int SpinnerGlyph = 9;
+
     // ── Card header (design review Steps 13–20) ─────────────────────────────
     // Two fixed lines at every width: grip, arrow, enable, type icon and actions centre on the first line
     // (the name); the type/summary line sits under the name. No line ever hides, wraps or is added.

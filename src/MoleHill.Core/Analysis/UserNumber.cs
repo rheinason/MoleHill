@@ -5,8 +5,9 @@ namespace MoleHill.Core.Analysis;
 /// <summary>
 /// The one reading and writing of a number a user types or sees, everywhere in MoleHill: panel fields,
 /// command prompts, slope fields, labels. Numbers are written with a point, as Rhino writes them whatever
-/// the Windows locale. Typed text is read the same way, but a locale decimal comma ("3,5" on a fo-FO or
-/// de-DE machine) is still understood, so a habit from elsewhere in Windows is not silently misread.
+/// the Windows locale. Typed text is read the same way, but a decimal comma ("3,5") is understood on every
+/// machine, so a comma-decimal habit, or the numpad decimal key on a fo-FO or de-DE keyboard, is never
+/// silently misread.
 ///
 /// Neither reading allows thousands separators. With them, "1.000" (a value this class wrote) would read
 /// back as one thousand in a locale whose group separator is the point, and "3.5" as 35.
@@ -24,8 +25,22 @@ public static class UserNumber
 
         string trimmed = text.Trim();
         return (double.TryParse(trimmed, Styles, CultureInfo.InvariantCulture, out value) ||
-                double.TryParse(trimmed, Styles, CultureInfo.CurrentCulture, out value)) &&
+                double.TryParse(trimmed, Styles, CultureInfo.CurrentCulture, out value) ||
+                double.TryParse(DecimalComma(trimmed), Styles, CultureInfo.InvariantCulture, out value)) &&
                double.IsFinite(value);
+    }
+
+    /// <summary>
+    /// A lone comma with no point is a decimal comma on any machine: "3,5" is 3.5 even where Windows writes
+    /// a point, because that is what a comma-decimal hand (or a numpad decimal key on such a keyboard)
+    /// types. Anything else is left alone, so "1,2,3" is still not a number.
+    /// </summary>
+    private static string DecimalComma(string text)
+    {
+        int comma = text.IndexOf(',');
+        return comma >= 0 && comma == text.LastIndexOf(',') && !text.Contains('.')
+            ? text.Replace(',', '.')
+            : text;
     }
 
     /// <summary>

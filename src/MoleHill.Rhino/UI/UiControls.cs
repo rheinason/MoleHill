@@ -197,16 +197,10 @@ internal static class UiControls
         textBox.TextColor = UiTheme.InputText;
     }
 
-    public static void StyleInput(NumericStepper stepper)
-    {
-        stepper.BackgroundColor = UiTheme.InputBackground;
-        stepper.TextColor = UiTheme.InputText;
-    }
-
     /// <summary>
     /// Gives every text-entry control under <paramref name="root"/> the one input look (dark field, light
     /// border). Cards run their whole tree through this as they enter a stack, so an input looks the same
-    /// whichever editor built it: steppers used to keep Rhino's grey native fill beside dark text boxes.
+    /// whichever editor built it (number fields are text boxes inside, so they are covered too).
     /// Drop-downs and buttons are choices, not entry, and keep their own look.
     /// </summary>
     public static void StyleInputs(Control root)
@@ -220,9 +214,6 @@ internal static class UiControls
             {
                 case TextBox textBox:
                     StyleInput(textBox);
-                    break;
-                case NumericStepper stepper:
-                    StyleInput(stepper);
                     break;
                 case TextArea textArea:
                     StyleInput(textArea);

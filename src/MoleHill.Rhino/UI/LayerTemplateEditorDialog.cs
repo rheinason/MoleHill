@@ -106,7 +106,7 @@ internal sealed class LayerTemplateEditorDialog : Dialog<bool>
     private readonly Label _displayHex = new();
     private readonly Panel _printSwatch = new() { Width = 20, Height = 20 };
     private readonly Label _printHex = new();
-    private readonly NumericStepper _weightStepper = new() { DecimalPlaces = 2, MinValue = 0.0, Increment = 0.05 };
+    private readonly NumberField _weightStepper = new() { DecimalPlaces = 2, MinValue = 0.0, Increment = 0.05 };
     private readonly DropDown _annotationStylePicker = new() { Width = UiMetrics.Chs(28) };
     private readonly List<Control> _selectionDependent = new();
 

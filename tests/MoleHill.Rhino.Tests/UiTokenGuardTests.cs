@@ -80,6 +80,22 @@ public class UiTokenGuardTests
             "(point decimal, tolerant read):" + Environment.NewLine + string.Join(Environment.NewLine, offenders));
     }
 
+    private static readonly Regex NativeStepper = new(@"\bNumericStepper\b", RegexOptions.Compiled);
+
+    /// <summary>
+    /// Every number field is a <c>NumberField</c>. Rhino's <c>NumericStepper</c> reads typed text by culture,
+    /// so "3,5" (or a numpad decimal key on a comma-decimal keyboard) became 35.
+    /// </summary>
+    [Fact]
+    public void UiNumberFields_AreNumberFields()
+    {
+        var offenders = FindMatches(NativeStepper);
+        Assert.True(
+            offenders.Count == 0,
+            "A NumericStepper in UI/. Use NumberField, which reads typed numbers through UserNumber:" +
+            Environment.NewLine + string.Join(Environment.NewLine, offenders));
+    }
+
     private static List<string> FindMatches(Regex pattern)
     {
         string root = RepositoryPaths.FindRoot();
