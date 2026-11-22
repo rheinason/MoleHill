@@ -114,6 +114,9 @@ internal sealed class ParameterDescriptor<TDefinition>
     /// placeholder (nothing resolved yet).</summary>
     public Func<TerrainDefinition, TDefinition, double>? InheritedValueFromTerrain { get; init; }
 
+    /// <summary>What an optional number's blank field says when nothing is inherited ("Auto", "No limit").</summary>
+    public string BlankText { get; init; } = "Auto";
+
     // ---- Commit hints ----
     // Inert here by design: the family's commit closure reads whichever of these it honours. Leaving one
     // unset is how a family opts out, so no family has to carry another's semantics.
@@ -292,10 +295,12 @@ internal sealed class ParameterDescriptor<TDefinition>
         int decimalPlaces = 3,
         ParameterUnit unit = ParameterUnit.None,
         Func<TDefinition, bool>? visibleWhen = null,
-        Func<TerrainDefinition, TDefinition, double>? inheritedValueFromTerrain = null) =>
+        Func<TerrainDefinition, TDefinition, double>? inheritedValueFromTerrain = null,
+        string blankText = "Auto") =>
         new()
         {
             Kind = ParameterKind.OptionalNumber,
+            BlankText = blankText,
             Key = key,
             Label = label,
             GetNumber = get,

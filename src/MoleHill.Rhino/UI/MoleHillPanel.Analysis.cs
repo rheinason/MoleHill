@@ -302,15 +302,15 @@ public sealed partial class MoleHillPanel
         {
             EarthworkAnalysisDefinition earthwork => summary != null
                 ? $"Net {FormatVolume(summary.NetVolume)} · {(summary.EarthworkIsEstimated ? "Estimated" : "Exact")}"
-                : $"{CountReferences(earthwork.Reference)} refs · {CountReferences(earthwork.Boundary)} bounds",
+                : $"{SummaryText.Sources(earthwork.Reference)} · {CountReferences(earthwork.Boundary)} bounds",
             SlopeAnalysisDefinition slope => $"{FormatSlopeValue(slope.RangeLow, slope.Unit)} to {(slope.RangeHigh > slope.RangeLow ? FormatSlopeValue(slope.RangeHigh, slope.Unit) : "Auto")}",
             ElevationAnalysisDefinition elevation => $"{elevation.RangeLow:G4} to {(elevation.RangeHigh > elevation.RangeLow ? elevation.RangeHigh.ToString("G4") : "Auto")}",
             CutFillAnalysisDefinition cutFill => summary != null
                 ? $"{summary.CutVolume:F2} / {summary.FillVolume:F2} / {summary.NetVolume:F2}"
-                : $"{CountReferences(cutFill.Reference)} refs · {CountReferences(cutFill.Boundary)} bounds",
+                : $"{SummaryText.Sources(cutFill.Reference)} · {CountReferences(cutFill.Boundary)} bounds",
             WaterflowAnalysisDefinition waterflow => summary != null
                 ? $"{summary.GeneratedOutputCount} paths · {summary.WaterflowBoundaryCount} boundary"
-                : $"{CountReferences(waterflow.Sources)} refs · downhill paths",
+                : $"{SummaryText.Sources(waterflow.Sources)} · downhill paths",
             _ => string.Empty
         };
     }

@@ -16,6 +16,16 @@ internal static class SummaryText
     /// <summary>Between the parts of a summary line (design review: "Type · n objects · n layers").</summary>
     public const string Separator = " · ";
 
+    /// <summary>
+    /// A source-based card's counts, "2 objects · 1 layer" (design review UI-20): picked objects and
+    /// watched layers, with the right singular or plural.
+    /// </summary>
+    public static string Sources(MoleHill.Rhino.Model.SourceReferenceSet sources) => Join(
+        Count(sources.ObjectIds.Count, "object", "objects"),
+        Count(sources.LayerPaths.Count, "layer", "layers"));
+
+    private static string Count(int count, string one, string many) => $"{count} {(count == 1 ? one : many)}";
+
     /// <summary>Joins the non-empty parts with <see cref="Separator"/>.</summary>
     public static string Join(params string?[] parts) =>
         string.Join(Separator, parts.Where(part => !string.IsNullOrWhiteSpace(part)));

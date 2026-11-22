@@ -240,7 +240,8 @@ public sealed partial class MoleHillPanel
         Action<double> onChanged,
         int decimalPlaces = 3,
         string? help = null,
-        string? unitSuffix = null)
+        string? unitSuffix = null,
+        string blankText = "Auto")
     {
         help ??= GetNumericHelp(label);
         string Show(double number) => UserNumber.WithUnit(UserNumber.Format(number, decimalPlaces), unitSuffix);
@@ -248,7 +249,7 @@ public sealed partial class MoleHillPanel
         {
             Text = value > 0.0 ? Show(value) : string.Empty,
             // Greyed: what a blank box stands for. Nothing resolved yet (0) reads as Auto.
-            PlaceholderText = inheritedValue > 0.0 ? Show(inheritedValue) : "Auto"
+            PlaceholderText = inheritedValue > 0.0 ? Show(inheritedValue) : blankText
         };
         ApplyHelp(textBox, help);
 

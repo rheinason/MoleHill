@@ -756,31 +756,31 @@ public sealed partial class MoleHillPanel
                 ? summary.GeneratedOutputCount > 0
                     ? $"{summary.GeneratedOutputCount} labels · {FormatAnalysisValue(summary.SampleAverageValue, curveElevation.ValueFormat)} avg"
                     : "0 labels"
-                : $"{CountReferences(curveElevation.Sources)} refs · {curveElevation.Interval:G4} every",
+                : $"{SummaryText.Sources(curveElevation.Sources)} · {curveElevation.Interval:G4} every",
             CurveSlopeLabelAnnotationDefinition curveSlope => summary != null
                 ? summary.GeneratedOutputCount > 0
                     ? $"{summary.GeneratedOutputCount} labels · {FormatSlopeValue(summary.SampleAverageValue, curveSlope.Unit)} avg"
                     : "0 labels"
-                : $"{CountReferences(curveSlope.Sources)} refs · {curveSlope.Interval:G4} every",
+                : $"{SummaryText.Sources(curveSlope.Sources)} · {curveSlope.Interval:G4} every",
             ProjectedElevationLabelAnnotationDefinition projectedElevation => summary != null
                 ? summary.GeneratedOutputCount > 0
                     ? $"{summary.GeneratedOutputCount} labels · {FormatAnalysisValue(summary.SampleMinValue, projectedElevation.ValueFormat)} to {FormatAnalysisValue(summary.SampleMaxValue, projectedElevation.ValueFormat)}"
                     : "0 labels"
-                : $"{CountReferences(projectedElevation.Sources)} refs · projected Z",
+                : $"{SummaryText.Sources(projectedElevation.Sources)} · projected Z",
             PointSlopeLabelAnnotationDefinition pointSlope => summary != null
                 ? summary.GeneratedOutputCount > 0
                     ? $"{summary.GeneratedOutputCount} labels · {FormatSlopeValue(summary.SampleAverageValue, pointSlope.Unit)} avg"
                     : "0 labels"
-                : $"{CountReferences(pointSlope.Sources)} refs · terrain slope",
+                : $"{SummaryText.Sources(pointSlope.Sources)} · terrain slope",
             TerrainSectionAnnotationDefinition section => summary != null
                 ? $"{summary.GeneratedOutputCount} objects · {summary.SampleSourceCount} cuts"
-                : $"{CountReferences(section.Sources)} refs · profile",
+                : $"{SummaryText.Sources(section.Sources)} · profile",
             CrossSectionStationAnnotationDefinition crossSection => summary != null
                 ? $"{summary.GeneratedOutputCount} objects · {crossSection.StationInterval:G4} every"
-                : $"{CountReferences(crossSection.Sources)} refs · {crossSection.StationInterval:G4} stations",
+                : $"{SummaryText.Sources(crossSection.Sources)} · {crossSection.StationInterval:G4} stations",
             LongitudinalSectionAnnotationDefinition longitudinal => summary != null
                 ? $"{summary.GeneratedOutputCount} objects · V exag {longitudinal.VerticalExaggeration:G3}"
-                : $"{CountReferences(longitudinal.Sources)} refs · sample {longitudinal.SampleInterval:G4}",
+                : $"{SummaryText.Sources(longitudinal.Sources)} · sample {longitudinal.SampleInterval:G4}",
             ReportTableAnnotationDefinition => summary != null
                 ? $"{summary.ReportTableCount} tables · {summary.ReportRowCount} rows"
                 : "measured quantities",

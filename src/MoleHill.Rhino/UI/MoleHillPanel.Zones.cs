@@ -449,13 +449,9 @@ public sealed partial class MoleHillPanel
 
     private static string GetZoneCollapsedSummary(CollageZoneDefinition zone)
     {
-        var parts = new List<string>();
-        string? layerPath = zone.Boundaries.LayerPaths.FirstOrDefault(path => !string.IsNullOrWhiteSpace(path));
-        if (!string.IsNullOrWhiteSpace(layerPath))
-            parts.Add(AnalysisFormatting.GetLeafLayerName(layerPath));
-
-        parts.Add(zone.UseInputElevationForPriority ? "Elevation priority" : "Stack order");
-        parts.Add($"{CountReferences(zone.Boundaries)} refs");
-        return string.Join(" · ", parts);
+        // "Zone · 2 objects · 1 layer" (Step 65); priority follows, since it decides overlaps.
+        return SummaryText.Join(
+            SummaryText.Sources(zone.Boundaries),
+            zone.UseInputElevationForPriority ? "Elevation priority" : "Stack order");
     }
 }

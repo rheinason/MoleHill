@@ -1,4 +1,4 @@
-using MoleHill.Core.Analysis;
+﻿using MoleHill.Core.Analysis;
 using MoleHill.Rhino.Model;
 using MoleHill.Rhino.Services;
 using AnalysisParam = MoleHill.Rhino.Registry.ParameterDescriptor<MoleHill.Rhino.Model.AnalysisDefinition>;
@@ -364,12 +364,14 @@ internal sealed class WaterflowAnalysisDescriptor : AnalysisTypeDescriptor
             a => ((WaterflowAnalysisDefinition)a).Sources,
             RhinoObjectType.Point,
             "Point objects or layers used as waterflow starts."),
-        AnalysisParam.Number(
+        // Design review Step 70: blank (the saved 0) reads No limit.
+        AnalysisParam.OptionalNumber(
             "MaxLength", "Max Length",
             a => ((WaterflowAnalysisDefinition)a).MaxLength,
             (a, v) => ((WaterflowAnalysisDefinition)a).MaxLength = Math.Max(0.0, v),
-            "Maximum plan length of each path. Set to 0 to continue to the terrain edge or a local sink.",
-            min: 0.0),
+            _ => 0.0,
+            "Maximum plan length of each path. Blank (No limit) continues each path to the terrain edge or a local sink.",
+            blankText: "No limit"),
         AnalysisParam.Color(
             "ColorArgb", "Color",
             a => ((WaterflowAnalysisDefinition)a).ColorArgb,
@@ -736,7 +738,7 @@ internal sealed class GradientComplianceAnalysisDescriptor : AnalysisTypeDescrip
     private static readonly IReadOnlyList<(string Key, string Label)> RuleModeOptions = new[]
     {
         (nameof(GradientRuleMode.Off), "Off"),
-        (nameof(GradientRuleMode.Report), "Report"),
+        (nameof(GradientRuleMode.Report), "Show"),
         (nameof(GradientRuleMode.Warn), "Warn"),
     };
 
@@ -752,6 +754,30 @@ internal sealed class GradientComplianceAnalysisDescriptor : AnalysisTypeDescrip
             "editable; an edited standard is marked as modified.",
             rebuildAfterCommit: true,
             optionsFor: a => StandardOptions(Rules(a))),
+        AnalysisParam.Number(
+            "MeasurementLength", "Measure Over",
+            a => ((GradientComplianceAnalysisDefinition)a).MeasurementLength,
+            (a, v) => ((GradientComplianceAnalysisDefinition)a).MeasurementLength = Math.Max(0.0, v),
+            "The length the gradient is averaged over, like a level laid on the ground. Zero measures " +
+            "each triangle alone, which fails survey-derived landings a level would pass. Not part of the " +
+            "standard: none states one.",
+            min: 0.0,
+            unit: ParameterUnit.ModelLength),
+        AnalysisParam.Slope(
+            "LevelAreaMaxSlope", "Level Limit",
+            a => Rules(a).LevelAreaMaxSlopeDegrees,
+            (a, v) =>
+            {
+                Rules(a).LevelAreaMaxSlopeDegrees = v;
+                GradientRulePresets.RefreshModified(Rules(a));
+            },
+            "The steepest a level area may be in any direction, and the slope below which a stretch of " +
+            "route counts as a landing. Typed in any slope unit: 1:48, 2.08% and 1.19deg are the same limit.",
+            rebuildAfterCommit: true,
+            // Shown while either rule is on: with level areas off it still decides which stretches of a
+            // route are landings, and a limit that steers the result must never be hidden.
+            visibleWhen: a => Rules(a).LevelAreaMode != GradientRuleMode.Off || Rules(a).RouteMode != GradientRuleMode.Off),
+        AnalysisParam.Section("levelAreas", "Level Areas", expanded: true),
         AnalysisParam.Sources(
             "LevelAreas", "Level Areas",
             a => ((GradientComplianceAnalysisDefinition)a).LevelAreas,
@@ -770,23 +796,10 @@ internal sealed class GradientComplianceAnalysisDescriptor : AnalysisTypeDescrip
                     GradientRulePresets.RefreshModified(Rules(a));
                 }
             },
-            "Off ignores level areas. Report shows ground over the limit in amber, as information. Warn " +
+            "Off ignores level areas. Show marks ground over the limit in amber, as information. Warn " +
             "shows it in red, as a failure.",
             rebuildAfterCommit: true),
-        AnalysisParam.Slope(
-            "LevelAreaMaxSlope", "Level Limit",
-            a => Rules(a).LevelAreaMaxSlopeDegrees,
-            (a, v) =>
-            {
-                Rules(a).LevelAreaMaxSlopeDegrees = v;
-                GradientRulePresets.RefreshModified(Rules(a));
-            },
-            "The steepest a level area may be in any direction, and the slope below which a stretch of " +
-            "route counts as a landing. Typed in any slope unit: 1:48, 2.08% and 1.19deg are the same limit.",
-            rebuildAfterCommit: true,
-            // Shown while either rule is on: with level areas off it still decides which stretches of a
-            // route are landings, and a limit that steers the result must never be hidden.
-            visibleWhen: a => Rules(a).LevelAreaMode != GradientRuleMode.Off || Rules(a).RouteMode != GradientRuleMode.Off),
+        AnalysisParam.Section("routes", "Routes", expanded: true),
         AnalysisParam.Sources(
             "Routes", "Routes",
             a => ((GradientComplianceAnalysisDefinition)a).Routes,
@@ -814,9 +827,11 @@ internal sealed class GradientComplianceAnalysisDescriptor : AnalysisTypeDescrip
                     GradientRulePresets.RefreshModified(Rules(a));
                 }
             },
-            "Off ignores routes. Report shows running or cross slope over the limit in amber; Warn shows " +
+            "Off ignores routes. Show marks running or cross slope over the limit in amber; Warn marks " +
             "it in red. Ramps within the limit show blue either way: allowed, but not a walk.",
             rebuildAfterCommit: true),
+        // Design review Step 72: the route thresholds are set once from the standard, so they sit closed.
+        AnalysisParam.Section("routeLimits", "Route Limits", visibleWhen: a => Rules(a).RouteMode != GradientRuleMode.Off),
         RouteSlope("WalkMaxSlope", "Walk Limit",
             r => r.WalkMaxSlopeDegrees, (r, v) => r.WalkMaxSlopeDegrees = v,
             "The steepest running slope that is still a walk. Steeper, up to the ramp limit, is a ramp."),
@@ -843,15 +858,6 @@ internal sealed class GradientComplianceAnalysisDescriptor : AnalysisTypeDescrip
             "to this far between landings. Leave the table empty for no going limit. With Interpolate on, " +
             "gradients between two rows get a going between theirs, as Approved Document M allows.",
             visibleWhen: a => Rules(a).RouteMode != GradientRuleMode.Off),
-        AnalysisParam.Number(
-            "MeasurementLength", "Measure Over",
-            a => ((GradientComplianceAnalysisDefinition)a).MeasurementLength,
-            (a, v) => ((GradientComplianceAnalysisDefinition)a).MeasurementLength = Math.Max(0.0, v),
-            "The length the gradient is averaged over, like a level laid on the ground. Zero measures " +
-            "each triangle alone, which fails survey-derived landings a level would pass. Not part of the " +
-            "standard: none states one.",
-            min: 0.0,
-            unit: ParameterUnit.ModelLength),
     };
 
     public override string? DescribeBlocker(TerrainDefinition terrain, AnalysisDefinition analysis)

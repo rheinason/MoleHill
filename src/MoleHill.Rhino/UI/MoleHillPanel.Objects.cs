@@ -610,7 +610,7 @@ public sealed partial class MoleHillPanel
     {
         var parts = new List<string>
         {
-            $"{CountReferences(definition.Sources)} refs"
+            SummaryText.Sources(definition.Sources)
         };
 
         if (definition.RandomRotationMinDegrees > 1e-6 ||

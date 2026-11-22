@@ -99,7 +99,8 @@ public sealed partial class MoleHillPanel
                     value => commit(item => parameter.SetNumber!(item, value)),
                     parameter.DecimalPlaces,
                     parameter.Help,
-                    unitSuffix: ResolveUnitSuffix(unit));
+                    unitSuffix: ResolveUnitSuffix(unit),
+                    blankText: parameter.BlankText);
 
             case ParameterKind.Slider:
                 // The slider track stays in the stored unit (degrees for a slope — the only bounded
