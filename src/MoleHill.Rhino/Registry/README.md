@@ -1,4 +1,4 @@
-# MoleHill.Rhino/Registry
+﻿# MoleHill.Rhino/Registry
 
 The Blender-style **type registry**: each terrain type ships one self-describing descriptor and the app
 discovers it everywhere by reflection — no central switches to edit. Adding a type = drop one descriptor
@@ -192,3 +192,20 @@ Labels, help and subtitles follow the glossary in `docs/architecture.md` → "Mo
 (breakline, boundary, border, crease, incoming mesh, Protect, Height Protection). A row's `Key` is its
 on-disk name and never changes for wording; only `Label`/`Help` do. `ModifierVocabularyGuardTests`
 fails on the retired words (constraint, feature, pinned, fixity, upstream).
+
+## Card layout as data
+
+A card's grouping and wording are declared here, not drawn in the panel:
+
+- `ParameterDescriptor.Section(key, title, ...)` opens a collapsible group; the rows after it belong to it.
+  A section can take its title from the card (`titleFor`), summarise what is set inside (`summary`) and
+  hide with its rows (`visibleWhen`). Open/closed is a per-user preference per card type.
+- `ParameterSections.Arrange` groups rows that come from more than one list (a type's own rows plus a
+  shared catalog); rows no group names stay, ungrouped, at the end.
+- Choices: 2-3 fixed options are segments; `PreferDropDown` opts out, `segmented` opts a card-dependent
+  list in, `fullRow` makes a card's primary mode, `optionHelp` explains each option on its segment.
+- `OptionalNumber(..., blankText)` names a blank field's meaning ("Auto", "No limit").
+- A number row with no declared unit shows the unit of the definition property it edits (`ParameterUnits`).
+- `SummaryText` joins summary parts with " · ", writes numbers with a point and counts sources
+  ("2 objects · 1 layer").
+- `AnnotationParameterCatalog.TextSize()` places an annotation's Text Size readout among its rows.

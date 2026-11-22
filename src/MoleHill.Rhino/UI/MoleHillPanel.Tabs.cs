@@ -460,8 +460,25 @@ public sealed partial class MoleHillPanel : Panel
         _annotationCards.AddTail();
     }
 
+    /// <summary>
+    /// A tab's heading row (design review Step 79): the title at the left and the tab's Add button at the
+    /// right of the same row, any extra control just before the button, and a helper line underneath when
+    /// one is given. One builder for all five tabs.
+    /// </summary>
     private Control CreateSectionToolbar(string title, Button primaryButton, string? helperText = null, Control? trailingControl = null)
     {
+        var heading = new StackLayout
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = UiMetrics.SpaceLarge,
+            VerticalContentAlignment = VerticalAlignment.Center,
+            HorizontalContentAlignment = HorizontalAlignment.Stretch,
+            Items = { new StackLayoutItem(UiControls.Label(title, UiLabelRole.Section), expand: true) }
+        };
+        if (trailingControl != null)
+            heading.Items.Add(new StackLayoutItem(trailingControl));
+        heading.Items.Add(new StackLayoutItem(primaryButton));
+
         var section = new StackLayout
         {
             Orientation = Orientation.Vertical,
@@ -472,38 +489,12 @@ public sealed partial class MoleHillPanel : Panel
                 UiMetrics.SectionHorizontalPadding,
                 UiMetrics.SectionBottomPadding),
             HorizontalContentAlignment = HorizontalAlignment.Stretch,
-            Items =
-            {
-                UiControls.Label(title, UiLabelRole.Section)
-            }
+            Items = { new StackLayoutItem(heading, HorizontalAlignment.Stretch) }
         };
 
-        bool hasHelperText = !string.IsNullOrWhiteSpace(helperText);
-        var row = new StackLayout
-        {
-            Orientation = Orientation.Horizontal,
-            Spacing = UiMetrics.SpaceLarge,
-            VerticalContentAlignment = VerticalAlignment.Center,
-            HorizontalContentAlignment = HorizontalAlignment.Stretch,
-            Items =
-            {
-                primaryButton
-            }
-        };
+        if (!string.IsNullOrWhiteSpace(helperText))
+            section.Items.Add(new StackLayoutItem(UiControls.Label(helperText!, UiLabelRole.Meta, WrapMode.Word), HorizontalAlignment.Stretch));
 
-        if (hasHelperText)
-        {
-            row.Items.Add(new StackLayoutItem(UiControls.Label(helperText!, UiLabelRole.Meta, WrapMode.Word), expand: true));
-        }
-        else
-        {
-            row.Items.Add(new StackLayoutItem(new Panel(), expand: true));
-        }
-
-        if (trailingControl != null)
-            row.Items.Add(new StackLayoutItem(trailingControl));
-
-        section.Items.Add(new StackLayoutItem(row, HorizontalAlignment.Stretch));
         return section;
     }
 

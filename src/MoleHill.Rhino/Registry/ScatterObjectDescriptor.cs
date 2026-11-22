@@ -303,12 +303,24 @@ internal sealed class ScatterObjectDescriptor : ObjectTypeDescriptor
         var result = new List<ObjectParam>(parameters.Count + SectionOrder.Length);
         foreach (var (key, title, expanded) in SectionOrder)
         {
-            result.Add(ObjectParam.Section(key, title, expanded, summary: key == "filters" ? ActiveFilters : null));
+            Func<TerrainObjectDefinition, string?>? summary = key switch
+            {
+                "filters" => ActiveFilters,
+                "blockMix" => BlockCount,
+                _ => null,
+            };
+            result.Add(ObjectParam.Section(key, title, expanded, summary: summary));
             result.AddRange(parameters.Where(parameter => SectionOf(parameter.Key) == key));
         }
 
         return result;
     }
+
+    /// <summary>A closed Block Mix still says how many blocks it mixes (design review Step 60).</summary>
+    private static string? BlockCount(TerrainObjectDefinition definition) =>
+        definition is ScatterObjectDefinition scatter
+            ? $"{scatter.Blocks.Count} {(scatter.Blocks.Count == 1 ? "block" : "blocks")}"
+            : null;
 
     /// <summary>Names the filters in force, so a closed Filters section still says what it removes.</summary>
     private static string? ActiveFilters(TerrainObjectDefinition definition)
