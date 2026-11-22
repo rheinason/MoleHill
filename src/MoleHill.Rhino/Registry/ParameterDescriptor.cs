@@ -422,10 +422,12 @@ internal sealed class ParameterDescriptor<TDefinition>
         bool incrementalCommit = false,
         bool rebuildAfterCommit = false,
         Func<TDefinition, bool>? visibleWhen = null,
-        bool refreshOnly = false) =>
+        bool refreshOnly = false,
+        Func<TDefinition, string>? labelFor = null) =>
         new()
         {
             Kind = ParameterKind.Bool,
+            LabelFor = labelFor,
             Key = key,
             Label = label,
             GetBool = get,

@@ -54,19 +54,20 @@ public sealed partial class MoleHillPanel
     {
         switch (annotation)
         {
+            // Input names per type (design review Steps 27, 31, 32); every curve picked is used.
             case TerrainSectionAnnotationDefinition terrainSection:
-                AddTerrainSectionCommonRows(layout, terrain, terrainSection,
-                    "Curves used as cut lines through the terrain. Each curve produces one profile.");
+                AddTerrainSectionCommonRows(layout, terrain, terrainSection, "Section Line",
+                    "Curves the terrain is cut along. Each curve produces one section.");
                 break;
 
             case CrossSectionStationAnnotationDefinition crossSection:
-                AddTerrainSectionCommonRows(layout, terrain, crossSection,
-                    "Alignment curve sampled at regular stations. The first curve resolved is used.");
+                AddTerrainSectionCommonRows(layout, terrain, crossSection, "Paths",
+                    "Curves cut across at every Station Interval; Section Width is the total width of each cut.");
                 break;
 
             case LongitudinalSectionAnnotationDefinition longitudinal:
-                AddTerrainSectionCommonRows(layout, terrain, longitudinal,
-                    "Curve sampled along its length. Terrain elevation is read at each sample.");
+                AddTerrainSectionCommonRows(layout, terrain, longitudinal, "Path",
+                    "Curves the terrain is sampled along. Elevation is read at every Sample Interval.");
                 break;
         }
     }
@@ -143,6 +144,9 @@ public sealed partial class MoleHillPanel
             }
         }
 
+        if (annotation is TerrainSectionAnnotationDefinitionBase section)
+            AddTerrainSectionComparison(layout, terrain, section);
+
         AddResultRows(
             layout,
             GetAnnotationKind(annotation),
@@ -184,6 +188,7 @@ public sealed partial class MoleHillPanel
         DynamicLayout layout,
         TerrainDefinition terrain,
         TerrainSectionAnnotationDefinitionBase annotation,
+        string sourceLabel,
         string sourceHelp)
     {
         void MutateSection(Action<TerrainSectionAnnotationDefinitionBase> apply) =>
@@ -194,16 +199,32 @@ public sealed partial class MoleHillPanel
             }, scheduleRebuild: true);
 
         layout.AddRow(CreateSourceEditor(
-            "Sources",
+            sourceLabel,
             annotation.Sources,
             apply => MutateSection(item => apply(item.Sources)),
             RhinoObjectType.Curve,
             doc => _controller.GetSelectedLayerPaths(doc),
             sourceHelp));
-        // The same comparison rows, in the same order and under the same rule, as the Cut/Fill and
-        // Earthworks cards: a terrain to compare to, its status, then Rhino geometry that takes precedence.
-        // Only the Cut / Fill switch after them is the section's own.
-        layout.AddRow(CreateSectionRule("Compare"));
+        // Where the drawing goes is part of the main flow; picked or automatic (Step 26).
+        layout.AddRow(CreateInsertionOriginEditor(terrain, annotation));
+    }
+
+    /// <summary>
+    /// What a section is compared against, in one closed Comparison section below the drawing's own
+    /// groups: a terrain to compare to and its status, Rhino geometry that takes precedence, the cut/fill
+    /// shading, and the other terrains drawn as profiles. The summary names the reference, so a closed
+    /// section still says what is compared.
+    /// </summary>
+    private void AddTerrainSectionComparison(DynamicLayout cardLayout, TerrainDefinition terrain, TerrainSectionAnnotationDefinitionBase annotation)
+    {
+        void MutateSection(Action<TerrainSectionAnnotationDefinitionBase> apply) =>
+            MutateAnnotation(terrain.TerrainId, annotation.Id, item =>
+            {
+                if (item is TerrainSectionAnnotationDefinitionBase section)
+                    apply(section);
+            }, scheduleRebuild: true);
+
+        var layout = new DynamicLayout { DefaultSpacing = new Size(UiMetrics.SpaceMedium, UiMetrics.SpaceMedium) };
         layout.AddRow(CreateCompareTerrainEditor(
             terrain,
             annotation.CutFillReferenceTerrainId,
@@ -245,8 +266,13 @@ public sealed partial class MoleHillPanel
         // SectionsCutFillCut/Fill layer roles (edited in the layer template), so preview and bake
         // match every other generated output. The definition's hatch fields remain only as the
         // legacy fallback the builder reads when a role supplies no pattern.
-        layout.AddRow(CreateSectionRule("Layout"));
-        layout.AddRow(CreateInsertionOriginEditor(terrain, annotation));
+        string reference = annotation.CutFillReference.HasReferences
+            ? "Rhino geometry"
+            : annotation.CutFillReferenceTerrainId is { } referenceId && RhinoDoc.ActiveDoc is { } doc
+                ? _controller.GetTerrains(doc).FirstOrDefault(item => item.TerrainId == referenceId)?.Name ?? "Another terrain"
+                : "Original terrain";
+        string summary = annotation.ShowCutFillRegions ? SummaryText.Join(reference, "cut/fill") : reference;
+        cardLayout.AddRow(new CardSection(GetAnnotationKind(annotation), "comparison", "Comparison", false, summary, layout));
     }
 
     /// <summary>

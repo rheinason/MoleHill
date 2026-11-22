@@ -32,7 +32,7 @@ internal static class AnnotationParameterCatalog
     /// </summary>
     public static AnnotationParam VerticalExaggeration() =>
         AnnotationParam.Number(
-            "VerticalExaggeration", "Vertical Exaggeration",
+            "VerticalExaggeration", "Vertical Scale",
             a => ((TerrainSectionAnnotationDefinitionBase)a).VerticalExaggeration,
             (a, v) => ((TerrainSectionAnnotationDefinitionBase)a).VerticalExaggeration = Math.Max(0.1, v),
             "Vertical scale relative to horizontal. 1 draws the section true to shape; 5 or 10 stretches " +
@@ -55,11 +55,12 @@ internal static class AnnotationParameterCatalog
             (a, v) => ((TerrainSectionAnnotationDefinitionBase)a).ShowSectionTitle = v,
             "Print a title beneath each section: its mark (A-A', B-B', ...) or, for cross-sections, its station."),
         AnnotationParam.Bool(
-            "ShowPlanLabels", "Plan Labels",
+            "ShowPlanLabels", "Section Marks",
             a => ((TerrainSectionAnnotationDefinitionBase)a).ShowPlanLabels,
             (a, v) => ((TerrainSectionAnnotationDefinitionBase)a).ShowPlanLabels = v,
             "Mark each section in plan: A and A' at the ends of the cut line, or the station beside each " +
-            "cross-section's cut."),
+            "cross-section's cut.",
+            labelFor: a => a is CrossSectionStationAnnotationDefinition ? "Station Labels" : "Section Marks"),
     };
 
     public static AnnotationParam SlopeUnitChoice(string help) =>
@@ -630,37 +631,44 @@ internal sealed class TerrainSectionAnnotationDescriptor : AnnotationTypeDescrip
         };
     }
 
-    public override IReadOnlyList<AnnotationParam> Parameters { get; } = new AnnotationParam[]
+    public override IReadOnlyList<AnnotationParam> Parameters { get; } = ParameterSections.Arrange(new AnnotationParam[]
     {
         AnnotationParameterCatalog.VerticalExaggeration(),
         AnnotationParam.Number(
-            "StationTickInterval", "Station Tick Interval",
+            "StationTickInterval", "Tick Interval",
             a => ((TerrainSectionAnnotationDefinition)a).StationTickInterval,
             (a, v) => ((TerrainSectionAnnotationDefinition)a).StationTickInterval = Math.Max(0.0, v),
             "Spacing between station tick marks along the profile baseline. 0 disables ticks.",
             min: 0.0),
         AnnotationParam.Number(
-            "ElevationGridInterval", "Elevation Grid Interval",
+            "ElevationGridInterval", "Elevation Interval",
             a => ((TerrainSectionAnnotationDefinition)a).ElevationGridInterval,
             (a, v) => ((TerrainSectionAnnotationDefinition)a).ElevationGridInterval = Math.Max(0.0, v),
             "Vertical spacing of horizontal grid lines drawn on the section. 0 = auto.",
             min: 0.0),
         AnnotationParam.Bool(
-            "ShowStationTicks", "Show Station Ticks",
+            "ShowStationTicks", "Tick Marks",
             a => ((TerrainSectionAnnotationDefinition)a).ShowStationTicks,
             (a, v) => ((TerrainSectionAnnotationDefinition)a).ShowStationTicks = v,
             "Draw tick marks at each station along the profile baseline."),
         AnnotationParam.Bool(
-            "ShowElevationGrid", "Show Elevation Grid",
+            "ShowElevationGrid", "Grid Lines",
             a => ((TerrainSectionAnnotationDefinition)a).ShowElevationGrid,
             (a, v) => ((TerrainSectionAnnotationDefinition)a).ShowElevationGrid = v,
             "Draw horizontal grid lines at each elevation increment."),
         AnnotationParam.Bool(
-            "ShowStationLabels", "Show Station Labels",
+            "ShowStationLabels", "Distance Labels",
             a => ((TerrainSectionAnnotationDefinition)a).ShowStationLabels,
             (a, v) => ((TerrainSectionAnnotationDefinition)a).ShowStationLabels = v,
             "Print station distance text below each tick."),
-    }.Concat(AnnotationParameterCatalog.SectionLabelling()).ToArray();
+    }.Concat(AnnotationParameterCatalog.SectionLabelling()),
+        // Design review Steps 30-31: scale and Section Marks on the card, the drawing's labels closed below.
+        new ParameterGroup(null, "", new[] { "VerticalExaggeration", "ShowPlanLabels" }),
+        new ParameterGroup("sectionAnnotation", "Section Annotation", new[]
+        {
+            "ShowSectionTitle", "ShowStationLabels", "ShowStationTicks", "StationTickInterval",
+            "ShowElevationLabels", "ShowElevationGrid", "ElevationGridInterval",
+        }));
 
     public override string? DescribeBlocker(TerrainDefinition terrain, AnnotationDefinition annotation)
     {
@@ -720,7 +728,7 @@ internal sealed class CrossSectionStationAnnotationDescriptor : AnnotationTypeDe
         };
     }
 
-    public override IReadOnlyList<AnnotationParam> Parameters { get; } = new AnnotationParam[]
+    public override IReadOnlyList<AnnotationParam> Parameters { get; } = ParameterSections.Arrange(new AnnotationParam[]
     {
         AnnotationParam.Number(
             "StationInterval", "Station Interval",
@@ -729,52 +737,61 @@ internal sealed class CrossSectionStationAnnotationDescriptor : AnnotationTypeDe
             "Distance between cross-section stations along the alignment.",
             min: 0.0),
         AnnotationParam.Number(
-            "CrossSectionWidth", "Cross-Section Width",
+            "CrossSectionWidth", "Section Width",
             a => ((CrossSectionStationAnnotationDefinition)a).CrossSectionWidth,
             (a, v) => ((CrossSectionStationAnnotationDefinition)a).CrossSectionWidth = Math.Max(double.Epsilon, v),
             "Total perpendicular width of each cross-section cut, centered on the alignment.",
             min: 0.0),
         AnnotationParameterCatalog.VerticalExaggeration(),
         AnnotationParam.Number(
-            "GridColumns", "Grid Columns",
+            "GridColumns", "Columns",
             a => ((CrossSectionStationAnnotationDefinition)a).GridColumns,
             (a, v) => ((CrossSectionStationAnnotationDefinition)a).GridColumns = Math.Max(1, (int)Math.Round(v)),
             "Number of columns in the unrolled cross-section grid layout.",
             min: 1, decimalPlaces: 0),
         AnnotationParam.Number(
-            "GridCellWidth", "Grid Cell Width",
+            "GridCellWidth", "Cell Width",
             a => ((CrossSectionStationAnnotationDefinition)a).GridCellWidth,
             (a, v) => ((CrossSectionStationAnnotationDefinition)a).GridCellWidth = Math.Max(0.0, v),
             "Override cell width for the grid layout. 0 = auto.",
             min: 0.0),
         AnnotationParam.Number(
-            "GridCellHeight", "Grid Cell Height",
+            "GridCellHeight", "Cell Height",
             a => ((CrossSectionStationAnnotationDefinition)a).GridCellHeight,
             (a, v) => ((CrossSectionStationAnnotationDefinition)a).GridCellHeight = Math.Max(0.0, v),
             "Override cell height for the grid layout. 0 = auto.",
             min: 0.0),
         AnnotationParam.Bool(
-            "ShowCutLinesOnTerrain", "Cut Lines on Terrain",
+            "ShowCutLinesOnTerrain", "Cut Lines",
             a => ((CrossSectionStationAnnotationDefinition)a).ShowCutLinesOnTerrain,
             (a, v) => ((CrossSectionStationAnnotationDefinition)a).ShowCutLinesOnTerrain = v,
             "Draw the perpendicular cut polylines on the terrain at each station."),
         AnnotationParam.Bool(
-            "LabelStations", "Label Stations",
+            "LabelStations", "Distance Labels",
             a => ((CrossSectionStationAnnotationDefinition)a).LabelStations,
             (a, v) => ((CrossSectionStationAnnotationDefinition)a).LabelStations = v,
             "Print station distance text on each unrolled cross-section."),
         AnnotationParam.Bool(
-            "ShowElevationGrid", "Show Elevation Grid",
+            "ShowElevationGrid", "Grid Lines",
             a => ((CrossSectionStationAnnotationDefinition)a).ShowElevationGrid,
             (a, v) => ((CrossSectionStationAnnotationDefinition)a).ShowElevationGrid = v,
             "Draw horizontal grid lines on each unrolled cross-section."),
         AnnotationParam.Number(
-            "ElevationGridInterval", "Elevation Grid Interval",
+            "ElevationGridInterval", "Elevation Interval",
             a => ((CrossSectionStationAnnotationDefinition)a).ElevationGridInterval,
             (a, v) => ((CrossSectionStationAnnotationDefinition)a).ElevationGridInterval = Math.Max(0.0, v),
             "Vertical spacing of grid lines on the unrolled cross-sections. 0 = auto.",
             min: 0.0),
-    }.Concat(AnnotationParameterCatalog.SectionLabelling()).ToArray();
+    }.Concat(AnnotationParameterCatalog.SectionLabelling()),
+        // Design review Steps 24-29: the cut on the card; what it marks in plan, what the drawing
+        // carries and how the drawings are laid out each sit closed below.
+        new ParameterGroup(null, "", new[] { "StationInterval", "CrossSectionWidth", "VerticalExaggeration" }),
+        new ParameterGroup("planAnnotation", "Plan Annotation", new[] { "ShowCutLinesOnTerrain", "ShowPlanLabels" }),
+        new ParameterGroup("sectionAnnotation", "Section Annotation", new[]
+        {
+            "ShowSectionTitle", "LabelStations", "ShowElevationLabels", "ShowElevationGrid", "ElevationGridInterval",
+        }),
+        new ParameterGroup("layoutOverrides", "Layout Overrides", new[] { "GridColumns", "GridCellWidth", "GridCellHeight" }));
 
     public override string? DescribeBlocker(TerrainDefinition terrain, AnnotationDefinition annotation)
     {
@@ -834,7 +851,7 @@ internal sealed class LongitudinalSectionAnnotationDescriptor : AnnotationTypeDe
         };
     }
 
-    public override IReadOnlyList<AnnotationParam> Parameters { get; } = new AnnotationParam[]
+    public override IReadOnlyList<AnnotationParam> Parameters { get; } = ParameterSections.Arrange(new AnnotationParam[]
     {
         AnnotationParam.Number(
             "SampleInterval", "Sample Interval",
@@ -844,33 +861,40 @@ internal sealed class LongitudinalSectionAnnotationDescriptor : AnnotationTypeDe
             min: 0.0),
         AnnotationParameterCatalog.VerticalExaggeration(),
         AnnotationParam.Bool(
-            "ShowBaseline", "Show Baseline",
+            "ShowBaseline", "Baseline",
             a => ((LongitudinalSectionAnnotationDefinition)a).ShowBaseline,
             (a, v) => ((LongitudinalSectionAnnotationDefinition)a).ShowBaseline = v,
             "Draw the horizontal baseline (zero elevation reference) under the profile."),
         AnnotationParam.Bool(
-            "ShowElevationGrid", "Show Elevation Grid",
+            "ShowElevationGrid", "Grid Lines",
             a => ((LongitudinalSectionAnnotationDefinition)a).ShowElevationGrid,
             (a, v) => ((LongitudinalSectionAnnotationDefinition)a).ShowElevationGrid = v,
             "Draw horizontal grid lines at each elevation increment."),
         AnnotationParam.Number(
-            "ElevationGridInterval", "Elevation Grid Interval",
+            "ElevationGridInterval", "Elevation Interval",
             a => ((LongitudinalSectionAnnotationDefinition)a).ElevationGridInterval,
             (a, v) => ((LongitudinalSectionAnnotationDefinition)a).ElevationGridInterval = Math.Max(0.0, v),
             "Vertical spacing of horizontal grid lines. 0 = auto.",
             min: 0.0),
         AnnotationParam.Bool(
-            "ShowStationLabels", "Show Station Labels",
+            "ShowStationLabels", "Distance Labels",
             a => ((LongitudinalSectionAnnotationDefinition)a).ShowStationLabels,
             (a, v) => ((LongitudinalSectionAnnotationDefinition)a).ShowStationLabels = v,
             "Print station distance text along the baseline."),
         AnnotationParam.Number(
-            "StationLabelInterval", "Station Label Interval",
+            "StationLabelInterval", "Distance Interval",
             a => ((LongitudinalSectionAnnotationDefinition)a).StationLabelInterval,
             (a, v) => ((LongitudinalSectionAnnotationDefinition)a).StationLabelInterval = Math.Max(0.0, v),
             "Spacing between station labels. 0 = auto (~quarter of total length).",
             min: 0.0),
-    }.Concat(AnnotationParameterCatalog.SectionLabelling()).ToArray();
+    }.Concat(AnnotationParameterCatalog.SectionLabelling()),
+        // Design review Step 32: sampling, scale and Section Marks on the card, the drawing's labels closed below.
+        new ParameterGroup(null, "", new[] { "SampleInterval", "VerticalExaggeration", "ShowPlanLabels" }),
+        new ParameterGroup("sectionAnnotation", "Section Annotation", new[]
+        {
+            "ShowSectionTitle", "ShowBaseline", "ShowStationLabels", "StationLabelInterval",
+            "ShowElevationLabels", "ShowElevationGrid", "ElevationGridInterval",
+        }));
 
     public override string? DescribeBlocker(TerrainDefinition terrain, AnnotationDefinition annotation)
     {
