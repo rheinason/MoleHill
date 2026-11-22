@@ -832,9 +832,10 @@ public sealed partial class MoleHillPanel
         string value,
         Action<string> onCommit,
         string help,
-        bool trim = true)
+        bool trim = true,
+        string? placeholder = null)
     {
-        var textBox = new TextBox { Text = value };
+        var textBox = new TextBox { Text = value, PlaceholderText = placeholder ?? string.Empty };
         StyleTextBox(textBox);
         ApplyHelp(textBox, help);
         BindCommittedText(textBox, () => value, onCommit, trim: trim);

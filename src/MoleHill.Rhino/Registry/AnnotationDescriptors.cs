@@ -1109,8 +1109,13 @@ internal sealed class LegendAnnotationDescriptor : AnnotationTypeDescriptor
             "Title", "Title",
             a => ((LegendAnnotationDefinition)a).Title,
             (a, v) => ((LegendAnnotationDefinition)a).Title = v ?? string.Empty,
-            "Heading drawn above the key. Leave empty to use the analysis's name and unit.",
-            refreshOnly: true),
+            "Heading drawn above the key. Leave empty to use the analysis's name and unit, shown greyed here.",
+            refreshOnly: true,
+            // Design review Step 39: the automatic title, as the builder would draw it.
+            placeholder: (terrain, _) =>
+                TerrainAnalysisPreviewBuilder.FindColoringAnalysis(terrain) is { } coloring
+                    ? TerrainLegendBuilder.DefaultTitle(coloring, global::Rhino.RhinoDoc.ActiveDoc?.ModelUnitSystem ?? global::Rhino.UnitSystem.Meters)
+                    : null),
         AnnotationParam.Choice(
             "Layout", "Layout", LayoutOptions,
             a => ((LegendAnnotationDefinition)a).Horizontal ? "horizontal" : "vertical",

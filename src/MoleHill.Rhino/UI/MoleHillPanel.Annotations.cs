@@ -1,5 +1,6 @@
 ﻿using Eto.Drawing;
 using Eto.Forms;
+using MoleHill.Core.Analysis;
 using MoleHill.Rhino.Model;
 using MoleHill.Rhino.Registry;
 using MoleHill.Rhino.Services;
@@ -65,6 +66,14 @@ public sealed partial class MoleHillPanel
             case CrossSectionStationAnnotationDefinition crossSection:
                 AddTerrainSectionCommonRows(layout, terrain, crossSection, "Paths",
                     "Curves cut across at every Station Interval; Section Width is the total width of each cut.");
+                break;
+
+            case LegendAnnotationDefinition:
+                layout.AddRow(CreateReadOnlyValueRow(
+                    "Colouring",
+                    TerrainAnalysisPreviewBuilder.FindColoringAnalysis(terrain)?.Label ?? "None",
+                    "The analysis currently colouring the terrain; the legend keys it. Turn on an analysis " +
+                    "that colours the terrain, or move one above the others, to key a different one."));
                 break;
 
             case LongitudinalSectionAnnotationDefinition longitudinal:
@@ -556,57 +565,48 @@ public sealed partial class MoleHillPanel
                 MutateAnnotation(terrain.TerrainId, annotationId, apply, scheduleRebuild: true);
         }
 
-        string text = hasOrigin
-            ? $"({originX:F2}, {originY:F2}, {originZ:F2})"
-            : "(auto: placed beside the terrain)";
-
-        var summary = new Label
-        {
-            Text = text,
-            VerticalAlignment = VerticalAlignment.Center,
-            TextColor = hasOrigin ? UiTheme.PrimaryText : UiTheme.MutedText,
-            Wrap = WrapMode.None
-        };
-        ApplyHelp(summary, help);
-
-        var pickButton = MakeInlineButton("Pick", (_, _) =>
+        // Design review Step 26: the source picker's pattern. Automatic shows a Pick Point pill; a picked
+        // point shows Picked (click to pick again; the tooltip has the coordinates) with an x that hands
+        // placement back to the builder. Cancelling a pick keeps the point there was.
+        string coordinates = $"({UserNumber.Format(originX, "F2")}, {UserNumber.Format(originY, "F2")}, {UserNumber.Format(originZ, "F2")})";
+        var pill = MakePillButton(
+            hasOrigin ? "Picked" : "Pick Point",
+            hasOrigin ? $"Picked at {coordinates}. Click to pick again. {pickHelp}" : $"Placed automatically. {pickHelp}");
+        pill.Click += (_, _) =>
         {
             var doc = RhinoDoc.ActiveDoc;
             if (doc == null)
                 return;
 
             var gp = new RhinoGetPoint();
-            gp.SetCommandPrompt("Pick insertion origin");
+            gp.SetCommandPrompt("Pick insertion point");
             if (gp.Get() != RhinoGetResult.Point)
                 return;
 
             RhinoPoint3d picked = gp.Point();
             Commit(item => applyPick(item, picked));
             RefreshUi();
-        }, pickHelp);
-
-        var resetButton = MakeInlineButton("Auto", (_, _) =>
-        {
-            Commit(applyAuto);
-            RefreshUi();
-        }, autoHelp);
+        };
 
         var fields = new StackLayout
         {
             Orientation = Orientation.Horizontal,
-            Spacing = UiMetrics.SpaceMedium,
+            Spacing = 0,
             VerticalContentAlignment = VerticalAlignment.Center,
             HorizontalContentAlignment = HorizontalAlignment.Stretch,
-            Items =
-            {
-                new StackLayoutItem(summary, expand: true),
-                pickButton,
-                resetButton
-            }
+            Items = { new StackLayoutItem(pill, expand: true) }
         };
+        if (hasOrigin)
+        {
+            fields.Items.Add(MakeIconButton(PanelButtonIcon.Clear, (_, _) =>
+            {
+                Commit(applyAuto);
+                RefreshUi();
+            }, autoHelp));
+        }
 
         return new PropertyRow(
-            CreateHelpLabel("Insertion", help, 0),
+            CreateHelpLabel("Insertion Point", help, 0),
             fields,
             expandWidget: true);
     }

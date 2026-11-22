@@ -104,7 +104,8 @@ internal static class TerrainLegendBuilder
         return null;
     }
 
-    private static string DefaultTitle(AnalysisDefinition coloring, UnitSystem unitSystem)
+    /// <summary>The title a legend draws when its own is empty; the card shows it as placeholder text.</summary>
+    internal static string DefaultTitle(AnalysisDefinition coloring, UnitSystem unitSystem)
     {
         string label = string.IsNullOrWhiteSpace(coloring.Label) ? "Analysis" : coloring.Label.Trim();
         return coloring switch

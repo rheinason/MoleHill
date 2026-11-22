@@ -114,6 +114,9 @@ internal sealed class ParameterDescriptor<TDefinition>
     /// placeholder (nothing resolved yet).</summary>
     public Func<TerrainDefinition, TDefinition, double>? InheritedValueFromTerrain { get; init; }
 
+    /// <summary>Greyed text an empty Text field shows: what leaving it empty does (a legend's automatic title).</summary>
+    public Func<TerrainDefinition, TDefinition, string?>? PlaceholderFor { get; init; }
+
     /// <summary>What an optional number's blank field says when nothing is inherited ("Auto", "No limit").</summary>
     public string BlankText { get; init; } = "Auto";
 
@@ -562,10 +565,12 @@ internal sealed class ParameterDescriptor<TDefinition>
         string? help = null,
         bool trim = true,
         Func<TDefinition, bool>? visibleWhen = null,
-        bool refreshOnly = false) =>
+        bool refreshOnly = false,
+        Func<TerrainDefinition, TDefinition, string?>? placeholder = null) =>
         new()
         {
             Kind = ParameterKind.Text,
+            PlaceholderFor = placeholder,
             Key = key,
             Label = label,
             GetText = get,

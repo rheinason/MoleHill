@@ -173,7 +173,8 @@ public sealed partial class MoleHillPanel
                     parameter.GetText!(definition) ?? string.Empty,
                     value => commit(item => parameter.SetText!(item, value)),
                     parameter.Help ?? string.Empty,
-                    parameter.TrimText);
+                    parameter.TrimText,
+                    parameter.PlaceholderFor?.Invoke(terrain, definition));
 
             case ParameterKind.FilePath:
                 return CreateFilePathEditor(
