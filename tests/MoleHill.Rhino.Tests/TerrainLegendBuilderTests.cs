@@ -127,7 +127,10 @@ public class TerrainLegendBuilderTests
         var descriptor = AnnotationTypeRegistry.ForType(typeof(LegendAnnotationDefinition));
 
         Assert.NotNull(descriptor);
-        Assert.All(descriptor!.Parameters, parameter => Assert.True(parameter.RefreshOnly, parameter.Key));
+        // Headings and read-only readouts edit nothing, so only the rows that commit are checked.
+        Assert.All(
+            descriptor!.Parameters.Where(parameter => parameter.Kind is not (ParameterKind.Section or ParameterKind.ReadOnly)),
+            parameter => Assert.True(parameter.RefreshOnly, parameter.Key));
     }
 
     [RhinoNativeFact]

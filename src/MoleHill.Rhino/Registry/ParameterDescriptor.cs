@@ -153,6 +153,13 @@ internal sealed class ParameterDescriptor<TDefinition>
     public bool PreferDropDown { get; init; }
 
     /// <summary>
+    /// Shows a choice whose options depend on the card (<see cref="ChoiceOptionsFor"/>) as segments when it
+    /// has two or three. Such lists are drop-downs by default, because most of them follow the document
+    /// (terrains, presets); a mode whose options merely vary with the card opts in.
+    /// </summary>
+    public bool PreferSegments { get; init; }
+
+    /// <summary>
     /// What each option does, by option key: shown as the tooltip of its segment, so a mode's trade-off is
     /// explained where it is picked (the row's <see cref="Help"/> still describes the choice as a whole).
     /// </summary>
@@ -453,11 +460,13 @@ internal sealed class ParameterDescriptor<TDefinition>
         Func<TDefinition, IReadOnlyList<(string Key, string Label)>>? optionsFor = null,
         bool preferDropDown = false,
         IReadOnlyDictionary<string, string>? optionHelp = null,
-        bool fullRow = false) =>
+        bool fullRow = false,
+        bool segmented = false) =>
         new()
         {
             Kind = ParameterKind.Choice,
             PreferDropDown = preferDropDown,
+            PreferSegments = segmented,
             FullRow = fullRow,
             ChoiceOptionHelp = optionHelp,
             Key = key,

@@ -34,7 +34,9 @@ public sealed partial class MoleHillPanel
 
         AppendBespokeAnnotationRowsBefore(layout, terrain, annotation);
         TryBuildSchemaAnnotationBody(layout, terrain, annotation);
-        AppendAnnotationTextSizeRows(layout, terrain, annotation);
+        // A card that declares where its Text Size goes has it there already (AnnotationParameterCatalog.TextSize).
+        if (descriptor?.Parameters.Any(parameter => parameter.Key == AnnotationParameterCatalog.TextSizeKey) != true)
+            AppendAnnotationTextSizeRows(layout, terrain, annotation);
         AppendBespokeAnnotationRowsAfter(layout, terrain, annotation, summary);
         Control? diagnosticsRow = CreateRuntimeDiagnosticsRow(
             terrain,

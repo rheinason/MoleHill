@@ -149,7 +149,9 @@ public sealed partial class MoleHillPanel
 
                 // Two or three fixed modes are segments; a list that depends on the document, or a longer
                 // one, stays a drop-down (design review: segmented controls for 2-3 meaningful modes).
-                bool modes = parameter.ChoiceOptionsFor == null && options.Count is 2 or 3 && !parameter.PreferDropDown;
+                bool modes = (parameter.ChoiceOptionsFor == null || parameter.PreferSegments)
+                    && options.Count is 2 or 3
+                    && !parameter.PreferDropDown;
                 return modes
                     ? CreateSegmentedEditor(label, options, selected, choose, help, parameter.ChoiceOptionHelp, parameter.FullRow)
                     : CreateDropDownEditor(label, options, selected, choose, help);
@@ -463,6 +465,13 @@ public sealed partial class MoleHillPanel
     {
         Guid terrainId = terrain.TerrainId;
         Guid annotationId = annotation.Id;
+
+        if (parameter.Key == AnnotationParameterCatalog.TextSizeKey)
+        {
+            var textSize = new DynamicLayout { DefaultSpacing = new Eto.Drawing.Size(UiMetrics.SpaceMedium, UiMetrics.SpaceMedium) };
+            AppendAnnotationTextSizeRows(textSize, terrain, annotation);
+            return textSize;
+        }
 
         return BuildSchemaRow(
             terrain,

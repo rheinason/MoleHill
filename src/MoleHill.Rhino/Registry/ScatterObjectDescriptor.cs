@@ -99,14 +99,16 @@ internal sealed class ScatterObjectDescriptor : ObjectTypeDescriptor
             ObjectParam.Choice(
                 "densityMode",
                 "Density Mode",
-                new (string, string)[] { ("Count", "Total count"), ("PerArea", "Per area"), ("Spacing", "Min spacing"), ("EdgeToEdge", "Edge-to-edge") },
+                new (string, string)[] { ("Count", "Count"), ("PerArea", "Per Area"), ("Spacing", "Min Spacing"), ("EdgeToEdge", "Edge to Edge") },
                 definition => ((ScatterObjectDefinition)definition).DensityMode.ToString(),
                 (definition, value) => ((ScatterObjectDefinition)definition).DensityMode = Enum.Parse<ScatterDensityMode>(value!),
                 "Choose whether scatter is controlled by count, density, or spacing.",
                 rebuildAfterCommit: true,
+                // Design review Step 37: three choices per source, shown as segments.
                 optionsFor: definition => IsCurve(definition)
-                    ? new (string, string)[] { ("Count", "Total count"), ("Spacing", "Centre spacing"), ("EdgeToEdge", "Edge-to-edge") }
-                    : new (string, string)[] { ("Count", "Total count"), ("PerArea", "Per area"), ("Spacing", "Min spacing") }),
+                    ? new (string, string)[] { ("Count", "Count"), ("Spacing", "Centre Spacing"), ("EdgeToEdge", "Edge to Edge") }
+                    : new (string, string)[] { ("Count", "Count"), ("PerArea", "Per Area"), ("Spacing", "Min Spacing") },
+                segmented: true),
             ObjectParam.Choice("densityUnit", "Density unit",
                 new (string, string)[] { ("SquareMeter", "Plants / m²"), ("HundredSquareMeters", "Plants / 100 m²"), ("Hectare", "Plants / hectare"), ("ModelArea", "Plants / square model unit") },
                 definition => ((ScatterObjectDefinition)definition).DensityUnit.ToString(),

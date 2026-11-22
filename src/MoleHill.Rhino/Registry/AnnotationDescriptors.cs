@@ -16,6 +16,18 @@ namespace MoleHill.Rhino.Registry;
 
 internal static class AnnotationParameterCatalog
 {
+    /// <summary>Key of the <see cref="TextSize"/> placeholder.</summary>
+    public const string TextSizeKey = "textSize";
+
+    /// <summary>
+    /// Where the card's Text Size readout goes: a placeholder the panel fills with the style-derived size
+    /// (it needs the document's annotation style, which a definition alone cannot read). A card that
+    /// declares it puts the readout with the settings it belongs to (labels, Appearance); one that does
+    /// not gets it after its rows.
+    /// </summary>
+    public static AnnotationParam TextSize(Func<AnnotationDefinition, bool>? visibleWhen = null) =>
+        AnnotationParam.ReadOnly(TextSizeKey, "Text Size", _ => string.Empty, visibleWhen: visibleWhen);
+
     public static readonly IReadOnlyList<(string Key, string Label)> SlopeUnitOptions = new[]
     {
         (AnalysisFormatting.GetSlopeUnitKey(SlopeAnalyzer.SlopeUnit.Percent), "Percent"),
@@ -224,6 +236,7 @@ internal sealed class ContourAnnotationDescriptor : AnnotationTypeDescriptor
             incrementalCommit: true,
             visibleWhen: a => ((ContourAnnotationDefinition)a).ShowLabels,
             optionsFor: a => AnalysisFormatting.GetValueFormatOptions(((ContourAnnotationDefinition)a).LabelFormat)),
+        AnnotationParameterCatalog.TextSize(a => ((ContourAnnotationDefinition)a).ShowLabels),
         // Design review UI-R4: appearance is set once and then left, so it sits closed below the labels.
         AnnotationParam.Section("appearance", "Appearance"),
         AnnotationParam.Color(
@@ -568,10 +581,10 @@ internal sealed class GradeBetweenPointsAnnotationDescriptor : AnnotationTypeDes
     public override IReadOnlyList<AnnotationParam> Parameters { get; } = new[]
     {
         AnnotationParam.Sources(
-            "Sources", "Sources",
+            "Sources", "Curves",
             a => ((GradeBetweenPointsAnnotationDefinition)a).Sources,
             RhinoObjectType.Curve,
-            "Lines whose two endpoints define the grade. Each line emits one callout."),
+            "Curves whose two endpoints, projected onto the terrain, define the grade. Each curve gives one callout."),
         AnnotationParam.Choice(
             "ValueFormat", "Decimals", null,
             a => ((GradeBetweenPointsAnnotationDefinition)a).ValueFormat,
@@ -968,6 +981,7 @@ internal sealed class ReportTableAnnotationDescriptor : AnnotationTypeDescriptor
 
     public override IReadOnlyList<AnnotationParam> Parameters { get; } = new[]
     {
+        AnnotationParam.Section("contents", "Contents", expanded: true),
         AnnotationParam.Bool(
             "IncludeOverview", "Terrain",
             a => ((ReportTableAnnotationDefinition)a).IncludeOverview,
@@ -1010,6 +1024,7 @@ internal sealed class ReportTableAnnotationDescriptor : AnnotationTypeDescriptor
             a => ((ReportTableAnnotationDefinition)a).IncludePlanting,
             (a, v) => ((ReportTableAnnotationDefinition)a).IncludePlanting = v,
             "Placed block/species counts and actual percentages from each enabled Scatter card."),
+        AnnotationParam.Section("appearance", "Appearance"),
         AnnotationParameterCatalog.SlopeUnitChoice(
             "Unit the drawn slope columns are written in. This one belongs to the drawing, so it is " +
             "stored with the terrain — unlike the slope unit you type in, which is a per-user preference."),
@@ -1036,6 +1051,7 @@ internal sealed class ReportTableAnnotationDescriptor : AnnotationTypeDescriptor
             a => ((ReportTableAnnotationDefinition)a).ColorArgb,
             (a, v) => ((ReportTableAnnotationDefinition)a).ColorArgb = v,
             "Override colour for the table. Unset draws it in the Report Table layer's colour."),
+        AnnotationParameterCatalog.TextSize(),
     };
 
     public override string? DescribeBlocker(TerrainDefinition terrain, AnnotationDefinition annotation)
@@ -1101,6 +1117,7 @@ internal sealed class LegendAnnotationDescriptor : AnnotationTypeDescriptor
             "Vertical stacks the key with the highest values at the top; horizontal runs it left to right, " +
             "for a key along the foot of a sheet.",
             refreshOnly: true),
+        AnnotationParam.Section("appearance", "Appearance"),
         AnnotationParam.Number(
             "SwatchSize", "Swatch Size",
             a => ((LegendAnnotationDefinition)a).SwatchSize,
@@ -1122,6 +1139,7 @@ internal sealed class LegendAnnotationDescriptor : AnnotationTypeDescriptor
             "Override colour for the text and outlines. Unset draws them in the Legend layer's colour; the " +
             "swatches always show the analysis's own colours.",
             refreshOnly: true),
+        AnnotationParameterCatalog.TextSize(),
     };
 
     public override string? DescribeBlocker(TerrainDefinition terrain, AnnotationDefinition annotation) =>
