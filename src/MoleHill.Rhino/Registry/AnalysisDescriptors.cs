@@ -779,7 +779,7 @@ internal sealed class GradientComplianceAnalysisDescriptor : AnalysisTypeDescrip
             visibleWhen: a => Rules(a).LevelAreaMode != GradientRuleMode.Off || Rules(a).RouteMode != GradientRuleMode.Off),
         AnalysisParam.Section("levelAreas", "Level Areas", expanded: true),
         AnalysisParam.Sources(
-            "LevelAreas", "Level Areas",
+            "LevelAreas", "Areas",
             a => ((GradientComplianceAnalysisDefinition)a).LevelAreas,
             RhinoObjectType.Curve,
             "Closed curves around landings, turning spaces and other areas that must be level in every " +
@@ -801,7 +801,7 @@ internal sealed class GradientComplianceAnalysisDescriptor : AnalysisTypeDescrip
             rebuildAfterCommit: true),
         AnalysisParam.Section("routes", "Routes", expanded: true),
         AnalysisParam.Sources(
-            "Routes", "Routes",
+            "Routes", "Curves",
             a => ((GradientComplianceAnalysisDefinition)a).Routes,
             RhinoObjectType.Curve,
             "Curves along the centre of accessible routes. Slope along a route is its running slope and " +

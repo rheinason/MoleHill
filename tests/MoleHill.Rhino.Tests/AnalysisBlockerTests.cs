@@ -156,7 +156,7 @@ public class AnalysisBlockerTests
         string? blocker = Blocker(new TerrainSectionAnnotationDefinition());
 
         Assert.NotNull(blocker);
-        Assert.Contains("Sources", blocker);
+        Assert.Contains("Section Line", blocker);
     }
 
     [Fact]

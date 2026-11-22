@@ -674,20 +674,20 @@ internal sealed class TerrainSectionAnnotationDescriptor : AnnotationTypeDescrip
             a => ((TerrainSectionAnnotationDefinition)a).ShowStationLabels,
             (a, v) => ((TerrainSectionAnnotationDefinition)a).ShowStationLabels = v,
             "Print station distance text below each tick."),
-    }.Concat(AnnotationParameterCatalog.SectionLabelling()),
+    }.Concat(AnnotationParameterCatalog.SectionLabelling()).Append(AnnotationParameterCatalog.TextSize()),
         // Design review Steps 30-31: scale and Section Marks on the card, the drawing's labels closed below.
         new ParameterGroup(null, "", new[] { "VerticalExaggeration", "ShowPlanLabels" }),
         new ParameterGroup("sectionAnnotation", "Section Annotation", new[]
         {
             "ShowSectionTitle", "ShowStationLabels", "ShowStationTicks", "StationTickInterval",
-            "ShowElevationLabels", "ShowElevationGrid", "ElevationGridInterval",
+            "ShowElevationLabels", "ShowElevationGrid", "ElevationGridInterval", AnnotationParameterCatalog.TextSizeKey,
         }));
 
     public override string? DescribeBlocker(TerrainDefinition terrain, AnnotationDefinition annotation)
     {
         var section = (TerrainSectionAnnotationDefinitionBase)annotation;
         if (!section.Sources.HasReferences)
-            return "Needs a curve to cut along — set “Sources” below.";
+            return "Needs a curve to cut along — set “Section Line” below.";
 
         // With no explicit reference a section shades against the terrain's initial triangulation, so the
         // only real gap is a terrain nothing has graded yet.
@@ -795,7 +795,7 @@ internal sealed class CrossSectionStationAnnotationDescriptor : AnnotationTypeDe
             (a, v) => ((CrossSectionStationAnnotationDefinition)a).ElevationGridInterval = Math.Max(0.0, v),
             "Vertical spacing of grid lines on the unrolled cross-sections. 0 = auto.",
             min: 0.0),
-    }.Concat(AnnotationParameterCatalog.SectionLabelling()),
+    }.Concat(AnnotationParameterCatalog.SectionLabelling()).Append(AnnotationParameterCatalog.TextSize()),
         // Design review Steps 24-29: the cut on the card; what it marks in plan, what the drawing
         // carries and how the drawings are laid out each sit closed below.
         new ParameterGroup(null, "", new[] { "StationInterval", "CrossSectionWidth", "VerticalExaggeration" }),
@@ -803,6 +803,7 @@ internal sealed class CrossSectionStationAnnotationDescriptor : AnnotationTypeDe
         new ParameterGroup("sectionAnnotation", "Section Annotation", new[]
         {
             "ShowSectionTitle", "LabelStations", "ShowElevationLabels", "ShowElevationGrid", "ElevationGridInterval",
+            AnnotationParameterCatalog.TextSizeKey,
         }),
         new ParameterGroup("layoutOverrides", "Layout Overrides", new[] { "GridColumns", "GridCellWidth", "GridCellHeight" }));
 
@@ -810,7 +811,7 @@ internal sealed class CrossSectionStationAnnotationDescriptor : AnnotationTypeDe
     {
         var section = (TerrainSectionAnnotationDefinitionBase)annotation;
         if (!section.Sources.HasReferences)
-            return "Needs an alignment curve to sample — set “Sources” below.";
+            return "Needs a curve to cut across — set “Paths” below.";
 
         // With no explicit reference a section shades against the terrain's initial triangulation, so the
         // only real gap is a terrain nothing has graded yet.
@@ -900,20 +901,20 @@ internal sealed class LongitudinalSectionAnnotationDescriptor : AnnotationTypeDe
             (a, v) => ((LongitudinalSectionAnnotationDefinition)a).StationLabelInterval = Math.Max(0.0, v),
             "Spacing between station labels. 0 = auto (~quarter of total length).",
             min: 0.0),
-    }.Concat(AnnotationParameterCatalog.SectionLabelling()),
+    }.Concat(AnnotationParameterCatalog.SectionLabelling()).Append(AnnotationParameterCatalog.TextSize()),
         // Design review Step 32: sampling, scale and Section Marks on the card, the drawing's labels closed below.
         new ParameterGroup(null, "", new[] { "SampleInterval", "VerticalExaggeration", "ShowPlanLabels" }),
         new ParameterGroup("sectionAnnotation", "Section Annotation", new[]
         {
             "ShowSectionTitle", "ShowBaseline", "ShowStationLabels", "StationLabelInterval",
-            "ShowElevationLabels", "ShowElevationGrid", "ElevationGridInterval",
+            "ShowElevationLabels", "ShowElevationGrid", "ElevationGridInterval", AnnotationParameterCatalog.TextSizeKey,
         }));
 
     public override string? DescribeBlocker(TerrainDefinition terrain, AnnotationDefinition annotation)
     {
         var section = (TerrainSectionAnnotationDefinitionBase)annotation;
         if (!section.Sources.HasReferences)
-            return "Needs a curve to sample along — set “Sources” below.";
+            return "Needs a curve to sample along — set “Path” below.";
 
         // With no explicit reference a section shades against the terrain's initial triangulation, so the
         // only real gap is a terrain nothing has graded yet.
