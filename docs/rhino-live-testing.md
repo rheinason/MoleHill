@@ -609,6 +609,28 @@ physical screen, so the window must be unobscured on an unlocked session; if the
 blank, treat that as *unresolved* — confirm through a second channel (walk the control tree via
 `run_csharp`, or ask for manual inspection) before reporting either success or a paint bug.
 
+### Panel design checks (worktree builds)
+
+Used for the 2026-11-22 card header / input / number-field review against the Penpot boards.
+
+1. Build **only** `src/MoleHill.Rhino` (`-c Release`). A solution build also rebuilds Grasshopper and
+   copies its `.gha` over `%AppData%\Grasshopper\Libraries`; restore that copy if it happens.
+2. Rhino loads MoleHill from `HKCU\Software\McNeel\Rhinoceros\8.0\Plug-ins\0c0b9e83-4959-437e-a935-4addf0d3f886\PlugIn`
+   → `FileName`. Point it at the worktree `.rhp`, `spawn_slot`, confirm the loaded path and MVID (§3), and
+   **restore the original value immediately**: the running slot keeps the build it loaded.
+3. Host a fresh `MoleHillPanel` in an Eto `Form` at the review widths (240 and 416) and call
+   `Rhino.UI.EtoExtensions.UseRhinoStyle(form)`. Without it, icons render blank and the stack background is
+   light: harness artefacts, not panel bugs. Set WPF `RenderOptions.ProcessRenderMode` to `SoftwareOnly`
+   in the slot so `PrintWindow` captures paint (§5).
+4. Change panel state through the panel's own objects (for example its `_modifierCards`
+   `CardStack.ToggleCollapsed`), never simulated input.
+5. Input-style scan: build every tab (`Rebuild*Layout` with the selected terrain), walk each `CardStack.Layout`
+   and the panel's `Children`, and count `TextBox`/`NumericStepper`/`TextArea`/`ComboBox` whose
+   `BackgroundColor` is not `UiTheme.InputBackground`. Expected: 0. The first run found 1 of 91 (the
+   terrain selector), which is why the fixed top section is styled as one tree.
+6. Culture: the script host runs with the invariant culture while the panel runs with the Windows locale.
+   Set `CultureInfo.CurrentCulture` explicitly (e.g. `fo-FO`) around any typed-input probe.
+
 ## 6. Acceptance sequence for the curve-review workflow
 
 `mhInspectCurve` is **inspection only**: the form reports on a curve and never changes its geometry.
