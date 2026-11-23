@@ -286,6 +286,11 @@ internal static class TerrainSchemaMigrations
 
             // Replaced in place: the discriminator has to stay the object's first property to bind.
             card["$type"] = merged.Kind;
+
+            // Slope arrows used to point uphill unflipped; they now point downhill. Inverting Flip Arrow keeps
+            // every saved drawing pointing the way it did.
+            if (merged.Kind == "spot-slope")
+                card["flipDirection"] = !(card["flipDirection"]?.GetValue<bool>() ?? false);
             card["placement"] = (int)merged.Placement;
             if (merged.SourcesTo != null && card["sources"] is JsonNode sources)
             {

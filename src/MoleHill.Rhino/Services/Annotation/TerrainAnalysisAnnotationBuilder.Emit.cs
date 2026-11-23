@@ -359,12 +359,18 @@ internal static partial class TerrainAnalysisAnnotationBuilder
         return Transform.PlaneToPlane(Plane.WorldXY, plane) * scaleTransform;
     }
 
+    /// <summary>
+    /// The plan direction a slope arrow points: downhill, the way water runs, unless flipped. An upward face
+    /// normal leans away from the rise, so its plan part already points downhill. Until 1.7.0 this was negated
+    /// and every arrow pointed uphill while the cards and Flip Arrow's help said downhill (found in the manual
+    /// test run); cards saved before then are migrated with Flip Arrow inverted so they draw as they did.
+    /// </summary>
     private static Vector3d GetTerrainSlopeDirection(Vector3d normal, double tolerance, bool flip)
     {
         if (normal.Z < 0.0)
             normal = -normal;
 
-        var direction = new Vector3d(-normal.X, -normal.Y, 0.0);
+        var direction = new Vector3d(normal.X, normal.Y, 0.0);
         if (flip)
             direction = -direction;
         return direction.Length <= tolerance

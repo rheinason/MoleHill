@@ -181,6 +181,8 @@ public class TerrainAnalysisAnnotationBuilderTests
         {
             Assert.Equal(MarkerBlockTemplate.AnnotationSlope, output.MarkerBlockTemplate);
             Assert.Equal("1000.0", output.InstanceUserStrings?[GeneratedBlockCatalog.ValueToken]);
+            // The mesh rises along +X, so downhill is -X: the arrow block's X axis must point that way.
+            Assert.True(output.InstanceTransform.M00 < 0.0, $"arrow X axis {output.InstanceTransform.M00:F3} points uphill");
         });
     }
 

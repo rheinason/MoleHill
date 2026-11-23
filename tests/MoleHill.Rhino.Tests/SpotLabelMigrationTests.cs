@@ -133,7 +133,7 @@ public class SpotLabelMigrationTests
         AssertSameCard(card, "10000000-0000-0000-0000-000000000003", "Falls", enabled: true);
         AssertSources(card.Sources);
         Assert.Equal(SlopeAnalyzer.SlopeUnit.Degrees, card.Unit);
-        Assert.True(card.FlipDirection);
+        Assert.False(card.FlipDirection); // inverted: arrows now point downhill unflipped, so the drawing is kept
     }
 
     [Fact]
@@ -147,7 +147,7 @@ public class SpotLabelMigrationTests
         Assert.False(card.Sources.HasReferences);
         Assert.Equal(4.0, card.Interval, 9);
         Assert.Equal(SlopeAnalyzer.SlopeUnit.Ratio, card.Unit);
-        Assert.True(card.FlipDirection);
+        Assert.False(card.FlipDirection); // inverted: arrows now point downhill unflipped, so the drawing is kept
     }
 
     [Fact]
@@ -161,7 +161,7 @@ public class SpotLabelMigrationTests
         Assert.False(card.Sources.HasReferences);
         Assert.Equal(3.0, card.GridSpacing, 9);
         Assert.Equal(SlopeAnalyzer.SlopeUnit.Promille, card.Unit);
-        Assert.True(card.FlipDirection);
+        Assert.False(card.FlipDirection); // inverted: arrows now point downhill unflipped, so the drawing is kept
     }
 
     /// <summary>
@@ -200,6 +200,21 @@ public class SpotLabelMigrationTests
         Assert.Equal(
             first.Single().Annotations.Select(card => (card.GetType(), card.Id, ((SpotLabelAnnotationDefinition)card).Placement)),
             second.Select(card => (card.GetType(), card.Id, ((SpotLabelAnnotationDefinition)card).Placement)));
+    }
+
+    /// <summary>
+    /// 1.6.0 drew slope arrows uphill unless flipped; 1.7.0 draws them downhill. A card that was not flipped
+    /// comes across flipped, so it still points uphill on screen.
+    /// </summary>
+    [Fact]
+    public void UnflippedSlopeCard_IsFlippedSoItsArrowsStillPointTheSameWay()
+    {
+        string json = Document(33, "annotations",
+            Card("slope-arrows", "10000000-0000-0000-0000-000000000006", "Arrows", true, "\"gridSpacing\": 3,"));
+
+        var card = Assert.IsType<SpotSlopeAnnotationDefinition>(Load(json).Single());
+
+        Assert.True(card.FlipDirection);
     }
 
     /// <summary>Every source set is the card's data, active or not: a layer rename must reach all three.</summary>
