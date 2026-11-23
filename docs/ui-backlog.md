@@ -42,6 +42,7 @@ choices; schema sections; Results, source counts and tab fitting; then a per-car
 | 41–45 | Retaining Wall, Grade Line, Grade Path; units inside fields (UI-23) | Done |
 | 47–54 | Remesh, Smooth, Displace (incl. Origin point row), Simplify | Done |
 | 55–60, 62–64 | Scatter grouping and Block Mix, Plant/Orient Base | Done; Block Mix table details (57–59) not re-compared with the boards |
+| 61 | Scatter Sequence: Random / Sequence inside Block Mix, ordered rows that drag to reorder (B32) | Done 2026-11-23; live-checked |
 | 65–72 | Zones, Earthworks/Cut-Fill comparison modes, Catchments, Ponding, Waterflow, Gradient Compliance | Done; Earthworks results layout (67) not re-compared |
 | 73–75 | Curvature/Landforms, ramp controls, Slope Units | Done |
 | 76 | Status as a severity-coloured outcome line | Done |
@@ -55,7 +56,6 @@ choices; schema sections; Results, source counts and tab fitting; then a per-car
 - **UI-09 — earthy single-hue tab icons, three-region Zones glyph** (Steps 06–07). Not implemented; the
   tab icons are unchanged. **UI-10** (Annotation's text-label-with-leader glyph, Step 08) needs checking
   against the existing `TabAnnotation` icon, which already draws a leader.
-- **Scatter Sequence view** (Step 61) - backlog B32.
 - **Step 77's tab view toggles** still use plain characters, not drawn glyphs.
 - **UI-R6 interaction checks:** keyboard navigation, reasons for unavailable actions, visibility toggle
   meaning, cancellation. Tooltips, Undo and the Status row were exercised live (2026-11-23).

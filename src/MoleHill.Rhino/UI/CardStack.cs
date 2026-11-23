@@ -245,7 +245,8 @@ internal sealed class CardStack
             target.BackgroundColor = Colors.Transparent;
     }
 
-    private static Drawable CreateGrip()
+    /// <summary>The six-dot drag grip, shared by stack cards and the Scatter sequence rows.</summary>
+    internal static Drawable CreateGrip()
     {
         var handle = new Drawable { Width = 16, Height = 22, Cursor = Cursors.Move };
         handle.Paint += (_, e) =>

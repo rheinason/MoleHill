@@ -19,6 +19,18 @@ A redesign of the MoleHill panel and its dialogs, from a full design review of e
 - Existing cards are converted on load and keep their name, place in the stack, sources, block and
   formatting.
 
+**Scatter**
+- Along a curve, Block Mix chooses **Random** or **Sequence** at its top. In Sequence the blocks are an
+  ordered list: drag a row to reorder the repeating pattern, and untick a block to leave it out. Weights
+  are hidden there and kept for Random.
+- A saved sequence that left a block out with weight 0 has that block unticked on load, so its pattern is
+  unchanged.
+
+**Panel settings**
+- The Terrain Settings card fits a narrow panel: Opacity has its own row, the display and bake options span
+  the card, and nothing is cut off. It no longer carries a coloured strip, which marks cards in the stacks.
+- The toolbar's two rows of icons line up.
+
 **Cards**
 - Every card header has two fixed lines: the card's name, then its type and a summary (for example
   "Contours · 2 objects · 1 layer"). Long text ends in an ellipsis, with the full text in the tooltip.

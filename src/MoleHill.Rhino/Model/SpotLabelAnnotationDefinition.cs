@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using MoleHill.Shared;
 
 namespace MoleHill.Rhino.Model;
@@ -31,6 +32,7 @@ public abstract class SpotLabelAnnotationDefinition : BlockAttributeAnnotationDe
     public double GridSpacing { get; set; } = 5.0;
 
     /// <summary>The sources the active placement builds from.</summary>
+    [JsonIgnore]
     public SourceReferenceSet ActiveSources => Placement switch
     {
         SpotPlacement.Curves => CurveSources,

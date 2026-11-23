@@ -42,4 +42,19 @@ internal static class StackReorder
         items.Insert(Math.Max(insert, floor), moved);
     }
 
+    /// <summary>
+    /// Moves the item at <paramref name="from"/> to sit just before the item now at <paramref name="before"/>,
+    /// for a list whose items carry no id (Scatter's block mix). <paramref name="before"/> equal to the count
+    /// moves it to the end. Indexes out of range leave the list as it is.
+    /// </summary>
+    public static void MoveToIndex<T>(List<T> items, int from, int before)
+    {
+        if (from < 0 || from >= items.Count || before < 0 || before > items.Count || before == from || before == from + 1)
+            return;
+
+        T moved = items[from];
+        items.RemoveAt(from);
+        items.Insert(before > from ? before - 1 : before, moved);
+    }
+
 }

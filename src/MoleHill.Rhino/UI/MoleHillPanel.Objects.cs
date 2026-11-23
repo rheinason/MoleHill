@@ -114,11 +114,33 @@ public sealed partial class MoleHillPanel
         double totalWeight = scatter.Blocks.Where(entry => entry.IsEnabled).Sum(entry => Math.Max(0, entry.Weight) *
             (!string.IsNullOrWhiteSpace(entry.BlockDefinitionName) ? 1 : doc == null ? 0 :
                 RhinoSourceResolver.ResolveObjects(doc, entry.Source).OfType<global::Rhino.DocObjects.InstanceObject>().Count()));
+
+        // Along a curve in Sequence the mix is an ordered cycle (design review Step 61): rows show their place
+        // in it and drag to reorder; weight and share mean nothing there and are hidden.
+        bool sequence = scatter.CyclesInSequence && scatter.Blocks.Count > 1;
+        string dragKey = $"scatter-block:{scatter.Id}";
+        void MoveBlock(int from, int before) => Mutate(s => StackReorder.MoveToIndex(s.Blocks, from, before));
+        int position = 0;
+
         for (int blockIndex = 0; blockIndex < scatter.Blocks.Count; blockIndex++)
         {
             int index = blockIndex;
             ScatterBlockEntry entry = scatter.Blocks[index];
-            if (!string.IsNullOrWhiteSpace(entry.BlockDefinitionName))
+            int? place = entry.IsEnabled ? ++position : null;
+            if (sequence && !string.IsNullOrWhiteSpace(entry.BlockDefinitionName))
+            {
+                layout.AddRow(CreateScatterSequenceRow(
+                    entry.BlockDefinitionName!,
+                    place,
+                    index,
+                    dragKey,
+                    MoveBlock,
+                    () => Mutate(s => { if (index < s.Blocks.Count) s.Blocks.RemoveAt(index); }),
+                    entry.IsEnabled,
+                    enabled => Mutate(s => { if (index < s.Blocks.Count) s.Blocks[index].IsEnabled = enabled; }),
+                    result == null ? "count pending" : $"{(result.BlockCounts.TryGetValue(entry.BlockDefinitionName!, out int placed) ? placed : 0):N0} placed"));
+            }
+            else if (!string.IsNullOrWhiteSpace(entry.BlockDefinitionName))
             {
                 layout.AddRow(CreateScatterBlockRow(
                     entry.BlockDefinitionName!,
@@ -127,8 +149,7 @@ public sealed partial class MoleHillPanel
                     () => Mutate(s => { if (index < s.Blocks.Count) s.Blocks.RemoveAt(index); }),
                     entry.IsEnabled,
                     enabled => Mutate(s => { if (index < s.Blocks.Count) s.Blocks[index].IsEnabled = enabled; }),
-                    (scatter.SourceMode == MoleHill.Core.Scattering.ScatterSourceMode.Curve && scatter.BlockOrder == MoleHill.Core.Scattering.ScatterBlockOrder.Sequence
-                        ? "In sequence · " : $"{(entry.IsEnabled && totalWeight > 0 ? 100 * Math.Max(0, entry.Weight) / totalWeight : 0):0.#}% mix · ") +
+                    $"{(entry.IsEnabled && totalWeight > 0 ? 100 * Math.Max(0, entry.Weight) / totalWeight : 0):0.#}% mix · " +
                         (result == null ? "count pending" : $"{(result.BlockCounts.TryGetValue(entry.BlockDefinitionName!, out int count) ? count : 0):N0} placed")));
 
             }
@@ -148,9 +169,13 @@ public sealed partial class MoleHillPanel
                     sourceEditor,
                     entry.Weight,
                     value => Mutate(s => { if (index < s.Blocks.Count) s.Blocks[index].Weight = value; }, live: true),
-                    () => Mutate(s => { if (index < s.Blocks.Count) s.Blocks.RemoveAt(index); })));
+                    () => Mutate(s => { if (index < s.Blocks.Count) s.Blocks.RemoveAt(index); }),
+                    showWeight: !sequence));
             }
         }
+
+        if (sequence)
+            layout.AddRow(CreateScatterSequenceTail(scatter.Blocks.Count, dragKey, MoveBlock));
 
         if (scatter.Blocks.Count == 0)
             layout.AddRow(CreateScatterBlockEmptyState());
@@ -208,6 +233,113 @@ public sealed partial class MoleHillPanel
         };
     }
 
+    /// <summary>
+    /// A block's row in a sequence: drag grip, inclusion checkbox, its place in the cycle ("–" when left
+    /// out), thumbnail, name and remove, with its placed count below. Dropping another row on it puts that
+    /// block just before this one.
+    /// </summary>
+    private Control CreateScatterSequenceRow(
+        string blockName,
+        int? place,
+        int index,
+        string dragKey,
+        Action<int, int> move,
+        Action onRemove,
+        bool enabled,
+        Action<bool> onEnabledChanged,
+        string quantities)
+    {
+        var grip = CardStack.CreateGrip();
+        grip.ToolTip = "Drag to move this block in the sequence.";
+        grip.MouseDown += (_, e) =>
+        {
+            if (e.Buttons != MouseButtons.Primary)
+                return;
+            var data = new DataObject();
+            data.SetString(index.ToString(System.Globalization.CultureInfo.InvariantCulture), dragKey);
+            grip.DoDragDrop(data, DragEffects.Move);
+        };
+
+        var include = new CheckBox { Checked = enabled };
+        ApplyHelp(include, "Include this block in the sequence. Unticked, it keeps its place in the list but is skipped.");
+        include.CheckedChanged += (_, _) => onEnabledChanged(include.Checked == true);
+
+        var placeLabel = UiControls.Label(place?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "–", UiLabelRole.Meta);
+        placeLabel.Width = UiMetrics.Chs(2);
+        placeLabel.TextAlignment = TextAlignment.Right;
+        ApplyHelp(placeLabel, place == null ? "Left out of the sequence." : $"Block {place} of the repeating sequence.");
+
+        var nameLabel = new Label
+        {
+            Text = TruncateMiddle(blockName, 22),
+            TextColor = UiTheme.InputText,
+            VerticalAlignment = VerticalAlignment.Center,
+            Wrap = WrapMode.None
+        };
+        ApplyHelp(nameLabel, blockName);
+
+        var thumbnail = new ImageView { Size = new Size(28, 28) };
+        thumbnail.Shown += (_, _) =>
+        {
+            if (RhinoDoc.ActiveDoc is { } doc && doc.InstanceDefinitions.Find(blockName) is { } block)
+                thumbnail.Image = BlockThumbnailRenderer.Get(doc, block, 28);
+        };
+        var removeButton = MakeIconButton(PanelButtonIcon.Clear, (_, _) => onRemove(), "Remove this block from the scatter mix.");
+
+        var row = new Panel
+        {
+            AllowDrop = true,
+            Content = new StackLayout
+            {
+                Orientation = Orientation.Vertical,
+                Spacing = UiMetrics.SpaceXSmall,
+                HorizontalContentAlignment = HorizontalAlignment.Stretch,
+                Items =
+                {
+                    new StackLayout
+                    {
+                        Orientation = Orientation.Horizontal,
+                        Spacing = UiMetrics.SpaceMedium,
+                        VerticalContentAlignment = VerticalAlignment.Center,
+                        Items = { grip, include, placeLabel, thumbnail, new StackLayoutItem(nameLabel, expand: true), removeButton }
+                    },
+                    UiControls.Label(quantities, UiLabelRole.Meta)
+                }
+            }
+        };
+        WireSequenceDrop(row, index, dragKey, move);
+        return row;
+    }
+
+    /// <summary>The drop target after the last row, which moves a block to the end of the sequence.</summary>
+    private static Control CreateScatterSequenceTail(int count, string dragKey, Action<int, int> move)
+    {
+        var tail = new Panel { Height = UiMetrics.StackGap, AllowDrop = true, ToolTip = "Drop here to move a block to the end of the sequence." };
+        WireSequenceDrop(tail, count, dragKey, move);
+        return tail;
+    }
+
+    private static void WireSequenceDrop(Panel target, int before, string dragKey, Action<int, int> move)
+    {
+        target.DragEnter += (_, e) =>
+        {
+            if (!e.Data.Contains(dragKey))
+                return;
+            e.Effects = DragEffects.Move;
+            target.BackgroundColor = UiTheme.DragHighlight;
+        };
+        target.DragLeave += (_, _) => target.BackgroundColor = Colors.Transparent;
+        target.DragDrop += (_, e) =>
+        {
+            target.BackgroundColor = Colors.Transparent;
+            if (e.Data.Contains(dragKey) &&
+                int.TryParse(e.Data.GetString(dragKey), System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out int from))
+            {
+                move(from, before);
+            }
+        };
+    }
+
     private Control CreateScatterBlockMixHeader(int blockCount, EventHandler<EventArgs> addBlocks)
     {
         string countText = blockCount == 1 ? "1 block" : $"{blockCount} blocks";
@@ -261,7 +393,8 @@ public sealed partial class MoleHillPanel
         Control sourceEditor,
         double weight,
         Action<double> onWeightChanged,
-        Action onRemove)
+        Action onRemove,
+        bool showWeight = true)
     {
         var weightEditor = CreateCompactScatterWeightEditor(
             weight,
@@ -277,7 +410,7 @@ public sealed partial class MoleHillPanel
             HorizontalContentAlignment = HorizontalAlignment.Stretch,
             Items =
             {
-                new StackLayoutItem(weightEditor, expand: true),
+                new StackLayoutItem(showWeight ? weightEditor : null, expand: true),
                 removeButton
             }
         };

@@ -816,14 +816,17 @@ Schema 34 migrates saved cards in place - id, name, position, enabled state, sou
 kept - with a characterization test per old type (`SpotLabelMigrationTests`). Live-checked 2026-11-23: a
 .3dm saved by the 1.6.0 build with all five old cards opened with every card, setting and source intact.
 
-### B32 — Scatter Sequence view
+### B32 — Scatter Sequence view — **shipped** (branch `ui-structure`)
 
-**Approved in the design review, deferred 2026-11-23.** Along a curve with Sequence order, the Block Mix
-should read as an ordered sequence (drag to reorder, repeat counts) rather than as weighted percentages.
-Compatibility question to settle first: existing documents use **weight 0** to leave a block out of the
-mix, and a sequence view has no weights to show it with. Either keep an explicit per-entry include flag
-(the entries already carry `IsEnabled`) and migrate zero weights onto it, or keep weights in the model
-and hide them in Sequence. Live-check placement order before and after on a saved document.
+**Done 2026-11-23**, as design review Step 61. Along a curve, Block Mix opens with a full-width **Random /
+Sequence** choice. In Sequence, rows show a drag grip, the inclusion checkbox and the block's place in
+the cycle, with no weight or share; dragging a row reorders the cycle. The compatibility question was
+settled by keeping weights in the model and hiding them: in a sequence weight plays no part, so the
+checkbox alone decides (`ScatterObjectDefinition.EffectiveWeight`), and schema 34 unticks any block a
+saved sequence left out with weight 0. Weights are kept for switching back to Random. Live-checked: a
+baked sequence read A B C …, then C A … after moving C to the top and unticking B. Repeat counts (one
+block twice in a row) were not part of Step 61 and are not built; a block listed twice still appears
+once per cycle.
 
 ### B33 — Exact long-section profiles
 

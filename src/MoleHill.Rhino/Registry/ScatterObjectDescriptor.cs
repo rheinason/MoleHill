@@ -77,6 +77,22 @@ internal sealed class ScatterObjectDescriptor : ObjectTypeDescriptor
                 definition => ((ScatterObjectDefinition)definition).BoundaryFeather,
                 (definition, value) => ((ScatterObjectDefinition)definition).BoundaryFeather = value,
                 "Width over which planting gradually increases from empty to full density after the setback.", unit: ParameterUnit.ModelLength, liveScrub: true, visibleWhen: IsRegion),
+            // Design review Step 61: along a curve, the mix itself is either weighted or a repeating sequence,
+            // so the choice heads the Block Mix rather than sitting among the distribution settings.
+            ObjectParam.Choice(
+                "blockOrder",
+                "Order",
+                new (string, string)[] { ("Random", "Random"), ("Sequence", "Sequence") },
+                definition => ((ScatterObjectDefinition)definition).BlockOrder.ToString(),
+                (definition, value) => ((ScatterObjectDefinition)definition).BlockOrder = Enum.Parse<ScatterBlockOrder>(value!),
+                "How each spot along the curve picks its block.",
+                visibleWhen: definition => IsCurve(definition) && definition is ScatterObjectDefinition scatter && scatter.Blocks.Count > 1,
+                optionHelp: new Dictionary<string, string>
+                {
+                    ["Random"] = "Each spot picks a block at random, in proportion to the weights.",
+                    ["Sequence"] = "Blocks take turns in the order listed, repeating. Drag a row to reorder; untick a block to leave it out.",
+                },
+                fullRow: true),
             ObjectParam.BlockMix(
                 "blocks",
                 "Block Mix",
@@ -171,14 +187,6 @@ internal sealed class ScatterObjectDescriptor : ObjectTypeDescriptor
                 decimalPlaces: 2,
                 liveScrub: true,
                 visibleWhen: definition => IsCurve(definition) && !IsDensity(definition, ScatterDensityMode.EdgeToEdge)),
-            ObjectParam.Choice(
-                "blockOrder",
-                "Block order",
-                new (string, string)[] { ("Random", "Random"), ("Sequence", "Sequence") },
-                definition => ((ScatterObjectDefinition)definition).BlockOrder.ToString(),
-                (definition, value) => ((ScatterObjectDefinition)definition).BlockOrder = Enum.Parse<ScatterBlockOrder>(value!),
-                "Random: choose by weight. Sequence: cycle the block list in order.",
-                visibleWhen: definition => IsCurve(definition) && definition is ScatterObjectDefinition scatter && scatter.Blocks.Count > 1),
             ObjectParam.Slider(
                 "jitterXy",
                 "XY Jitter",
@@ -288,9 +296,9 @@ internal sealed class ScatterObjectDescriptor : ObjectTypeDescriptor
 
     private static string SectionOf(string key) => key switch
     {
-        "blocks" => "blockMix",
+        "blocks" or "blockOrder" => "blockMix",
         "sourceMode" or "scatterSource" or "useTerrainZones" or "zoneSelection" or "pattern" or
-            "densityMode" or "densityUnit" or "perAreaDensity" or "spacing" or "edgeGap" or "count" or "alongJitter" or "blockOrder" => "distribution",
+            "densityMode" or "densityUnit" or "perAreaDensity" or "spacing" or "edgeGap" or "count" or "alongJitter" => "distribution",
         "exclusions" or "exclusionClearance" or "boundarySetback" or "boundaryFeather" or "keepWholeBlocksInside" or
             "slopeFilterEnabled" or "slopeMinDegrees" or "slopeMaxDegrees" or "elevationFilterEnabled" or "elevationMin" or "elevationMax" => "filters",
         "previewMode" or "previewCap" => "preview",

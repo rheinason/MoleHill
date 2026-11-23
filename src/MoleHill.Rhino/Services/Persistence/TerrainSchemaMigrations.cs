@@ -173,6 +173,20 @@ internal static class TerrainSchemaMigrations
                     definition.PlacementScale = 1;
                     definition.ReleasedObjectIds.Clear();
                 }
+            }),
+
+        new TerrainSchemaMigration(
+            34,
+            "Scatter Sequence: a block left out with weight 0 is left out with its checkbox",
+            terrain =>
+            {
+                // A sequence now ignores weight (the field is hidden there), so a zero weight would put a
+                // block back into the cycle. Untick it instead; the weight stays for Random.
+                foreach (var scatter in terrain.Objects.OfType<ScatterObjectDefinition>().Where(item => item.CyclesInSequence))
+                {
+                    foreach (var entry in scatter.Blocks.Where(entry => entry.IsEnabled && entry.Weight <= 0.0))
+                        entry.IsEnabled = false;
+                }
             })
     };
 
