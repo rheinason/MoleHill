@@ -4,8 +4,12 @@ namespace MoleHill.Rhino.Model;
 
 public sealed class LongitudinalSectionAnnotationDefinition : TerrainSectionAnnotationDefinitionBase
 {
+    /// <summary>
+    /// Distance between elevation samples along the curve. Zero is Auto: the terrain's Detail Size, so the
+    /// profile is as fine as the terrain it reads (design review Step 33). A saved card keeps its interval.
+    /// </summary>
     [ModelLength]
-    public double SampleInterval { get; set; } = 1.0;
+    public double SampleInterval { get; set; }
 
     public bool ShowElevationGrid { get; set; } = true;
 
@@ -27,8 +31,6 @@ public sealed class LongitudinalSectionAnnotationDefinition : TerrainSectionAnno
     public override void NormalizeAfterLoad(ModelUnitContext unitContext, Guid ownerTerrainId)
     {
         base.NormalizeAfterLoad(unitContext, ownerTerrainId);
-        SampleInterval = SampleInterval > 0.0
-            ? SampleInterval
-            : unitContext.FromMeters(1.0);
+        SampleInterval = Math.Max(0.0, SampleInterval);
     }
 }

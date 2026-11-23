@@ -865,14 +865,35 @@ internal sealed class LongitudinalSectionAnnotationDescriptor : AnnotationTypeDe
         };
     }
 
+    /// <summary>The spacing a blank Sample Interval samples at: the terrain's Detail Size, as the build reads it.</summary>
+    private static double AutoSampleInterval(TerrainDefinition terrain)
+    {
+        if (global::Rhino.RhinoDoc.ActiveDoc is not { } doc)
+            return 0.0;
+
+        try
+        {
+            double tolerance = doc.ModelAbsoluteTolerance;
+            return Math.Max(
+                TerrainTolerancePolicy.Create(terrain.GlobalTolerance, tolerance, doc.ModelUnitSystem).DetailSize,
+                tolerance * 10.0);
+        }
+        catch (InvalidOperationException)
+        {
+            return 0.0;
+        }
+    }
+
     public override IReadOnlyList<AnnotationParam> Parameters { get; } = ParameterSections.Arrange(new AnnotationParam[]
     {
-        AnnotationParam.Number(
+        AnnotationParam.OptionalNumber(
             "SampleInterval", "Sample Interval",
             a => ((LongitudinalSectionAnnotationDefinition)a).SampleInterval,
-            (a, v) => ((LongitudinalSectionAnnotationDefinition)a).SampleInterval = Math.Max(double.Epsilon, v),
-            "Distance between elevation samples along the curve.",
-            min: 0.0),
+            (a, v) => ((LongitudinalSectionAnnotationDefinition)a).SampleInterval = Math.Max(0.0, v),
+            _ => 0.0,
+            "Distance between elevation samples along the curve. Leave blank to follow the terrain's " +
+            "Detail Size (shown greyed), so the profile is as fine as the terrain; type a distance to fix it.",
+            inheritedValueFromTerrain: (terrain, _) => AutoSampleInterval(terrain)),
         AnnotationParameterCatalog.VerticalExaggeration(),
         AnnotationParam.Bool(
             "ShowBaseline", "Baseline",
