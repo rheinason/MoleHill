@@ -54,6 +54,8 @@ choices; schema sections; Results, source counts and tab fitting; then a per-car
 
 ## Open
 
+Manual checks still to run before merging are in [ui-pass-manual-tests.md](ui-pass-manual-tests.md).
+
 - **UI-09 — earthy single-hue tab icons, three-region Zones glyph** (Steps 06–07). Not implemented; the
   tab icons are unchanged. **UI-10** (Annotation's text-label-with-leader glyph, Step 08) needs checking
   against the existing `TabAnnotation` icon, which already draws a leader.
