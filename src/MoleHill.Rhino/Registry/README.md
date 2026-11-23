@@ -205,6 +205,8 @@ A card's grouping and wording are declared here, not drawn in the panel:
 - Choices: 2-3 fixed options are segments; `PreferDropDown` opts out, `segmented` opts a card-dependent
   list in, `fullRow` makes a card's primary mode, `optionHelp` explains each option on its segment.
 - `OptionalNumber(..., blankText)` names a blank field's meaning ("Auto", "No limit").
+- `PlanPoint` is a point picked in plan (Pick Point / Picked pill, x clears to 0,0); `AppliesTo` hides
+  a row whose value has no effect on this terrain (a report section with nothing to report).
 - A number row with no declared unit shows the unit of the definition property it edits (`ParameterUnits`).
 - `SummaryText` joins summary parts with " · ", writes numbers with a point and counts sources
   ("2 objects · 1 layer").
