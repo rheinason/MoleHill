@@ -243,10 +243,13 @@ caption or label, units inside number fields.
 
 - [x] A curve Scatter with three blocks: Block Mix starts with **Random / Sequence** across the full width.
       Random rows show weight and share.
-- [ ] **PARTIAL / quantity refresh issue — see follow-up above.** Switch to Sequence: rows show grip, checkbox, position number (1, 2, 3), thumbnail, name, remove and
+- [ ] **PARTIAL — quantity refresh fixed in 84e3755; re-check by eye.** Switch to Sequence: rows show grip, checkbox, position number (1, 2, 3), thumbnail, name, remove and
       "n placed"; no weight.
 - [ ] **PARTIAL — real drag and placement order passed; held-hover highlight unverified.** **Drag** the third row by its grip onto the first: it becomes position 1, the row highlights while
       hovering, and the placed blocks along the curve follow the new order.
+      *Highlight attempt 2026-11-23:* a capture taken during the gesture still showed the released state,
+      and an added event observer interfered with drop handling, so it was removed. Those attempts are not
+      counted as application failures; the held-drag highlight stays unverified (needs a human eye).
 - [x] Drag a row onto the thin gap **below the last row**: it moves to the end.
 - [x] Untick a block: its position shows "–", the others renumber, and it disappears from the curve.
 - [x] **Ctrl+Z** undoes the reorder.
@@ -258,7 +261,7 @@ caption or label, units inside number fields.
 
 Measured centred at 100% display scale; confirm by eye at the scale you actually use.
 
-- [ ] Look closely at Reset, Edit…, Apply, Add Modifier and a segmented control: the text should not look
+- [x] **PASS 2026-11-23 at the actual 100% scale:** captions look centred. Look closely at Reset, Edit…, Apply, Add Modifier and a segmented control: the text should not look
       high. If it still looks high at your scale, note the scale (Windows Settings → Display) and a
       screenshot — the measurement only covered 100%.
 
@@ -266,9 +269,14 @@ Measured centred at 100% display scale; confirm by eye at the scale you actually
 
 Every live capture so far was dark theme at 100%.
 
-- [ ] Switch Rhino to the **light** theme and repeat sections 1, 3 and one dialog from 5: text readable,
+- [ ] **FAIL 2026-11-23 — confirmed by the user; details to record here (what looked wrong, where).**
+      Switch Rhino to the **light** theme and repeat sections 1, 3 and one dialog from 5: text readable,
       focus rings visible, no dark-only colours left behind.
-- [ ] If you use 125% or 150% scaling, repeat section 1 at that scale: toolbar columns still line up,
+      *Scripted follow-up:* a panel switched dark→light through its own theme-change handler matched one
+      built fresh in light, so the switch itself leaves no stale colours. A test Rhino cannot show true
+      light theme without changing the shared Rhino settings, so the visible failure needs the user's
+      description or screenshot.
+- [x] **Not applicable:** the display runs at 100%, where everything above was checked. If you use 125% or 150% scaling, repeat section 1 at that scale: toolbar columns still line up,
       nothing in Terrain Settings clips.
 
 ## Not covered here
