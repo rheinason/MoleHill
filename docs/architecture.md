@@ -1131,8 +1131,20 @@ which family a type belongs to:
   onto the mesh. Only these carry the colour-ramp apparatus (`PalettePreset`, `PaletteStops`, `ColorMode`,
   `ResolveRamp()`) — though carrying it is not the same as using it, see catchments below.
 - **Annotation** (`Model/AnnotationDefinition`, `Registry/AnnotationTypeRegistry`) — contours, spot heights,
-  spot slopes, flow arrows, grade callouts, the three section types, and the report table. The result is drawing, and it
+  spot slopes, grade callouts, the three section types, the legend and the report table. The result is drawing, and it
   says what is already there. Only these carry `FollowsAnnotationStyle`.
+
+**Spot labels.** Spot Heights and Spot Slope are one card each with a **Points / Curves / Grid** placement
+(`Model/SpotLabelAnnotationDefinition`). Each placement keeps its own sources (`Sources` for points,
+`CurveSources`, `Boundaries`), so switching placement and back finds them again; only the active set is
+built, but all three are the card's data and `EnumerateSourceSets` yields them all, so layer renames and
+export reach every one. The builder separates *where* (`VisitPointSamples`, `VisitCurveStations` /
+`VisitCurveSpans`, `VisitGridNodes`) from *what is measured* (elevation; or slope and a downhill arrow from
+the hit face's normal), which is how Spot Heights on a grid came for free. Until schema 34 these were five
+cards: Spot Heights (Points), Spot Heights (Curve), Spot Slope (Points), Spot Slope (Curve) and Flow Arrows
+(now Spot Slope on a grid). The schema-34 JSON step rewrites their discriminators in place and moves
+their sources to the placement's set (`TerrainSchemaMigrations.RetiredSpotKinds`); the schema-31 split
+still recognises the retired kinds, because a pre-31 document holds them in the shared analyses array.
 
 **Sections.** All three section types slice through `TerrainSectionSlicer`, which cuts with Core's
 `MeshSectionIndex` (one plan grid per mesh, cached weakly by mesh instance), never with Rhino's

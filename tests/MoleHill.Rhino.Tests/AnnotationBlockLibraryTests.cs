@@ -148,11 +148,8 @@ public class AnnotationBlockLibraryTests
     {
         var expected = new Dictionary<Type, MarkerBlockTemplate>
         {
-            [typeof(CurveElevationLabelAnnotationDefinition)] = MarkerBlockTemplate.AnnotationElevation,
-            [typeof(ProjectedElevationLabelAnnotationDefinition)] = MarkerBlockTemplate.AnnotationElevation,
-            [typeof(CurveSlopeLabelAnnotationDefinition)] = MarkerBlockTemplate.AnnotationSlope,
-            [typeof(PointSlopeLabelAnnotationDefinition)] = MarkerBlockTemplate.AnnotationSlope,
-            [typeof(SlopeArrowAnnotationDefinition)] = MarkerBlockTemplate.AnnotationSlope,
+            [typeof(SpotHeightsAnnotationDefinition)] = MarkerBlockTemplate.AnnotationElevation,
+            [typeof(SpotSlopeAnnotationDefinition)] = MarkerBlockTemplate.AnnotationSlope,
         };
 
         foreach (var (definitionType, template) in expected)

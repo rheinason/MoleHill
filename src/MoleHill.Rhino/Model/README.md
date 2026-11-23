@@ -107,7 +107,9 @@ identity; see `Services/Objects`. Schema 33 retains legacy transform history for
   ignored and Core's `AnalysisRange` fits the distribution instead. The colour-ramp members live here and
   nowhere else.
 - **Annotations** — `AnnotationDefinition` → `Contour`, the `BlockAttributeAnnotationDefinition` label and
-  callout types (spot heights, spot slopes, flow arrows, grade callouts), and the three
+  callout types (Spot Heights and Spot Slope - both `SpotLabelAnnotationDefinition`, placed at points,
+  along curves or on a grid (`SpotPlacement`), each placement keeping its own sources - and grade
+  callouts), and the three
   `TerrainSectionAnnotationDefinitionBase` section types. Content that **describes** the terrain: the
   result is drawing. A peer family of `AnalysisDefinition`, not a subclass of it — see
   `docs/architecture.md` → "Analysis vs annotation". Only annotations carry `FollowsAnnotationStyle`.

@@ -10,7 +10,7 @@ namespace MoleHill.Rhino.Services;
 
 internal static class TerrainSerializer
 {
-    private const int DocumentSchemaVersion = 33;
+    private const int DocumentSchemaVersion = 34;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {

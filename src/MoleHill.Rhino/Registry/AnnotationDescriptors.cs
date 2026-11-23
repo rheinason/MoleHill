@@ -108,9 +108,7 @@ internal static class AnnotationParameterCatalog
 
     private static SlopeAnalyzer.SlopeUnit GetUnit(AnnotationDefinition a) => a switch
     {
-        CurveSlopeLabelAnnotationDefinition d => d.Unit,
-        PointSlopeLabelAnnotationDefinition d => d.Unit,
-        SlopeArrowAnnotationDefinition d => d.Unit,
+        SpotSlopeAnnotationDefinition d => d.Unit,
         ReportTableAnnotationDefinition d => d.Unit,
         _ => SlopeAnalyzer.SlopeUnit.Percent
     };
@@ -119,9 +117,7 @@ internal static class AnnotationParameterCatalog
     {
         switch (a)
         {
-            case CurveSlopeLabelAnnotationDefinition d: d.Unit = unit; break;
-            case PointSlopeLabelAnnotationDefinition d: d.Unit = unit; break;
-            case SlopeArrowAnnotationDefinition d: d.Unit = unit; break;
+            case SpotSlopeAnnotationDefinition d: d.Unit = unit; break;
             case ReportTableAnnotationDefinition d: d.Unit = unit; break;
         }
     }
@@ -289,328 +285,228 @@ internal sealed class ContourAnnotationDescriptor : AnnotationTypeDescriptor
     };
 }
 
-internal sealed class CurveElevationLabelAnnotationDescriptor : AnnotationTypeDescriptor
+/// <summary>
+/// Rows and wording shared by Spot Heights and Spot Slope (design review Steps 34-36): one full-width
+/// Points / Curves / Grid choice, then the active placement's sources and spacing, then the label
+/// settings closed below them.
+/// </summary>
+internal static class SpotLabelCatalog
 {
-    public override string Kind => "curve-elevation-label";
-
-    public override string Summarize(TerrainDefinition terrain, AnnotationDefinition definition, TerrainAnalysisSummary? summary, ResultFormatter format)
+    private static readonly IReadOnlyList<(string Key, string Label)> PlacementOptions = new[]
     {
-        var labels = (CurveElevationLabelAnnotationDefinition)definition;
-        return summary == null
-            ? $"{SummaryText.Sources(labels.Sources)} · {labels.Interval:G4} every"
-            : summary.GeneratedOutputCount > 0
-                ? $"{summary.GeneratedOutputCount} labels · {AnalysisFormatting.FormatValue(summary.SampleAverageValue, labels.ValueFormat)} avg"
-                : "0 labels";
-    }
-    public override Type DefinitionType => typeof(CurveElevationLabelAnnotationDefinition);
-    public override string TypeLabel => "Spot Heights (Curve)";
-    public override string MenuLabel => "Spot Heights (Curve)";
-    public override string IconLabel => "CE";
-    public override string? IconName => "AnCurveElevation";
-    public override int AccentArgb => unchecked((int)0xFF1565C0);
-    public override string Subtitle => "Elevation labels sampled along a curve";
-    public override int SortOrder => 1;
-    public override AnnotationDefinition Create() => new CurveElevationLabelAnnotationDefinition();
+        ("points", "Points"),
+        ("curves", "Curves"),
+        ("grid", "Grid"),
+    };
 
-    public override TerrainAnalysisSummary? Build(AnalysisBuildContext c, AnnotationDefinition annotation) =>
-        TerrainAnalysisAnnotationBuilder.BuildCurveElevationSummary(c.Snapshot, c.CurrentMesh, (CurveElevationLabelAnnotationDefinition)annotation, c.Build, c.ShouldCancel, c.Snapshot.LayerRoles);
+    private static SpotLabelAnnotationDefinition Spot(AnnotationDefinition a) => (SpotLabelAnnotationDefinition)a;
 
-    public override IReadOnlyList<ResultRow> DescribeResult(AnnotationDefinition annotation, TerrainAnalysisSummary? summary, ResultFormatter format)
+    private static bool Is(AnnotationDefinition a, SpotPlacement placement) => Spot(a).Placement == placement;
+
+    public static AnnotationParam[] PlacementRows(string measured, string pointsHelp) => new[]
     {
-        if (summary == null)
-            return new[] { ResultRow.RebuildRequired("Rebuild the terrain to generate curve elevation annotation blocks.") };
-
-        var d = (CurveElevationLabelAnnotationDefinition)annotation;
-        return new[]
-        {
-            ResultRow.Of(
-                "Curves / Labels",
-                $"{summary.SampleSourceCount} curve(s) -> {summary.GeneratedOutputCount} label(s)",
-                "Curve sources resolved and elevation annotation blocks emitted by the last build."),
-            ResultRow.Of(
-                "Min / Max",
-                summary.GeneratedOutputCount > 0
-                    ? $"{AnalysisFormatting.FormatValue(summary.SampleMinValue, d.ValueFormat)} / {AnalysisFormatting.FormatValue(summary.SampleMaxValue, d.ValueFormat)}"
-                    : "No samples",
-                "Terrain elevations sampled along the source curves during the last build.")
-        };
-    }
-
-    public override IReadOnlyList<AnnotationParam> Parameters { get; } = new[]
-    {
+        AnnotationParam.Choice(
+            "Placement", "Placement", PlacementOptions,
+            a => PlacementOptions[(int)Spot(a).Placement].Key,
+            (a, v) => Spot(a).Placement = v switch
+            {
+                "curves" => SpotPlacement.Curves,
+                "grid" => SpotPlacement.Grid,
+                _ => SpotPlacement.Points,
+            },
+            $"Where the {measured} labels go. Each placement keeps its own sources, so switching back finds them again.",
+            optionHelp: new Dictionary<string, string>
+            {
+                ["points"] = "At picked points, and at the edit points of picked curves.",
+                ["curves"] = "At regular stations along picked curves.",
+                ["grid"] = "On a regular plan grid, inside closed boundaries or across the whole terrain.",
+            },
+            fullRow: true),
         AnnotationParam.Sources(
-            "Sources", "Sources",
-            a => ((CurveElevationLabelAnnotationDefinition)a).Sources,
+            "Sources", "Points",
+            a => Spot(a).Sources,
+            RhinoObjectType.Point | RhinoObjectType.Curve,
+            pointsHelp,
+            visibleWhen: a => Is(a, SpotPlacement.Points)),
+        AnnotationParam.Sources(
+            "CurveSources", "Curves",
+            a => Spot(a).CurveSources,
             RhinoObjectType.Curve,
-            "Curve objects or layers sampled along the terrain at regular stations for elevation labels."),
+            $"Curves sampled at regular stations for {measured} labels.",
+            visibleWhen: a => Is(a, SpotPlacement.Curves)),
         AnnotationParam.Number(
             "Interval", "Interval",
-            a => ((CurveElevationLabelAnnotationDefinition)a).Interval,
-            (a, v) => ((CurveElevationLabelAnnotationDefinition)a).Interval = Math.Max(double.Epsilon, v),
-            "Distance along each source curve between elevation sample stations.",
-            min: 0.0),
-    }.Concat(AnnotationParameterCatalog.BlockAttributeTail<CurveElevationLabelAnnotationDefinition>(
-        MarkerBlockTemplate.AnnotationElevation,
-        "Number of decimal places shown in curve elevation labels.")).ToArray();
-}
-
-internal sealed class CurveSlopeLabelAnnotationDescriptor : AnnotationTypeDescriptor
-{
-    public override string Kind => "curve-slope-label";
-
-    public override string Summarize(TerrainDefinition terrain, AnnotationDefinition definition, TerrainAnalysisSummary? summary, ResultFormatter format)
-    {
-        var labels = (CurveSlopeLabelAnnotationDefinition)definition;
-        return summary == null
-            ? $"{SummaryText.Sources(labels.Sources)} · {labels.Interval:G4} every"
-            : summary.GeneratedOutputCount > 0
-                ? $"{summary.GeneratedOutputCount} labels · {AnalysisFormatting.FormatSlopeValue(summary.SampleAverageValue, labels.Unit)} avg"
-                : "0 labels";
-    }
-    public override Type DefinitionType => typeof(CurveSlopeLabelAnnotationDefinition);
-    public override string TypeLabel => "Spot Slope (Curve)";
-    public override string MenuLabel => "Spot Slope (Curve)";
-    public override string IconLabel => "C%";
-    public override string? IconName => "AnCurveSlope";
-    public override int AccentArgb => unchecked((int)0xFF2E7D32);
-    public override string Subtitle => "Slope labels sampled along a curve";
-    public override int SortOrder => 2;
-    public override AnnotationDefinition Create() => new CurveSlopeLabelAnnotationDefinition();
-
-    public override TerrainAnalysisSummary? Build(AnalysisBuildContext c, AnnotationDefinition annotation) =>
-        TerrainAnalysisAnnotationBuilder.BuildCurveSlopeSummary(c.Snapshot, c.CurrentMesh, (CurveSlopeLabelAnnotationDefinition)annotation, c.Build, c.ShouldCancel, c.Snapshot.LayerRoles);
-
-    public override IReadOnlyList<ResultRow> DescribeResult(AnnotationDefinition annotation, TerrainAnalysisSummary? summary, ResultFormatter format)
-    {
-        if (summary == null)
-            return new[] { ResultRow.RebuildRequired("Rebuild the terrain to generate curve slope annotation blocks.") };
-
-        var d = (CurveSlopeLabelAnnotationDefinition)annotation;
-        return new[]
-        {
-            ResultRow.Of(
-                "Curves / Labels",
-                $"{summary.SampleSourceCount} curve(s) -> {summary.GeneratedOutputCount} label(s)",
-                "Curve sources resolved and annotation blocks emitted by the last build."),
-            ResultRow.Of(
-                "Min / Avg / Max",
-                summary.GeneratedOutputCount > 0
-                    ? $"{AnalysisFormatting.FormatSlopeValue(summary.SampleMinValue, d.Unit)} / {AnalysisFormatting.FormatSlopeValue(summary.SampleAverageValue, d.Unit)} / {AnalysisFormatting.FormatSlopeValue(summary.SampleMaxValue, d.Unit)}"
-                    : "No samples",
-                "Terrain-projected curve slope values from the last build.")
-        };
-    }
-
-    public override IReadOnlyList<AnnotationParam> Parameters { get; } = new[]
-    {
+            a => Spot(a).Interval,
+            (a, v) => Spot(a).Interval = Math.Max(double.Epsilon, v),
+            "Distance along each curve between stations.",
+            min: 0.0,
+            visibleWhen: a => Is(a, SpotPlacement.Curves)),
         AnnotationParam.Sources(
-            "Sources", "Sources",
-            a => ((CurveSlopeLabelAnnotationDefinition)a).Sources,
+            "Boundaries", "Boundaries",
+            a => Spot(a).Boundaries,
             RhinoObjectType.Curve,
-            "Curve objects or layers projected to the terrain before grade is sampled."),
-        AnnotationParam.Number(
-            "Interval", "Interval",
-            a => ((CurveSlopeLabelAnnotationDefinition)a).Interval,
-            (a, v) => ((CurveSlopeLabelAnnotationDefinition)a).Interval = Math.Max(double.Epsilon, v),
-            "Distance along each source curve between sampled slope spans.",
-            min: 0.0),
-        AnnotationParameterCatalog.SlopeUnitChoice(
-            "Show terrain-projected curve slope labels as percent, promille, ratio, or degrees."),
-        AnnotationParam.Bool(
-            "FlipDirection", "Flip Arrow",
-            a => ((CurveSlopeLabelAnnotationDefinition)a).FlipDirection,
-            (a, v) => ((CurveSlopeLabelAnnotationDefinition)a).FlipDirection = v,
-            "Rotate slope arrows 180 degrees to match alternate office conventions."),
-    }.Concat(AnnotationParameterCatalog.BlockAttributeTail<CurveSlopeLabelAnnotationDefinition>(
-        MarkerBlockTemplate.AnnotationSlope,
-        "Number of decimal places shown in curve slope labels.")).ToArray();
-}
-
-internal sealed class ProjectedElevationLabelAnnotationDescriptor : AnnotationTypeDescriptor
-{
-    public override string Kind => "projected-elevation-label";
-
-    public override string Summarize(TerrainDefinition terrain, AnnotationDefinition definition, TerrainAnalysisSummary? summary, ResultFormatter format)
-    {
-        var labels = (ProjectedElevationLabelAnnotationDefinition)definition;
-        return summary == null
-            ? $"{SummaryText.Sources(labels.Sources)} · projected Z"
-            : summary.GeneratedOutputCount > 0
-                ? $"{summary.GeneratedOutputCount} labels · {AnalysisFormatting.FormatValue(summary.SampleMinValue, labels.ValueFormat)} to {AnalysisFormatting.FormatValue(summary.SampleMaxValue, labels.ValueFormat)}"
-                : "0 labels";
-    }
-    public override Type DefinitionType => typeof(ProjectedElevationLabelAnnotationDefinition);
-    public override string TypeLabel => "Spot Heights (Points)";
-    public override string MenuLabel => "Spot Heights (Points)";
-    public override string IconLabel => "PZ";
-    public override string? IconName => "AnProjElevation";
-    public override int AccentArgb => unchecked((int)0xFF1565C0);
-    public override string Subtitle => "Elevation labels at picked points";
-    public override int SortOrder => 3;
-    public override AnnotationDefinition Create() => new ProjectedElevationLabelAnnotationDefinition();
-
-    public override TerrainAnalysisSummary? Build(AnalysisBuildContext c, AnnotationDefinition annotation) =>
-        TerrainAnalysisAnnotationBuilder.BuildProjectedElevationSummary(c.Snapshot, c.CurrentMesh, (ProjectedElevationLabelAnnotationDefinition)annotation, c.Build, c.ShouldCancel, c.Snapshot.LayerRoles);
-
-    public override IReadOnlyList<ResultRow> DescribeResult(AnnotationDefinition annotation, TerrainAnalysisSummary? summary, ResultFormatter format)
-    {
-        if (summary == null)
-            return new[] { ResultRow.RebuildRequired("Rebuild the terrain to generate projected elevation annotation blocks.") };
-
-        var d = (ProjectedElevationLabelAnnotationDefinition)annotation;
-        return new[]
-        {
-            ResultRow.Of(
-                "Sources / Labels",
-                $"{summary.SampleSourceCount} source(s) -> {summary.GeneratedOutputCount} label(s)",
-                "Point and curve sources resolved and annotation blocks emitted by the last build."),
-            ResultRow.Of(
-                "Min / Max",
-                summary.GeneratedOutputCount > 0
-                    ? $"{AnalysisFormatting.FormatValue(summary.SampleMinValue, d.ValueFormat)} / {AnalysisFormatting.FormatValue(summary.SampleMaxValue, d.ValueFormat)}"
-                    : "No samples",
-                "Projected terrain elevations from the last build.")
-        };
-    }
-
-    public override IReadOnlyList<AnnotationParam> Parameters { get; } = new[]
-    {
-        AnnotationParam.Sources(
-            "Sources", "Sources",
-            a => ((ProjectedElevationLabelAnnotationDefinition)a).Sources,
-            RhinoObjectType.Point | RhinoObjectType.Curve,
-            "Point objects and curve edit points projected to the terrain for elevation labels."),
-    }.Concat(AnnotationParameterCatalog.BlockAttributeTail<ProjectedElevationLabelAnnotationDefinition>(
-        MarkerBlockTemplate.AnnotationElevation,
-        "Number of decimal places shown in projected elevation labels.")).ToArray();
-}
-
-internal sealed class PointSlopeLabelAnnotationDescriptor : AnnotationTypeDescriptor
-{
-    public override string Kind => "point-slope-label";
-
-    public override string Summarize(TerrainDefinition terrain, AnnotationDefinition definition, TerrainAnalysisSummary? summary, ResultFormatter format)
-    {
-        var labels = (PointSlopeLabelAnnotationDefinition)definition;
-        return summary == null
-            ? $"{SummaryText.Sources(labels.Sources)} · terrain slope"
-            : summary.GeneratedOutputCount > 0
-                ? $"{summary.GeneratedOutputCount} labels · {AnalysisFormatting.FormatSlopeValue(summary.SampleAverageValue, labels.Unit)} avg"
-                : "0 labels";
-    }
-    public override Type DefinitionType => typeof(PointSlopeLabelAnnotationDefinition);
-    public override string TypeLabel => "Spot Slope (Points)";
-    public override string MenuLabel => "Spot Slope (Points)";
-    public override string IconLabel => "P%";
-    public override string? IconName => "AnPointSlope";
-    public override int AccentArgb => unchecked((int)0xFF0288D1);
-    public override string Subtitle => "Slope labels at picked points";
-    public override int SortOrder => 4;
-    public override AnnotationDefinition Create() => new PointSlopeLabelAnnotationDefinition();
-
-    public override TerrainAnalysisSummary? Build(AnalysisBuildContext c, AnnotationDefinition annotation) =>
-        TerrainAnalysisAnnotationBuilder.BuildPointSlopeSummary(c.Snapshot, c.CurrentMesh, (PointSlopeLabelAnnotationDefinition)annotation, c.Build, c.ShouldCancel, c.Snapshot.LayerRoles);
-
-    public override IReadOnlyList<ResultRow> DescribeResult(AnnotationDefinition annotation, TerrainAnalysisSummary? summary, ResultFormatter format)
-    {
-        if (summary == null)
-            return new[] { ResultRow.RebuildRequired("Rebuild the terrain to generate point slope annotation blocks.") };
-
-        var d = (PointSlopeLabelAnnotationDefinition)annotation;
-        return new[]
-        {
-            ResultRow.Of(
-                "Points / Labels",
-                $"{summary.SampleSourceCount} point(s) -> {summary.GeneratedOutputCount} label(s)",
-                "Point sources resolved and annotation blocks emitted by the last build."),
-            ResultRow.Of(
-                "Min / Avg / Max",
-                summary.GeneratedOutputCount > 0
-                    ? $"{AnalysisFormatting.FormatSlopeValue(summary.SampleMinValue, d.Unit)} / {AnalysisFormatting.FormatSlopeValue(summary.SampleAverageValue, d.Unit)} / {AnalysisFormatting.FormatSlopeValue(summary.SampleMaxValue, d.Unit)}"
-                    : "No samples",
-                "Local terrain slope values sampled at the projected points.")
-        };
-    }
-
-    public override IReadOnlyList<AnnotationParam> Parameters { get; } = new[]
-    {
-        AnnotationParam.Sources(
-            "Sources", "Sources",
-            a => ((PointSlopeLabelAnnotationDefinition)a).Sources,
-            RhinoObjectType.Point | RhinoObjectType.Curve,
-            "Point objects and curve edit points projected to the terrain before local slope is sampled."),
-        AnnotationParameterCatalog.SlopeUnitChoice(
-            "Show terrain slope labels as percent, promille, ratio, or degrees."),
-        AnnotationParam.Bool(
-            "FlipDirection", "Flip Arrow",
-            a => ((PointSlopeLabelAnnotationDefinition)a).FlipDirection,
-            (a, v) => ((PointSlopeLabelAnnotationDefinition)a).FlipDirection = v,
-            "Rotate slope arrows 180 degrees to match alternate office conventions."),
-    }.Concat(AnnotationParameterCatalog.BlockAttributeTail<PointSlopeLabelAnnotationDefinition>(
-        MarkerBlockTemplate.AnnotationSlope,
-        "Number of decimal places shown in point slope labels.")).ToArray();
-}
-
-internal sealed class SlopeArrowAnnotationDescriptor : AnnotationTypeDescriptor
-{
-    public override string Kind => "slope-arrows";
-    public override Type DefinitionType => typeof(SlopeArrowAnnotationDefinition);
-    public override string TypeLabel => "Flow Arrows";
-    public override string MenuLabel => "Flow Arrows";
-    public override string IconLabel => "FA";
-    public override string? IconName => "AnFlowArrows";
-    public override int AccentArgb => unchecked((int)0xFF0288D1);
-    public override string Subtitle => "Downhill arrows on a grid";
-    public override int SortOrder => 5;
-    public override AnnotationDefinition Create() => new SlopeArrowAnnotationDefinition();
-
-    public override TerrainAnalysisSummary? Build(AnalysisBuildContext c, AnnotationDefinition annotation) =>
-        TerrainAnalysisAnnotationBuilder.BuildSlopeArrowSummary(c.Snapshot, c.CurrentMesh, (SlopeArrowAnnotationDefinition)annotation, c.Build, c.ShouldCancel, c.Snapshot.LayerRoles);
-
-    public override IReadOnlyList<ResultRow> DescribeResult(AnnotationDefinition annotation, TerrainAnalysisSummary? summary, ResultFormatter format)
-    {
-        if (summary == null)
-            return new[] { ResultRow.RebuildRequired("Rebuild the terrain to generate flow arrows.") };
-
-        var d = (SlopeArrowAnnotationDefinition)annotation;
-        return new[]
-        {
-            ResultRow.Of(
-                "Arrows",
-                $"{summary.GeneratedOutputCount} arrow(s)",
-                "Flow arrows emitted across the terrain by the last build."),
-            ResultRow.Of(
-                "Min / Avg / Max",
-                summary.GeneratedOutputCount > 0
-                    ? $"{AnalysisFormatting.FormatSlopeValue(summary.SampleMinValue, d.Unit)} / {AnalysisFormatting.FormatSlopeValue(summary.SampleAverageValue, d.Unit)} / {AnalysisFormatting.FormatSlopeValue(summary.SampleMaxValue, d.Unit)}"
-                    : "No samples",
-                "Slope magnitudes sampled across the grid during the last build.")
-        };
-    }
-
-    public override IReadOnlyList<AnnotationParam> Parameters { get; } = new[]
-    {
-        AnnotationParam.Sources(
-            "Sources", "Sources",
-            a => ((SlopeArrowAnnotationDefinition)a).Sources,
-            RhinoObjectType.Curve,
-            "Optional closed boundary curves limiting where flow arrows are placed. Leave empty to cover the whole terrain."),
+            "Closed plan curves limiting the grid. Leave empty to cover the whole terrain.",
+            visibleWhen: a => Is(a, SpotPlacement.Grid)),
         AnnotationParam.Number(
             "GridSpacing", "Grid Spacing",
-            a => ((SlopeArrowAnnotationDefinition)a).GridSpacing,
-            (a, v) => ((SlopeArrowAnnotationDefinition)a).GridSpacing = Math.Max(double.Epsilon, v),
-            "Spacing of the sampling grid across the terrain. Smaller spacing = more arrows.",
-            min: 0.0),
-        AnnotationParameterCatalog.SlopeUnitChoice(
-            "Show flow-arrow slope labels as percent, promille, ratio, or degrees."),
-        AnnotationParam.Bool(
-            "FlipDirection", "Flip Arrow",
-            a => ((SlopeArrowAnnotationDefinition)a).FlipDirection,
-            (a, v) => ((SlopeArrowAnnotationDefinition)a).FlipDirection = v,
-            "Rotate arrows 180 degrees (point uphill instead of downhill)."),
-    }.Concat(AnnotationParameterCatalog.BlockAttributeTail<SlopeArrowAnnotationDefinition>(
-        MarkerBlockTemplate.AnnotationSlope,
-        "Number of decimal places shown on flow-arrow slope labels.")).ToArray();
+            a => Spot(a).GridSpacing,
+            (a, v) => Spot(a).GridSpacing = Math.Max(double.Epsilon, v),
+            "Distance between grid nodes. Smaller spacing gives more labels.",
+            min: 0.0,
+            visibleWhen: a => Is(a, SpotPlacement.Grid)),
+    };
+
+    /// <summary>The card's line before a build: what it reads, and how densely.</summary>
+    public static string Placed(SpotLabelAnnotationDefinition spot) => spot.Placement switch
+    {
+        SpotPlacement.Curves => SummaryText.Join(SummaryText.Sources(spot.CurveSources), $"every {spot.Interval:G4}"),
+        SpotPlacement.Grid => SummaryText.Join(
+            spot.Boundaries.HasReferences ? SummaryText.Sources(spot.Boundaries) : "whole terrain",
+            $"{spot.GridSpacing:G4} grid"),
+        _ => SummaryText.Sources(spot.Sources),
+    };
+
+    /// <summary>The first Results row: what resolved, and how many labels it made.</summary>
+    public static ResultRow SourcesRow(SpotLabelAnnotationDefinition spot, TerrainAnalysisSummary summary)
+    {
+        int sources = summary.SampleSourceCount;
+        int labels = summary.GeneratedOutputCount;
+        return spot.Placement switch
+        {
+            SpotPlacement.Curves => ResultRow.Of(
+                "Curves / Labels", $"{sources} curve(s) -> {labels} label(s)",
+                "Curves resolved and labels placed by the last build."),
+            SpotPlacement.Grid => ResultRow.Of(
+                "Grid / Labels",
+                sources > 0 ? $"{sources} boundary(ies) -> {labels} label(s)" : $"Whole terrain -> {labels} label(s)",
+                "Boundaries resolved and grid labels placed by the last build."),
+            _ => ResultRow.Of(
+                "Points / Labels", $"{sources} source(s) -> {labels} label(s)",
+                "Points and curves resolved and labels placed by the last build."),
+        };
+    }
+
+    public static AnnotationParam LabelSettings() => AnnotationParam.Section("labels", "Label Settings");
+}
+
+internal sealed class SpotHeightsAnnotationDescriptor : AnnotationTypeDescriptor
+{
+    public override string Kind => "spot-heights";
+    public override Type DefinitionType => typeof(SpotHeightsAnnotationDefinition);
+    public override string TypeLabel => "Spot Heights";
+    public override string MenuLabel => "Spot Heights";
+    public override string IconLabel => "Z";
+    public override string? IconName => "AnProjElevation";
+    public override int AccentArgb => unchecked((int)0xFF1565C0);
+    public override string Subtitle => "Elevation labels at points, along curves or on a grid";
+    public override int SortOrder => 1;
+    public override AnnotationDefinition Create() => new SpotHeightsAnnotationDefinition();
+
+    public override string Summarize(TerrainDefinition terrain, AnnotationDefinition definition, TerrainAnalysisSummary? summary, ResultFormatter format)
+    {
+        var spot = (SpotHeightsAnnotationDefinition)definition;
+        return summary == null
+            ? SpotLabelCatalog.Placed(spot)
+            : summary.GeneratedOutputCount > 0
+                ? $"{summary.GeneratedOutputCount} labels · {AnalysisFormatting.FormatValue(summary.SampleMinValue, spot.ValueFormat)} to {AnalysisFormatting.FormatValue(summary.SampleMaxValue, spot.ValueFormat)}"
+                : "0 labels";
+    }
+
+    public override TerrainAnalysisSummary? Build(AnalysisBuildContext c, AnnotationDefinition annotation) =>
+        TerrainAnalysisAnnotationBuilder.BuildSpotHeightsSummary(c.Snapshot, c.CurrentMesh, (SpotHeightsAnnotationDefinition)annotation, c.Build, c.ShouldCancel, c.Snapshot.LayerRoles);
+
+    public override IReadOnlyList<ResultRow> DescribeResult(AnnotationDefinition annotation, TerrainAnalysisSummary? summary, ResultFormatter format)
+    {
+        if (summary == null)
+            return new[] { ResultRow.RebuildRequired("Rebuild the terrain to place the spot height labels.") };
+
+        var spot = (SpotHeightsAnnotationDefinition)annotation;
+        return new[]
+        {
+            SpotLabelCatalog.SourcesRow(spot, summary),
+            ResultRow.Of(
+                "Min / Max",
+                summary.GeneratedOutputCount > 0
+                    ? $"{AnalysisFormatting.FormatValue(summary.SampleMinValue, spot.ValueFormat)} / {AnalysisFormatting.FormatValue(summary.SampleMaxValue, spot.ValueFormat)}"
+                    : "No samples",
+                "Terrain elevations at the labels from the last build.")
+        };
+    }
+
+    public override IReadOnlyList<AnnotationParam> Parameters { get; } =
+        SpotLabelCatalog.PlacementRows(
+                "elevation",
+                "Points, and curves whose edit points are labelled, projected onto the terrain.")
+            .Append(SpotLabelCatalog.LabelSettings())
+            .Concat(AnnotationParameterCatalog.BlockAttributeTail<SpotHeightsAnnotationDefinition>(
+                MarkerBlockTemplate.AnnotationElevation,
+                "Number of decimal places shown in spot height labels."))
+            .ToArray();
+}
+
+internal sealed class SpotSlopeAnnotationDescriptor : AnnotationTypeDescriptor
+{
+    public override string Kind => "spot-slope";
+    public override Type DefinitionType => typeof(SpotSlopeAnnotationDefinition);
+    public override string TypeLabel => "Spot Slope";
+    public override string MenuLabel => "Spot Slope";
+    public override string IconLabel => "%";
+    public override string? IconName => "AnPointSlope";
+    public override int AccentArgb => unchecked((int)0xFF0288D1);
+    public override string Subtitle => "Slope labels and downhill arrows at points, along curves or on a grid";
+    public override int SortOrder => 2;
+    public override AnnotationDefinition Create() => new SpotSlopeAnnotationDefinition();
+
+    public override string Summarize(TerrainDefinition terrain, AnnotationDefinition definition, TerrainAnalysisSummary? summary, ResultFormatter format)
+    {
+        var spot = (SpotSlopeAnnotationDefinition)definition;
+        return summary == null
+            ? SpotLabelCatalog.Placed(spot)
+            : summary.GeneratedOutputCount > 0
+                ? $"{summary.GeneratedOutputCount} labels · {AnalysisFormatting.FormatSlopeValue(summary.SampleAverageValue, spot.Unit)} avg"
+                : "0 labels";
+    }
+
+    public override TerrainAnalysisSummary? Build(AnalysisBuildContext c, AnnotationDefinition annotation) =>
+        TerrainAnalysisAnnotationBuilder.BuildSpotSlopeSummary(c.Snapshot, c.CurrentMesh, (SpotSlopeAnnotationDefinition)annotation, c.Build, c.ShouldCancel, c.Snapshot.LayerRoles);
+
+    public override IReadOnlyList<ResultRow> DescribeResult(AnnotationDefinition annotation, TerrainAnalysisSummary? summary, ResultFormatter format)
+    {
+        if (summary == null)
+            return new[] { ResultRow.RebuildRequired("Rebuild the terrain to place the spot slope labels.") };
+
+        var spot = (SpotSlopeAnnotationDefinition)annotation;
+        return new[]
+        {
+            SpotLabelCatalog.SourcesRow(spot, summary),
+            ResultRow.Of(
+                "Min / Avg / Max",
+                summary.GeneratedOutputCount > 0
+                    ? $"{AnalysisFormatting.FormatSlopeValue(summary.SampleMinValue, spot.Unit)} / {AnalysisFormatting.FormatSlopeValue(summary.SampleAverageValue, spot.Unit)} / {AnalysisFormatting.FormatSlopeValue(summary.SampleMaxValue, spot.Unit)}"
+                    : "No samples",
+                "Terrain slope at the labels from the last build.")
+        };
+    }
+
+    public override IReadOnlyList<AnnotationParam> Parameters { get; } =
+        SpotLabelCatalog.PlacementRows(
+                "slope",
+                "Points, and curves whose edit points are labelled, projected onto the terrain before slope is read.")
+            .Concat(new[]
+            {
+                AnnotationParameterCatalog.SlopeUnitChoice(
+                    "Show slope labels as percent, promille, ratio, or degrees."),
+                AnnotationParam.Bool(
+                    "FlipDirection", "Flip Arrow",
+                    a => ((SpotSlopeAnnotationDefinition)a).FlipDirection,
+                    (a, v) => ((SpotSlopeAnnotationDefinition)a).FlipDirection = v,
+                    "Turn the arrows 180 degrees, to point uphill, for offices that draw them that way."),
+                SpotLabelCatalog.LabelSettings(),
+            })
+            .Concat(AnnotationParameterCatalog.BlockAttributeTail<SpotSlopeAnnotationDefinition>(
+                MarkerBlockTemplate.AnnotationSlope,
+                "Number of decimal places shown in spot slope labels."))
+            .ToArray();
 }
 
 internal sealed class GradeBetweenPointsAnnotationDescriptor : AnnotationTypeDescriptor

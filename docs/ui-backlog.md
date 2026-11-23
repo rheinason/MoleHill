@@ -36,6 +36,7 @@ choices; schema sections; Results, source counts and tab fitting; then a per-car
 | 09 | Softer borders | Declined; borders kept (UI-12) |
 | 10 | Wording: Sources — n, contour labels (UI-13–19) | Done |
 | 21–33 | Contours, Spot/Section/Profile annotations, comparison modes, sampling interval | Done |
+| 34–36 | Spot Heights and Spot Slope as one card each, Points / Curves / Grid (B31, schema 34) | Done 2026-11-23; not yet seen live |
 | 37 | Segmented controls for 2–3 modes; primary mode full row | Done |
 | 38–40 | Report Table, Legend, Grade Callout | Done |
 | 41–45 | Retaining Wall, Grade Line, Grade Path; units inside fields (UI-23) | Done |
@@ -54,8 +55,6 @@ choices; schema sections; Results, source counts and tab fitting; then a per-car
 - **UI-09 — earthy single-hue tab icons, three-region Zones glyph** (Steps 06–07). Not implemented; the
   tab icons are unchanged. **UI-10** (Annotation's text-label-with-leader glyph, Step 08) needs checking
   against the existing `TabAnnotation` icon, which already draws a leader.
-- **Spot Heights as one card** (Steps 34–36) - backlog B31; it needs a schema migration. Step 35 also
-  adds an **On a Grid** placement for Spot Heights and Spot Slope, which B31's text does not mention yet.
 - **Scatter Sequence view** (Step 61) - backlog B32.
 - **Step 77's tab view toggles** still use plain characters, not drawn glyphs.
 - **UI-R6 interaction checks:** keyboard navigation, reasons for unavailable actions, visibility toggle

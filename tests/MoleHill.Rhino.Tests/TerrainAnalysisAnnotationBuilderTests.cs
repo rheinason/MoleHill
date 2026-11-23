@@ -9,10 +9,11 @@ namespace MoleHill.Rhino.Tests;
 public class TerrainAnalysisAnnotationBuilderTests
 {
     [RhinoNativeFact]
-    public void BuildCurveSlopeSummary_ProjectsSamplesAlongWorldZ()
+    public void BuildSpotSlopeSummary_Curves_ProjectsSamplesAlongWorldZ()
     {
-        var analysis = new CurveSlopeLabelAnnotationDefinition
+        var analysis = new SpotSlopeAnnotationDefinition
         {
+            Placement = SpotPlacement.Curves,
             IsEnabled = true,
             Interval = 100.0,
             ValueFormat = "F1"
@@ -23,7 +24,7 @@ public class TerrainAnalysisAnnotationBuilderTests
         var snapshot = CreateSnapshot(analysis, sourceCurve);
 
         var build = new TerrainBuildResult();
-        var summary = TerrainAnalysisAnnotationBuilder.BuildCurveSlopeSummary(
+        var summary = TerrainAnalysisAnnotationBuilder.BuildSpotSlopeSummary(
             snapshot,
             CreateSlopedMesh(),
             analysis,
@@ -38,10 +39,11 @@ public class TerrainAnalysisAnnotationBuilderTests
     }
 
     [RhinoNativeFact]
-    public void BuildCurveSlopeSummary_UsesHitFaceNormal_NotSmoothedVertexNormal()
+    public void BuildSpotSlopeSummary_Curves_UsesHitFaceNormal_NotSmoothedVertexNormal()
     {
-        var analysis = new CurveSlopeLabelAnnotationDefinition
+        var analysis = new SpotSlopeAnnotationDefinition
         {
+            Placement = SpotPlacement.Curves,
             IsEnabled = true,
             Interval = 100.0,
             Unit = MoleHill.Core.Analysis.SlopeAnalyzer.SlopeUnit.Degrees,
@@ -53,7 +55,7 @@ public class TerrainAnalysisAnnotationBuilderTests
         var snapshot = CreateSnapshot(analysis, sourceCurve);
 
         var build = new TerrainBuildResult();
-        var summary = TerrainAnalysisAnnotationBuilder.BuildCurveSlopeSummary(
+        var summary = TerrainAnalysisAnnotationBuilder.BuildSpotSlopeSummary(
             snapshot,
             CreateSlopedFaceWithSkewedNeighborMesh(),
             analysis,
@@ -67,10 +69,11 @@ public class TerrainAnalysisAnnotationBuilderTests
     }
 
     [RhinoNativeFact]
-    public void BuildCurveElevationSummary_ProjectsSamplesAlongWorldZ()
+    public void BuildSpotHeightsSummary_Curves_ProjectsSamplesAlongWorldZ()
     {
-        var analysis = new CurveElevationLabelAnnotationDefinition
+        var analysis = new SpotHeightsAnnotationDefinition
         {
+            Placement = SpotPlacement.Curves,
             IsEnabled = true,
             Interval = 100.0,
             ValueFormat = "F2"
@@ -81,7 +84,7 @@ public class TerrainAnalysisAnnotationBuilderTests
         var snapshot = CreateSnapshot(analysis, sourceCurve);
 
         var build = new TerrainBuildResult();
-        var summary = TerrainAnalysisAnnotationBuilder.BuildCurveElevationSummary(
+        var summary = TerrainAnalysisAnnotationBuilder.BuildSpotHeightsSummary(
             snapshot,
             CreateSlopedMesh(),
             analysis,
@@ -97,10 +100,11 @@ public class TerrainAnalysisAnnotationBuilderTests
     }
 
     [RhinoNativeFact]
-    public void BuildProjectedElevationSummary_ProjectsSamplesAlongWorldZ()
+    public void BuildSpotHeightsSummary_Points_ProjectsSamplesAlongWorldZ()
     {
-        var analysis = new ProjectedElevationLabelAnnotationDefinition
+        var analysis = new SpotHeightsAnnotationDefinition
         {
+            Placement = SpotPlacement.Points,
             IsEnabled = true,
             ValueFormat = "F2"
         };
@@ -108,7 +112,7 @@ public class TerrainAnalysisAnnotationBuilderTests
         var snapshot = CreateSnapshot(analysis, sourcePoint);
 
         var build = new TerrainBuildResult();
-        var summary = TerrainAnalysisAnnotationBuilder.BuildProjectedElevationSummary(
+        var summary = TerrainAnalysisAnnotationBuilder.BuildSpotHeightsSummary(
             snapshot,
             CreateSlopedMesh(),
             analysis,
@@ -123,10 +127,11 @@ public class TerrainAnalysisAnnotationBuilderTests
     }
 
     [RhinoNativeFact]
-    public void BuildPointSlopeSummary_ProjectsSamplesAlongWorldZ()
+    public void BuildSpotSlopeSummary_Points_ProjectsSamplesAlongWorldZ()
     {
-        var analysis = new PointSlopeLabelAnnotationDefinition
+        var analysis = new SpotSlopeAnnotationDefinition
         {
+            Placement = SpotPlacement.Points,
             IsEnabled = true,
             ValueFormat = "F1"
         };
@@ -134,7 +139,7 @@ public class TerrainAnalysisAnnotationBuilderTests
         var snapshot = CreateSnapshot(analysis, sourcePoint);
 
         var build = new TerrainBuildResult();
-        var summary = TerrainAnalysisAnnotationBuilder.BuildPointSlopeSummary(
+        var summary = TerrainAnalysisAnnotationBuilder.BuildSpotSlopeSummary(
             snapshot,
             CreateSlopedMesh(),
             analysis,
@@ -149,10 +154,11 @@ public class TerrainAnalysisAnnotationBuilderTests
     }
 
     [RhinoNativeFact]
-    public void BuildSlopeArrowSummary_SamplesGridAndOrientsDownhill()
+    public void BuildSpotSlopeSummary_Grid_SamplesGridAndOrientsDownhill()
     {
-        var analysis = new SlopeArrowAnnotationDefinition
+        var analysis = new SpotSlopeAnnotationDefinition
         {
+            Placement = SpotPlacement.Grid,
             IsEnabled = true,
             GridSpacing = 4.0,
             ValueFormat = "F1"
@@ -161,7 +167,7 @@ public class TerrainAnalysisAnnotationBuilderTests
         var snapshot = CreateSnapshot(analysis, new Point(new Point3d(5.0, 5.0, 0.0)));
 
         var build = new TerrainBuildResult();
-        var summary = TerrainAnalysisAnnotationBuilder.BuildSlopeArrowSummary(
+        var summary = TerrainAnalysisAnnotationBuilder.BuildSpotSlopeSummary(
             snapshot,
             CreateSlopedMesh(),
             analysis,
@@ -336,6 +342,43 @@ public class TerrainAnalysisAnnotationBuilderTests
         Assert.True(summary.SectionCutRegionCount > 0);
     }
 
+    /// <summary>
+    /// Spot Heights on a grid is the one placement no card had before the merge: every grid node inside
+    /// the terrain gets the terrain's elevation there.
+    /// </summary>
+    [RhinoNativeFact]
+    public void BuildSpotHeightsSummary_Grid_LabelsTerrainElevationAtEveryNode()
+    {
+        var analysis = new SpotHeightsAnnotationDefinition
+        {
+            Placement = SpotPlacement.Grid,
+            IsEnabled = true,
+            GridSpacing = 4.0,
+            ValueFormat = "F2"
+        };
+        // A point is not a closed boundary, so it clips nothing and the grid covers the whole mesh.
+        var snapshot = CreateSnapshot(analysis, new Point(new Point3d(5.0, 5.0, 0.0)));
+        var mesh = CreateSlopedMesh();
+
+        var build = new TerrainBuildResult();
+        var summary = TerrainAnalysisAnnotationBuilder.BuildSpotHeightsSummary(
+            snapshot,
+            mesh,
+            analysis,
+            build,
+            shouldCancel: null);
+
+        Assert.True(summary.GeneratedOutputCount > 1);
+        Assert.Equal(summary.GeneratedOutputCount, build.AuxiliaryObjects.Count);
+        foreach (GeneratedRhinoObject output in build.AuxiliaryObjects)
+        {
+            // The sloped mesh rises 10 in Z per unit of X, so the label's elevation is its X times ten.
+            double x = output.InstanceTransform.M03;
+            double z = output.InstanceTransform.M23;
+            Assert.Equal(x * 10.0, z, precision: 6);
+        }
+    }
+
     private static TerrainBuildSnapshot CreateSnapshot(BlockAttributeAnnotationDefinition analysis, GeometryBase geometry)
     {
         var terrain = new TerrainDefinition
@@ -351,9 +394,10 @@ public class TerrainAnalysisAnnotationBuilderTests
         };
 
         Guid sourceId = Guid.NewGuid();
-        analysis.Sources.ObjectIds.Add(sourceId);
+        SourceReferenceSet sources = analysis is SpotLabelAnnotationDefinition spot ? spot.ActiveSources : analysis.Sources;
+        sources.ObjectIds.Add(sourceId);
         BoundingBox bounds = geometry.GetBoundingBox(true);
-        snapshot.SourceObjects[analysis.Sources] = new List<ResolvedSourceObject>
+        snapshot.SourceObjects[sources] = new List<ResolvedSourceObject>
         {
             new()
             {

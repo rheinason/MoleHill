@@ -3,15 +3,20 @@ using MoleHill.Shared;
 
 namespace MoleHill.Rhino.Model;
 
-public sealed class PointSlopeLabelAnnotationDefinition : BlockAttributeAnnotationDefinition
+/// <summary>
+/// Slope labels with a downhill arrow at points, along curves or on a grid. Replaced Spot Slope (Points),
+/// Spot Slope (Curve) and Flow Arrows - the grid placement - in schema 34.
+/// </summary>
+public sealed class SpotSlopeAnnotationDefinition : SpotLabelAnnotationDefinition
 {
     public SlopeAnalyzer.SlopeUnit Unit { get; set; } = SlopeAnalyzer.SlopeUnit.Percent;
 
+    /// <summary>Turns the arrow to point uphill.</summary>
     public bool FlipDirection { get; set; }
 
-    public PointSlopeLabelAnnotationDefinition()
+    public SpotSlopeAnnotationDefinition()
     {
-        Label = "Spot Slope (Points)";
+        Label = "Spot Slope";
         ValueFormat = "F1";
     }
 

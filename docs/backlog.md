@@ -806,14 +806,14 @@ curves and spot points that rebuild it within a stated tolerance: landform lines
 points first, then contours where the rebuilt surface deviates most, repeated until within tolerance, so
 the terrain stays editable afterwards. B6 inverted: the output is editable input, not a reduced mesh.
 
-### B31 — Spot Heights as one card
+### B31 — Spot Heights and Spot Slope as one card each — **shipped** (branch `ui-structure`)
 
-**Approved in the design review (Steps 34-36), deferred 2026-11-23.** Merge the point-elevation and
-curve-elevation label cards into one **Spot Heights** card: Placement **At Points** / **Along Curves**
-(Interval only for Along Curves; At Points also accepts curve edit points), both sharing a closed Label
-Settings group. It changes saved data, so it needs a schema migration step that preserves each existing
-card's sources, formatting, block actions and card identity (id, position in the stack, enabled state),
-with a characterization test per source type. Design boards: `docs/ui-design-handoff.md` Steps 34-36.
+**Done 2026-11-23**, as the design review's Steps 34-36 (decision record in `docs/ui-backlog.md`). Five
+cards became two: **Spot Heights** and **Spot Slope**, each with a full-width **Points / Curves / Grid**
+placement, the placement's sources and spacing visible, and a closed **Label Settings** section. Flow
+Arrows is Spot Slope on a grid; Spot Heights on a grid is new. Each placement keeps its own sources.
+Schema 34 migrates saved cards in place - id, name, position, enabled state, sources, block and formatting
+kept - with a characterization test per old type (`SpotLabelMigrationTests`). Not yet seen live in Rhino.
 
 ### B32 — Scatter Sequence view
 

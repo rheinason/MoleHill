@@ -34,8 +34,27 @@ internal static class TerrainSchemaMigrations
         new TerrainJsonMigration(
             31,
             "Annotations moved out of the shared \"analyses\" array into their own family",
-            SplitLegacyAnnotations)
+            SplitLegacyAnnotations),
+        new TerrainJsonMigration(
+            34,
+            "Spot Heights and Spot Slope became one card each, with a Points / Curves / Grid placement",
+            MergeSpotLabels)
     };
+
+    /// <summary>
+    /// The five label cards schema 34 merged into Spot Heights and Spot Slope: each old kind, the card it
+    /// became, its placement, and where its sources moved (null: they stay in "sources", which is the
+    /// Points placement's set).
+    /// </summary>
+    internal static readonly IReadOnlyDictionary<string, (string Kind, SpotPlacement Placement, string? SourcesTo)> RetiredSpotKinds =
+        new Dictionary<string, (string, SpotPlacement, string?)>(StringComparer.Ordinal)
+        {
+            ["projected-elevation-label"] = ("spot-heights", SpotPlacement.Points, null),
+            ["curve-elevation-label"] = ("spot-heights", SpotPlacement.Curves, "curveSources"),
+            ["point-slope-label"] = ("spot-slope", SpotPlacement.Points, null),
+            ["curve-slope-label"] = ("spot-slope", SpotPlacement.Curves, "curveSources"),
+            ["slope-arrows"] = ("spot-slope", SpotPlacement.Grid, "boundaries"),
+        };
 
     /// <summary>Typed steps, in version order. Run once after deserialization and normalization.</summary>
     internal static readonly IReadOnlyList<TerrainSchemaMigration> Steps = new[]
@@ -217,7 +236,9 @@ internal static class TerrainSchemaMigrations
             // DeepClone is not available on this target framework.
             JsonNode? copy = entry is null ? null : JsonNode.Parse(entry.ToJsonString());
             string? kind = entry?["$type"]?.GetValue<string>();
-            if (kind != null && AnnotationTypeRegistry.ForKind(kind) != null)
+            // The retired spot kinds are no longer registered, but they were annotations: schema 34
+            // renames them once they are in the annotations array.
+            if (kind != null && (AnnotationTypeRegistry.ForKind(kind) != null || RetiredSpotKinds.ContainsKey(kind)))
                 annotations.Add(copy);
             else
                 keptAnalyses.Add(copy);
@@ -229,6 +250,39 @@ internal static class TerrainSchemaMigrations
         terrain["analyses"] = keptAnalyses;
         terrain["annotations"] = annotations;
         return true;
+    }
+
+    private static bool MergeSpotLabels(JsonObject terrain)
+    {
+        // Rewritten on the node tree because the old discriminators no longer bind. Everything else on
+        // the card - id, label, enabled state, block, formatting, colour, unit, arrow flip, interval or
+        // grid spacing, and its place in the array - is left exactly as it was.
+        if (terrain["annotations"] is not JsonArray annotations)
+            return false;
+
+        bool changed = false;
+        foreach (JsonNode? entry in annotations)
+        {
+            if (entry is not JsonObject card ||
+                card["$type"]?.GetValue<string>() is not { } kind ||
+                !RetiredSpotKinds.TryGetValue(kind, out var merged))
+            {
+                continue;
+            }
+
+            // Replaced in place: the discriminator has to stay the object's first property to bind.
+            card["$type"] = merged.Kind;
+            card["placement"] = (int)merged.Placement;
+            if (merged.SourcesTo != null && card["sources"] is JsonNode sources)
+            {
+                card.Remove("sources");
+                card[merged.SourcesTo] = sources;
+            }
+
+            changed = true;
+        }
+
+        return changed;
     }
 
     /// <summary>
