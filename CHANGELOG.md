@@ -3,13 +3,23 @@
 Released through Rhino's Package Manager (Yak) as `MoleHill`. Versions before 1.0.0 were
 beta prereleases. Earlier versions are recorded only in the git history.
 
-## Unreleased
+## 1.7.0-beta — 2026-11-23
 
 A redesign of the MoleHill panel and its dialogs, from a full design review of every card.
 
 **Compatibility**
 - Documents saved with this version use terrain schema 34, which 1.6.0 and earlier refuse to open. Older
   documents open and are upgraded on load.
+
+**Fixes**
+- The panel follows a switch between Rhino's light and dark themes, including after it has been hidden in
+  the dock. Before, its surfaces could stay dark and its icons fade on a light Rhino.
+- After a bake, Untrack Selected / Untrack All become available straight away.
+- Scatter cards show the new placed counts after every rebuild, never a leftover "count pending".
+- Slope arrows point downhill unless Flip Arrow is ticked, as the card says; they pointed uphill. Cards
+  saved by earlier versions are converted with Flip Arrow switched, so existing drawings do not change.
+- At narrow panel widths the Zones and Analysis tabs keep their icons beside their view buttons, and the
+  Zones heading wraps instead of running under the scrollbar.
 
 **Spot labels**
 - **Spot Heights** and **Spot Slope** are one card each, placed at **Points**, along **Curves** or on a
