@@ -235,7 +235,8 @@ public sealed partial class MoleHillPanel
         string cardKind,
         TDef definition,
         IEnumerable<ParameterDescriptor<TDef>> parameters,
-        Func<ParameterDescriptor<TDef>, Control?> buildRow)
+        Func<ParameterDescriptor<TDef>, Control?> buildRow,
+        TerrainDefinition? terrain = null)
         where TDef : class
     {
         ParameterDescriptor<TDef>? section = null;
@@ -263,7 +264,8 @@ public sealed partial class MoleHillPanel
 
         foreach (var parameter in parameters)
         {
-            bool visible = parameter.VisibleWhen == null || parameter.VisibleWhen(definition);
+            bool visible = (parameter.VisibleWhen == null || parameter.VisibleWhen(definition)) &&
+                (terrain == null || parameter.AppliesTo == null || parameter.AppliesTo(terrain));
             if (parameter.Kind == ParameterKind.Section)
             {
                 CloseSection();
@@ -456,7 +458,7 @@ public sealed partial class MoleHillPanel
             return false;
 
         AddSchemaRows(layout, descriptor.Kind, annotation, descriptor.Parameters,
-            parameter => BuildAnnotationSchemaRow(terrain, annotation, parameter));
+            parameter => BuildAnnotationSchemaRow(terrain, annotation, parameter), terrain);
         return true;
     }
 

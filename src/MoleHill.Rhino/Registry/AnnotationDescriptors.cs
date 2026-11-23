@@ -992,39 +992,46 @@ internal sealed class ReportTableAnnotationDescriptor : AnnotationTypeDescriptor
             "IncludeZones", "Zone Schedule",
             a => ((ReportTableAnnotationDefinition)a).IncludeZones,
             (a, v) => ((ReportTableAnnotationDefinition)a).IncludeZones = v,
-            "Area, levels, slope and earthwork per zone, with a totals row."),
+            "Area, levels, slope and earthwork per zone, with a totals row.",
+            appliesTo: t => t.Zones.Count > 0),
         AnnotationParam.Bool(
             "IncludeEarthworks", "Earthworks",
             a => ((ReportTableAnnotationDefinition)a).IncludeEarthworks,
             (a, v) => ((ReportTableAnnotationDefinition)a).IncludeEarthworks = v,
-            "Cut, fill and net volume from each Earthworks analysis on this terrain."),
+            "Cut, fill and net volume from each Earthworks analysis on this terrain.",
+            appliesTo: t => t.Analyses.OfType<EarthworkAnalysisDefinition>().Any()),
         AnnotationParam.Bool(
             "IncludePonding", "Ponding",
             a => ((ReportTableAnnotationDefinition)a).IncludePonding,
             (a, v) => ((ReportTableAnnotationDefinition)a).IncludePonding = v,
-            "Pond count, impounded volume, depth and water area from each Ponding analysis."),
+            "Pond count, impounded volume, depth and water area from each Ponding analysis.",
+            appliesTo: t => t.Analyses.OfType<PondingAnalysisDefinition>().Any()),
         AnnotationParam.Bool(
             "IncludeCatchments", "Catchments",
             a => ((ReportTableAnnotationDefinition)a).IncludeCatchments,
             (a, v) => ((ReportTableAnnotationDefinition)a).IncludeCatchments = v,
-            "Basin and closed-depression counts from each Catchments analysis."),
+            "Basin and closed-depression counts from each Catchments analysis.",
+            appliesTo: t => t.Analyses.OfType<CatchmentAnalysisDefinition>().Any()),
         AnnotationParam.Bool(
             "IncludeGradientCompliance", "Gradient Compliance",
             a => ((ReportTableAnnotationDefinition)a).IncludeGradientCompliance,
             (a, v) => ((ReportTableAnnotationDefinition)a).IncludeGradientCompliance = v,
             "Level area checked, the area over the limit and the steepest slope from each Gradient " +
-            "Compliance analysis, with the standard it was checked against."),
+            "Compliance analysis, with the standard it was checked against.",
+            appliesTo: t => t.Analyses.OfType<GradientComplianceAnalysisDefinition>().Any()),
         AnnotationParam.Bool(
             "IncludeLandforms", "Landforms",
             a => ((ReportTableAnnotationDefinition)a).IncludeLandforms,
             (a, v) => ((ReportTableAnnotationDefinition)a).IncludeLandforms = v,
             "Plan area and share of each landform (ridge, valley, shoulder and the rest) from each " +
-            "Curvature analysis, with the landform size it was measured at."),
+            "Curvature analysis, with the landform size it was measured at.",
+            appliesTo: t => t.Analyses.OfType<CurvatureAnalysisDefinition>().Any()),
         AnnotationParam.Bool(
             "IncludePlanting", "Planting",
             a => ((ReportTableAnnotationDefinition)a).IncludePlanting,
             (a, v) => ((ReportTableAnnotationDefinition)a).IncludePlanting = v,
-            "Placed block/species counts and actual percentages from each enabled Scatter card."),
+            "Placed block/species counts and actual percentages from each enabled Scatter card.",
+            appliesTo: t => t.Objects.OfType<ScatterObjectDefinition>().Any()),
         AnnotationParam.Section("appearance", "Appearance"),
         AnnotationParameterCatalog.SlopeUnitChoice(
             "Unit the drawn slope columns are written in. This one belongs to the drawing, so it is " +
@@ -1062,7 +1069,8 @@ internal sealed class ReportTableAnnotationDescriptor : AnnotationTypeDescriptor
             table.IncludeEarthworks || table.IncludePonding || table.IncludeCatchments ||
             table.IncludeGradientCompliance || table.IncludeLandforms || table.IncludePlanting;
         if (!anythingSelected)
-            return "Nothing is selected to report — switch on at least one section below.";
+            return "Nothing is selected to report — switch on at least one section below. Sections appear " +
+                "as this terrain gains what they report (zones, analyses, scatter).";
 
         // A report draws what other cards measured. Saying which card is missing is more use than an
         // empty table, which reads as "this terrain has no quantities".

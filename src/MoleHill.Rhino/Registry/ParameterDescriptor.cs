@@ -114,6 +114,13 @@ internal sealed class ParameterDescriptor<TDefinition>
     /// placeholder (nothing resolved yet).</summary>
     public Func<TerrainDefinition, TDefinition, double>? InheritedValueFromTerrain { get; init; }
 
+    /// <summary>
+    /// Whether the row means anything on this terrain (design review Step 38: a report section with nothing
+    /// to report). A row that does not is hidden, and returns as soon as it applies; use it only for a row
+    /// whose value has no effect while it does not apply, so hiding it never hides a working setting.
+    /// </summary>
+    public Func<TerrainDefinition, bool>? AppliesTo { get; init; }
+
     /// <summary>Greyed text an empty Text field shows: what leaving it empty does (a legend's automatic title).</summary>
     public Func<TerrainDefinition, TDefinition, string?>? PlaceholderFor { get; init; }
 
@@ -438,11 +445,13 @@ internal sealed class ParameterDescriptor<TDefinition>
         bool rebuildAfterCommit = false,
         Func<TDefinition, bool>? visibleWhen = null,
         bool refreshOnly = false,
-        Func<TDefinition, string>? labelFor = null) =>
+        Func<TDefinition, string>? labelFor = null,
+        Func<TerrainDefinition, bool>? appliesTo = null) =>
         new()
         {
             Kind = ParameterKind.Bool,
             LabelFor = labelFor,
+            AppliesTo = appliesTo,
             Key = key,
             Label = label,
             GetBool = get,
