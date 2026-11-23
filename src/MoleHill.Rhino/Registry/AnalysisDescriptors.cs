@@ -50,9 +50,11 @@ internal sealed class EarthworkAnalysisDescriptor : AnalysisTypeDescriptor
     public override IReadOnlyList<AnalysisParam> Parameters { get; } = new[]
     {
         AnalysisParam.Sources(
-            "Reference", "Compare To",
+            "Reference", "Geometry",
             a => ((EarthworkAnalysisDefinition)a).Reference,
-            RhinoObjectType.Mesh | RhinoObjectType.Brep | RhinoObjectType.Extrusion),
+            RhinoObjectType.Mesh | RhinoObjectType.Brep | RhinoObjectType.Extrusion,
+            "Existing ground as Rhino geometry: a survey mesh or surface.",
+            visibleWhen: a => ComparisonModes.Of((ReferenceComparisonAnalysisDefinition)a) == ComparisonMode.Geometry),
         AnalysisParam.Sources(
             "Boundary", "Boundary",
             a => ((EarthworkAnalysisDefinition)a).Boundary,
@@ -62,6 +64,8 @@ internal sealed class EarthworkAnalysisDescriptor : AnalysisTypeDescriptor
     public override string? DescribeBlocker(TerrainDefinition terrain, AnalysisDefinition analysis)
     {
         var earthwork = (EarthworkAnalysisDefinition)analysis;
+        if (AnalysisPrerequisites.DescribeMissingReference(ComparisonModes.Of(earthwork), earthwork.Reference.HasReferences, earthwork.ReferenceTerrainId.HasValue) is { } missing)
+            return missing;
         return earthwork.Reference.HasReferences || earthwork.ReferenceTerrainId.HasValue ||
                AnalysisPrerequisites.HasElevationChangingModifier(terrain)
             ? null
@@ -254,9 +258,11 @@ internal sealed class CutFillAnalysisDescriptor : AnalysisTypeDescriptor
     public override IReadOnlyList<AnalysisParam> Parameters { get; } = new[]
     {
         AnalysisParam.Sources(
-            "Reference", "Compare To",
+            "Reference", "Geometry",
             a => ((CutFillAnalysisDefinition)a).Reference,
-            RhinoObjectType.Mesh | RhinoObjectType.Brep | RhinoObjectType.Extrusion),
+            RhinoObjectType.Mesh | RhinoObjectType.Brep | RhinoObjectType.Extrusion,
+            "Existing ground as Rhino geometry: a survey mesh or surface.",
+            visibleWhen: a => ComparisonModes.Of((ReferenceComparisonAnalysisDefinition)a) == ComparisonMode.Geometry),
         AnalysisParam.Sources(
             "Boundary", "Boundary",
             a => ((CutFillAnalysisDefinition)a).Boundary,
@@ -310,6 +316,8 @@ internal sealed class CutFillAnalysisDescriptor : AnalysisTypeDescriptor
         // triangulation against the finished modifier stack, which is what "how much did my grading move"
         // means. It only has nothing to say when nothing has moved the ground.
         var cutFill = (CutFillAnalysisDefinition)analysis;
+        if (AnalysisPrerequisites.DescribeMissingReference(ComparisonModes.Of(cutFill), cutFill.Reference.HasReferences, cutFill.ReferenceTerrainId.HasValue) is { } missing)
+            return missing;
         return cutFill.Reference.HasReferences || cutFill.ReferenceTerrainId.HasValue ||
                AnalysisPrerequisites.HasElevationChangingModifier(terrain)
             ? null

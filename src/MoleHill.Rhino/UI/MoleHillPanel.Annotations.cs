@@ -236,53 +236,72 @@ public sealed partial class MoleHillPanel
             }, scheduleRebuild: true);
 
         var layout = new DynamicLayout { DefaultSpacing = new Size(UiMetrics.SpaceMedium, UiMetrics.SpaceMedium) };
-        layout.AddRow(CreateCompareTerrainEditor(
-            terrain,
-            annotation.CutFillReferenceTerrainId,
-            id => MutateSection(item => SetSectionCompareTerrain(item, id)),
-            "Another terrain to draw on this section as existing ground, and to shade cut and fill against. " +
-            "None shades against this terrain's own initial triangulation — the ground before any modifier moved it."));
-        if (annotation.CutFillReferenceTerrainId is { } compareId)
+
+        // Design review Step 29: comparison is one optional choice; only what the chosen mode needs shows.
+        ComparisonMode mode = ComparisonModes.Of(annotation);
+        layout.AddRow(CreateDropDownEditor(
+            "Compare To",
+            SectionComparisonOptions,
+            mode.ToString(),
+            key => MutateSection(item => ComparisonModes.Set(
+                item, Enum.Parse<ComparisonMode>(key), id => SetSectionCompareTerrain(item, id))),
+            "What this section is compared against: nothing, this terrain before its modifiers, another " +
+            "terrain, or Rhino geometry. Off draws no reference and no cut/fill shading."));
+
+        if (mode == ComparisonMode.Terrain)
         {
-            if (annotation.CutFillReference.HasReferences)
-            {
-                layout.AddRow(CreateNoteRow(
-                    "Drawn, but not used for cut/fill: the “Compare To” objects below take precedence."));
-            }
-            else if (CreateCompareTerrainStatusRow(
-                         terrain,
-                         compareId,
-                         "its profile and the cut/fill shading are left off this section") is { } status)
+            layout.AddRow(CreateCompareTerrainEditor(
+                terrain,
+                annotation.CutFillReferenceTerrainId,
+                id => MutateSection(item => SetSectionCompareTerrain(item, id)),
+                "The terrain to draw on this section as existing ground, and to shade cut and fill against."));
+            if (annotation.CutFillReferenceTerrainId is { } compareId &&
+                CreateCompareTerrainStatusRow(
+                    terrain,
+                    compareId,
+                    "its profile and the cut/fill shading are left off this section") is { } status)
             {
                 layout.AddRow(status);
             }
         }
 
-        layout.AddRow(CreateSourceEditor(
-            "Compare To",
-            annotation.CutFillReference,
-            apply => MutateSection(item => apply(item.CutFillReference)),
-            RhinoObjectType.Mesh | RhinoObjectType.Brep | RhinoObjectType.Extrusion,
-            doc => _controller.GetSelectedLayerPaths(doc),
-            "Existing ground as Rhino geometry — a survey mesh or surface — sliced along the same section " +
-            "line. Takes precedence over Compare To Terrain for cut/fill."));
-        layout.AddRow(CreateCheckEditor(
-            "Cut / Fill",
-            annotation.ShowCutFillRegions,
-            value => MutateSection(item => item.ShowCutFillRegions = value),
-            "Shade cut and fill between this terrain and the ground it is compared to above."));
+        if (mode == ComparisonMode.Geometry)
+        {
+            layout.AddRow(CreateSourceEditor(
+                "Geometry",
+                annotation.CutFillReference,
+                apply => MutateSection(item => apply(item.CutFillReference)),
+                RhinoObjectType.Mesh | RhinoObjectType.Brep | RhinoObjectType.Extrusion,
+                doc => _controller.GetSelectedLayerPaths(doc),
+                "Existing ground as Rhino geometry, a survey mesh or surface, sliced along the same section line."));
+        }
+
+        // Shading compares against a drawn reference; with the original surface it is the comparison itself.
+        if (mode is ComparisonMode.Terrain or ComparisonMode.Geometry)
+        {
+            layout.AddRow(CreateCheckEditor(
+                "Shade Cut / Fill",
+                annotation.ShowCutFillRegions,
+                value => MutateSection(item => item.ShowCutFillRegions = value),
+                "Shade cut and fill between this terrain and the reference. Off draws the reference profile only."));
+        }
+
         AddSectionProfileRows(layout, terrain, annotation);
 
         // No hatch pattern, scale or angle rows: cut and fill appearance comes from the
         // SectionsCutFillCut/Fill layer roles (edited in the layer template), so preview and bake
         // match every other generated output. The definition's hatch fields remain only as the
         // legacy fallback the builder reads when a role supplies no pattern.
-        string reference = annotation.CutFillReference.HasReferences
-            ? "Rhino geometry"
-            : annotation.CutFillReferenceTerrainId is { } referenceId && RhinoDoc.ActiveDoc is { } doc
+        string reference = mode switch
+        {
+            ComparisonMode.Off => "Off",
+            ComparisonMode.Geometry => "Rhino geometry",
+            ComparisonMode.Terrain => annotation.CutFillReferenceTerrainId is { } referenceId && RhinoDoc.ActiveDoc is { } doc
                 ? _controller.GetTerrains(doc).FirstOrDefault(item => item.TerrainId == referenceId)?.Name ?? "Another terrain"
-                : "Original terrain";
-        string summary = annotation.ShowCutFillRegions ? SummaryText.Join(reference, "cut/fill") : reference;
+                : "Another terrain",
+            _ => "Original terrain",
+        };
+        string summary = mode != ComparisonMode.Off && annotation.ShowCutFillRegions ? SummaryText.Join(reference, "cut/fill") : reference;
         cardLayout.AddRow(new CardSection(GetAnnotationKind(annotation), "comparison", "Comparison", false, summary, layout));
     }
 
@@ -300,6 +319,14 @@ public sealed partial class MoleHillPanel
         if (terrainId is { } added && !section.ComparisonTerrainIds.Contains(added))
             section.ComparisonTerrainIds.Add(added);
     }
+
+    private static readonly IReadOnlyList<(string Key, string Label)> SectionComparisonOptions = new[]
+    {
+        (nameof(ComparisonMode.Off), "Off"),
+        (nameof(ComparisonMode.Original), "Original Terrain"),
+        (nameof(ComparisonMode.Terrain), "Another Terrain"),
+        (nameof(ComparisonMode.Geometry), "Rhino Geometry"),
+    };
 
     /// <summary>Above this many terrains the profile list gets a filter box.</summary>
     private const int SectionProfileFilterThreshold = 8;

@@ -121,28 +121,34 @@ public sealed partial class MoleHillPanel
         TerrainDefinition owner,
         ReferenceComparisonAnalysisDefinition analysis)
     {
-        // The same rule heads the comparison rows on the section cards, so the block reads as one thing.
-        layout.AddRow(CreateSectionRule("Compare"));
+        void Mutate(Action<ReferenceComparisonAnalysisDefinition> apply) =>
+            MutateAnalysis(owner.TerrainId, analysis.Id, item =>
+            {
+                if (item is ReferenceComparisonAnalysisDefinition compare)
+                    apply(compare);
+            }, scheduleRebuild: true);
+
+        // Design review Step 66: what the cut and fill are measured against, as one choice. The picker for
+        // the chosen reference follows; the Geometry picker is a declared row shown in Geometry mode.
+        ComparisonMode mode = ComparisonModes.Of(analysis);
+        layout.AddRow(CreateSegmentedEditor(
+            "Compare To",
+            AnalysisComparisonOptions,
+            mode.ToString(),
+            key => Mutate(item => ComparisonModes.Set(item, Enum.Parse<ComparisonMode>(key))),
+            "What cut and fill are measured against.",
+            AnalysisComparisonHelp));
+
+        if (mode != ComparisonMode.Terrain)
+            return;
+
         layout.AddRow(CreateCompareTerrainEditor(
             owner,
             analysis.ReferenceTerrainId,
-            id => MutateAnalysis(owner.TerrainId, analysis.Id, item =>
-            {
-                if (item is ReferenceComparisonAnalysisDefinition compare)
-                    compare.ReferenceTerrainId = id;
-            }, scheduleRebuild: true),
-            CompareTerrainHelp + " Ignored when “Compare To” below has objects or layers assigned - those take precedence."));
-
-        if (analysis.ReferenceTerrainId is not { } referenceId)
-            return;
-
-        if (analysis.Reference.HasReferences)
-        {
-            layout.AddRow(CreateNoteRow("Not used: the “Compare To” objects below take precedence over a terrain."));
-            return;
-        }
-
-        if (CreateCompareTerrainStatusRow(
+            id => Mutate(item => item.ReferenceTerrainId = id),
+            CompareTerrainHelp));
+        if (analysis.ReferenceTerrainId is { } referenceId &&
+            CreateCompareTerrainStatusRow(
                 owner,
                 referenceId,
                 "cut and fill are measured against this terrain's own base triangulation instead") is { } status)
@@ -150,6 +156,20 @@ public sealed partial class MoleHillPanel
             layout.AddRow(status);
         }
     }
+
+    private static readonly IReadOnlyList<(string Key, string Label)> AnalysisComparisonOptions = new[]
+    {
+        (nameof(ComparisonMode.Original), "Original"),
+        (nameof(ComparisonMode.Terrain), "Terrain"),
+        (nameof(ComparisonMode.Geometry), "Geometry"),
+    };
+
+    private static readonly IReadOnlyDictionary<string, string> AnalysisComparisonHelp = new Dictionary<string, string>
+    {
+        [nameof(ComparisonMode.Original)] = "This terrain's own surface before its modifiers moved it.",
+        [nameof(ComparisonMode.Terrain)] = "Another MoleHill terrain in this document, as it is built.",
+        [nameof(ComparisonMode.Geometry)] = "Rhino geometry: a survey mesh or surface.",
+    };
 
     /// <summary>An inline caution on a card: a setting is on but cannot take effect yet.</summary>
     /// <summary>

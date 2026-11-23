@@ -63,7 +63,8 @@ public class UiTokenGuardTests
             Environment.NewLine + string.Join(Environment.NewLine, offenders));
     }
 
-    private static readonly Regex LocaleNumber = new(@"CultureInfo\.CurrentCulture", RegexOptions.Compiled);
+    // The culture handed to a format or parse call (SummaryText may still swap the thread's culture).
+    private static readonly Regex LocaleNumber = new(@"CultureInfo\.CurrentCulture\s*[,)]", RegexOptions.Compiled);
 
     /// <summary>
     /// Numbers in the panel are written with a point, as Rhino writes them, and read through
@@ -73,10 +74,11 @@ public class UiTokenGuardTests
     [Fact]
     public void UiNumbers_GoThroughUserNumber()
     {
-        var offenders = FindMatches(LocaleNumber);
+        // Registry too: its formatters write the ramp ticks, summaries and results the panel shows.
+        var offenders = FindMatches(LocaleNumber, "src/MoleHill.Rhino/Registry/");
         Assert.True(
             offenders.Count == 0,
-            "A number formatted or parsed with the Windows locale in UI/. Use MoleHill.Core.Analysis.UserNumber " +
+            "A number formatted or parsed with the Windows locale in UI/ or Registry/. Use MoleHill.Core.Analysis.UserNumber " +
             "(point decimal, tolerant read):" + Environment.NewLine + string.Join(Environment.NewLine, offenders));
     }
 

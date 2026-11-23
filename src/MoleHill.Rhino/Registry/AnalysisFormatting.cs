@@ -47,11 +47,11 @@ internal static class AnalysisFormatting
         string effectiveFormat = string.IsNullOrWhiteSpace(format) ? "G4" : format;
         try
         {
-            return value.ToString(effectiveFormat, CultureInfo.CurrentCulture);
+            return value.ToString(effectiveFormat, CultureInfo.InvariantCulture);
         }
         catch (FormatException)
         {
-            return value.ToString("G4", CultureInfo.CurrentCulture);
+            return value.ToString("G4", CultureInfo.InvariantCulture);
         }
     }
 
@@ -164,12 +164,12 @@ internal static class AnalysisFormatting
     {
         SlopeAnalysisDefinition slope => value => SlopeInput.FormatWithUnit(
             SlopeAnalyzer.ConvertUnitToRatio(value, slope.Unit), slope.Unit),
-        CutFillAnalysisDefinition => value => value.ToString("+0.00;-0.00;0.00", CultureInfo.CurrentCulture),
+        CutFillAnalysisDefinition => value => value.ToString("+0.00;-0.00;0.00", CultureInfo.InvariantCulture),
 
         // Curvatures are small numbers in 1/model-unit (0.02 per metre is a 50 m radius), so a fixed two
         // decimals would print every tick as 0.00. Three significant figures, signed so convex reads "+".
         CurvatureAnalysisDefinition => FormatCurvature,
-        _ => value => value.ToString("F2", CultureInfo.CurrentCulture)
+        _ => value => value.ToString("F2", CultureInfo.InvariantCulture)
     };
 
     /// <summary>A curvature in 1/model-unit: three significant figures, with an explicit sign.</summary>
@@ -180,7 +180,7 @@ internal static class AnalysisFormatting
         if (value == 0.0)
             return "0";
 
-        string magnitude = Math.Abs(value).ToString("G3", CultureInfo.CurrentCulture);
+        string magnitude = Math.Abs(value).ToString("G3", CultureInfo.InvariantCulture);
         return value > 0.0 ? "+" + magnitude : "-" + magnitude;
     }
 

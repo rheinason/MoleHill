@@ -81,7 +81,7 @@ public class AnalysisBlockerTests
         AddSource(analysis.Reference);
 
         Assert.Null(Blocker(analysis));
-        Assert.Equal(AnalysisPrerequisites.ReferenceBasis, Basis(analysis));
+        Assert.Null(Basis(analysis));
     }
 
     [Fact]

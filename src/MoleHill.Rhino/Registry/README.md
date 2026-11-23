@@ -209,3 +209,7 @@ A card's grouping and wording are declared here, not drawn in the panel:
 - `SummaryText` joins summary parts with " · ", writes numbers with a point and counts sources
   ("2 objects · 1 layer").
 - `AnnotationParameterCatalog.TextSize()` places an annotation's Text Size readout among its rows.
+- `ComparisonModes` reads Earthworks', Cut / Fill's and the section cards' comparison (Off / Original /
+  Terrain / Geometry) from the references they already save, so there is no stored mode to migrate.
+  Switching clears the other mode's reference (the build cannot fall back on a hidden one) and parks it
+  for the session, so switching back restores it.

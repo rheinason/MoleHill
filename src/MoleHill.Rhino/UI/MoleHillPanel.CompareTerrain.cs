@@ -38,7 +38,7 @@ public sealed partial class MoleHillPanel
             options.Add((missing.ToString(), "(missing terrain)"));
 
         return CreateDropDownEditor(
-            "Compare To Terrain",
+            "Terrain",
             options,
             selectedId?.ToString() ?? "",
             value => onChanged(string.IsNullOrEmpty(value) ? null : Guid.Parse(value)),
