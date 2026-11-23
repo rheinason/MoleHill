@@ -314,10 +314,15 @@ public sealed partial class MoleHillPanel : Panel
                 new StackLayoutItem(_settingsContent, HorizontalAlignment.Stretch)
             }
         };
-        // Same left accent strip + outer padding every stack card uses, so this reads as one more card
-        // in the stack rather than a plain toolbar block. Neutral gray (ZoneStripColor) since it isn't a
-        // typed card with its own accent color.
-        var settingsCard = CardStack.WrapCard(settingsCardBody, CardStack.CreateStrip(UiTheme.ZoneStripColor), UiTheme.CardBackground);
+        // A card's background and outer padding, but no accent strip: the strip marks a card you can add,
+        // reorder or remove, and names its type. Terrain Settings is none of those - it belongs to the fixed
+        // top of the panel - and its grey strip, borrowed from zone cards, read as one more zone.
+        var settingsCard = new Panel
+        {
+            Padding = new Padding(UiMetrics.SpaceSmall, UiMetrics.SpaceXSmall),
+            BackgroundColor = UiTheme.CardBackground,
+            Content = settingsCardBody
+        };
 
         return settingsCard;
     }
