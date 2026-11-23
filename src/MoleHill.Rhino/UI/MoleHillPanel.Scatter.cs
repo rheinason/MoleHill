@@ -21,7 +21,7 @@ public sealed partial class MoleHillPanel
             parameter => BuildObjectSchemaRow(terrain, scatter, parameter));
 
         var doc = RhinoDoc.ActiveDoc;
-        ScatterBuildSummary? summary = doc == null ? null : _controller.GetScatterSummaries(doc, terrain.TerrainId)
+        ScatterBuildSummary? summary = doc == null ? null : _controller.GetScatterSummaries(doc, terrain.TerrainId, shownOnCard: true)
             .FirstOrDefault(item => item.DefinitionId == scatter.Id);
         string requested = scatter.DensityMode == ScatterDensityMode.Count ? $"Requested {scatter.Count:N0} · " : string.Empty;
         // What the build placed, and why samples were dropped, in the card's shared Results section.
@@ -90,7 +90,7 @@ public sealed partial class MoleHillPanel
                 item => ((ScatterObjectDefinition)item).PerAreaDensity = value / area,
                 deferDocumentSave: true, suppressImmediateUiRefresh: true),
             decimalPlaces: 4, help: parameter.Help, minValue: 0, liveEdit: true, unitSuffix: suffix);
-        ScatterBuildSummary? summary = doc == null ? null : _controller.GetScatterSummaries(doc, terrain.TerrainId).FirstOrDefault(item => item.DefinitionId == scatter.Id);
+        ScatterBuildSummary? summary = doc == null ? null : _controller.GetScatterSummaries(doc, terrain.TerrainId, shownOnCard: true).FirstOrDefault(item => item.DefinitionId == scatter.Id);
         return new StackLayout
         {
             Orientation = Orientation.Vertical, HorizontalContentAlignment = HorizontalAlignment.Stretch, Spacing = UiMetrics.SpaceSmall,

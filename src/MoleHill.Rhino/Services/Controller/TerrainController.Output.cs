@@ -713,7 +713,10 @@ internal sealed partial class TerrainController
 
         terrain.BakedObjectIds.AddRange(bakedIds);
         QueuePendingBlockAttributeKeyRepair(doc, blockAttributeRefreshIds);
-        Save(doc, state, raiseStateChanged: false);
+        // The panel shows what is tracked (Untrack Selected / Untrack All enable on it), so a bake refreshes
+        // it like an untrack does. Without this both buttons stayed greyed after a bake until some other
+        // edit refreshed the panel (found in the manual test run).
+        Save(doc, state);
 
         doc.Views.Redraw();
     }

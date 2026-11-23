@@ -863,9 +863,13 @@ internal sealed partial class TerrainController
         string? cardResults = TryComputeCardResultSignature(doc, terrain);
         // A terrain other terrains compare against changes what *their* cards say (see
         // GetReferenceTerrainStatus), and the visible card may be one of those, so it always refreshes.
+        // A card that drew a placeholder while this build ran ("count pending") is stale whatever the
+        // results are: they may match the previous build's exactly (seen live after a Scatter reorder).
         bool cardsUnchanged = !firstFinal && cardResults != null && cardResults == runtimeCache.LastCardResultSignature
+            && !runtimeCache.CardsShowPendingResults
             && !IsComparedAgainst(GetState(doc), terrain.TerrainId);
         runtimeCache.LastCardResultSignature = cardResults;
+        runtimeCache.CardsShowPendingResults = false;
         if (cardsUnchanged)
             RaiseStatusChanged();
         else
@@ -893,7 +897,8 @@ internal sealed partial class TerrainController
                 GetZoneAnalysisResults(doc, terrain.TerrainId),
                 diagnostics,
                 warnings,
-                terrain.Modifiers.Select(modifier => (modifier.Id, GetModifierStageReport(doc, terrain.TerrainId, modifier.Id))));
+                terrain.Modifiers.Select(modifier => (modifier.Id, GetModifierStageReport(doc, terrain.TerrainId, modifier.Id))),
+                displayState?.ScatterSummaries);
         }
         catch (Exception)
         {

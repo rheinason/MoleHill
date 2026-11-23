@@ -109,7 +109,7 @@ public sealed partial class MoleHillPanel
             (_, _) => AddScatterBlocksFromSelector(terrain, scatter.Id)));
 
         var doc = RhinoDoc.ActiveDoc;
-        ScatterBuildSummary? result = doc == null ? null : _controller.GetScatterSummaries(doc, terrain.TerrainId)
+        ScatterBuildSummary? result = doc == null ? null : _controller.GetScatterSummaries(doc, terrain.TerrainId, shownOnCard: true)
             .FirstOrDefault(item => item.DefinitionId == scatter.Id);
         double totalWeight = scatter.Blocks.Where(entry => entry.IsEnabled).Sum(entry => Math.Max(0, entry.Weight) *
             (!string.IsNullOrWhiteSpace(entry.BlockDefinitionName) ? 1 : doc == null ? 0 :

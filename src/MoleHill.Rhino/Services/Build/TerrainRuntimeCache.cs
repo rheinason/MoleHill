@@ -70,6 +70,13 @@ internal sealed class TerrainRuntimeCache
     public string? LastCardResultSignature { get; set; }
 
     /// <summary>
+    /// Set when a card asked for results that were still pending (Scatter's placed counts while a build is
+    /// queued or running) and so drew "count pending". The signature above describes the last build, not
+    /// that placeholder, so the next finished build must refresh the cards even if its results match it.
+    /// </summary>
+    public bool CardsShowPendingResults { get; set; }
+
+    /// <summary>
     /// The longest any final build in this session has spent on dependent outputs after its mesh was
     /// complete. Decides whether a build publishes its geometry early - see
     /// <see cref="TerrainInterimPublishPolicy"/>, which explains why this is a peak and not the last
@@ -234,6 +241,7 @@ internal sealed class TerrainRuntimeCache
         LastPreviewDuration = null;
         LastFinalDuration = null;
         LastCardResultSignature = null;
+        CardsShowPendingResults = false;
         PeakDependentOutputsDuration = null;
         LastFinalMeshFingerprint = 0;
         ReferencedTerrainFingerprints = null;
