@@ -125,8 +125,19 @@ public sealed partial class MoleHillPanel : Panel
         RhinoApp.AppSettingsChanged += OnAppSettingsChanged;
 
         Content = BuildContent();
+        _builtDark = UiTheme.IsDark;
         RefreshUi();
     }
+
+    /// <summary>The theme the content was last built in; a mismatch with Rhino's means rebuild.</summary>
+    private bool _builtDark;
+
+    /// <summary>
+    /// Re-checks Rhino's theme while the panel is open. A theme switch is not reliably announced to
+    /// plug-ins (the panel kept its dark surfaces after Rhino went light), so the panel also compares on a
+    /// slow timer and when it loads; the check is one colour read.
+    /// </summary>
+    private UITimer? _themeWatchTimer;
 
     private Control BuildContent()
     {
@@ -242,6 +253,14 @@ public sealed partial class MoleHillPanel : Panel
         _isPanelLoaded = true;
         SubscribeControllerStateChanged();
 
+        // UnLoad unsubscribes, and a docked panel unloads every time its dock tab is hidden, so subscribe
+        // again here. Before this, a panel that had been hidden once never heard a settings change again -
+        // including a theme switch, which left it dark on a light Rhino.
+        RhinoApp.AppSettingsChanged -= OnAppSettingsChanged;
+        RhinoApp.AppSettingsChanged += OnAppSettingsChanged;
+        _themeWatchTimer ??= CreateThemeWatchTimer();
+        _themeWatchTimer.Start();
+
         if (!IsDisposed)
         {
             Application.Instance?.AsyncInvoke(() =>
@@ -250,9 +269,17 @@ public sealed partial class MoleHillPanel : Panel
                     return;
 
                 Content = BuildContent();
+                _builtDark = UiTheme.IsDark;
                 RefreshUi();
             });
         }
+    }
+
+    private UITimer CreateThemeWatchTimer()
+    {
+        var timer = new UITimer { Interval = UiTiming.ThemeWatchSeconds };
+        timer.Elapsed += (_, _) => RebuildForThemeIfChanged();
+        return timer;
     }
 
     private void OnAppSettingsChanged(object? sender, EventArgs e)
@@ -262,24 +289,35 @@ public sealed partial class MoleHillPanel : Panel
 
         Application.Instance?.AsyncInvoke(() =>
         {
-            if (IsDisposed)
-                return;
-
-            // Rebuild the full content tree so static surfaces (toolbar, settings
-            // card) pick up the new theme colors alongside the dynamic card stacks.
-            UiMetrics.Invalidate();
-            _terrainColorLabel.TextColor = UiTheme.MutedText;
-            _statusHintLabel.TextColor   = UiTheme.MutedText;
-            CaptureSelectedTabIndex();
-            Content = BuildContent();
-            RefreshUi();
+            if (!IsDisposed)
+                RebuildForTheme();
         });
+    }
+
+    private void RebuildForThemeIfChanged()
+    {
+        if (!IsDisposed && _isPanelLoaded && UiTheme.IsDark != _builtDark)
+            RebuildForTheme();
+    }
+
+    private void RebuildForTheme()
+    {
+        // Rebuild the full content tree so static surfaces (toolbar, settings
+        // card) pick up the new theme colors alongside the dynamic card stacks.
+        UiMetrics.Invalidate();
+        _terrainColorLabel.TextColor = UiTheme.MutedText;
+        _statusHintLabel.TextColor   = UiTheme.MutedText;
+        CaptureSelectedTabIndex();
+        Content = BuildContent();
+        _builtDark = UiTheme.IsDark;
+        RefreshUi();
     }
 
     private void OnPanelUnLoad(object? sender, EventArgs e)
     {
         _isPanelLoaded = false;
         _buildActivityTimer?.Stop();
+        _themeWatchTimer?.Stop();
         UnsubscribeControllerStateChanged();
         RhinoApp.AppSettingsChanged -= OnAppSettingsChanged;
     }

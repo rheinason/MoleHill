@@ -12,4 +12,7 @@ internal static class UiTiming
     /// </summary>
     public const double SliderStreamSeconds = 0.05;
     public const double ToleranceCommitSeconds = 0.25;
+
+    /// <summary>How often an open panel checks whether Rhino's theme has changed under it.</summary>
+    public const double ThemeWatchSeconds = 2.0;
 }

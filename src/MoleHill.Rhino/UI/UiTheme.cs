@@ -11,12 +11,6 @@ internal static class UiTheme
 {
     // ── Detection ──────────────────────────────────────────────────────────
     /// <summary>
-    /// Returns true when Rhino is running in dark mode.
-    /// Uses Rhino's command-prompt background color, which reliably tracks the
-    /// Rhino theme independently of Windows system colors.
-    /// Falls back to system control-background luminance if that call fails.
-    /// </summary>
-    /// <summary>
     /// Forces a theme instead of asking Rhino. Set only by the layout harness, which renders panel
     /// controls outside a Rhino host to check them at the supported dock widths in both themes — there is
     /// no Rhino to ask, and a check that only ever saw one theme would be half a check. Null (the default)
@@ -24,6 +18,13 @@ internal static class UiTheme
     /// </summary>
     public static bool? DarkOverride { get; set; }
 
+    /// <summary>
+    /// True when the panel should draw dark: Rhino paints its panels dark. Read from the colour Rhino
+    /// actually paints panel backgrounds with, because that is what the MoleHill panel sits on. The
+    /// command-prompt background was used before; its colour is set separately from the theme, so after
+    /// switching Rhino to light it could stay dark and the whole panel kept its dark surfaces and light
+    /// icons on a light Rhino (found in the manual test run). It remains the fallback, then the system.
+    /// </summary>
     public static bool IsDark
     {
         get
@@ -33,9 +34,17 @@ internal static class UiTheme
 
             try
             {
+                var panel = global::Rhino.ApplicationSettings.AppearanceSettings.GetPaintColor(
+                    global::Rhino.ApplicationSettings.PaintColor.PanelBackground);
+                if (panel.A > 0)
+                    return Luminance(panel.R, panel.G, panel.B) < 0.5f;
+            }
+            catch { }
+
+            try
+            {
                 var c = global::Rhino.ApplicationSettings.AppearanceSettings.CommandPromptBackgroundColor;
-                float lum = 0.2126f * (c.R / 255f) + 0.7152f * (c.G / 255f) + 0.0722f * (c.B / 255f);
-                return lum < 0.5f;
+                return Luminance(c.R, c.G, c.B) < 0.5f;
             }
             catch { }
 
@@ -44,6 +53,8 @@ internal static class UiTheme
             return (0.2126f * bg.R + 0.7152f * bg.G + 0.0722f * bg.B) < 0.5f;
         }
     }
+
+    private static float Luminance(int r, int g, int b) => 0.2126f * (r / 255f) + 0.7152f * (g / 255f) + 0.0722f * (b / 255f);
 
     // ── Surfaces ───────────────────────────────────────────────────────────
     public static Color CardBackground     => IsDark ? Color.FromArgb(48,  48,  48)  : Color.FromArgb(255, 255, 255);
