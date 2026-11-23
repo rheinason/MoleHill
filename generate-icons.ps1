@@ -1087,32 +1087,6 @@ New-Icon "$rhinoDir\AnContour.png" {
     $pen.Dispose()
 } -size 16
 
-# AnCurveElevation - a curve with a small elevation tag
-New-Icon "$rhinoDir\AnCurveElevation.png" {
-    param($g)
-    $curve = New-Object System.Drawing.Pen((Argb 21 101 192), 2)
-    $g.DrawBezier($curve, 1.0, 13.0, 5.0, 4.0, 9.0, 14.0, 15.0, 5.0)
-    $curve.Dispose()
-    $tag = New-Object System.Drawing.SolidBrush((Argb 21 101 192))
-    $g.FillRectangle($tag, 9, 1, 6, 4)
-    $tag.Dispose()
-    $tick = New-Object System.Drawing.Pen((Argb 21 101 192), 1)
-    $g.DrawLine($tick, 12, 5, 12, 8)
-    $tick.Dispose()
-} -size 16
-
-# AnCurveSlope - a curve with a direction arrow along it
-New-Icon "$rhinoDir\AnCurveSlope.png" {
-    param($g)
-    $curve = New-Object System.Drawing.Pen((Argb 46 125 50), 2)
-    $g.DrawBezier($curve, 1.0, 13.0, 6.0, 12.0, 9.0, 4.0, 15.0, 3.0)
-    $curve.Dispose()
-    $arrow = New-Object System.Drawing.Pen((Argb 46 125 50), 1.6)
-    $g.DrawLine($arrow, 15, 3, 11, 3)
-    $g.DrawLine($arrow, 15, 3, 13, 7)
-    $arrow.Dispose()
-} -size 16
-
 # AnProjElevation - point projected down to a baseline with a tag
 New-Icon "$rhinoDir\AnProjElevation.png" {
     param($g)
@@ -1188,21 +1162,6 @@ New-Icon "$rhinoDir\AnLongSection.png" {
     $drop = New-Object System.Drawing.Pen((Argb 94 53 177), 0.8)
     foreach ($x in 4, 10) { $g.DrawLine($drop, $x, 5, $x, 14) }
     $drop.Dispose()
-} -size 16
-
-# AnFlowArrows - downhill arrows scattered on a loose grid
-New-Icon "$rhinoDir\AnFlowArrows.png" {
-    param($g)
-    $pen = New-Object System.Drawing.Pen((Argb 2 136 209), 1.6)
-    $pen.StartCap = [System.Drawing.Drawing2D.LineCap]::Round
-    $pen.EndCap = [System.Drawing.Drawing2D.LineCap]::Round
-    foreach ($o in @(@(2, 2), @(9, 4), @(4, 8), @(11, 10))) {
-        $x = $o[0]; $y = $o[1]
-        $g.DrawLine($pen, $x, $y, ($x + 3.2), ($y + 3.2))           # shaft (downhill = down-right)
-        $g.DrawLine($pen, ($x + 3.2), ($y + 3.2), ($x + 0.8), ($y + 3.2)) # arrowhead back-x
-        $g.DrawLine($pen, ($x + 3.2), ($y + 3.2), ($x + 3.2), ($y + 0.8)) # arrowhead back-y
-    }
-    $pen.Dispose()
 } -size 16
 
 # AnGradeCallout - two endpoint dots joined by a downhill slope line with an arrowhead
