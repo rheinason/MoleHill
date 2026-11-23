@@ -125,7 +125,9 @@ public sealed partial class MoleHillPanel : Panel
                 };
                 var togglePanel = new Panel
                 {
-                    Padding = new Padding(UiMetrics.SpaceMedium, UiMetrics.SpaceMedium, UiMetrics.SpaceLarge, UiMetrics.SpaceMedium),
+                    // Less vertical padding than the tab's label: the view button is taller than the icon and
+                    // label beside it, and with the same padding these two tabs stood taller than the rest.
+                    Padding = new Padding(UiMetrics.SpaceMedium, UiMetrics.SpaceXSmall, UiMetrics.SpaceLarge, UiMetrics.SpaceXSmall),
                     Content = toggleLabel
                 };
 
@@ -267,8 +269,8 @@ public sealed partial class MoleHillPanel : Panel
                 if (toggle != null)
                 {
                     toggle.Padding = compact
-                        ? new Padding(UiMetrics.SpaceXSmall, UiMetrics.SpaceMedium, UiMetrics.SpaceSmall, UiMetrics.SpaceMedium)
-                        : new Padding(UiMetrics.SpaceMedium, UiMetrics.SpaceMedium, UiMetrics.SpaceLarge, UiMetrics.SpaceMedium);
+                        ? new Padding(UiMetrics.SpaceXSmall, UiMetrics.SpaceXSmall, UiMetrics.SpaceSmall, UiMetrics.SpaceXSmall)
+                        : new Padding(UiMetrics.SpaceMedium, UiMetrics.SpaceXSmall, UiMetrics.SpaceLarge, UiMetrics.SpaceXSmall);
                 }
 
                 tabStrip.Items.Add(new StackLayoutItem(header, expand: !compact || toggle == null));
