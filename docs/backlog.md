@@ -813,7 +813,8 @@ cards became two: **Spot Heights** and **Spot Slope**, each with a full-width **
 placement, the placement's sources and spacing visible, and a closed **Label Settings** section. Flow
 Arrows is Spot Slope on a grid; Spot Heights on a grid is new. Each placement keeps its own sources.
 Schema 34 migrates saved cards in place - id, name, position, enabled state, sources, block and formatting
-kept - with a characterization test per old type (`SpotLabelMigrationTests`). Not yet seen live in Rhino.
+kept - with a characterization test per old type (`SpotLabelMigrationTests`). Live-checked 2026-11-23: a
+.3dm saved by the 1.6.0 build with all five old cards opened with every card, setting and source intact.
 
 ### B32 — Scatter Sequence view
 

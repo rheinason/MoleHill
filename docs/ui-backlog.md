@@ -36,7 +36,7 @@ choices; schema sections; Results, source counts and tab fitting; then a per-car
 | 09 | Softer borders | Declined; borders kept (UI-12) |
 | 10 | Wording: Sources — n, contour labels (UI-13–19) | Done |
 | 21–33 | Contours, Spot/Section/Profile annotations, comparison modes, sampling interval | Done |
-| 34–36 | Spot Heights and Spot Slope as one card each, Points / Curves / Grid (B31, schema 34) | Done 2026-11-23; not yet seen live |
+| 34–36 | Spot Heights and Spot Slope as one card each, Points / Curves / Grid (B31, schema 34) | Done 2026-11-23; live-checked, incl. a document saved by 1.6.0 |
 | 37 | Segmented controls for 2–3 modes; primary mode full row | Done |
 | 38–40 | Report Table, Legend, Grade Callout | Done |
 | 41–45 | Retaining Wall, Grade Line, Grade Path; units inside fields (UI-23) | Done |
@@ -47,7 +47,7 @@ choices; schema sections; Results, source counts and tab fitting; then a per-car
 | 76 | Status as a severity-coloured outcome line | Done |
 | 77–78, 80 | Import/Export Terrain Definition and its preview | Done |
 | 79 | Tab heading with Add on the same row | Done |
-| — | Modal dialogs on one frame (`UiDialogs`); not a numbered step | Done 2026-11-23; not yet seen live |
+| — | Modal dialogs on one frame (`UiDialogs`); not a numbered step | Done 2026-11-23; live-checked |
 
 ## Open
 
