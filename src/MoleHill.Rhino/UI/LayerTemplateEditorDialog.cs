@@ -111,6 +111,9 @@ internal sealed class LayerTemplateEditorDialog : Dialog<bool>
     private readonly DropDown _annotationStylePicker = new() { Width = UiMetrics.Chs(28) };
     private readonly List<Control> _selectionDependent = new();
 
+    // The Annotation Style row, label and picker together: it only means something on an annotation layer.
+    private Control? _annotationStyleRow;
+
     private LayerTemplateEditorDialog(RhinoDoc doc, LayerTemplateStore store)
     {
         _doc = doc;
@@ -294,7 +297,8 @@ internal sealed class LayerTemplateEditorDialog : Dialog<bool>
         grid.AddRow(UiDialogs.Field("Print Color", SwatchRow(_printSwatch, _printHex, pickPrint), expand: false));
         grid.AddRow(UiDialogs.Field("Print Width", _weightStepper, "The layer's print width (plot weight).", expand: false));
         grid.AddRow(UiDialogs.Field("Receives", _rolePicker, expand: false));
-        grid.AddRow(UiDialogs.Field("Annotation Style", _annotationStylePicker, expand: false));
+        _annotationStyleRow = UiDialogs.Field("Annotation Style", _annotationStylePicker, expand: false);
+        grid.AddRow(_annotationStyleRow);
         grid.AddRow(UiDialogs.Field(string.Empty, _roleHint));
 
         return new Panel
@@ -771,6 +775,8 @@ internal sealed class LayerTemplateEditorDialog : Dialog<bool>
             _weightStepper.Value = 0;
             _rolePicker.Text = "Nothing";
             _annotationStylePicker.Visible = false;
+            if (_annotationStyleRow != null)
+                _annotationStyleRow.Visible = false;
             _roleHint.Text = string.Empty;
         }
         else
@@ -787,6 +793,8 @@ internal sealed class LayerTemplateEditorDialog : Dialog<bool>
                 : string.Join(", ", node.Roles.Select(id => LayerRoleRegistry.ForId(id)?.DisplayName ?? id)) + "…";
             _roleHint.Text = DescribeRoles(node.Roles);
             _annotationStylePicker.Visible = IsAnnotationNode(node);
+            if (_annotationStyleRow != null)
+                _annotationStyleRow.Visible = _annotationStylePicker.Visible;
             SelectAnnotationStyle(node.AnnotationStyleName);
         }
         _loadingProperties = false;

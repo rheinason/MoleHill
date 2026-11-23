@@ -122,8 +122,8 @@ internal static class AnnotationParameterCatalog
         }
     }
 
-    /// <summary>The shared tail of every block-attribute analysis card: value format, prefix/suffix,
-    /// block scale, output layer, and color. Mirrors the former AddBlockAttributeAnalysisRows helper.</summary>
+    /// <summary>The shared tail of the spot label cards, all inside Label Settings: block, decimals,
+    /// prefix/suffix, block scale, colour and the style-derived text size.</summary>
     public static IEnumerable<AnnotationParam> BlockAttributeTail<TAnalysis>(MarkerBlockTemplate template, string formatHelp)
         where TAnalysis : BlockAttributeAnnotationDefinition
     {
@@ -166,6 +166,9 @@ internal static class AnnotationParameterCatalog
             fallbackColor: (terrain, _) => AnalysisFormatting.ResolveLayerColorArgb(
                 AnalysisFormatting.GetRoleLayerPath(terrain, LayerRole.Markers)),
             defaultText: (terrain, _) => AnalysisFormatting.GetRoleColorText(terrain, LayerRole.Markers));
+        // Declared here so it lands inside the card's Label Settings with the rest of the label's look;
+        // undeclared, the panel appends it after every section.
+        yield return TextSize();
     }
 }
 
