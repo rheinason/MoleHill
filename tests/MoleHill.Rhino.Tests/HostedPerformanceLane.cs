@@ -98,6 +98,8 @@ public static class HostedPerformanceLane
                 "threads would run on efficiency cores and every metric would read about twice as slow.");
         }
 
+        progress($"Cores: {HostedCorePinning.Pin()}");
+
         PerfEnvironment environment = CaptureEnvironment(request.Commit);
         if (!environment.CoreOptimized || !environment.TestsOptimized)
         {
@@ -203,6 +205,7 @@ public static class HostedPerformanceLane
             CoreOptimized = IsOptimized(core),
             TestsOptimized = IsOptimized(tests),
             PowerThrottlingDisabled = HostedPowerThrottling.IsOptedOut,
+            CorePinning = HostedCorePinning.Description,
             Timestamp = DateTimeOffset.Now.ToString("o")
         };
     }

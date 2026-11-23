@@ -17,6 +17,9 @@ public sealed class PerfEnvironment
 
     /// <summary>False on a result measured before <see cref="HostedPowerThrottling"/> existed, or where the opt-out failed.</summary>
     public bool PowerThrottlingDisabled { get; set; }
+
+    /// <summary>Which cores the slot was held to (<c>HostedCorePinning</c>); null in baselines recorded before it.</summary>
+    public string? CorePinning { get; set; }
     public string Timestamp { get; set; } = string.Empty;
 }
 
