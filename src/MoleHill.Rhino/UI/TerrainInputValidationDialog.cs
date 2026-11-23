@@ -22,19 +22,14 @@ internal sealed class TerrainInputValidationDialog : Dialog<TerrainValidationDia
     private readonly CheckBox _collapseShort = new() { Text = "Collapse short segments", Checked = true };
     private readonly CheckBox _cleanDuplicates = new() { Text = "Clean duplicate curve vertices", Checked = true };
     private readonly NumberField _tolerance = new() { MinValue = 0.000000001 };
-    private readonly Label _summary = new() { TextColor = UiTheme.MutedText, Wrap = WrapMode.Word };
+    private readonly Label _summary = UiDialogs.Note();
     private TerrainValidationPreparation? _preview;
 
-    private TerrainInputValidationDialog(IReadOnlyList<TerrainInputGeometry> selected, double defaultTolerance)
+    private TerrainInputValidationDialog(IReadOnlyList<TerrainInputGeometry> selected, double defaultTolerance, string unit)
     {
         _selected = selected;
         _defaultTolerance = defaultTolerance;
-        Title = "Validate Terrain Inputs";
-        Owner = null;
-        Resizable = false;
-        Padding = UiMetrics.DialogPadding;
-        MinimumSize = new Size(460, 310);
-        this.UseRhinoStyle();
+        UiDialogs.Frame(this, "Validate Terrain Inputs", new Size(460, 310));
         int toleranceDecimals = Math.Clamp(
             (int)Math.Ceiling(-Math.Log10(Math.Max(defaultTolerance, 1e-9))) + 2,
             3,
@@ -42,71 +37,42 @@ internal sealed class TerrainInputValidationDialog : Dialog<TerrainValidationDia
         _tolerance.DecimalPlaces = toleranceDecimals;
         _tolerance.Increment = Math.Pow(10.0, -Math.Max(1, toleranceDecimals - 1));
         _tolerance.Value = defaultTolerance;
+        _tolerance.Unit = unit;
+        _tolerance.Width = UiMetrics.NumericField;
 
-        var preview = new Button { Text = "Preview" };
-        var apply = new Button { Text = "Apply" };
-        var cancel = new Button { Text = "Cancel" };
-        DefaultButton = apply;
-        AbortButton = cancel;
-
-        preview.Click += (_, _) => RefreshSummary();
-        apply.Click += (_, _) =>
+        var preview = UiDialogs.Button("Preview", (_, _) => RefreshSummary(), "Work out what the checked operations would change, without changing anything.");
+        var apply = UiDialogs.Button("Apply", (_, _) =>
         {
             RefreshSummary();
             TerrainValidationPreparation? preparation = _preview;
             _preview = null;
             Result = new TerrainValidationDialogResult(true, CreateOptions(), preparation);
             Close();
-        };
-        cancel.Click += (_, _) =>
+        });
+        var cancel = UiDialogs.Button("Cancel", (_, _) =>
         {
             Result = new TerrainValidationDialogResult(false, CreateOptions(), null);
             Close();
-        };
+        });
         Closed += (_, _) => DisposePreview();
 
-        Content = new DynamicLayout
+        UiDialogs.SetContent(this, new DynamicLayout
         {
             DefaultSpacing = UiMetrics.DialogGap,
             Rows =
             {
-                new Label
-                {
-                    Text = $"Selected terrain inputs: {selected.Count:N0}. Checked operations are applied in a fixed order. " +
-                           "Surviving objects retain their Rhino settings and object IDs.",
-                    Wrap = WrapMode.Word
-                },
+                UiDialogs.Intro(
+                    $"Selected terrain inputs: {selected.Count:N0}. Checked operations are applied in a fixed order. " +
+                    "Surviving objects retain their Rhino settings and object IDs."),
                 _overkill,
                 _joinEndpoints,
                 _collapseShort,
                 _cleanDuplicates,
-                new StackLayout
-                {
-                    Orientation = Orientation.Horizontal,
-                    Spacing = UiMetrics.DialogSpacing,
-                    Items =
-                    {
-                        new Label { Text = "Tolerance:", VerticalAlignment = VerticalAlignment.Center },
-                        _tolerance,
-                        new Label { Text = "model units", TextColor = UiTheme.MutedText, VerticalAlignment = VerticalAlignment.Center }
-                    }
-                },
+                UiDialogs.Field("Tolerance", _tolerance, "How close two points or endpoints must be to count as the same.", expand: false),
                 _summary,
-                new StackLayout
-                {
-                    Orientation = Orientation.Horizontal,
-                    Spacing = UiMetrics.DialogSpacing,
-                    HorizontalContentAlignment = HorizontalAlignment.Right,
-                    Items =
-                    {
-                        new StackLayoutItem(new Panel(), expand: true),
-                        preview,
-                        cancel,
-                        apply
-                    }
-                }
+                UiDialogs.Actions(this, apply, cancel, preview)
             }
-        };
+        });
 
         _summary.Text = "Choose cleanup operations, then select Preview to calculate the expected changes.";
     }
@@ -116,7 +82,7 @@ internal sealed class TerrainInputValidationDialog : Dialog<TerrainValidationDia
         IReadOnlyList<TerrainInputGeometry> selected,
         double defaultTolerance)
     {
-        using var dialog = new TerrainInputValidationDialog(selected, defaultTolerance)
+        using var dialog = new TerrainInputValidationDialog(selected, defaultTolerance, ModelUnits.Abbreviation(doc.ModelUnitSystem))
         {
             Owner = RhinoEtoApp.MainWindowForDocument(doc)
         };

@@ -60,11 +60,7 @@ internal sealed class BlockSelectorDialog : Dialog<List<string>?>
     private BlockSelectorDialog(RhinoDoc doc, IReadOnlyList<InstanceDefinition> blocks, Options options)
     {
         _doc = doc;
-        Title = options.Title;
-        Resizable = true;
-        Padding = UiMetrics.DialogPadding;
-        MinimumSize = new Size(360, 480);
-        this.UseRhinoStyle();
+        UiDialogs.Frame(this, options.Title, new Size(360, 480), resizable: true);
 
         _allRows = blocks
             .Where(definition => definition != null && !string.IsNullOrWhiteSpace(definition.Name))
@@ -107,21 +103,16 @@ internal sealed class BlockSelectorDialog : Dialog<List<string>?>
                 _grid.SelectRow(_allRows.IndexOf(current));
         }
 
-        var addButton = new Button { Text = options.ConfirmText };
-        var cancelButton = new Button { Text = "Cancel" };
-        DefaultButton = addButton;
-        AbortButton = cancelButton;
-
-        addButton.Click += (_, _) =>
+        var addButton = UiDialogs.Button(options.ConfirmText, (_, _) =>
         {
             Result = _grid.SelectedItems.OfType<BlockRow>().Select(row => row.Name).ToList();
             Close();
-        };
-        cancelButton.Click += (_, _) =>
+        });
+        var cancelButton = UiDialogs.Button("Cancel", (_, _) =>
         {
             Result = null;
             Close();
-        };
+        });
 
         // Double-clicking a row takes just that block.
         _grid.CellDoubleClick += (_, e) =>
@@ -133,7 +124,7 @@ internal sealed class BlockSelectorDialog : Dialog<List<string>?>
             }
         };
 
-        var filter = new TextBox { PlaceholderText = "Filter blocks…" };
+        var filter = UiDialogs.Search("blocks");
         filter.TextChanged += (_, _) =>
         {
             string text = filter.Text?.Trim() ?? string.Empty;
@@ -159,26 +150,17 @@ internal sealed class BlockSelectorDialog : Dialog<List<string>?>
         var layout = new DynamicLayout { Spacing = UiMetrics.DialogGap };
         if (_allRows.Count == 0)
         {
-            layout.AddRow(new Label
-            {
-                Text = "No block definitions found in this document. Insert a block first.",
-                Wrap = WrapMode.Word
-            });
+            layout.AddRow(UiDialogs.Intro("No block definitions found in this document. Insert a block first."));
         }
         else
         {
-            layout.AddRow(new Label { Text = options.Prompt });
+            layout.AddRow(UiDialogs.Intro(options.Prompt));
             layout.AddRow(filter);
             layout.AddRow(_grid);
         }
 
-        layout.AddRow(new StackLayout
-        {
-            Orientation = Orientation.Horizontal,
-            Spacing = UiMetrics.DialogSpacing,
-            Items = { null, DefaultButton, AbortButton }
-        });
-        Content = layout;
+        layout.AddRow(UiDialogs.Actions(this, addButton, cancelButton));
+        UiDialogs.SetContent(this, layout);
     }
 
     private void QueueThumbnail(BlockRow row)

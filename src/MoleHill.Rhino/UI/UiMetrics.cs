@@ -52,6 +52,9 @@ internal static class UiMetrics
 
     public static Size DialogGap => new(DialogSpacing, DialogSpacing);
 
+    /// <summary>Minimum width of a dialog button, so OK and Cancel sit as a matched pair.</summary>
+    public static int DialogButtonWidth => Chs(9);
+
     public const int ControlHeight = 26;
     public const int CompactControlHeight = 22;
 

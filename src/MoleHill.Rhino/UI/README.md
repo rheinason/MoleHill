@@ -242,6 +242,14 @@ margin on the scrollable, not the content: the pinning stopped the scan dialog's
   ValueChanged on commit, never per keystroke); the stepper read "3,5" as 35, and a guard keeps it out of UI/.
 - `TextLine.cs` / `DisclosureArrow.cs` - the header's ellipsizing single line (height measured, not
   `Font.LineHeight`, which under-reports on WPF) and the drawn disclosure triangle.
+- `UiDialogs.cs` - the one frame for every modal dialog: `Frame` (title, padding, Rhino styling),
+  `SetContent` (gives every text entry the panel's input look), `Actions` (secondary actions on the left,
+  then the primary action and Cancel on the right, in Rhino's order; Enter and Escape wired), `ButtonRow`,
+  `Intro`/`Note`/`Heading` text, `Field`/`FieldPair` rows on the shared label column, `Search`
+  ("Filter layers…"), and `PromptText` for a one-line name. The dialogs had each assembled these by hand
+  and drifted: primary-first in some and Cancel-first in others, two heading styles, colon labels, units
+  in a label beside the field, inputs without the input look. `DialogGuardTests` fails on a dialog not
+  framed by `Frame`, a Default/Abort button set outside `Actions`, and a label ending in a colon.
 - `CardStack.cs` - every tab's card stack (modifiers, objects, zones, analyses, annotations): toolbar
   and notes, cards in their accent strips, and for a reorderable stack the drag grip, drop targets and
   drag feedback. Stacks differ only in drag key and drop action; the list arithmetic is
@@ -249,7 +257,26 @@ margin on the scrollable, not the content: the pinning stopped the scan dialog's
 
 Use native Eto controls for ordinary buttons, inputs, lists, and selectors. Use `Drawable` only for
 interaction or visualization Eto cannot express cleanly, such as ramps, scrub fields, swatches, and drag
-handles. Dialogs and the floating sculpt toolbar have not yet been migrated to the panel design system.
+handles. Modal dialogs are built through `UiDialogs`. The floating windows (Sculpt toolbar, Relax Route,
+Curve Review, Terrain to Curves / Scan to Terrain) keep their own compact layouts and have not been through
+the design review.
+
+Conventions settled in the 2026-11 design review (`docs/ui-backlog.md` keeps the decision record):
+
+- **Card header:** two fixed lines at every width - grip, disclosure arrow, enable box, bare type icon and
+  the custom name on the first; "Type · summary" on the second. Both ellipsize, with the full text in the
+  tooltip; the header never wraps or grows a third line. Source cards summarise as "n objects · n layers".
+- **Card chrome:** keep the coloured accent strip and the existing borders. Duplicate and delete stay
+  visible as bare icon actions.
+- **Labels:** Title Case, no colon, full words, the modifier vocabulary. A source picker's heading carries
+  its count ("Sources — 3"), with the object/layer breakdown in the tooltip; there is no separate count row.
+- **Units** live inside the number field, never in the label. Numbers use a point decimal.
+- **Choices:** two or three fixed modes are a segmented control; a card's primary mode comes first and
+  spans the row unlabelled. Document lists and longer lists stay drop-downs.
+- **Grouping:** essential inputs stay visible; secondary settings go in a `CardSection`, closed by default,
+  remembered per user. Computed values go under one **Results** section.
+- **Order:** modifiers are drawn bottom to top at every width, Triangulate at the bottom.
+- **Tabs** stay on one row; labels show only when all five fit, with name and purpose in the tooltip.
 
 Tabs: Modifiers, Objects, Zones, Analysis, Annotation. There is no Markers tab: markers are still built
 from persisted definitions (`Services/Build/TerrainBuildService.Objects.cs`) so older documents keep rendering

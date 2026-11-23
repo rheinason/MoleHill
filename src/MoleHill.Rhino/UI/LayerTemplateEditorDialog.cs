@@ -96,17 +96,17 @@ internal sealed class LayerTemplateEditorDialog : Dialog<bool>
     private readonly TreeGridView _tree = new();
     private TreeGridItemCollection _rootItems = new();
 
-    private readonly Label _pathLabel = new() { TextColor = UiTheme.MutedText };
+    private readonly Label _pathLabel = UiControls.Label(string.Empty, UiLabelRole.Meta);
     private readonly Button _rolePicker = new() { Text = "Nothing", Width = UiMetrics.Chs(40) };
     private readonly Button _addMissingButton = new() { Text = "All roles listed" };
     private List<string> _missingRoleLayers = new();
-    private readonly Label _roleHint = new() { TextColor = UiTheme.MutedText, Wrap = WrapMode.Word };
+    private readonly Label _roleHint = UiDialogs.Note();
 
     private readonly Panel _displaySwatch = new() { Width = 20, Height = 20 };
     private readonly Label _displayHex = new();
     private readonly Panel _printSwatch = new() { Width = 20, Height = 20 };
     private readonly Label _printHex = new();
-    private readonly NumberField _weightStepper = new() { DecimalPlaces = 2, MinValue = 0.0, Increment = 0.05 };
+    private readonly NumberField _weightStepper = new() { DecimalPlaces = 2, MinValue = 0.0, Increment = 0.05, Unit = "mm", Width = UiMetrics.NumericField };
     private readonly DropDown _annotationStylePicker = new() { Width = UiMetrics.Chs(28) };
     private readonly List<Control> _selectionDependent = new();
 
@@ -118,13 +118,9 @@ internal sealed class LayerTemplateEditorDialog : Dialog<bool>
         if (_templates.Count == 0)
             _templates.Add(new LayerTemplateDefinition { Name = "Template", Entries = { new LayerTemplateEntry { Path = "Layer" } } });
 
-        Title = "MoleHill Layer Templates";
-        Resizable = true;
-        Padding = UiMetrics.DialogPadding;
-        MinimumSize = new Size(620, 600);
-        this.UseRhinoStyle();
+        UiDialogs.Frame(this, "Layer Templates", new Size(620, 600), resizable: true);
 
-        Content = BuildLayout();
+        UiDialogs.SetContent(this, BuildLayout());
 
         RebuildTemplatePicker();
         LoadAnnotationStyles();
@@ -143,14 +139,11 @@ internal sealed class LayerTemplateEditorDialog : Dialog<bool>
     {
         var layout = new DynamicLayout { Spacing = UiMetrics.DialogGap };
 
-        layout.AddRow(new Label
-        {
-            Text = "The layers MoleHill creates, how they look, and which output lands on each. " +
-                   "Appearance is applied when a layer is first created; after that the layer is " +
-                   "yours and your edits in Rhino's Layers panel stick. Use mhResetLayerStyles to " +
-                   "put a drifted document back.",
-            Wrap = WrapMode.Word
-        });
+        layout.AddRow(UiDialogs.Intro(
+            "The layers MoleHill creates, how they look, and which output lands on each. " +
+            "Appearance is applied when a layer is first created; after that the layer is " +
+            "yours and your edits in Rhino's Layers panel stick. Use mhResetLayerStyles to " +
+            "put a drifted document back."));
 
         layout.AddRow(BuildTemplateRow());
         layout.Add(BuildTreeView(), yscale: true);
@@ -171,12 +164,9 @@ internal sealed class LayerTemplateEditorDialog : Dialog<bool>
             LoadTemplate(_templatePicker.SelectedIndex);
         };
 
-        var newButton = new Button { Text = "New" };
-        newButton.Click += (_, _) => OnNewTemplate();
-        var renameButton = new Button { Text = "Rename" };
-        renameButton.Click += (_, _) => OnRenameTemplate();
-        var deleteButton = new Button { Text = "Delete" };
-        deleteButton.Click += (_, _) => OnDeleteTemplate();
+        var newButton = UiDialogs.Button("New", (_, _) => OnNewTemplate());
+        var renameButton = UiDialogs.Button("Rename", (_, _) => OnRenameTemplate());
+        var deleteButton = UiDialogs.Button("Delete", (_, _) => OnDeleteTemplate());
 
         return new StackLayout
         {
@@ -185,8 +175,7 @@ internal sealed class LayerTemplateEditorDialog : Dialog<bool>
             VerticalContentAlignment = VerticalAlignment.Center,
             Items =
             {
-                new Label { Text = "Template:", VerticalAlignment = VerticalAlignment.Center },
-                new StackLayoutItem(_templatePicker, expand: true),
+                new StackLayoutItem(UiDialogs.Field("Template", _templatePicker), expand: true),
                 newButton,
                 renameButton,
                 deleteButton
@@ -220,7 +209,7 @@ internal sealed class LayerTemplateEditorDialog : Dialog<bool>
         });
         _tree.Columns.Add(new GridColumn
         {
-            HeaderText = "Weight",
+            HeaderText = "Print Width",
             DataCell = new TextBoxCell { Binding = Binding.Delegate<LayerNode, string>(n => n.PlotWeight.ToString("0.##")) }
         });
         // Read-only: the binding is chosen in the properties panel, where the list can be grouped
@@ -245,24 +234,16 @@ internal sealed class LayerTemplateEditorDialog : Dialog<bool>
 
     private Control BuildNodeActions()
     {
-        var addChild = new Button { Text = "+ Child" };
-        addChild.Click += (_, _) => OnAddNode(asChild: true);
-        var addSibling = new Button { Text = "+ Sibling" };
-        addSibling.Click += (_, _) => OnAddNode(asChild: false);
-        var delete = new Button { Text = "Delete Layer" };
-        delete.Click += (_, _) => OnDeleteNode();
+        var addChild = UiDialogs.Button("+ Child", (_, _) => OnAddNode(asChild: true));
+        var addSibling = UiDialogs.Button("+ Sibling", (_, _) => OnAddNode(asChild: false));
+        var delete = UiDialogs.Button("Delete Layer", (_, _) => OnDeleteNode());
 
         _selectionDependent.Add(addSibling);
         _selectionDependent.Add(delete);
 
         _addMissingButton.Click += (_, _) => OnAddMissingRoleLayers();
 
-        return new StackLayout
-        {
-            Orientation = Orientation.Horizontal,
-            Spacing = UiMetrics.DialogRowSpacing,
-            Items = { addChild, addSibling, delete, new Panel { Width = 16 }, _addMissingButton }
-        };
+        return UiDialogs.ButtonRow(addChild, addSibling, delete, null, _addMissingButton);
     }
 
     private Control BuildPropertiesPanel()
@@ -271,10 +252,8 @@ internal sealed class LayerTemplateEditorDialog : Dialog<bool>
         _displaySwatch.MouseDown += (_, _) => PickColor(isPrint: false);
         _printSwatch.MouseDown += (_, _) => PickColor(isPrint: true);
 
-        var pickDisplay = new Button { Text = "Pick" };
-        pickDisplay.Click += (_, _) => PickColor(isPrint: false);
-        var pickPrint = new Button { Text = "Pick" };
-        pickPrint.Click += (_, _) => PickColor(isPrint: true);
+        var pickDisplay = UiDialogs.Button("Pick", (_, _) => PickColor(isPrint: false));
+        var pickPrint = UiDialogs.Button("Pick", (_, _) => PickColor(isPrint: true));
 
         _weightStepper.ValueChanged += (_, _) =>
         {
@@ -309,28 +288,13 @@ internal sealed class LayerTemplateEditorDialog : Dialog<bool>
         _selectionDependent.Add(_annotationStylePicker);
 
         var grid = new DynamicLayout { Spacing = new Size(UiMetrics.SpaceLarge, UiMetrics.SpaceMedium), Padding = new Padding(0, UiMetrics.SpaceSmall) };
-        grid.AddRow(new Label { Text = "Selected:", TextColor = UiTheme.MutedText }, _pathLabel, null);
-        grid.AddRow(
-            new Label { Text = "Color:", VerticalAlignment = VerticalAlignment.Center },
-            SwatchRow(_displaySwatch, _displayHex, pickDisplay),
-            null);
-        grid.AddRow(
-            new Label { Text = "Print color:", VerticalAlignment = VerticalAlignment.Center },
-            SwatchRow(_printSwatch, _printHex, pickPrint),
-            null);
-        grid.AddRow(
-            new Label { Text = "Plot weight:", VerticalAlignment = VerticalAlignment.Center },
-            new StackLayout { Orientation = Orientation.Horizontal, Items = { _weightStepper } },
-            null);
-        grid.AddRow(
-            new Label { Text = "Receives:", VerticalAlignment = VerticalAlignment.Center },
-            new StackLayout { Orientation = Orientation.Horizontal, Items = { _rolePicker } },
-            null);
-        grid.AddRow(
-            new Label { Text = "Annotation style:", VerticalAlignment = VerticalAlignment.Center },
-            new StackLayout { Orientation = Orientation.Horizontal, Items = { _annotationStylePicker } },
-            null);
-        grid.AddRow(new Panel(), _roleHint, null);
+        grid.AddRow(UiDialogs.Field("Selected", _pathLabel));
+        grid.AddRow(UiDialogs.Field("Color", SwatchRow(_displaySwatch, _displayHex, pickDisplay), expand: false));
+        grid.AddRow(UiDialogs.Field("Print Color", SwatchRow(_printSwatch, _printHex, pickPrint), expand: false));
+        grid.AddRow(UiDialogs.Field("Print Width", _weightStepper, "The layer's print width (plot weight).", expand: false));
+        grid.AddRow(UiDialogs.Field("Receives", _rolePicker, expand: false));
+        grid.AddRow(UiDialogs.Field("Annotation Style", _annotationStylePicker, expand: false));
+        grid.AddRow(UiDialogs.Field(string.Empty, _roleHint));
 
         return new Panel
         {
@@ -350,38 +314,15 @@ internal sealed class LayerTemplateEditorDialog : Dialog<bool>
 
     private Control BuildButtonRow()
     {
-        var importButton = new Button { Text = "Import…" };
-        importButton.Click += (_, _) => OnImport();
-        var exportButton = new Button { Text = "Export…" };
-        exportButton.Click += (_, _) => OnExport();
+        var importButton = UiDialogs.Button("Import…", (_, _) => OnImport());
+        var exportButton = UiDialogs.Button("Export…", (_, _) => OnExport());
+        var saveButton = UiDialogs.Button("Save", (_, _) => OnSave());
+        var cancelButton = UiDialogs.Button("Cancel", (_, _) => { Result = false; Close(); });
+        var resetButton = UiDialogs.Button("Reset to Defaults", (_, _) => OnReset());
+        var openFolderButton = UiDialogs.Button("Open Settings Folder", (_, _) => OnOpenSettingsFolder());
 
-        var saveButton = new Button { Text = "Save" };
-        saveButton.Click += (_, _) => OnSave();
-        var cancelButton = new Button { Text = "Cancel" };
-        cancelButton.Click += (_, _) => { Result = false; Close(); };
-        var resetButton = new Button { Text = "Reset To Defaults" };
-        resetButton.Click += (_, _) => OnReset();
-        var openFolderButton = new Button { Text = "Open Settings Folder" };
-        openFolderButton.Click += (_, _) => OnOpenSettingsFolder();
-
-        DefaultButton = saveButton;
-        AbortButton = cancelButton;
-
-        return new StackLayout
-        {
-            Orientation = Orientation.Horizontal,
-            Spacing = UiMetrics.DialogSpacing,
-            Items =
-            {
-                importButton,
-                exportButton,
-                null,
-                saveButton,
-                cancelButton,
-                resetButton,
-                openFolderButton
-            }
-        };
+        // Save and Cancel close the dialog, so they sit together on the right; the rest keep it open.
+        return UiDialogs.Actions(this, saveButton, cancelButton, importButton, exportButton, resetButton, openFolderButton);
     }
 
     // ── Template management ────────────────────────────────────────────────────
@@ -479,7 +420,7 @@ internal sealed class LayerTemplateEditorDialog : Dialog<bool>
 
     private void OnNewTemplate()
     {
-        string? name = PromptForName("New template name", "Template");
+        string? name = UiDialogs.PromptText(this, "New Template", "Name the new template.", "Template", "Create");
         if (name == null)
             return;
         name = UniqueTemplateName(name);
@@ -497,7 +438,7 @@ internal sealed class LayerTemplateEditorDialog : Dialog<bool>
 
     private void OnRenameTemplate()
     {
-        string? name = PromptForName("Rename template", _templates[_activeIndex].Name);
+        string? name = UiDialogs.PromptText(this, "Rename Template", "Rename this template.", _templates[_activeIndex].Name, "Rename");
         if (name == null)
             return;
         _templates[_activeIndex].Name = UniqueTemplateName(name, ignoreIndex: _activeIndex);
@@ -728,45 +669,26 @@ internal sealed class LayerTemplateEditorDialog : Dialog<bool>
             DataCell = new TextBoxCell { Binding = Binding.Delegate<RoleRow, string>(r => r.Elsewhere) }
         });
 
-        var dialog = new Dialog<bool>
-        {
-            Title = "Output for " + NodePath(node),
-            Padding = UiMetrics.DialogPadding,
-            Resizable = true,
-            MinimumSize = new Size(520, 420)
-        };
-        dialog.UseRhinoStyle();
+        var dialog = new Dialog<bool>();
+        UiDialogs.Frame(dialog, "Output for " + NodePath(node), new Size(520, 420), resizable: true);
 
-        var ok = new Button { Text = "OK" };
-        ok.Click += (_, _) => dialog.Close(true);
-        var cancel = new Button { Text = "Cancel" };
-        cancel.Click += (_, _) => dialog.Close(false);
-        dialog.DefaultButton = ok;
-        dialog.AbortButton = cancel;
+        var ok = UiDialogs.Button("OK", (_, _) => dialog.Close(true));
+        var cancel = UiDialogs.Button("Cancel", (_, _) => dialog.Close(false));
 
-        dialog.Content = new StackLayout
+        UiDialogs.SetContent(dialog, new StackLayout
         {
             Orientation = Orientation.Vertical,
             Spacing = UiMetrics.DialogSpacing,
             HorizontalContentAlignment = HorizontalAlignment.Stretch,
             Items =
             {
-                new Label
-                {
-                    Text = "Tick everything that should be drawn on this layer. Anything left unticked "
-                        + "goes to its own layer, or to the nearest parent layer that receives it.",
-                    Wrap = WrapMode.Word
-                },
+                UiDialogs.Intro(
+                    "Tick everything that should be drawn on this layer. Anything left unticked "
+                    + "goes to its own layer, or to the nearest parent layer that receives it."),
                 new StackLayoutItem(grid, expand: true),
-                new StackLayout
-                {
-                    Orientation = Orientation.Horizontal,
-                    Spacing = UiMetrics.DialogRowSpacing,
-                    HorizontalContentAlignment = HorizontalAlignment.Right,
-                    Items = { null, ok, cancel }
-                }
+                UiDialogs.Actions(dialog, ok, cancel)
             }
-        };
+        });
 
         if (!dialog.ShowModal(this))
             return;
@@ -1080,36 +1002,6 @@ internal sealed class LayerTemplateEditorDialog : Dialog<bool>
     }
 
     // ── Helpers ─────────────────────────────────────────────────────────────────
-
-    private string? PromptForName(string title, string initial)
-    {
-        var box = new TextBox { Text = initial, Width = 260 };
-        var ok = new Button { Text = "OK" };
-        var cancel = new Button { Text = "Cancel" };
-        var dialog = new Dialog<string?> { Title = title, Padding = UiMetrics.DialogPadding, Resizable = false };
-        dialog.DefaultButton = ok;
-        dialog.AbortButton = cancel;
-        ok.Click += (_, _) => { dialog.Result = box.Text?.Trim(); dialog.Close(); };
-        cancel.Click += (_, _) => { dialog.Result = null; dialog.Close(); };
-        dialog.Content = new StackLayout
-        {
-            Spacing = UiMetrics.DialogSpacing,
-            Items =
-            {
-                new Label { Text = title },
-                new StackLayoutItem(box, HorizontalAlignment.Stretch),
-                new StackLayout
-                {
-                    Orientation = Orientation.Horizontal,
-                    Spacing = UiMetrics.DialogSpacing,
-                    Items = { null, ok, cancel }
-                }
-            }
-        };
-
-        string? result = dialog.ShowModal(this);
-        return string.IsNullOrWhiteSpace(result) ? null : result.Trim();
-    }
 
     private static Color ToEto(int argb)
     {

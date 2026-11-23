@@ -139,18 +139,11 @@ public sealed partial class MoleHillPanel
             (preview.ClearedTerrainLinks > 0 ? $" ({Count(preview.ClearedTerrainLinks, "link", "links")} cleared)." : ".")));
 
         bool accepted = false;
-        var dialog = new Dialog
-        {
-            Title = "Import Terrain Definition",
-            Resizable = false,
-            Padding = new Padding(UiMetrics.DialogPadding),
-            MinimumSize = new Size(UiMetrics.Chs(48), 0),
-        };
-        var importButton = UiControls.Button("Import", (_, _) => { accepted = true; dialog.Close(); }, "Add it as a new terrain.", UiButtonRole.Toolbar);
-        var cancelButton = UiControls.Button("Cancel", (_, _) => dialog.Close(), role: UiButtonRole.Toolbar);
-        dialog.DefaultButton = importButton;
-        dialog.AbortButton = cancelButton;
-        dialog.Content = new StackLayout
+        var dialog = new Dialog();
+        UiDialogs.Frame(dialog, "Import Terrain Definition", new Size(UiMetrics.Chs(48), 0));
+        var importButton = UiDialogs.Button("Import", (_, _) => { accepted = true; dialog.Close(); }, "Add it as a new terrain.");
+        var cancelButton = UiDialogs.Button("Cancel", (_, _) => dialog.Close());
+        UiDialogs.SetContent(dialog, new StackLayout
         {
             Orientation = Orientation.Vertical,
             Spacing = UiMetrics.DialogSpacing,
@@ -158,16 +151,9 @@ public sealed partial class MoleHillPanel
             Items =
             {
                 new StackLayoutItem(body, HorizontalAlignment.Stretch),
-                new StackLayoutItem(
-                    new StackLayout
-                    {
-                        Orientation = Orientation.Horizontal,
-                        Spacing = UiMetrics.SpaceMedium,
-                        Items = { null, importButton, cancelButton },
-                    },
-                    HorizontalAlignment.Stretch),
+                new StackLayoutItem(UiDialogs.Actions(dialog, importButton, cancelButton), HorizontalAlignment.Stretch),
             },
-        };
+        });
 
         // Step 80: below the selector, same left edge, a small gap.
         try
@@ -180,7 +166,6 @@ public sealed partial class MoleHillPanel
             // Not on screen (a floating panel mid-layout): let the dialog centre itself.
         }
 
-        global::Rhino.UI.EtoExtensions.UseRhinoStyle(dialog);
         dialog.ShowModal(this);
         return accepted;
     }

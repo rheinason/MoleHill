@@ -34,7 +34,7 @@ internal sealed class SurveyImportDialog : Dialog<bool>
 
     private readonly GridView _previewGrid = new() { ShowHeader = true, Height = 260 };
     private readonly ObservableCollection<PreviewRow> _previewRows = new();
-    private readonly Label _summary = new() { TextColor = UiTheme.MutedText, Wrap = WrapMode.Word };
+    private readonly Label _summary = UiDialogs.Note();
 
     private bool _isRefreshing;
 
@@ -47,13 +47,10 @@ internal sealed class SurveyImportDialog : Dialog<bool>
         _content = content;
         _units = units;
 
-        Title = "Import Survey Points";
-        Resizable = true;
-        Padding = UiMetrics.DialogPadding;
-        MinimumSize = new Size(760, 600);
-        this.UseRhinoStyle();
+        UiDialogs.Frame(this, "Import Survey Points", new Size(760, 600), resizable: true);
+        _verticalOffset.Unit = units.Abbreviation;
 
-        Content = BuildLayout();
+        UiDialogs.SetContent(this, BuildLayout());
         LoadChoices();
         Refresh();
     }
@@ -77,18 +74,12 @@ internal sealed class SurveyImportDialog : Dialog<bool>
     {
         BuildPreviewGrid();
 
-        var importButton = new Button { Text = "Import" };
-        importButton.Click += (_, _) => Commit();
-
-        var cancelButton = new Button { Text = "Cancel" };
-        cancelButton.Click += (_, _) => Close(false);
-
-        DefaultButton = importButton;
-        AbortButton = cancelButton;
+        var importButton = UiDialogs.Button("Import", (_, _) => Commit());
+        var cancelButton = UiDialogs.Button("Cancel", (_, _) => Close(false));
 
         var layout = new DynamicLayout { Spacing = UiMetrics.DialogGap };
 
-        layout.AddRow(new Label { Text = Path.GetFileName(_path), Font = SystemFonts.Bold() });
+        layout.AddRow(UiDialogs.Heading(Path.GetFileName(_path)));
 
         layout.AddRow(new StackLayout
         {
@@ -97,11 +88,11 @@ internal sealed class SurveyImportDialog : Dialog<bool>
             VerticalContentAlignment = VerticalAlignment.Center,
             Items =
             {
-                new Label { Text = "Format" },
+                UiControls.Label("Format"),
                 _preset,
-                new Label { Text = "Separator" },
+                UiControls.Label("Separator"),
                 _delimiter,
-                new Label { Text = "Header rows" },
+                UiControls.Label("Header Rows"),
                 _headerRows
             }
         });
@@ -113,40 +104,27 @@ internal sealed class SurveyImportDialog : Dialog<bool>
             VerticalContentAlignment = VerticalAlignment.Center,
             Items =
             {
-                new Label { Text = "File units" },
+                UiControls.Label("File Units"),
                 _fileUnit,
-                new Label { Text = $"Vertical offset ({_units.Abbreviation})" },
+                UiControls.Label("Vertical Offset"),
                 _verticalOffset
             }
         });
 
-        layout.AddRow(new Label
-        {
-            Text = "The vertical offset reconciles a delivered datum with this document's. It belongs to "
-                + "this file, not to the site, so it is not saved — two surveys on two datums can land in "
-                + "one document.",
-            TextColor = UiTheme.MutedText,
-            Wrap = WrapMode.Word
-        });
+        layout.AddRow(UiDialogs.Note(
+            "The vertical offset reconciles a delivered datum with this document's. It belongs to "
+            + "this file, not to the site, so it is not saved — two surveys on two datums can land in "
+            + "one document."));
 
-        layout.AddRow(new Label { Text = "Preview", Font = SystemFonts.Bold() });
-        layout.AddRow(new Label
-        {
-            Text = "Check that easting landed in X and northing in Y. PNEZD writes them the other way "
-                + "round, and a file read the wrong way still parses.",
-            TextColor = UiTheme.MutedText,
-            Wrap = WrapMode.Word
-        });
+        layout.AddRow(UiDialogs.Heading("Preview"));
+        layout.AddRow(UiDialogs.Note(
+            "Check that easting landed in X and northing in Y. PNEZD writes them the other way "
+            + "round, and a file read the wrong way still parses."));
 
         layout.Add(_previewGrid, yscale: true);
         layout.AddRow(_summary);
 
-        layout.AddRow(new StackLayout
-        {
-            Orientation = Orientation.Horizontal,
-            Spacing = UiMetrics.DialogRowSpacing,
-            Items = { null, importButton, cancelButton }
-        });
+        layout.AddRow(UiDialogs.Actions(this, importButton, cancelButton));
 
         return layout;
     }

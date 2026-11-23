@@ -1,8 +1,9 @@
 # Rhino UI design backlog
 
-Updated 2026-11-08. Tracks the Penpot review and planned Rhino UI work.
-**The current approach is approved in principle; implementation and final visual
-polish are still pending.** No Rhino changes have shipped through this design review.
+Updated 2026-11-23. The decision record of the Penpot design review (Steps 01–80) and where its
+implementation stands. Implementation is on branch `ui-structure`, not yet merged; each card was
+checked live in Rhino 8.36 at 240/416 px unless noted. Rules that shipped now live as conventions in
+[the UI README](../src/MoleHill.Rhino/UI/README.md); this file keeps the reasoning and what is open.
 
 ## Working agreement
 
@@ -22,111 +23,53 @@ Tooling and local draft links: [Penpot reference](../tools/penpot/README.md) and
 [self-hosted workflow](../tools/penpot/selfhost/README.md). Instance-specific URLs
 and page IDs live in the ignored `tools/penpot/selfhost/design-draft.local.json`.
 
-## Approved direction — pending implementation
+## Implementation status
 
-| ID | Decision | Design reference / remaining work |
+Implemented structurally - on shared tokens and primitives, not card by card - in six steps:
+tokens and guards; one card stack and one card header; units inside number fields and segmented
+choices; schema sections; Results, source counts and tab fitting; then a per-card data pass.
+
+| Steps | What | State |
 | --- | --- | --- |
-| UI-01 | Keep Points, Contours and Breaklines permanently visible in Triangulate, in that order. Do not give these controls a collapse toggle or a Terrain Sources heading. | Step 04. Preserve the controls' existing source-selection behaviour. |
-| UI-02 | Put Exact TIN Mesh and DEM Surface in Additional Sources, initially collapsed. | Steps 01–04. Define expansion persistence when implementing. |
-| UI-03 | Put Outer, Hide, Show and Data Clip in Boundaries, initially collapsed. | Steps 01–04. Keep each source role distinct. |
-| UI-04 | Put Contour Mode and all Peel Border controls inside Settings, initially collapsed. | Steps 02–04. The Peel Border enable checkbox remains inside Settings. |
-| UI-05 | Preserve bottom-to-top modifier order at every panel width: Triangulate at the bottom, subsequent modifiers above it. | Steps 03–04 correct the earlier drawings. This is a product convention, not a request to reverse terrain evaluation. |
-| UI-06 | Centre button captions horizontally and vertically. | Step 04 demonstrates the approach, but the user reports that captions still sit too high. Final alignment is **not approved**; see UI-P1. |
-| UI-07 | Keep tab navigation on one row at every supported width. Compress it in the Blender style as space gets tight; do not wrap tab labels onto multiple rows. | User preference confirmed 2026-11-08. Exact icon, label and tooltip treatment remains to be reviewed. |
-| UI-08 | Keep custom card names and show the modifier type separately, e.g. Kerbs with Retaining Wall underneath. | Step 05 illustrates the approved direction. Keep collapsed cards compact: avoid adding another text row by default. Review how the type shares space with the current summary before implementation; replacing or removing summaries is not yet approved. |
-| UI-09 | Use an earthier direction for the single-hue tab icons; avoid purple. Try a Zones glyph with three regions, one solid and two outlined. | User preference confirmed. Step 07 is the revised candidate; exact colours and glyph proportions still need visual approval. |
-| UI-10 | Use the text-label-with-leader glyph for Annotation. | User selected B from Step 08. Carry this choice into subsequent prototypes; do not use the note/callout or pencil variants. |
-| UI-11 | Preserve the coloured strips on the left of cards. | The user finds them helpful and not too busy. Do not reduce their width, saturation or prominence as part of the visual quieting pass. |
-| UI-12 | Keep the existing routine borders for now. | Step 09's softer borders were too subtle to offer enough benefit. User agreed to move on to labels. Do not implement the softer border values. |
-| UI-13 | Replace “Bindings — 3 source refs” with “Sources — 3”. | User approved the compact wording. Put the breakdown in the tooltip, e.g. “2 objects, 1 watched layer”, with correct singular/plural forms. The visible total remains picked object IDs plus watched layer paths. |
-| UI-14 | Shorten “Major Every Nth” to “Major Every”. | User approved. Retain the integer field and existing semantics: 5 makes every fifth contour level major. Keep the stored MajorEveryNth key unchanged and explain the frequency in the tooltip. |
-| UI-15 | Shorten “Label Every Nth” to “Label Every”. | User approved. Retain the contour-level frequency semantics and stored LabelEveryNth key. |
-| UI-16 | Keep “Label Interval”. | User prefers Interval to Spacing and finds it more accurate. Do not rename it to Label Spacing. Clarify along-curve distance and the zero-value behaviour in the tooltip. |
-| UI-17 | Rename “Start Z” to “Base Elevation”. | User approved. Preserve the reference-elevation semantics and stored StartZ key; this is not a lower cutoff on contours. |
-| UI-18 | Rename “Split Major / Minor” to “Separate Layers”. | User approved. Keep the tooltip explicit that major and minor contours are routed to separate layers. Preserve the stored key and routing behaviour. |
-| UI-19 | Put the source total beside the existing picker heading, e.g. “Sources — 3”. Never use a separate source-count row. | User explicitly approved merging the total and removing the additional row. The tooltip retains the object/watched-layer breakdown. |
-| UI-20 | Show type and summary together on the existing collapsed-card metadata line, using “Type · n objects · n layers” for source-based cards. | User approved. Count picked object references and watched layer references, with correct singular/plural wording. Preserve collapsed height. Parameter-only cards retain an appropriate typed summary rather than a fabricated source count. |
-| UI-21 | Use fixed two-line collapsed headers at every width: single-line name above, single-line type/summary below. Ellipsize text rather than wrap it; retain complete text for tooltips. | User approved the Step 13 layout and the Grade Callout ellipsis demonstration. Use the 52-logical-pixel reference with no third row. Ellipses appear only when needed; measure actual font metrics during native implementation. |
-| UI-22 | Use header order B: drag grip, expand arrow, enable checkbox, type icon, name, then existing actions. | User selected B from Step 14. Keep the grip on the left and the type icon next to the name. Correct vertical alignment before implementation. |
-| UI-23 | Put numeric units inside the field and align the field borders on the shared editor column. | Approved in Step 45. Use the shared Penpot components under Approved / Numeric fields. Keep values left aligned and reserve trailing space for units and steppers. |
+| 01–04 | Triangulate: sources visible; Additional Sources, Boundaries, Settings closed (UI-01–04) | Done |
+| 05, 12–20 | Two-line header, order B, name over "Type · summary", bare type icon, icon actions (UI-08, UI-20–22) | Done |
+| 09 | Softer borders | Declined; borders kept (UI-12) |
+| 10 | Wording: Sources — n, contour labels (UI-13–19) | Done |
+| 21–33 | Contours, Spot/Section/Profile annotations, comparison modes, sampling interval | Done |
+| 37 | Segmented controls for 2–3 modes; primary mode full row | Done |
+| 38–40 | Report Table, Legend, Grade Callout | Done |
+| 41–45 | Retaining Wall, Grade Line, Grade Path; units inside fields (UI-23) | Done |
+| 47–54 | Remesh, Smooth, Displace (incl. Origin point row), Simplify | Done |
+| 55–60, 62–64 | Scatter grouping and Block Mix, Plant/Orient Base | Done; Block Mix table details (57–59) not re-compared with the boards |
+| 65–72 | Zones, Earthworks/Cut-Fill comparison modes, Catchments, Ponding, Waterflow, Gradient Compliance | Done; Earthworks results layout (67) not re-compared |
+| 73–75 | Curvature/Landforms, ramp controls, Slope Units | Done |
+| 76 | Status as a severity-coloured outcome line | Done |
+| 77–78, 80 | Import/Export Terrain Definition and its preview | Done |
+| 79 | Tab heading with Add on the same row | Done |
+| — | Modal dialogs on one frame (`UiDialogs`); not a numbered step | Done 2026-11-23; not yet seen live |
 
-Penpot Steps 01–04 are editable static comparison states. They do not implement
-disclosure clicks, persistence or application behaviour. The approved changes
-should become shared patterns where appropriate after each affected card is reviewed.
+## Open
 
-## Consolidated review — Step 11
+- **UI-P1 / UI-06 — button captions sit too high.** Deferred by the user 2026-11-08; see below.
+- **UI-09 — earthy single-hue tab icons, three-region Zones glyph** (Steps 06–07). Not implemented; the
+  tab icons are unchanged. **UI-10** (Annotation's text-label-with-leader glyph, Step 08) needs checking
+  against the existing `TabAnnotation` icon, which already draws a leader.
+- **Spot Heights as one card** (Steps 34–36) - backlog B31; it needs a schema migration. Step 35 also
+  adds an **On a Grid** placement for Spot Heights and Spot Slope, which B31's text does not mention yet.
+- **Scatter Sequence view** (Step 61) - backlog B32.
+- **Step 77's tab view toggles** still use plain characters, not drawn glyphs.
+- **UI-R6 interaction checks:** keyboard navigation, reasons for unavailable actions, visibility toggle
+  meaning, cancellation. Tooltips, Undo and the Status row were exercised live (2026-11-23).
+- **Floating windows** (Sculpt toolbar, Relax Route, Curve Review, Terrain to Curves / Scan to Terrain)
+  were outside the review.
+- **Design tooling follow-up**, at the end of this file.
 
-The experiment file now has all five full panels together, at dark 240/320/480 and
-light 320: 20 native rendered boards. It combines the Triangulate grouping,
-bottom-to-top modifiers, earthy icons with Annotation B, original borders and
-coloured strips, button-alignment approach and approved wording. Expanded card
-type captions reuse their existing subtitle line. No extra collapsed row was added.
+## Decision record
 
-The user resolved both full-panel decisions: merge the source total into its
-picker heading and remove the separate row; use the existing collapsed metadata
-line for type and summary, showing object/layer counts for source-based cards.
-Step 12 applies these choices across the same 20 review screens. Counts are
-illustrative design examples, not measurements from a loaded Rhino document.
+The sections below are the review as it happened, kept for the reasoning behind each choice. Statements
+in them that something is "pending implementation" predate the status above.
 
-At 240 pixels, some original collapsed headers have no metadata line. Step 12
-preserves their height and does not invent another row. Remaining question: should
-those narrow headers gain a summary line despite the additional height, or should
-the full summary be available only through a tooltip there? Native tooltip behaviour
-is not represented by these static frames.
-
-In the current 240-pixel review, **all nine collapsed examples** omit the metadata
-line: Smooth and Grade Pad; Plant and Scatter; Soft Landscape; Earthworks and
-Elevation; Section Cut and Grade Callout. Some have a second title row, which is
-reserved for the name, not a summary. Six such title rows were restored after the
-initial Step 12 draft mistook them for metadata. Names and header heights remain
-unchanged. Normal-width examples retain the summary line.
-
-The user approved **trying** this approach following the Blender comparison: keep
-names on a single line, ellipsizing rather than moving the name onto another row.
-Use a fixed second line for type/source summary at every width; truncate that line
-if necessary and provide the complete text in tooltips. This would avoid a third
-line and make compact header height predictable. The current compact 40/66-pixel
-variation could become a consistent two-line height, subject to visual review.
-
-Step 13 now provides that trial: 20 consolidated panels plus three narrow
-before/after comparisons. All 36 collapsed headers in the consolidated panels are
-52 pixels high and contain exactly one summary line. In compact layouts, old
-40-pixel headers gain 12 pixels and old 66-pixel headers lose 14. The summary uses
-the full lower row. Expanded headers and card body controls remain unchanged.
-Long names, such as Grade Callout, show an ellipsis; full names/summaries are kept
-in layer names and `tooltip-references.json` for implementation. Native hover is
-not implemented by the static prototype. Exact ellipsis measurement remains a
-font-metric task for the native implementation.
-
-Native geometry audit covered all 23 boards. Three narrow comparisons and a light
-normal-width example were exported and visually checked. The user preferred the
-fixed two-line layout. A 2× native Grade Callout header export shows its actual
-“Grade Call…” ellipsis; the other displayed modifier names fit and remain intact.
-Keep Steps 12 and 13 available for comparison. Actual text metrics and live full-text
-tooltips still need verification during implementation.
-
-The fixed two-line approach, displayed summary and conditional name truncation are
-now approved. The initial navigation/visual-emphasis/wording review is ready for
-implementation planning. This approval does not mark Rhino changes as implemented
-or resolve the deferred alignment and linked-library tooling checks.
-
-Blender research: its current modifier header builds the name into a horizontal
-row and omits it below a width threshold. It does not add a wrapped name row there.
-The proposed two-line MoleHill header is an adaptation to retain this product's
-approved type/count summary, not a claim that Blender has that same summary row.
-Source: [modifier header implementation](https://raw.githubusercontent.com/blender/blender/main/source/blender/modifiers/intern/MOD_ui_common.cc).
-
-The copy-only Step 10 remains the wording reference. Step 11 retains the source
-row positioning; shortened labels may need native reflow refinement (notably
-Separate Layers at normal widths). Font alignment polish and live tooltip/editor
-behaviour remain unverified. These are review frames, not implemented Rhino UI.
-
-Geometry audits passed for the 20 saved boards, with native exports and visual
-spot checks across all families and all width/theme combinations. The original
-reference and earlier comparison pages remain intact. Local PNGs and export IDs
-are under `.artifacts/penpot-selfhost/design-step-11/`.
-
-## Review queue — proposals, not approved decisions
+### Review order
 
 Current review order, confirmed 2026-11-08:
 1. Compact navigation: recognisable categories, useful tooltips, clear active state.

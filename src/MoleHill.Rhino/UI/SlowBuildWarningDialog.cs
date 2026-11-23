@@ -17,39 +17,28 @@ internal static class SlowBuildWarningDialog
             Text = "Don't show this warning again for this terrain"
         };
 
-        var continueButton = new Button { Text = "Continue", Width = 96 };
-        var cancelButton = new Button { Text = "Cancel", Width = 96 };
-
         var dialog = new Dialog
         {
-            Title = title,
             Owner = RhinoEtoApp.MainWindowForDocument(doc),
-            Resizable = false,
-            Maximizable = false,
-            Minimizable = false,
-            Padding = new Padding(UiMetrics.DialogPadding),
-            ClientSize = new Size(440, 150),
-            MinimumSize = new Size(440, 150),
-            DefaultButton = continueButton,
-            AbortButton = cancelButton
+            ClientSize = new Size(440, 150)
         };
-        dialog.UseRhinoStyle();
+        UiDialogs.Frame(dialog, title, new Size(440, 150));
 
-        continueButton.Click += (_, _) =>
+        var continueButton = UiDialogs.Button("Continue", (_, _) =>
         {
             choice = new SlowBuildWarningDialogResult(
                 ContinueBuild: true,
                 DisableFutureWarnings: disableFutureWarningsCheck.Checked == true);
             dialog.Close();
-        };
+        });
 
-        cancelButton.Click += (_, _) =>
+        var cancelButton = UiDialogs.Button("Cancel", (_, _) =>
         {
             choice = new SlowBuildWarningDialogResult(
                 ContinueBuild: false,
                 DisableFutureWarnings: disableFutureWarningsCheck.Checked == true);
             dialog.Close();
-        };
+        });
 
         dialog.Closed += (_, _) =>
         {
@@ -61,32 +50,16 @@ internal static class SlowBuildWarningDialog
                 DisableFutureWarnings: disableFutureWarningsCheck.Checked == true);
         };
 
-        dialog.Content = new DynamicLayout
+        UiDialogs.SetContent(dialog, new DynamicLayout
         {
             DefaultSpacing = new Size(0, UiMetrics.SpaceXLarge),
             Rows =
             {
-                new Label
-                {
-                    Text = message,
-                    Wrap = WrapMode.Word
-                },
+                UiDialogs.Intro(message),
                 disableFutureWarningsCheck,
-                new Panel { Height = 2 },
-                new StackLayout
-                {
-                    Orientation = Orientation.Horizontal,
-                    Spacing = UiMetrics.DialogSpacing,
-                    HorizontalContentAlignment = HorizontalAlignment.Right,
-                    Items =
-                    {
-                        new StackLayoutItem(new Panel(), expand: true),
-                        cancelButton,
-                        continueButton
-                    }
-                }
+                UiDialogs.Actions(dialog, continueButton, cancelButton)
             }
-        };
+        });
 
         dialog.ShowModal();
         return choice;

@@ -692,39 +692,9 @@ internal sealed class ColorRampControl : Panel
 
     private void SaveCurrentRamp()
     {
-        var box = new TextBox { Text = _options.Title, Width = UiMetrics.Chs(24) };
-        UiControls.StyleInput(box);
-
-        var dialog = new Dialog { Title = "Save colour ramp", Padding = new Padding(UiMetrics.SpaceXLarge) };
-        bool commit = false;
-
-        var ok = UiControls.Button("Save", (_, _) => { commit = true; dialog.Close(); }, role: UiButtonRole.Toolbar);
-        var cancel = UiControls.Button("Cancel", (_, _) => dialog.Close(), role: UiButtonRole.Toolbar);
-        dialog.DefaultButton = ok;
-        dialog.AbortButton = cancel;
-
-        dialog.Content = new StackLayout
-        {
-            Orientation = Orientation.Vertical,
-            Spacing = UiMetrics.SpaceLarge,
-            HorizontalContentAlignment = HorizontalAlignment.Stretch,
-            Items =
-            {
-                UiControls.Label("Name this ramp so other analyses can use it:"),
-                box,
-                new StackLayout
-                {
-                    Orientation = Orientation.Horizontal,
-                    Spacing = UiMetrics.SpaceMedium,
-                    Items = { new StackLayoutItem(null, expand: true), cancel, ok }
-                }
-            }
-        };
-
-        dialog.ShowModal(this);
-
-        string name = box.Text?.Trim() ?? string.Empty;
-        if (commit && name.Length > 0)
+        string? name = UiDialogs.PromptText(
+            this, "Save Color Ramp", "Name this ramp so other analyses can use it.", _options.Title, "Save");
+        if (name != null)
             ColorRampPresetStore.Save(name, _ramp);
     }
 
