@@ -383,7 +383,7 @@ public sealed partial class MoleHillPanel : Panel
                 _terrainSelector.SelectedIndex = -1;
                 _isUpdatingTerrainSelector = false;
                 SetButtonIcon(_visibilityButton, PanelButtonIcon.HideOff, muted: true);
-                _visibilityButton.ToolTip = "Terrain visible. Click to hide.";
+                _visibilityButton.ToolTip = "Terrain and all its outputs shown. Click to hide them.";
                 SetButtonIcon(_lockButton, PanelButtonIcon.Unlock, muted: true);
                 _lockButton.ToolTip = "Terrain unlocked. Click to lock.";
                 SetActionButtonsEnabled(false);
@@ -452,9 +452,11 @@ public sealed partial class MoleHillPanel : Panel
             }
             bool terrainVisible = selectedTerrain?.IsVisible != false;
             SetButtonIcon(_visibilityButton, terrainVisible ? PanelButtonIcon.HideOff : PanelButtonIcon.HideOn, muted: false);
+            // Hiding the terrain hides everything it draws - mesh, analysis colours and annotations - not
+            // only the mesh, so the state says so (checked live).
             _visibilityButton.ToolTip = terrainVisible
-                ? "Terrain visible. Click to hide."
-                : "Terrain hidden. Click to show.";
+                ? "Terrain and all its outputs shown. Click to hide them."
+                : "Terrain and all its outputs hidden. Click to show them.";
             bool terrainLocked = selectedTerrain?.IsLocked == true;
             SetButtonIcon(_lockButton, terrainLocked ? PanelButtonIcon.Lock : PanelButtonIcon.Unlock, muted: !terrainLocked);
             _lockButton.ToolTip = terrainLocked
@@ -465,6 +467,10 @@ public sealed partial class MoleHillPanel : Panel
             bool hasTrackedBakes = selectedTerrain != null && selectedTerrain.BakedObjectIds.Count > 0;
             _untrackSelectedBakesButton.Enabled = hasTerrain && hasTrackedBakes;
             _untrackAllBakesButton.Enabled = hasTerrain && hasTrackedBakes;
+            // A disabled control says why it is disabled, not only what it would do.
+            const string nothingTracked = " Unavailable: nothing from this terrain is baked and tracked yet.";
+            _untrackSelectedBakesButton.ToolTip = UntrackSelectedHelp + (hasTrackedBakes ? string.Empty : nothingTracked);
+            _untrackAllBakesButton.ToolTip = UntrackAllHelp + (hasTrackedBakes ? string.Empty : nothingTracked);
             _terrainSelector.Enabled = hasTerrain;
 
             UpdateZonesTabButton(_zonesEyeButton, selectedTerrain);

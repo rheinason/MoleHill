@@ -84,6 +84,14 @@ public sealed partial class MoleHillPanel
             ToolTip = string.IsNullOrWhiteSpace(spec.Description) ? meta : $"{meta}{Environment.NewLine}{spec.Description}"
         };
 
+        var arrow = new DisclosureArrow(!collapsed)
+        {
+            ToolTip = collapsed
+                ? "Expand this card (Enter or Space when focused). Ctrl-click expands every card."
+                : "Collapse this card (Enter or Space when focused). Ctrl-click collapses every card."
+        };
+        arrow.Activated += (_, _) => spec.Stack.ToggleCollapsed(spec.Id, false);
+
         var firstLine = new StackLayout
         {
             Orientation = Orientation.Horizontal,
@@ -93,7 +101,7 @@ public sealed partial class MoleHillPanel
             Items =
             {
                 spec.Stack.CreateHandle(spec.Id, spec.HandleHelp, spec.Reorderable),
-                new DisclosureArrow(!collapsed),
+                arrow,
                 enabled,
                 spec.TypeIcon,
                 new StackLayoutItem(nameLine, expand: true)
@@ -197,15 +205,23 @@ public sealed partial class MoleHillPanel
             Cursor = Cursors.Pointer;
             Expanded = expanded;
 
+            void Toggle()
+            {
+                Expanded = !Expanded;
+                _arrow.Expanded = Expanded;
+                onToggle(Expanded);
+            }
+
+            ToolTip = $"Show or hide {title}.";
+            _arrow.ToolTip = ToolTip;
             MouseDown += (_, e) =>
             {
                 if (e.Buttons != MouseButtons.Primary)
                     return;
 
-                Expanded = !Expanded;
-                _arrow.Expanded = Expanded;
-                onToggle(Expanded);
+                Toggle();
             };
+            _arrow.Activated += (_, _) => Toggle();
         }
 
         public bool Expanded { get; private set; }

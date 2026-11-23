@@ -49,16 +49,15 @@ choices; schema sections; Results, source counts and tab fitting; then a per-car
 | 77–78, 80 | Import/Export Terrain Definition and its preview | Done |
 | 79 | Tab heading with Add on the same row | Done |
 | — | Modal dialogs on one frame (`UiDialogs`); not a numbered step | Done 2026-11-23; live-checked |
+| UI-P1 | Button captions "too high" | Closed 2026-11-23 by measurement: no native caption sits high (below) |
+| UI-R6 | Runtime interaction checks | Exercised live 2026-11-23; four gaps found and fixed (below) |
 
 ## Open
 
-- **UI-P1 / UI-06 — button captions sit too high.** Deferred by the user 2026-11-08; see below.
 - **UI-09 — earthy single-hue tab icons, three-region Zones glyph** (Steps 06–07). Not implemented; the
   tab icons are unchanged. **UI-10** (Annotation's text-label-with-leader glyph, Step 08) needs checking
   against the existing `TabAnnotation` icon, which already draws a leader.
 - **Step 77's tab view toggles** still use plain characters, not drawn glyphs.
-- **UI-R6 interaction checks:** keyboard navigation, reasons for unavailable actions, visibility toggle
-  meaning, cancellation. Tooltips, Undo and the Status row were exercised live (2026-11-23).
 - **Floating windows** (Sculpt toolbar, Relax Route, Curve Review, Terrain to Curves / Scan to Terrain)
   were outside the review.
 - **Design tooling follow-up**, at the end of this file.
@@ -916,16 +915,61 @@ keyboard navigation, visibility toggle meaning, rebuild status, cancellation and
 undo. Static Penpot boards cannot establish these behaviours. Record what was
 actually exercised, including any native checks that could not run.
 
+**Exercised live 2026-11-23** (Rhino 8.36, a terrain carrying one card of every type, all five tabs):
+
+- **Tooltips.** Every Button, CheckBox, DropDown, Slider and TextBox had help. Gaps, fixed: the 140
+  number-field step arrows had none (now "Increase / Decrease", naming the Up/Down keys); the 84
+  disclosure arrows had none (now say what they open). After the fix all 222 icon buttons, 84
+  disclosure arrows and 21 segmented controls explain themselves (the ramp's Linear / Stepped / Constant
+  carries help per segment, set on hover).
+- **Reasons for unavailable actions.** Disabled controls said what they do, not why they were off. Fixed:
+  Untrack Selected / Untrack All add "nothing from this terrain is baked and tracked yet"; the colour
+  ramp's range fields say Auto Range owns them (or, for a symmetric range, which field sets it) instead of
+  "Drag to scrub".
+- **Keyboard navigation.** Cards and sections could not be opened from the keyboard: the disclosure arrow
+  only painted. It now takes focus (with the focus ring) and Enter or Space toggles its card or section;
+  exercised on a card (Enter collapsed, Space expanded) and on Terrain Settings. The number-field arrows
+  left the tab order (Up/Down in the field already step), which had tripled the tab stops per number.
+  Segmented controls take focus and step with Left/Right; icon buttons take Enter/Space.
+- **Visibility toggle.** The eye hides the mesh, analysis colours and annotations - everything the
+  terrain draws (checked in the viewport). Its state tooltip said only "Terrain visible", now "Terrain and
+  all its outputs shown. Click to hide them."
+- **Rebuild status.** During a slow Remesh the Status hint read "Building · Remesh (2 of 8) · 0 s". The
+  build message wrote "0,003 s" and "259,2 MB" with the Windows decimal comma (it formats on the UI
+  thread); now written with a point like every other panel number.
+- **Cancellation.** Force Reset Build stopped the running build within 0.7 s and Status read "Build reset.
+  Rebuild to resume terrain outputs." The confirmation dialog itself is modal and was not driven; its Yes
+  path (`ForceResetTerrainBuild`) was.
+- **Undo.** Hiding and showing the terrain is one Undo step ("Show MoleHill Terrain"); Undo and Redo both
+  restored the state. Card edits, Spot placement and Scatter reorder share the same undo path and were
+  exercised earlier the same day.
+
+Not exercised: the mouse drag gesture itself (scripted input only), and screen-reader names (Eto exposes no
+automation names to set).
+
 ## Polish deferred by the user
 
-### UI-P1 — Button captions still look too high
+### UI-P1 — Button captions still look too high — **closed 2026-11-23 by measurement**
 
 Step 04 sets horizontal and vertical alignment to centre, but the visible glyphs
-still appear too high. The user approved the approach and explicitly deferred this
-detail on 2026-11-08. Keep it open; do not mark it fixed from metadata or screenshots
-alone. Check font metrics, line height, text bounds and native Eto rendering, then
-review the visible result at actual size. Avoid an arbitrary offset until the cause
-is understood. Carry the agreed centring convention into subsequent prototypes.
+still appeared too high in the Penpot boards. The user approved the approach and deferred
+this detail on 2026-11-08, asking for the cause before any offset.
+
+Measured in native Rhino 8.36 (Segoe UI 9 pt, 100% scale) by counting caption ink rows in
+captured buttons. Every caption - native buttons (22 and 26 px) and the drawn segmented
+control alike - centres its full line box (ascent + descent), so the capitals sit within
+half a pixel of the box centre, **slightly low**, and lowercase about two pixels low:
+
+| Control | Box | Capitals | Gap above / below capitals |
+| --- | --- | --- | --- |
+| Reset, Edit…, Untrack Selected | 22 px | rows 7-15 | 6 / 5 |
+| Add Modifier | 26 px | rows 9-17 | 8 / 7 |
+| Segmented "Points / Curves / Grid" | 26 px | rows 9-17 | 8 / 7 |
+
+Descenders ("Objects", "Apply") change nothing: those captions sit on the same rows. The native
+buttons report `VerticalContentAlignment = Stretch`, but the caption still centres. No native
+caption sits high, so no offset was added: one would make the real panel wrong to match a
+reconstruction. The "too high" reading belonged to the Penpot boards' text boxes.
 
 ## Completion
 

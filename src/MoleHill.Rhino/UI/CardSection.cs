@@ -44,17 +44,25 @@ internal sealed class CardSection : Panel
             expand: true));
 
         var hit = new Panel { Content = heading, Cursor = Cursors.Pointer, ToolTip = $"Show or hide {title}." };
+        _arrow.ToolTip = hit.ToolTip;
+
+        void Toggle()
+        {
+            bool open = !_content.Visible;
+            _content.Visible = open;
+            _arrow.Expanded = open;
+            SectionExpansionPreference.SetExpanded(cardKind, sectionKey, open);
+        }
+
         hit.MouseDown += (_, e) =>
         {
             if (e.Buttons != MouseButtons.Primary)
                 return;
 
             e.Handled = true;
-            bool open = !_content.Visible;
-            _content.Visible = open;
-            _arrow.Expanded = open;
-            SectionExpansionPreference.SetExpanded(cardKind, sectionKey, open);
+            Toggle();
         };
+        _arrow.Activated += (_, _) => Toggle();
 
         Content = new StackLayout
         {

@@ -164,10 +164,16 @@ internal sealed class NumberField : Panel
 
     private IconButton Arrow(PanelButtonIcon icon, int direction)
     {
+        // Not a tab stop: the field's own Up/Down keys step it, and two extra stops per number made
+        // tabbing through a card three times as long as it has fields.
         var button = new IconButton
         {
             Size = new Size(UiMetrics.SpinnerWidth, UiMetrics.ControlHeight / 2),
-            Image = PanelButtonIcons.Get(icon, size: UiMetrics.SpinnerGlyph)
+            Image = PanelButtonIcons.Get(icon, size: UiMetrics.SpinnerGlyph),
+            CanFocus = false,
+            ToolTip = direction > 0
+                ? "Increase (Up arrow in the field; Shift steps ten times as far)."
+                : "Decrease (Down arrow in the field; Shift steps ten times as far)."
         };
         button.Click += (_, _) => Step(direction);
         return button;

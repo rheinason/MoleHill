@@ -30,6 +30,10 @@ A redesign of the MoleHill panel and its dialogs, from a full design review of e
 - The Terrain Settings card fits a narrow panel: Opacity has its own row, the display and bake options span
   the card, and nothing is cut off. It no longer carries a coloured strip, which marks cards in the stacks.
 - The toolbar's two rows of icons line up.
+- Cards and sections open and close from the keyboard (Enter or Space on the arrow), and the number field
+  arrows no longer take a Tab stop each.
+- Every icon and arrow has a tooltip, and a greyed-out control says why it is unavailable.
+- The build progress in Status is written with a decimal point on every machine.
 
 **Cards**
 - Every card header has two fixed lines: the card's name, then its type and a summary (for example

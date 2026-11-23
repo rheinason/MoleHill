@@ -14,6 +14,12 @@ namespace MoleHill.Rhino.UI;
 // size, slope units, bake tracking and the output layer template.
 public sealed partial class MoleHillPanel : Panel
 {
+    private const string UntrackSelectedHelp =
+        "Remove the selected baked objects from this terrain's tracked bake set so future replace-bakes leave them alone.";
+
+    private const string UntrackAllHelp =
+        "Forget all baked objects currently tracked by this terrain without deleting them.";
+
     /// <summary>The Terrain Settings card's controls: tolerance, opacity and colour, preview line weight, and bake tracking.</summary>
     private void WireSettingsControls()
     {
@@ -181,9 +187,9 @@ public sealed partial class MoleHillPanel : Panel
 
             MutateSelectedTerrain(terrain => terrain.ReplacePreviouslyBaked = _replacePreviousBakesCheck.Checked == true, scheduleRebuild: false);
         };
-        ApplyHelp(_untrackSelectedBakesButton, "Remove the selected baked objects from this terrain's tracked bake set so future replace-bakes leave them alone.");
+        ApplyHelp(_untrackSelectedBakesButton, UntrackSelectedHelp);
         _untrackSelectedBakesButton.Click += OnUntrackSelectedBakes;
-        ApplyHelp(_untrackAllBakesButton, "Forget all baked objects currently tracked by this terrain without deleting them.");
+        ApplyHelp(_untrackAllBakesButton, UntrackAllHelp);
         _untrackAllBakesButton.Click += OnUntrackAllBakes;
     }
 

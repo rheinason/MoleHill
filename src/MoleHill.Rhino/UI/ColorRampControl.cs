@@ -38,6 +38,10 @@ internal sealed class ColorRampControl : Panel
     private AnalysisColorMapper.Mode _mode;
     private double _interval;
     private bool _autoRange;
+
+    /// <summary>What a range field says while Auto Range owns it (and it is greyed out).</summary>
+    private const string AutoRangeOwnsBounds =
+        "Auto Range is on, so the range follows the data. Turn Auto Range off to set it by hand.";
     private bool _expanded;
     private int _selected;
 
@@ -633,9 +637,11 @@ internal sealed class ColorRampControl : Panel
             (value, live) => SetRange(value, symmetric ? -value : _range.High, live),
             () => _range.Low,
             max: _range.High,
-            help: symmetric
-                ? "Largest magnitude mapped. The range stays symmetric about zero, so zero sits mid-ramp."
-                : "Values at or below this use the first colour. Drag to scrub.")
+            help: _autoRange
+                ? AutoRangeOwnsBounds
+                : symmetric
+                    ? "Largest magnitude mapped. The range stays symmetric about zero, so zero sits mid-ramp."
+                    : "Values at or below this use the first colour. Drag to scrub.")
         {
             Step = ScrubField.StepForSpan(span)
         };
@@ -647,7 +653,11 @@ internal sealed class ColorRampControl : Panel
             (value, live) => SetRange(symmetric ? -value : _range.Low, value, live),
             () => _range.High,
             min: fromZero ? 0.0 : null,
-            help: "Values at or above this use the last colour. Drag to scrub.")
+            help: _autoRange
+                ? AutoRangeOwnsBounds
+                : symmetric
+                    ? $"The range is symmetric about zero, so this follows {_options.LowLabel}. Set it there."
+                    : "Values at or above this use the last colour. Drag to scrub.")
         {
             Step = ScrubField.StepForSpan(span)
         };
