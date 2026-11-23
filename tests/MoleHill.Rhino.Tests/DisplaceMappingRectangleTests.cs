@@ -86,7 +86,7 @@ public class DisplaceMappingRectangleTests
         IEnumerable<string> Visible(DisplaceModifierDefinition d) =>
             Descriptor.Parameters.Where(p => p.VisibleWhen?.Invoke(d) ?? true).Select(p => p.Key);
 
-        foreach (string key in new[] { "OriginX", "OriginY", "Rotation", "TileSizeX", "TileSizeY" })
+        foreach (string key in new[] { "Origin", "Rotation", "TileSizeX", "TileSizeY" })
         {
             Assert.DoesNotContain(key, Visible(mapped));
             Assert.Contains(key, Visible(typed));

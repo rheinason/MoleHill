@@ -393,21 +393,18 @@ internal sealed class DisplaceModifierDescriptor : ModifierTypeDescriptor
             decimalPlaces: 2,
             unit: ParameterUnit.Degrees,
             visibleWhen: m => !IsMapped(m)),
-        ModifierParam.Number(
-            "OriginX", "Origin X",
-            m => ((DisplaceModifierDefinition)m).OriginX,
-            (m, v) => ((DisplaceModifierDefinition)m).OriginX = v,
-            "World X of the pattern's origin: the image's lower-left corner, and the point the pattern turns about.",
-            min: null,
-            unit: ParameterUnit.ModelLength,
-            visibleWhen: m => !IsMapped(m)),
-        ModifierParam.Number(
-            "OriginY", "Origin Y",
-            m => ((DisplaceModifierDefinition)m).OriginY,
-            (m, v) => ((DisplaceModifierDefinition)m).OriginY = v,
-            "World Y of the pattern's origin: the image's lower-left corner, and the point the pattern turns about.",
-            min: null,
-            unit: ParameterUnit.ModelLength,
+        // Design review Step 53: one picked point for the origin, stored in OriginX/OriginY (Z ignored).
+        // A Mapping rectangle supplies the origin while it is set; the saved point returns when it is cleared.
+        ModifierParam.PlanPoint(
+            "Origin", "Origin",
+            m => (((DisplaceModifierDefinition)m).OriginX, ((DisplaceModifierDefinition)m).OriginY),
+            (m, x, y) =>
+            {
+                ((DisplaceModifierDefinition)m).OriginX = x;
+                ((DisplaceModifierDefinition)m).OriginY = y;
+            },
+            "The pattern's origin in plan: the image's lower-left corner, and the point the pattern turns " +
+            "about. Pick it in the viewport, or type coordinates at the prompt. Clearing returns it to world 0,0.",
             visibleWhen: m => !IsMapped(m)),
         ModifierParam.Section("outsideImage", "Outside Image", summary: OutsideSummary, visibleWhen: IsImage),
         ModifierParam.Choice(

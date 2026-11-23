@@ -167,6 +167,21 @@ public sealed partial class MoleHillPanel
                     parameter.FallbackColor?.Invoke(terrain, definition),
                     parameter.ColorDefaultTextFor?.Invoke(terrain, definition) ?? "(by layer)");
 
+            case ParameterKind.PlanPoint:
+            {
+                (double x, double y) = parameter.GetPlanPoint!(definition);
+                bool picked = x != 0.0 || y != 0.0;
+                return CreatePointPickRow(
+                    label,
+                    picked,
+                    $"({UserNumber.Format(x, "F2")}, {UserNumber.Format(y, "F2")})",
+                    parameter.Help ?? string.Empty,
+                    $"Pick {label.ToLowerInvariant()}",
+                    point => commit(item => parameter.SetPlanPoint!(item, point.X, point.Y)),
+                    () => commit(item => parameter.SetPlanPoint!(item, 0.0, 0.0)),
+                    "Back to world 0,0.");
+            }
+
             case ParameterKind.Text:
                 return CreateCommittedTextEditor(
                     label,

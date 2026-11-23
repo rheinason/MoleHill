@@ -147,6 +147,11 @@ public class ParameterSchemaGuardTests
                 AssertSet(type, parameter, "SetText", where);
                 break;
 
+            case ParameterKind.PlanPoint:
+                AssertSet(type, parameter, "GetPlanPoint", where);
+                AssertSet(type, parameter, "SetPlanPoint", where);
+                break;
+
             case ParameterKind.Color:
                 AssertSet(type, parameter, "GetColor", where);
                 AssertSet(type, parameter, "SetColor", where);

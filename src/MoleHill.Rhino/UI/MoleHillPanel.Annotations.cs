@@ -592,26 +592,52 @@ public sealed partial class MoleHillPanel
                 MutateAnnotation(terrain.TerrainId, annotationId, apply, scheduleRebuild: true);
         }
 
-        // Design review Step 26: the source picker's pattern. Automatic shows a Pick Point pill; a picked
-        // point shows Picked (click to pick again; the tooltip has the coordinates) with an x that hands
-        // placement back to the builder. Cancelling a pick keeps the point there was.
+        // Design review Step 26: the source picker's pattern, shared with every plan-point row.
         string coordinates = $"({UserNumber.Format(originX, "F2")}, {UserNumber.Format(originY, "F2")}, {UserNumber.Format(originZ, "F2")})";
+        return CreatePointPickRow(
+            "Insertion Point",
+            hasOrigin,
+            coordinates,
+            help,
+            "Pick insertion point",
+            picked => Commit(item => applyPick(item, picked)),
+            () => Commit(applyAuto),
+            autoHelp,
+            pickHelp);
+    }
+
+    /// <summary>
+    /// A point picked in the viewport, in the source picker's pattern (design review Steps 26 and 53): a
+    /// Pick Point pill while nothing is picked; a Picked pill (click to pick again, coordinates in its
+    /// tooltip) with an x that clears it. Cancelling a pick keeps the point there was. The Rhino prompt
+    /// also takes typed coordinates.
+    /// </summary>
+    private Control CreatePointPickRow(
+        string label,
+        bool picked,
+        string coordinates,
+        string help,
+        string prompt,
+        Action<RhinoPoint3d> onPick,
+        Action onClear,
+        string clearHelp,
+        string? pickHelp = null)
+    {
+        pickHelp ??= help;
         var pill = MakePillButton(
-            hasOrigin ? "Picked" : "Pick Point",
-            hasOrigin ? $"Picked at {coordinates}. Click to pick again. {pickHelp}" : $"Placed automatically. {pickHelp}");
+            picked ? "Picked" : "Pick Point",
+            picked ? $"Picked at {coordinates}. Click to pick again. {pickHelp}" : pickHelp);
         pill.Click += (_, _) =>
         {
-            var doc = RhinoDoc.ActiveDoc;
-            if (doc == null)
+            if (RhinoDoc.ActiveDoc == null)
                 return;
 
             var gp = new RhinoGetPoint();
-            gp.SetCommandPrompt("Pick insertion point");
+            gp.SetCommandPrompt(prompt);
             if (gp.Get() != RhinoGetResult.Point)
                 return;
 
-            RhinoPoint3d picked = gp.Point();
-            Commit(item => applyPick(item, picked));
+            onPick(gp.Point());
             RefreshUi();
         };
 
@@ -623,19 +649,16 @@ public sealed partial class MoleHillPanel
             HorizontalContentAlignment = HorizontalAlignment.Stretch,
             Items = { new StackLayoutItem(pill, expand: true) }
         };
-        if (hasOrigin)
+        if (picked)
         {
             fields.Items.Add(MakeIconButton(PanelButtonIcon.Clear, (_, _) =>
             {
-                Commit(applyAuto);
+                onClear();
                 RefreshUi();
-            }, autoHelp));
+            }, clearHelp));
         }
 
-        return new PropertyRow(
-            CreateHelpLabel("Insertion Point", help, 0),
-            fields,
-            expandWidget: true);
+        return new PropertyRow(CreateHelpLabel(label, help, 0), fields, expandWidget: true);
     }
 
     // ---- Annotation-family twins of the analysis card infrastructure ----

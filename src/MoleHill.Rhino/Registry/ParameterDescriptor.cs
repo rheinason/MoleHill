@@ -43,6 +43,13 @@ internal enum ParameterKind
     BlockPicker,
 
     /// <summary>
+    /// A point in plan (world X and Y), picked in the viewport: a Pick Point pill, a Picked pill (click to
+    /// pick again, coordinates in its tooltip) and an x that returns it to world 0,0. The Rhino prompt
+    /// also takes typed coordinates. Design review Step 53.
+    /// </summary>
+    PlanPoint,
+
+    /// <summary>
     /// A file on disk: its full path in a text box beside a Browse button. The path lives in the text
     /// accessors; <see cref="ParameterDescriptor{TDefinition}.FileFilterName"/> and
     /// <see cref="ParameterDescriptor{TDefinition}.FileExtensions"/> narrow the browse dialog.
@@ -120,6 +127,12 @@ internal sealed class ParameterDescriptor<TDefinition>
     /// whose value has no effect while it does not apply, so hiding it never hides a working setting.
     /// </summary>
     public Func<TerrainDefinition, bool>? AppliesTo { get; init; }
+
+    /// <summary>A <see cref="ParameterKind.PlanPoint"/> row's world X and Y.</summary>
+    public Func<TDefinition, (double X, double Y)>? GetPlanPoint { get; init; }
+
+    /// <summary>Stores a picked (or cleared, 0,0) <see cref="ParameterKind.PlanPoint"/>.</summary>
+    public Action<TDefinition, double, double>? SetPlanPoint { get; init; }
 
     /// <summary>Greyed text an empty Text field shows: what leaving it empty does (a legend's automatic title).</summary>
     public Func<TerrainDefinition, TDefinition, string?>? PlaceholderFor { get; init; }
@@ -320,6 +333,25 @@ internal sealed class ParameterDescriptor<TDefinition>
             Help = help,
             Unit = unit,
             DecimalPlaces = decimalPlaces,
+            VisibleWhen = visibleWhen,
+        };
+
+    /// <summary>A plan point picked in the viewport; 0,0 reads as not picked (design review Step 53).</summary>
+    public static ParameterDescriptor<TDefinition> PlanPoint(
+        string key,
+        string label,
+        Func<TDefinition, (double X, double Y)> get,
+        Action<TDefinition, double, double> set,
+        string? help = null,
+        Func<TDefinition, bool>? visibleWhen = null) =>
+        new()
+        {
+            Kind = ParameterKind.PlanPoint,
+            Key = key,
+            Label = label,
+            GetPlanPoint = get,
+            SetPlanPoint = set,
+            Help = help,
             VisibleWhen = visibleWhen,
         };
 
