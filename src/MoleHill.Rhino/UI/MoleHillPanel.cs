@@ -307,6 +307,7 @@ public sealed partial class MoleHillPanel : Panel
         UiMetrics.Invalidate();
         _terrainColorLabel.TextColor = UiTheme.MutedText;
         _statusHintLabel.TextColor   = UiTheme.MutedText;
+        _previewLineWeightValue.TextColor = UiTheme.MutedText;
         CaptureSelectedTabIndex();
         Content = BuildContent();
         _builtDark = UiTheme.IsDark;

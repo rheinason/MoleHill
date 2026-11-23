@@ -169,12 +169,12 @@ internal sealed class NumberField : Panel
         var button = new IconButton
         {
             Size = new Size(UiMetrics.SpinnerWidth, UiMetrics.ControlHeight / 2),
-            Image = PanelButtonIcons.Get(icon, size: UiMetrics.SpinnerGlyph),
             CanFocus = false,
             ToolTip = direction > 0
                 ? "Increase (Up arrow in the field; Shift steps ten times as far)."
                 : "Decrease (Down arrow in the field; Shift steps ten times as far)."
         };
+        button.SetIcon(icon, size: UiMetrics.SpinnerGlyph);
         button.Click += (_, _) => Step(direction);
         return button;
     }

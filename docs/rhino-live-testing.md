@@ -631,6 +631,18 @@ Used for the 2026-11-22 card header / input / number-field review against the Pe
 6. Culture: the script host runs with the invariant culture while the panel runs with the Windows locale.
    Set `CultureInfo.CurrentCulture` explicitly (e.g. `fo-FO`) around any typed-input probe.
 
+### Theme switching (light / dark)
+
+Switch with `AppearanceSettings.SetToLightMode()` / `SetToDarkMode()` in the slot. **Appearance is the
+user's shared Rhino setting and a closing slot saves it.** `GetCurrentState()` / `UpdateFromState()` do
+**not** restore the paint colours (panel background, text): after them a fresh Rhino still started with a
+light panel background. Restore with `SetToDarkMode()` (or `SetToLightMode()`) matching what
+`GetPaintColor(PaintColor.PanelBackground)` read before the test, then confirm in a fresh slot.
+
+PrintWindow captures the docked panel blank. Render it instead: `RenderTargetBitmap` over the panel's
+`ControlObject` (by reflection), then composite onto the theme's `PanelBackground` colour - the panel's
+root is transparent, so a bare render shows Rhino's background as white.
+
 ## 6. Acceptance sequence for the curve-review workflow
 
 `mhInspectCurve` is **inspection only**: the form reports on a curve and never changes its geometry.

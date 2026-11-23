@@ -269,7 +269,14 @@ Measured centred at 100% display scale; confirm by eye at the scale you actually
 
 Every live capture so far was dark theme at 100%.
 
-- [ ] **FAIL 2026-11-23 — confirmed by the user; details to record here (what looked wrong, where).**
+- [x] **FAIL 2026-11-23 → fixed (f819d6c, plus icons following the theme), live re-checked.** The user
+      saw existing panel surfaces stay dark and toolbar icons turn nearly invisible after switching Rhino
+      to light. Causes: the panel stopped listening for settings changes after its first unload (a hidden
+      dock tab), and the theme was read from the command-prompt colour; icons on controls created once with
+      the panel (Settings number arrows) kept the old theme's image. Re-check in the real docked panel:
+      `SetToLightMode` → rebuilt light within ~0.65 s, step arrows dark and visible; `SetToDarkMode` →
+      rebuilt dark within ~0.4 s, toolbar icons light. The user's appearance was restored and confirmed
+      after a restart.
       Switch Rhino to the **light** theme and repeat sections 1, 3 and one dialog from 5: text readable,
       focus rings visible, no dark-only colours left behind.
       *Scripted follow-up:* a panel switched dark→light through its own theme-change handler matched one

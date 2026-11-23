@@ -70,8 +70,23 @@ internal sealed class IconButton : Drawable
         set
         {
             _image = value;
+            _icon = null;
             Invalidate();
         }
+    }
+
+    private (PanelButtonIcon Icon, bool Muted, int Size)? _icon;
+
+    /// <summary>
+    /// Shows one of the panel's drawn icons, resolved for the current theme every time the button paints.
+    /// A fixed <see cref="Image"/> kept the colour of the theme it was made in: a button created once with
+    /// the panel (a Settings number field's arrows) stayed light-on-light after Rhino switched to light.
+    /// </summary>
+    public void SetIcon(PanelButtonIcon icon, bool muted = false, int size = UiMetrics.IconSize)
+    {
+        _icon = (icon, muted, size);
+        _image = null;
+        Invalidate();
     }
 
     private void Draw(Graphics g)
@@ -82,11 +97,12 @@ internal sealed class IconButton : Drawable
         if (HasFocus)
             g.DrawRectangle(UiTheme.FocusRing, 0.5f, 0.5f, Width - 1f, Height - 1f);
 
-        if (_image == null)
+        Image? image = _icon is { } icon ? PanelButtonIcons.Get(icon.Icon, icon.Muted, icon.Size) : _image;
+        if (image == null)
             return;
 
-        float x = (Width - _image.Width) / 2f;
-        float y = (Height - _image.Height) / 2f;
-        g.DrawImage(_image, (float)Math.Round(x), (float)Math.Round(y));
+        float x = (Width - image.Width) / 2f;
+        float y = (Height - image.Height) / 2f;
+        g.DrawImage(image, (float)Math.Round(x), (float)Math.Round(y));
     }
 }

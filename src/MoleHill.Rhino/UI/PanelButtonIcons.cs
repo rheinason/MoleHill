@@ -58,7 +58,7 @@ internal static class PanelButtonIcons
     }
 
     internal static void Apply(IconButton button, PanelButtonIcon icon, bool muted = false) =>
-        button.Image = Get(icon, muted);
+        button.SetIcon(icon, muted);
 
     private static Bitmap Render(PanelButtonIcon icon, bool muted, int size)
     {
