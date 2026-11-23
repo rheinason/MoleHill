@@ -812,7 +812,7 @@ internal sealed partial class TerrainController
                 totalTimingDetail,
                 TotalTimingDiagnosticThresholdMs);
             terrain.LastBuildMessage = FormatBuildMessage(
-                build.Diagnostics.Count == 0 ? new[] { "Build succeeded." } : build.Diagnostics,
+                build.Diagnostics,
                 result.SnapshotElapsed,
                 result.WorkerCacheCloneElapsed,
                 buildElapsed,
@@ -838,9 +838,7 @@ internal sealed partial class TerrainController
                 TotalTimingDiagnosticThresholdMs);
 
             terrain.LastBuildMessage = FormatBuildMessage(
-                build.Diagnostics.Count == 0
-                    ? new[] { "Preview updated; final rebuild queued." }
-                    : new[] { "Preview updated." }.Concat(build.Diagnostics),
+                new[] { "Final rebuild queued." }.Concat(build.Diagnostics),
                 result.SnapshotElapsed,
                 result.WorkerCacheCloneElapsed,
                 buildElapsed,
@@ -916,7 +914,11 @@ internal sealed partial class TerrainController
         IEnumerable<TerrainBuildTiming> timings,
         string totalStageName)
     {
-        var lines = new List<string>();
+        // The first line is the collapsed Status row (design review UI-R6): the outcome and how long it took.
+        var timingList = timings as IReadOnlyCollection<TerrainBuildTiming> ?? timings.ToList();
+        TimeSpan total = timingList.FirstOrDefault(t => t.Stage == totalStageName)?.Elapsed ?? buildElapsed;
+        bool preview = totalStageName.StartsWith("Preview", StringComparison.Ordinal);
+        var lines = new List<string> { $"{(preview ? "Preview updated" : "Built")} in {FormatElapsed(total)}" };
         lines.AddRange(diagnosticLines.Where(static line => !string.IsNullOrWhiteSpace(line)));
 
         lines.Add("summary:");
@@ -932,7 +934,7 @@ internal sealed partial class TerrainController
         lines.Add($"outputs: {DescribeDisplayState(displayState)}");
 
         lines.Add("stages:");
-        foreach (TerrainBuildTiming timing in timings.Where(t => t.Stage != totalStageName))
+        foreach (TerrainBuildTiming timing in timingList.Where(t => t.Stage != totalStageName))
         {
             string detail = timing.Detail ?? string.Empty;
             if (timing.IsCacheHit && !detail.Contains("cache hit", StringComparison.OrdinalIgnoreCase))

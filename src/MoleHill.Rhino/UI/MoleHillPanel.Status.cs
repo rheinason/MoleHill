@@ -16,13 +16,15 @@ public sealed partial class MoleHillPanel
     /// <summary>The header's line when no build runs, restored once the running one ends.</summary>
     private string _statusIdleHint = string.Empty;
 
+    private Color _statusIdleHintColor = UiTheme.MutedText;
+
     private void SetStatusText(string text, IReadOnlyList<GradingDiagnostic>? structuredDiagnostics = null)
     {
         string statusText = FormatStatusText(text, structuredDiagnostics);
         var statusColor = GetStatusColor(statusText, structuredDiagnostics);
         _statusTextArea.Text = statusText;
         _statusTextArea.TextColor = statusColor;
-        _statusIdleHint = GetStatusHintText(statusText, structuredDiagnostics);
+        (_statusIdleHint, _statusIdleHintColor) = GetStatusHint(statusText, structuredDiagnostics);
         _statusHintLabel.Text = _statusIdleHint;
         ApplyBuildActivityHint();
     }
@@ -43,7 +45,7 @@ public sealed partial class MoleHillPanel
         {
             _buildActivityTimer?.Stop();
             _statusHintLabel.Text = _statusIdleHint;
-            _statusHintLabel.TextColor = UiTheme.MutedText;
+            _statusHintLabel.TextColor = _statusIdleHintColor;
             return;
         }
 
@@ -153,20 +155,36 @@ public sealed partial class MoleHillPanel
         return UiTheme.PrimaryText;
     }
 
-    private static string GetStatusHintText(string text, IReadOnlyList<GradingDiagnostic>? structuredDiagnostics = null)
+    /// <summary>
+    /// The collapsed Status row (design review UI-R6): the line that most needs reading - the first failure,
+    /// else the first warning, else the outcome line ("Built in 0.17 s") - in the matching status colour.
+    /// The full log stays one click away in the same row.
+    /// </summary>
+    private static (string Text, Color Color) GetStatusHint(string text, IReadOnlyList<GradingDiagnostic>? structuredDiagnostics = null)
     {
         if (structuredDiagnostics != null && structuredDiagnostics.Count > 0)
-            return $"Grading: {FormatDiagnosticCounts(structuredDiagnostics)}";
+        {
+            return ($"Grading: {FormatDiagnosticCounts(structuredDiagnostics)}",
+                structuredDiagnostics.Any(static d => d.Severity == GradingDiagnosticSeverity.Error) ? UiTheme.StatusError
+                : structuredDiagnostics.Any(static d => d.Severity == GradingDiagnosticSeverity.Warning) ? UiTheme.StatusWarning
+                : UiTheme.MutedText);
+        }
 
         if (string.IsNullOrWhiteSpace(text))
-            return string.Empty;
+            return (string.Empty, UiTheme.MutedText);
 
-        string firstLine = text
+        string[] lines = text
             .Replace("\r\n", "\n", StringComparison.Ordinal)
             .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .FirstOrDefault() ?? text;
+            .TakeWhile(static line => line != "summary:") // the timing table below is never a warning
+            .ToArray();
+        static bool Has(string line, string word) => line.Contains(word, StringComparison.OrdinalIgnoreCase);
 
-        return firstLine.Length > 45 ? firstLine[..45] + "..." : firstLine;
+        string? failure = lines.FirstOrDefault(line => Has(line, "error") || Has(line, "failed"));
+        string? warning = failure == null ? lines.FirstOrDefault(line => Has(line, "warning")) : null;
+        string chosen = failure ?? warning ?? lines.FirstOrDefault() ?? text;
+        Color color = failure != null ? UiTheme.StatusError : warning != null ? UiTheme.StatusWarning : UiTheme.MutedText;
+        return (chosen.Length > 60 ? chosen[..60] + "..." : chosen, color);
     }
 
     private static string FormatDiagnosticCounts(IReadOnlyList<GradingDiagnostic> diagnostics)
