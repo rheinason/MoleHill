@@ -80,91 +80,13 @@ public sealed partial class MoleHillPanel
 
     private Control CreateObjectBody(TerrainDefinition terrain, TerrainObjectDefinition definition)
     {
+        // Every object type declares its rows (ParameterSchemaGuardTests.EveryCardType_DeclaresItsRows).
         var layout = UiLayouts.CardBody();
-        if (TryBuildSchemaObjectBody(layout, terrain, definition))
-        {
-            Control? schemaDiagnosticsRow = CreateRuntimeDiagnosticsRow(
-                terrain,
-                new RuntimeOverlayOwner(RuntimeOverlayOwnerKind.Object, definition.Id),
-                definition is ScatterObjectDefinition ? "Show rejected samples" : null);
-            if (schemaDiagnosticsRow != null)
-                layout.AddRow(schemaDiagnosticsRow);
-            return layout;
-        }
-
-        layout.AddRow(CreateSourceEditor("Sources", definition.Sources,
-            apply => MutateObjectDefinition(terrain.TerrainId, definition.Id, item => apply(item.Sources)),
-            0,
-            doc => _controller.GetSelectedLayerPaths(doc)));
-        layout.AddRow(CreateSliderNumericEditor(
-            "Rotate Min",
-            definition.RandomRotationMinDegrees,
-            value => MutateObjectDefinition(terrain.TerrainId, definition.Id, item => item.RandomRotationMinDegrees = value,
-                deferDocumentSave: true, suppressImmediateUiRefresh: true),
-            softMin: 0.0,
-            softMax: 360.0,
-            decimalPlaces: 1,
-            hardMin: 0.0,
-            hardMax: 360.0,
-            help: "Minimum random rotation. Rotation is applied per object around its placement up axis and stays stable between rebuilds.",
-            unitSuffix: ResolveUnitSuffix(ParameterUnit.Degrees)));
-        layout.AddRow(CreateSliderNumericEditor(
-            "Rotate Max",
-            definition.RandomRotationMaxDegrees,
-            value => MutateObjectDefinition(terrain.TerrainId, definition.Id, item => item.RandomRotationMaxDegrees = value,
-                deferDocumentSave: true, suppressImmediateUiRefresh: true),
-            softMin: 0.0,
-            softMax: 360.0,
-            decimalPlaces: 1,
-            hardMin: 0.0,
-            hardMax: 360.0,
-            help: "Maximum random rotation. Set min and max equal to disable rotation variation.",
-            unitSuffix: ResolveUnitSuffix(ParameterUnit.Degrees)));
-        layout.AddRow(CreateSliderNumericEditor(
-            "Scale Min",
-            definition.RandomScaleMin,
-            value => MutateObjectDefinition(terrain.TerrainId, definition.Id, item => item.RandomScaleMin = value,
-                deferDocumentSave: true, suppressImmediateUiRefresh: true),
-            softMin: 0.25,
-            softMax: 2.0,
-            decimalPlaces: 3,
-            hardMin: 0.01,
-            help: "Minimum random uniform scale. Scaling happens around the placement anchor and stays stable between rebuilds."));
-        layout.AddRow(CreateSliderNumericEditor(
-            "Scale Max",
-            definition.RandomScaleMax,
-            value => MutateObjectDefinition(terrain.TerrainId, definition.Id, item => item.RandomScaleMax = value,
-                deferDocumentSave: true, suppressImmediateUiRefresh: true),
-            softMin: 0.25,
-            softMax: 2.0,
-            decimalPlaces: 3,
-            hardMin: 0.01,
-            help: "Maximum random uniform scale. Set min and max to 1.0 for no scale variation."));
-        layout.AddRow(CreateNumericEditor(
-            "Seed",
-            definition.RandomSeed,
-            value => MutateObjectDefinition(terrain.TerrainId, definition.Id, item => item.RandomSeed = (int)Math.Round(value),
-                deferDocumentSave: true, suppressImmediateUiRefresh: true),
-            decimalPlaces: 0,
-            help: "Stable random seed for this object card. Change it to reroll all matched objects.",
-            liveEdit: true));
-        layout.AddRow(CreateNumericEditor(
-            "Z Offset",
-            definition.ZOffset,
-            value => MutateObjectDefinition(terrain.TerrainId, definition.Id, item => item.ZOffset = value,
-                deferDocumentSave: true, suppressImmediateUiRefresh: true),
-            decimalPlaces: 3,
-            help: "Lift or sink placed objects. Project mode offsets in world Z; Surface mode offsets along the terrain normal.",
-            minValue: null,
-            liveEdit: true,
-            unitSuffix: ResolveUnitSuffix(ParameterUnit.ModelLength)));
-        layout.AddRow(CreateReadOnlyValueRow(
-            "Bindings",
-            $"{CountReferences(definition.Sources)} source refs",
-            "Explicit picks plus watched layers drive the objects in this definition. Objects keep their original Rhino layers."));
+        BuildSchemaObjectBody(layout, terrain, definition);
         Control? diagnosticsRow = CreateRuntimeDiagnosticsRow(
             terrain,
-            new RuntimeOverlayOwner(RuntimeOverlayOwnerKind.Object, definition.Id));
+            new RuntimeOverlayOwner(RuntimeOverlayOwnerKind.Object, definition.Id),
+            definition is ScatterObjectDefinition ? "Show rejected samples" : null);
         if (diagnosticsRow != null)
             layout.AddRow(diagnosticsRow);
         return layout;

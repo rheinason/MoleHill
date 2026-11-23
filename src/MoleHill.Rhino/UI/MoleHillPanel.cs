@@ -87,8 +87,8 @@ public sealed partial class MoleHillPanel : Panel
     /// <summary>The terrain the layouts were last built for, so a tab shown later builds the right thing.</summary>
     private TerrainDefinition? _lastRefreshedTerrain;
     private Panel? _tabContentPanel;
-    private Label? _zonesEyeButton;
-    private Label? _analysisEyeButton;
+    private IconButton? _zonesEyeButton;
+    private IconButton? _analysisEyeButton;
     private readonly Dictionary<int, Panel> _tabChipMap = new();
     private readonly Dictionary<int, Label> _tabChipLabelMap = new();
 
@@ -96,6 +96,10 @@ public sealed partial class MoleHillPanel : Panel
     {
         _stateChangedHandler = HandleControllerStateChanged;
         _statusChangedHandler = HandleControllerStatusChanged;
+        // Comparison summaries name the compared terrain; only the controller can see the document's terrains.
+        MoleHill.Rhino.Registry.ComparisonParameters.TerrainName = id => RhinoDoc.ActiveDoc is { } doc
+            ? _controller.GetTerrains(doc).FirstOrDefault(item => item.TerrainId == id)?.Name
+            : null;
 
         _modifierCards = CardStack.Reorderable("modifier-drag", "Drop here to reorder modifiers.", (terrainId, source, anchor) =>
             ReorderFromDrop(terrainId, t => StackReorder.Move(t.Modifiers, m => m.Id, source, anchor, displayReversed: true), rebuild: true),

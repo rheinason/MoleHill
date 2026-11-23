@@ -12,9 +12,8 @@ There are four parallel families, each with a `*TypeDescriptor` base + reflectio
   rows). Scatter keeps only its weighted block-mix editor as a small custom row.
 - **Markers** — `MarkerTypeDescriptor`/`MarkerTypeRegistry` (factory + add-button text/help).
 - **Analyses** — `AnalysisTypeDescriptor`/`AnalysisTypeRegistry` (factory + menu grouping + card chrome +
-  `Parameters` schema cards, same shape as modifiers). Per-type collapsed summary, computed
-  summaries/legends, and the slope-unit-with-range-conversion editor aren't schema-expressible and stay
-  bespoke in `MoleHillPanel.Analysis.cs` (`AppendBespokeAnalysisRowsBefore`). Two further hooks live on
+  `Parameters` schema cards, same shape as modifiers). Every card body is declared rows, including the Slope Units choice (its setter converts the ramp's
+  range with the unit) and the comparison rows (`ComparisonParameters`). Two further hooks live on
   the descriptor: `Build(AnalysisBuildContext, definition)` runs the type in the analysis pass (returning
   null means "nothing built here"), and `DescribeResult(definition, summary, ResultFormatter)` returns the
   card's read-only "what the last build measured" rows as `ResultRow` data, which the panel draws
@@ -22,9 +21,8 @@ There are four parallel families, each with a `*TypeDescriptor` base + reflectio
   with `VisibleWhen`, including the `ColorRamp` row: Curvature shows its ramp only when it colours by value,
   since its landform classes are categories.
 - **Annotations** — `AnnotationTypeDescriptor`/`AnnotationTypeRegistry`, the same shape against
-  `AnnotationDefinition`. Its bespoke rows (section sources, insertion-origin picker, comparison terrains)
-  live in `MoleHillPanel.Annotations.cs` (`AppendBespokeAnnotationRowsBefore`/`After`; the After hook keeps
-  only the insertion-origin pickers, which need a live GetPoint). `Build` and `DescribeResult` mirror the
+  `AnnotationDefinition`. Section sources, the Insertion Point (`InsertionPoint` rows) and the comparison
+  (`ComparisonParameters.Sections`) are declared like every other row. `Build` and `DescribeResult` mirror the
   analysis side; the Legend (drawn by the preview) and the Report Table (needs the zone schedule) return
   null from `Build` on purpose. `ContentTypeSwitchGuardTests` fails on a concrete-type switch outside
   `Registry/` and `Model/` unless the file is in its exemption list. There is no
@@ -145,18 +143,16 @@ Other pieces in this folder:
   `docs/architecture.md` → "Output layer roles".
 - `GeometryInputParameterCatalog.cs` — the boundary-peel rows (`Enabled`, `Max Edge`, `Max Angle`,
   `Slope Limit`) shared by Triangulate and Add Geometry, declared once the way `ObjectParameterCatalog`
-  declares the shared object rows. The panel positions them inside its own "Peel Border" rule via
-  `IsBespokePositionedModifierParameter`; they were hand-written until the slope-unit work, which is
-  exactly why `Slope Limit` escaped the schema guard and shipped as an unlabelled degrees field.
+  declares the shared object rows. The catalog opens its own closed "Peel Border" section; the rows were hand-written until the
+  slope-unit work, which is exactly why `Slope Limit` escaped the schema guard and shipped as an
+  unlabelled degrees field.
 - `AnalysisFormatting.cs` — pure slope-unit/value-format/layer-color formatting helpers shared by the
   schema descriptors and the panel's hand-written rows. Lives here (not in `MoleHill.Rhino.UI`) so
   `MoleHill.Rhino.Tests`, which links `Registry/*.cs` directly without a UI reference, can still compile
   the analysis descriptors that use them.
-- Rows needing custom composition (Triangulate's four standard boundary source rows plus its Data Clip
-  rectangle shortcut, the GeoTIFF-surface import/replace action, and the geometry-input boundary-peel group), plus
-  schema rows needing custom placement (Triangulate Contour Mode), are appended by
-  `MoleHillPanel.AppendBespokeModifierRows` — the custom-draw escape hatch. The analysis
-  equivalent is `AppendBespokeAnalysisRowsBefore`/`After` in `MoleHillPanel.Analysis.cs`.
+- There is no custom-draw escape hatch any more: Triangulate's sections, its Data Clip Rectangle and
+  GeoTIFF import (`RowAction`s on their Sources rows), Grade Path's geometry rows and Project To's targets
+  (`TerrainReference` plus a single-object Sources row) are all declared, in card order.
 
 ## Adding a modifier
 1. Add `Model/<Name>ModifierDefinition.cs` (no `[JsonDerivedType]` — the resolver registers it from the

@@ -4,6 +4,7 @@ using MoleHill.Rhino.Model;
 using MoleHill.Rhino.Registry;
 using MoleHill.Rhino.Services;
 using Rhino;
+using RhinoObjectType = Rhino.DocObjects.ObjectType;
 
 namespace MoleHill.Rhino.UI;
 
@@ -77,14 +78,7 @@ public sealed partial class MoleHillPanel
         if (stageReport?.Warning is { } stageWarning)
             layout.AddRow(CreateCardWarning(stageWarning));
 
-        if (modifier is GradePathModifierDefinition gradePath)
-            layout.AddRow(CreateGradePathGeometryGroup(terrain, gradePath));
-
-        if (modifier is ProjectToModifierDefinition projectTo)
-            layout.AddRow(CreateProjectToTargetGroup(terrain, projectTo));
-
-        if (TryBuildSchemaModifierBody(layout, terrain, modifier))
-            AppendBespokeModifierRows(layout, terrain, modifier);
+        BuildSchemaModifierBody(layout, terrain, modifier);
 
         AddResultRows(layout, GetModifierKind(modifier), () => stageReport?.Rows);
 
@@ -128,95 +122,23 @@ public sealed partial class MoleHillPanel
     }
 
     /// <summary>
-    /// Adds the few card rows that need custom placement or can't be expressed by the parameter schema
-    /// (custom-draw escape hatch): the Triangulate boundary group, its deferred Contour Mode row, and
-    /// the geometry-input boundary-peel group. No-op for other types.
+    /// A Sources row that takes exactly one object and no layers (Project To's target mesh): a "Select"
+    /// pill, "1 Object" once picked, and an x that clears it.
     /// </summary>
-    private void AppendBespokeModifierRows(DynamicLayout layout, TerrainDefinition terrain, ModifierDefinition modifier)
-    {
-        switch (modifier)
-        {
-            case TriangulateModifierDefinition triangulate:
-                AppendTriangulateSections(layout, terrain, triangulate);
-                break;
-            case AddGeometryModifierDefinition addGeometry:
-                layout.AddRow(CreateBoundaryPeelSettingsGroup(terrain, addGeometry));
-                break;
-            case SculptModifierDefinition:
-                break;
-            case GradePathModifierDefinition:
-                break;
-        }
-    }
-
-    private Control CreateProjectToTargetGroup(TerrainDefinition owner, ProjectToModifierDefinition modifier)
-    {
-        RhinoDoc? doc = RhinoDoc.ActiveDoc;
-        IReadOnlyList<TerrainDefinition> terrains = doc == null
-            ? Array.Empty<TerrainDefinition>()
-            : _controller.GetTerrains(doc);
-
-        var options = new List<(string Key, string Label)> { ("", "None") };
-        options.AddRange(terrains
-            .Where(item => item.TerrainId != owner.TerrainId &&
-                           !ProjectToTerrainDependsOn(terrains, item.TerrainId, owner.TerrainId, new HashSet<Guid>()))
-            .Select(item => (item.TerrainId.ToString(), item.Name)));
-
-        Control terrainEditor = CreateDropDownEditor(
-            "Target Terrain",
-            options,
-            modifier.TargetTerrainId?.ToString() ?? "",
-            value => MutateModifier(owner.TerrainId, modifier.Id, item =>
-            {
-                var projectTo = (ProjectToModifierDefinition)item;
-                projectTo.TargetTerrainId = string.IsNullOrEmpty(value) ? null : Guid.Parse(value);
-                if (projectTo.TargetTerrainId.HasValue)
-                {
-                    projectTo.TargetMesh.ReplaceObjects(Array.Empty<Guid>());
-                    projectTo.TargetMesh.ReplaceLayers(Array.Empty<string>());
-                }
-            }),
-            "Another MoleHill terrain's latest completed final mesh. Selecting it clears Target Mesh.");
-
-        ModifierTypeDescriptor descriptor = TerrainTypeRegistry.ForModifierType(typeof(ProjectToModifierDefinition))!;
-        ParameterDescriptor<ModifierDefinition> targetParameter = descriptor.Parameters.First(parameter => parameter.Key == "TargetMesh");
-        Control meshEditor = CreateProjectToMeshTargetEditor(owner, modifier, targetParameter);
-
-        var content = new DynamicLayout
-        {
-            DefaultSpacing = new Size(UiMetrics.SpaceMedium, UiMetrics.SpaceMedium),
-            Padding = new Padding(UiMetrics.SpaceMedium, UiMetrics.SpaceXSmall, UiMetrics.SpaceMedium, UiMetrics.SpaceMedium)
-        };
-        content.AddRow(terrainEditor);
-        content.AddRow(meshEditor);
-
-        return new StackLayout
-        {
-            Orientation = Orientation.Vertical,
-            Spacing = 0,
-            HorizontalContentAlignment = HorizontalAlignment.Stretch,
-            Items =
-            {
-                new StackLayoutItem(CreateSectionRule("Target"), HorizontalAlignment.Stretch),
-                new StackLayoutItem(content, HorizontalAlignment.Stretch)
-            }
-        };
-    }
-
-    private Control CreateProjectToMeshTargetEditor(
-        TerrainDefinition owner,
-        ProjectToModifierDefinition modifier,
-        ParameterDescriptor<ModifierDefinition> parameter)
+    private Control CreateSingleObjectEditor(
+        string label,
+        SourceReferenceSet sources,
+        Action<Action<SourceReferenceSet>> mutate,
+        RhinoObjectType objectFilter,
+        string? help)
     {
         RhinoDoc? activeDoc = RhinoDoc.ActiveDoc;
-        Guid? liveTargetId = modifier.TargetMesh.ObjectIds
-            .FirstOrDefault(id => activeDoc == null || activeDoc.Objects.FindId(id) != null);
-        if (liveTargetId == Guid.Empty)
-            liveTargetId = null;
+        bool picked = sources.ObjectIds.Any(id => id != Guid.Empty && (activeDoc == null || activeDoc.Objects.FindId(id) != null));
+        string noun = objectFilter == RhinoObjectType.Mesh ? "Mesh" : "Object";
 
         var pickButton = MakePillButton(
-            liveTargetId.HasValue ? "1 Mesh" : "Select Mesh",
-            "Select exactly one Rhino mesh target. Press Enter to accept.");
+            picked ? $"1 {noun}" : $"Select {noun}",
+            $"Select exactly one {noun.ToLowerInvariant()}. Press Enter to accept.");
         pickButton.Click += (_, _) =>
         {
             RhinoDoc? doc = RhinoDoc.ActiveDoc;
@@ -230,26 +152,23 @@ public sealed partial class MoleHillPanel
 
                 IReadOnlyList<Guid>? selected = _controller.EditSourceObjectIds(
                     doc,
-                    modifier.TargetMesh.ObjectIds,
-                    parameter.ObjectFilter,
-                    "Select exactly one target mesh. Press Enter to accept.");
+                    sources.ObjectIds,
+                    objectFilter,
+                    $"Select exactly one {noun.ToLowerInvariant()}. Press Enter to accept.");
                 if (selected == null)
                     return;
 
                 Guid[] ids = selected.Where(id => id != Guid.Empty).Distinct().ToArray();
                 if (ids.Length > 1)
                 {
-                    MessageBox.Show(this, "Project To accepts exactly one target mesh.", "Project To", MessageBoxButtons.OK, MessageBoxType.Warning);
+                    MessageBox.Show(this, $"{label} accepts exactly one {noun.ToLowerInvariant()}.", label, MessageBoxButtons.OK, MessageBoxType.Warning);
                     return;
                 }
 
-                MutateModifier(owner.TerrainId, modifier.Id, item =>
+                mutate(set =>
                 {
-                    var projectTo = (ProjectToModifierDefinition)item;
-                    projectTo.TargetMesh.ReplaceObjects(ids);
-                    projectTo.TargetMesh.ReplaceLayers(Array.Empty<string>());
-                    if (ids.Length == 1)
-                        projectTo.TargetTerrainId = null;
+                    set.ReplaceObjects(ids);
+                    set.ReplaceLayers(Array.Empty<string>());
                 });
                 RefreshUi();
             });
@@ -263,136 +182,55 @@ public sealed partial class MoleHillPanel
             VerticalContentAlignment = VerticalAlignment.Center,
             Items = { new StackLayoutItem(pickButton, expand: true) }
         };
-        if (liveTargetId.HasValue)
+        if (picked)
         {
             controls.Items.Add(MakeIconButton(PanelButtonIcon.Clear, (_, _) =>
             {
-                MutateModifier(owner.TerrainId, modifier.Id, item =>
+                mutate(set =>
                 {
-                    var projectTo = (ProjectToModifierDefinition)item;
-                    projectTo.TargetMesh.ReplaceObjects(Array.Empty<Guid>());
-                    projectTo.TargetMesh.ReplaceLayers(Array.Empty<string>());
+                    set.ReplaceObjects(Array.Empty<Guid>());
+                    set.ReplaceLayers(Array.Empty<string>());
                 });
                 RefreshUi();
-            }, "Clear the target mesh."));
+            }, $"Clear the {noun.ToLowerInvariant()}."));
         }
 
-        return new PropertyRow(
-            CreateHelpLabel(parameter.Label, parameter.Help ?? "One Rhino mesh to project toward.", 0),
-            controls,
-            expandWidget: true);
-    }
-
-    private static bool ProjectToTerrainDependsOn(
-        IReadOnlyList<TerrainDefinition> terrains,
-        Guid terrainId,
-        Guid soughtTerrainId,
-        HashSet<Guid> visited)
-    {
-        if (terrainId == soughtTerrainId)
-            return true;
-        if (!visited.Add(terrainId))
-            return false;
-
-        TerrainDefinition? terrain = terrains.FirstOrDefault(item => item.TerrainId == terrainId);
-        if (terrain == null)
-            return false;
-
-        foreach (Guid targetId in terrain.Modifiers
-                     .OfType<ProjectToModifierDefinition>()
-                     .Where(item => item.IsEnabled && !item.TargetMesh.HasReferences && item.TargetTerrainId.HasValue)
-                     .Select(item => item.TargetTerrainId!.Value))
-        {
-            if (ProjectToTerrainDependsOn(terrains, targetId, soughtTerrainId, visited))
-                return true;
-        }
-
-        return false;
+        return new PropertyRow(CreateHelpLabel(label, help ?? string.Empty, 0), controls, expandWidget: true);
     }
 
     /// <summary>
-    /// Triangulate below its three everyday sources (design review UI-01 to UI-04): the rarer sources, the
-    /// boundary roles and the settings each sit in a closed section, whose summary names what is set.
+    /// A declared row's extra button (<see cref="RowAction"/>). The actions are document interactions, so
+    /// they live here by key; the descriptor only names them.
     /// </summary>
-    private void AppendTriangulateSections(DynamicLayout layout, TerrainDefinition terrain, TriangulateModifierDefinition modifier)
+    private Control? CreateRowActionButton<TDef>(RowAction action, TerrainDefinition terrain, TDef definition)
+        where TDef : class
     {
-        const string Kind = "triangulate";
-
-        static string? Named(params (string Name, bool Set)[] roles)
+        Guid ownerId = (definition as ModifierDefinition)?.Id ?? Guid.Empty;
+        Action<RhinoDoc>? run = action.Key switch
         {
-            string[] set = roles.Where(role => role.Set).Select(role => role.Name).ToArray();
-            return set.Length == 0 ? null : string.Join(", ", set);
-        }
-
-        var additional = new DynamicLayout { DefaultSpacing = new Size(UiMetrics.SpaceMedium, UiMetrics.SpaceMedium) };
-        if (BuildBespokePositionedModifierRow(terrain, modifier, "TinMesh") is { } tinRow)
-            additional.AddRow(tinRow);
-        additional.AddRow(CreateDemSurfaceRow(terrain, modifier));
-        layout.AddRow(new CardSection(Kind, "additionalSources", "Additional Sources", false,
-            Named(("TIN", modifier.TinMesh.HasReferences), ("DEM", modifier.DemSurface.HasReferences)),
-            additional));
-
-        layout.AddRow(new CardSection(Kind, "boundaries", "Boundaries", false,
-            Named(
-                ("Outer", modifier.OuterBoundaries.HasReferences),
-                ("Hide", modifier.HideBoundaries.HasReferences),
-                ("Show", modifier.ShowBoundaries.HasReferences),
-                ("Data Clip", modifier.DataClipBoundaries.HasReferences)),
-            CreateBoundaryRolesGroup(terrain, modifier)));
-
-        var settings = new DynamicLayout { DefaultSpacing = new Size(UiMetrics.SpaceMedium, UiMetrics.SpaceMedium) };
-        if (BuildBespokePositionedModifierRow(terrain, modifier, "ContourMode") is { } contourModeRow)
-            settings.AddRow(contourModeRow);
-        settings.AddRow(CreateBoundaryPeelSettingsGroup(terrain, modifier));
-        layout.AddRow(new CardSection(Kind, "settings", "Settings", false, null, settings));
-    }
-
-    private Control CreateDemSurfaceRow(TerrainDefinition terrain, TriangulateModifierDefinition modifier)
-    {
-        Control? sourceEditor = BuildBespokePositionedModifierRow(terrain, modifier, "DemSurface");
-        string buttonText = modifier.DemSurface.HasReferences ? "Replace GeoTIFF..." : "Import GeoTIFF...";
-        var importButton = MakeInlineButton(
-            buttonText,
-            (_, _) =>
+            "dataClipRectangle" => doc => _controller.SetDataClipRectangle(doc, terrain.TerrainId, ownerId),
+            "importGeoTiff" => doc =>
             {
-                var doc = RhinoDoc.ActiveDoc;
-                if (doc == null)
-                    return;
-
-                if (DocumentCommandService.RunImportGeoTiffSurface(doc, terrain.TerrainId, modifier.Id) == global::Rhino.Commands.Result.Success)
+                if (DocumentCommandService.RunImportGeoTiffSurface(doc, terrain.TerrainId, ownerId) == global::Rhino.Commands.Result.Success)
                     RebuildModifierLayout(_controller.GetSelectedTerrain(doc));
             },
-            "Create a georeferenced Rhino surface textured with a numeric single-band GeoTIFF and assign it as the DEM source.");
-
-        var layout = new DynamicLayout { DefaultSpacing = new Size(UiMetrics.SpaceMedium, UiMetrics.SpaceSmall) };
-        if (sourceEditor != null)
-            layout.AddRow(sourceEditor);
-        layout.AddRow(new PropertyRow(
-            CreateHelpLabel("GeoTIFF", "Import a textured surface, then move that surface to align geographic and project coordinates.", 0),
-            importButton,
-            expandWidget: true));
-        return layout;
-    }
-
-    private Control CreateGradePathGeometryGroup(TerrainDefinition terrain, GradePathModifierDefinition modifier)
-    {
-        var content = new DynamicLayout
-        {
-            DefaultSpacing = new Size(UiMetrics.SpaceMedium, UiMetrics.SpaceMedium),
-            Padding = new Padding(0)
+            _ => null,
         };
-        // Constant-width first, then the opt-in toggle, then the rows it unlocks — so the card reads
-        // "a path has a Width; variable width is something you switch on", not "fill in these curves".
-        foreach (string key in new[] { "Paths", "Width", "UseVariableWidth", "WidthEdges", "MaxEdgeDistance" })
+        if (run == null)
+            return null;
+
+        return MakeInlineButton(action.Label, (_, _) =>
         {
-            Control? row = BuildBespokePositionedModifierRow(terrain, modifier, key);
-            if (row != null)
-                content.AddRow(row);
-        }
-        // No box and no "Geometry" caption: these four rows are the first thing on a Grade Path card, so
-        // the frame was drawing a border around "the inputs" and naming them after their data type. The
-        // rows already say Centerlines / Width / Variable Width.
-        return content;
+            if (RhinoDoc.ActiveDoc is not { } doc)
+                return;
+
+            // After the click returns, so the command's own prompts are not nested inside the button event.
+            Application.Instance.AsyncInvoke(() =>
+            {
+                if (!IsDisposed)
+                    run(doc);
+            });
+        }, action.Help);
     }
 
     private Control CreateSculptSessionRow(Guid terrainId, Guid modifierId)
@@ -440,88 +278,6 @@ public sealed partial class MoleHillPanel
                 0),
             new AdaptiveColumns(UiMetrics.SpaceSmall, UiMetrics.Chs(8), sculptButton, clearButton),
             expandWidget: true);
-    }
-
-    private Control CreateBoundaryRolesGroup(TerrainDefinition terrain, TriangulateModifierDefinition modifier)
-    {
-        var rectangleButton = MakeInlineButton("Rectangle", (_, _) =>
-        {
-            var doc = RhinoDoc.ActiveDoc;
-            if (doc == null)
-                return;
-
-            Application.Instance.AsyncInvoke(() =>
-            {
-                if (IsDisposed)
-                    return;
-
-                _controller.SetDataClipRectangle(doc, terrain.TerrainId, modifier.Id);
-            });
-        }, "Draw a closed rectangle and use it as the Data Clip object reference.");
-
-        var content = new DynamicLayout
-        {
-            DefaultSpacing = new Size(UiMetrics.SpaceMedium, UiMetrics.SpaceMedium)
-        };
-        foreach (string key in new[] { "OuterBoundaries", "HideBoundaries", "ShowBoundaries" })
-        {
-            Control? row = BuildBespokePositionedModifierRow(terrain, modifier, key);
-            if (row != null)
-                content.AddRow(row);
-        }
-
-        ModifierTypeDescriptor descriptor = TerrainTypeRegistry.ForModifierType(typeof(TriangulateModifierDefinition))!;
-        ParameterDescriptor<ModifierDefinition>? dataClip = descriptor.Parameters.FirstOrDefault(parameter => parameter.Key == "DataClipBoundaries");
-        if (dataClip != null)
-        {
-            content.AddRow(CreateSourceEditor(
-                dataClip.Label,
-                modifier.DataClipBoundaries,
-                apply => MutateModifier(terrain.TerrainId, modifier.Id, item => apply(((TriangulateModifierDefinition)item).DataClipBoundaries)),
-                dataClip.ObjectFilter,
-                doc => _controller.GetSelectedLayerPaths(doc),
-                dataClip.Help,
-                rectangleButton));
-        }
-
-        return content;
-    }
-
-    /// <summary>
-    /// The "Peel Border" group. The four rows are declared in
-    /// <see cref="GeometryInputParameterCatalog.BoundaryPeel"/> and built through the shared schema row
-    /// builder — this method owns only their <em>placement</em> inside the section rule. They were
-    /// hand-written until the slope-unit work, which is how "Slope Limit" escaped the schema guard and
-    /// shipped as an unlabelled degrees field.
-    /// </summary>
-    private Control CreateBoundaryPeelSettingsGroup(
-        TerrainDefinition terrain,
-        GeometryInputModifierDefinition modifier)
-    {
-        var settings = new DynamicLayout
-        {
-            DefaultSpacing = new Size(UiMetrics.SpaceMedium, UiMetrics.SpaceMedium),
-            Padding = new Padding(UiMetrics.SpaceMedium, UiMetrics.SpaceXSmall, UiMetrics.SpaceMedium, UiMetrics.SpaceMedium)
-        };
-
-        foreach (string key in GeometryInputParameterCatalog.BoundaryPeelKeys)
-        {
-            Control? row = BuildBespokePositionedModifierRow(terrain, modifier, key);
-            if (row != null)
-                settings.AddRow(row);
-        }
-
-        return new StackLayout
-        {
-            Orientation = Orientation.Vertical,
-            Spacing = 0,
-            HorizontalContentAlignment = HorizontalAlignment.Stretch,
-            Items =
-            {
-                new StackLayoutItem(CreateSectionRule("Peel Border"), HorizontalAlignment.Stretch),
-                new StackLayoutItem(settings, HorizontalAlignment.Stretch)
-            }
-        };
     }
 
     private static Color ModifierTypeColor(string kind) =>

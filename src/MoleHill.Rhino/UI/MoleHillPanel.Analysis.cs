@@ -77,9 +77,13 @@ public sealed partial class MoleHillPanel
         else if (descriptor?.DescribeBasis(terrain, analysis) is { } basis)
             layout.AddRow(CreateNoteRow(basis));
 
-        AppendBespokeAnalysisRowsBefore(layout, terrain, analysis);
-        TryBuildSchemaAnalysisBody(layout, terrain, analysis);
-        AppendBespokeAnalysisRowsAfter(layout, terrain, analysis, summary);
+        BuildSchemaAnalysisBody(layout, terrain, analysis);
+        // What the last build measured is data on the descriptor, drawn by the shared result renderer.
+        AddResultRows(
+            layout,
+            GetAnalysisKind(analysis),
+            () => descriptor?.DescribeResult(analysis, summary, ResultFormats),
+            descriptor?.ResultsExpandedByDefault ?? true);
         Control? diagnosticsRow = CreateRuntimeDiagnosticsRow(
             terrain,
             new RuntimeOverlayOwner(RuntimeOverlayOwnerKind.Analysis, analysis.Id));
@@ -88,88 +92,6 @@ public sealed partial class MoleHillPanel
 
         return layout;
     }
-
-    /// <summary>
-    /// Rows that must run before the schema-generated rows to preserve the original card layout: the slope
-    /// unit selector (converts Range values when changed, so it can't be a plain schema row) and the shared
-    /// terrain-section block (sources + insertion origin + text height + output layer + color — the
-    /// insertion-origin picker needs an interactive GetPoint, so the whole block stays bespoke).
-    /// </summary>
-    private void AppendBespokeAnalysisRowsBefore(DynamicLayout layout, TerrainDefinition terrain, AnalysisDefinition analysis)
-    {
-        switch (analysis)
-        {
-            case SlopeAnalysisDefinition slope:
-                layout.AddRow(CreateSlopeUnitEditor(terrain.TerrainId, slope));
-                break;
-
-            case ReferenceComparisonAnalysisDefinition referenceComparison:
-                AddAnalysisCompareTerrainRows(layout, terrain, referenceComparison);
-                break;
-
-        }
-    }
-
-    /// <summary>
-    /// Lets Earthworks/Cut-Fill compare against another MoleHill terrain's finished mesh directly, without
-    /// requiring it to be baked to Rhino geometry first, and says when that terrain cannot be compared
-    /// against as it stands. Sits above the schema-generated "Compare To" row, which takes precedence when
-    /// it has objects or layers assigned.
-    /// </summary>
-    private void AddAnalysisCompareTerrainRows(
-        DynamicLayout layout,
-        TerrainDefinition owner,
-        ReferenceComparisonAnalysisDefinition analysis)
-    {
-        void Mutate(Action<ReferenceComparisonAnalysisDefinition> apply) =>
-            MutateAnalysis(owner.TerrainId, analysis.Id, item =>
-            {
-                if (item is ReferenceComparisonAnalysisDefinition compare)
-                    apply(compare);
-            }, scheduleRebuild: true);
-
-        // Design review Step 66: what the cut and fill are measured against, as one choice. The picker for
-        // the chosen reference follows; the Geometry picker is a declared row shown in Geometry mode.
-        ComparisonMode mode = ComparisonModes.Of(analysis);
-        layout.AddRow(CreateSegmentedEditor(
-            "Compare To",
-            AnalysisComparisonOptions,
-            mode.ToString(),
-            key => Mutate(item => ComparisonModes.Set(item, Enum.Parse<ComparisonMode>(key))),
-            "What cut and fill are measured against.",
-            AnalysisComparisonHelp));
-
-        if (mode != ComparisonMode.Terrain)
-            return;
-
-        layout.AddRow(CreateCompareTerrainEditor(
-            owner,
-            analysis.ReferenceTerrainId,
-            id => Mutate(item => item.ReferenceTerrainId = id),
-            CompareTerrainHelp));
-        if (analysis.ReferenceTerrainId is { } referenceId &&
-            CreateCompareTerrainStatusRow(
-                owner,
-                referenceId,
-                "cut and fill are measured against this terrain's own base triangulation instead") is { } status)
-        {
-            layout.AddRow(status);
-        }
-    }
-
-    private static readonly IReadOnlyList<(string Key, string Label)> AnalysisComparisonOptions = new[]
-    {
-        (nameof(ComparisonMode.Original), "Original"),
-        (nameof(ComparisonMode.Terrain), "Terrain"),
-        (nameof(ComparisonMode.Geometry), "Geometry"),
-    };
-
-    private static readonly IReadOnlyDictionary<string, string> AnalysisComparisonHelp = new Dictionary<string, string>
-    {
-        [nameof(ComparisonMode.Original)] = "This terrain's own surface before its modifiers moved it.",
-        [nameof(ComparisonMode.Terrain)] = "Another MoleHill terrain in this document, as it is built.",
-        [nameof(ComparisonMode.Geometry)] = "Rhino geometry: a survey mesh or surface.",
-    };
 
     /// <summary>An inline caution on a card: a setting is on but cannot take effect yet.</summary>
     /// <summary>
@@ -225,17 +147,6 @@ public sealed partial class MoleHillPanel
     /// Rows drawn after the schema-generated rows: the read-only stats from the last terrain build, which
     /// each descriptor supplies as data.
     /// </summary>
-    private void AppendBespokeAnalysisRowsAfter(DynamicLayout layout, TerrainDefinition terrain, AnalysisDefinition analysis, TerrainAnalysisSummary? summary)
-    {
-        // Nothing here needs a live control: what the last build measured is data on the descriptor
-        // (AnalysisTypeDescriptor.DescribeResult), drawn by the same generic renderer annotations use.
-        AddResultRows(
-            layout,
-            GetAnalysisKind(analysis),
-            () => AnalysisTypeRegistry.ForType(analysis.GetType())?.DescribeResult(analysis, summary, ResultFormats),
-            AnalysisTypeRegistry.ForType(analysis.GetType())?.ResultsExpandedByDefault ?? true);
-    }
-
     private static string FormatArea(double value)
     {
         ModelUnitContext unitContext = ModelUnitContext.FromDocument(RhinoDoc.ActiveDoc);
@@ -316,25 +227,9 @@ public sealed partial class MoleHillPanel
         return isActive && descriptor.ActiveSubtitle != null ? descriptor.ActiveSubtitle : descriptor.Subtitle;
     }
 
-    private static string GetAnalysisCollapsedSummary(TerrainDefinition terrain, AnalysisDefinition analysis)
-    {
-        TerrainAnalysisSummary? summary = GetAnalysisSummary(terrain, analysis.Id);
-        return analysis switch
-        {
-            EarthworkAnalysisDefinition earthwork => summary != null
-                ? $"Net {FormatVolume(summary.NetVolume)} · {(summary.EarthworkIsEstimated ? "Estimated" : "Exact")}"
-                : $"{SummaryText.Sources(earthwork.Reference)} · {CountReferences(earthwork.Boundary)} bounds",
-            SlopeAnalysisDefinition slope => $"{FormatSlopeValue(slope.RangeLow, slope.Unit)} to {(slope.RangeHigh > slope.RangeLow ? FormatSlopeValue(slope.RangeHigh, slope.Unit) : "Auto")}",
-            ElevationAnalysisDefinition elevation => $"{elevation.RangeLow:G4} to {(elevation.RangeHigh > elevation.RangeLow ? elevation.RangeHigh.ToString("G4") : "Auto")}",
-            CutFillAnalysisDefinition cutFill => summary != null
-                ? $"{summary.CutVolume:F2} / {summary.FillVolume:F2} / {summary.NetVolume:F2}"
-                : $"{SummaryText.Sources(cutFill.Reference)} · {CountReferences(cutFill.Boundary)} bounds",
-            WaterflowAnalysisDefinition waterflow => summary != null
-                ? $"{summary.GeneratedOutputCount} paths · {summary.WaterflowBoundaryCount} boundary"
-                : $"{SummaryText.Sources(waterflow.Sources)} · downhill paths",
-            _ => string.Empty
-        };
-    }
+    private static string GetAnalysisCollapsedSummary(TerrainDefinition terrain, AnalysisDefinition analysis) =>
+        AnalysisTypeRegistry.ForType(analysis.GetType())?.Summarize(terrain, analysis, GetAnalysisSummary(terrain, analysis.Id), ResultFormats)
+            ?? string.Empty;
 
     private void DuplicateAnalysis(Guid terrainId, Guid analysisId)
     {
@@ -344,43 +239,6 @@ public sealed partial class MoleHillPanel
             _controller.DuplicateAnalysis(doc, terrainId, analysisId);
             RefreshUi();
         }
-    }
-
-    private Control CreateSlopeUnitEditor(Guid terrainId, SlopeAnalysisDefinition slope)
-    {
-        var options = new[]
-        {
-            (AnalysisFormatting.GetSlopeUnitKey(SlopeAnalyzer.SlopeUnit.Percent), "Percent"),
-            (AnalysisFormatting.GetSlopeUnitKey(SlopeAnalyzer.SlopeUnit.Promille), "Promille"),
-            (AnalysisFormatting.GetSlopeUnitKey(SlopeAnalyzer.SlopeUnit.Ratio), "Ratio"),
-            (AnalysisFormatting.GetSlopeUnitKey(SlopeAnalyzer.SlopeUnit.Degrees), "Degrees")
-        };
-
-        return CreateDropDownEditor(
-            "Units",
-            options,
-            AnalysisFormatting.GetSlopeUnitKey(slope.Unit),
-            value =>
-            {
-                var nextUnit = AnalysisFormatting.ParseSlopeUnit(value);
-                if (nextUnit == slope.Unit)
-                    return;
-
-                double rangeLow = ConvertSlopeValue(slope.RangeLow, slope.Unit, nextUnit);
-                double rangeHigh = ConvertSlopeValue(slope.RangeHigh, slope.Unit, nextUnit);
-                double interval = ConvertSlopeValue(slope.ColorInterval, slope.Unit, nextUnit);
-                MutateAndRefreshAnalysis(terrainId, slope.Id, item =>
-                {
-                    if (item is not SlopeAnalysisDefinition target)
-                        return;
-
-                    target.Unit = nextUnit;
-                    target.RangeLow = rangeLow;
-                    target.RangeHigh = rangeHigh;
-                    target.ColorInterval = interval;
-                });
-            },
-            "Show slope values as percent, promille, rise/run ratio, or degrees.");
     }
 
     private static string FormatSlopeValue(double value, SlopeAnalyzer.SlopeUnit unit) =>

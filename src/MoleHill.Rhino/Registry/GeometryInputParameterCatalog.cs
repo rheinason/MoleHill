@@ -13,14 +13,12 @@ namespace MoleHill.Rhino.Registry;
 /// unlabelled degrees field — the very defect the unit vocabulary exists to prevent. Declaring them
 /// here puts them back under the guard.</para>
 ///
-/// <para>The panel still positions them itself, inside the "Peel Border" section rule: their keys are
-/// listed in <c>IsBespokePositionedModifierParameter</c> so the ordinary row loop skips them, and
-/// <c>CreateBoundaryPeelSettingsGroup</c> pulls each one by key. Custom <em>placement</em>, standard
-/// rows — which is the same deal Triangulate's Contour Mode and DEM Surface rows already had.</para>
+/// <para>They open their own closed "Peel Border" section, so a card that concatenates the catalog gets
+/// the group with no panel code.</para>
 /// </summary>
 internal static class GeometryInputParameterCatalog
 {
-    /// <summary>Keys of the rows the panel positions inside its own "Peel Border" group.</summary>
+    /// <summary>Keys of the "Peel Border" rows.</summary>
     public static IReadOnlyList<string> BoundaryPeelKeys { get; } = new[]
     {
         "PeelBoundaryTriangles",
@@ -29,8 +27,12 @@ internal static class GeometryInputParameterCatalog
         "MaxBoundarySlopeDegrees",
     };
 
+    /// <summary>The closed "Peel Border" section and its rows; the summary says whether peeling is on.</summary>
     public static IReadOnlyList<ModifierParam> BoundaryPeel { get; } = new[]
     {
+        ModifierParam.Section(
+            "peelBorder", "Peel Border",
+            summary: m => ((GeometryInputModifierDefinition)m).PeelBoundaryTriangles ? "On" : "Off"),
         ModifierParam.Bool(
             "PeelBoundaryTriangles", "Enabled",
             m => ((GeometryInputModifierDefinition)m).PeelBoundaryTriangles,

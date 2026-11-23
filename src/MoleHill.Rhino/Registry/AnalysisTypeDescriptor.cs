@@ -73,6 +73,13 @@ internal abstract class AnalysisTypeDescriptor
     /// </summary>
     public virtual string? DescribeBasis(TerrainDefinition terrain, AnalysisDefinition analysis) => null;
 
+    /// <summary>
+    /// The card's collapsed summary line after its type name: what the last build measured when there is a
+    /// result, otherwise what the card is set to. Evaluated with point decimals (<see cref="SummaryText.Invariant{T}"/>).
+    /// </summary>
+    public virtual string Summarize(TerrainDefinition terrain, AnalysisDefinition definition, TerrainAnalysisSummary? summary, ResultFormatter format) =>
+        string.Empty;
+
     /// <summary>Whether the card's Results section starts open (until the user opens or closes it).</summary>
     public virtual bool ResultsExpandedByDefault => true;
 

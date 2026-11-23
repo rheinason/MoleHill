@@ -50,6 +50,24 @@ internal enum ParameterKind
     PlanPoint,
 
     /// <summary>
+    /// Where a drawing is placed: Pick Point while the builder places it, Picked (coordinates in the
+    /// tooltip) with an x that hands placement back (design review Step 26).
+    /// </summary>
+    InsertionPoint,
+
+    /// <summary>
+    /// Another terrain in the document, or none, with a line saying when that terrain cannot be compared
+    /// against as it stands (not built, building, missing) and the rebuild that fixes it.
+    /// </summary>
+    TerrainReference,
+
+    /// <summary>
+    /// Content the panel builds itself (a section's profile list), declared so it sits in the card's
+    /// order and inside its section. The key names which content.
+    /// </summary>
+    Placeholder,
+
+    /// <summary>
     /// A file on disk: its full path in a text box beside a Browse button. The path lives in the text
     /// accessors; <see cref="ParameterDescriptor{TDefinition}.FileFilterName"/> and
     /// <see cref="ParameterDescriptor{TDefinition}.FileExtensions"/> narrow the browse dialog.
@@ -127,6 +145,41 @@ internal sealed class ParameterDescriptor<TDefinition>
     /// whose value has no effect while it does not apply, so hiding it never hides a working setting.
     /// </summary>
     public Func<TerrainDefinition, bool>? AppliesTo { get; init; }
+
+    /// <summary>
+    /// A Sources row's extra button (Data Clip's Rectangle, the DEM's Import GeoTIFF): a document action the
+    /// panel runs by <see cref="RowAction.Key"/>, so the descriptor names it without depending on the UI.
+    /// </summary>
+    public RowAction? Action { get; init; }
+
+    /// <summary>A Sources row that takes exactly one object and no layers (Project To's target mesh).</summary>
+    public bool SingleObject { get; init; }
+
+    /// <summary>Runs after a Sources row changes, inside the same edit (a target mesh clears the target terrain).</summary>
+    public Action<TDefinition>? AfterSourcesChanged { get; init; }
+
+    /// <summary>What a <see cref="ParameterKind.TerrainReference"/> calls choosing no terrain.</summary>
+    public string? NoTerrainLabel { get; init; }
+
+    /// <summary>Which of the document's terrains a <see cref="ParameterKind.TerrainReference"/> offers (all others but this one by default).</summary>
+    public Func<TerrainDefinition, IReadOnlyList<TerrainDefinition>, TerrainDefinition, bool>? OffersTerrain { get; init; }
+
+    /// <summary>An <see cref="ParameterKind.InsertionPoint"/>: whether one is picked, and where.</summary>
+    public Func<TDefinition, (bool Picked, double X, double Y, double Z)>? GetInsertion { get; init; }
+
+    /// <summary>Stores a picked insertion point, or null to hand placement back to the builder.</summary>
+    public Action<TDefinition, global::Rhino.Geometry.Point3d?>? SetInsertion { get; init; }
+
+    /// <summary>A <see cref="ParameterKind.TerrainReference"/>'s chosen terrain.</summary>
+    public Func<TDefinition, Guid?>? GetTerrainReference { get; init; }
+
+    public Action<TDefinition, Guid?>? SetTerrainReference { get; init; }
+
+    /// <summary>What the card shows while the chosen terrain cannot be compared against ("Until then, ...").</summary>
+    public string? TerrainReferenceMeanwhile { get; init; }
+
+    /// <summary>A read-only row's text when it needs the terrain (the analysis a legend keys).</summary>
+    public Func<TerrainDefinition, TDefinition, string>? GetReadOnlyFromTerrain { get; init; }
 
     /// <summary>A <see cref="ParameterKind.PlanPoint"/> row's world X and Y.</summary>
     public Func<TDefinition, (double X, double Y)>? GetPlanPoint { get; init; }
@@ -255,10 +308,16 @@ internal sealed class ParameterDescriptor<TDefinition>
         RhinoObjectType objectFilter,
         string? help = null,
         Func<TDefinition, bool>? visibleWhen = null,
-        Func<TDefinition, string>? labelFor = null) =>
+        Func<TDefinition, string>? labelFor = null,
+        RowAction? action = null,
+        bool singleObject = false,
+        Action<TDefinition>? afterChanged = null) =>
         new()
         {
             Kind = ParameterKind.Sources,
+            Action = action,
+            SingleObject = singleObject,
+            AfterSourcesChanged = afterChanged,
             Key = key,
             Label = label,
             GetSources = get,
@@ -335,6 +394,53 @@ internal sealed class ParameterDescriptor<TDefinition>
             DecimalPlaces = decimalPlaces,
             VisibleWhen = visibleWhen,
         };
+
+    /// <summary>Where the card's drawing goes: picked, or placed by the builder (design review Step 26).</summary>
+    public static ParameterDescriptor<TDefinition> InsertionPoint(
+        string key,
+        Func<TDefinition, (bool Picked, double X, double Y, double Z)> get,
+        Action<TDefinition, global::Rhino.Geometry.Point3d?> set,
+        string help,
+        bool refreshOnly = false) =>
+        new()
+        {
+            Kind = ParameterKind.InsertionPoint,
+            Key = key,
+            Label = "Insertion Point",
+            GetInsertion = get,
+            SetInsertion = set,
+            Help = help,
+            RefreshOnly = refreshOnly,
+        };
+
+    /// <summary>Another terrain in the document, or none; <paramref name="meanwhile"/> finishes "Until then, ...".</summary>
+    public static ParameterDescriptor<TDefinition> TerrainReference(
+        string key,
+        string label,
+        Func<TDefinition, Guid?> get,
+        Action<TDefinition, Guid?> set,
+        string help,
+        string meanwhile,
+        Func<TDefinition, bool>? visibleWhen = null,
+        string? noTerrainLabel = null,
+        Func<TerrainDefinition, IReadOnlyList<TerrainDefinition>, TerrainDefinition, bool>? offers = null) =>
+        new()
+        {
+            Kind = ParameterKind.TerrainReference,
+            NoTerrainLabel = noTerrainLabel,
+            OffersTerrain = offers,
+            Key = key,
+            Label = label,
+            GetTerrainReference = get,
+            SetTerrainReference = set,
+            TerrainReferenceMeanwhile = meanwhile,
+            Help = help,
+            VisibleWhen = visibleWhen,
+        };
+
+    /// <summary>Content the panel builds itself, in this position; <paramref name="key"/> names which.</summary>
+    public static ParameterDescriptor<TDefinition> Placeholder(string key, string label) =>
+        new() { Kind = ParameterKind.Placeholder, Key = key, Label = label };
 
     /// <summary>A plan point picked in the viewport; 0,0 reads as not picked (design review Step 53).</summary>
     public static ParameterDescriptor<TDefinition> PlanPoint(
@@ -648,15 +754,17 @@ internal sealed class ParameterDescriptor<TDefinition>
     public static ParameterDescriptor<TDefinition> ReadOnly(
         string key,
         string label,
-        Func<TDefinition, string> get,
+        Func<TDefinition, string>? get,
         string? help = null,
-        Func<TDefinition, bool>? visibleWhen = null) =>
+        Func<TDefinition, bool>? visibleWhen = null,
+        Func<TerrainDefinition, TDefinition, string>? getFromTerrain = null) =>
         new()
         {
             Kind = ParameterKind.ReadOnly,
             Key = key,
             Label = label,
             GetReadOnly = get,
+            GetReadOnlyFromTerrain = getFromTerrain,
             Help = help,
             VisibleWhen = visibleWhen,
         };
@@ -722,3 +830,6 @@ internal sealed class ParameterDescriptor<TDefinition>
             VisibleWhen = visibleWhen,
         };
 }
+
+/// <summary>A row's extra button: what it says, its tooltip, and the key the panel runs it by.</summary>
+internal sealed record RowAction(string Key, string Label, string Help);

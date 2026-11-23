@@ -15,6 +15,15 @@ namespace MoleHill.Rhino.Registry;
 internal sealed class EarthworkAnalysisDescriptor : AnalysisTypeDescriptor
 {
     public override string Kind => "earthwork";
+
+    public override string Summarize(TerrainDefinition terrain, AnalysisDefinition definition, TerrainAnalysisSummary? summary, ResultFormatter format)
+    {
+        var earthwork = (EarthworkAnalysisDefinition)definition;
+        static int Refs(SourceReferenceSet set) => set.ObjectIds.Count + set.LayerPaths.Count;
+        return summary != null
+            ? $"Net {format.Volume(summary.NetVolume)} · {(summary.EarthworkIsEstimated ? "Estimated" : "Exact")}"
+            : $"{SummaryText.Sources(earthwork.Reference)} · {Refs(earthwork.Boundary)} bounds";
+    }
     public override Type DefinitionType => typeof(EarthworkAnalysisDefinition);
     public override string TypeLabel => "Earthworks";
     public override string MenuLabel => "Earthworks";
@@ -47,19 +56,13 @@ internal sealed class EarthworkAnalysisDescriptor : AnalysisTypeDescriptor
         };
     }
 
-    public override IReadOnlyList<AnalysisParam> Parameters { get; } = new[]
+    public override IReadOnlyList<AnalysisParam> Parameters { get; } = ComparisonParameters.Analysis().Concat(new[]
     {
-        AnalysisParam.Sources(
-            "Reference", "Geometry",
-            a => ((EarthworkAnalysisDefinition)a).Reference,
-            RhinoObjectType.Mesh | RhinoObjectType.Brep | RhinoObjectType.Extrusion,
-            "Existing ground as Rhino geometry: a survey mesh or surface.",
-            visibleWhen: a => ComparisonModes.Of((ReferenceComparisonAnalysisDefinition)a) == ComparisonMode.Geometry),
         AnalysisParam.Sources(
             "Boundary", "Boundary",
             a => ((EarthworkAnalysisDefinition)a).Boundary,
             RhinoObjectType.Curve),
-    };
+    }).ToArray();
 
     public override string? DescribeBlocker(TerrainDefinition terrain, AnalysisDefinition analysis)
     {
@@ -82,6 +85,13 @@ internal sealed class EarthworkAnalysisDescriptor : AnalysisTypeDescriptor
 internal sealed class SlopeAnalysisDescriptor : AnalysisTypeDescriptor
 {
     public override string Kind => "slope";
+
+    public override string Summarize(TerrainDefinition terrain, AnalysisDefinition definition, TerrainAnalysisSummary? summary, ResultFormatter format)
+    {
+        var slope = (SlopeAnalysisDefinition)definition;
+        return $"{AnalysisFormatting.FormatSlopeValue(slope.RangeLow, slope.Unit)} to " +
+            (slope.RangeHigh > slope.RangeLow ? AnalysisFormatting.FormatSlopeValue(slope.RangeHigh, slope.Unit) : "Auto");
+    }
     public override Type DefinitionType => typeof(SlopeAnalysisDefinition);
     public override string TypeLabel => "Slope";
     public override string MenuLabel => "Slope";
@@ -115,6 +125,31 @@ internal sealed class SlopeAnalysisDescriptor : AnalysisTypeDescriptor
 
     public override IReadOnlyList<AnalysisParam> Parameters { get; } = new[]
     {
+        AnalysisParam.Choice(
+            "Unit", "Units",
+            new[]
+            {
+                (AnalysisFormatting.GetSlopeUnitKey(SlopeAnalyzer.SlopeUnit.Percent), "Percent"),
+                (AnalysisFormatting.GetSlopeUnitKey(SlopeAnalyzer.SlopeUnit.Promille), "Promille"),
+                (AnalysisFormatting.GetSlopeUnitKey(SlopeAnalyzer.SlopeUnit.Ratio), "Ratio"),
+                (AnalysisFormatting.GetSlopeUnitKey(SlopeAnalyzer.SlopeUnit.Degrees), "Degrees"),
+            },
+            a => AnalysisFormatting.GetSlopeUnitKey(((SlopeAnalysisDefinition)a).Unit),
+            (a, v) =>
+            {
+                // The ramp's range and interval are stored in the shown unit, so they convert with it.
+                var slope = (SlopeAnalysisDefinition)a;
+                var next = AnalysisFormatting.ParseSlopeUnit(v ?? string.Empty);
+                if (next == slope.Unit)
+                    return;
+
+                slope.RangeLow = AnalysisFormatting.ConvertSlopeValue(slope.RangeLow, slope.Unit, next);
+                slope.RangeHigh = AnalysisFormatting.ConvertSlopeValue(slope.RangeHigh, slope.Unit, next);
+                slope.ColorInterval = AnalysisFormatting.ConvertSlopeValue(slope.ColorInterval, slope.Unit, next);
+                slope.Unit = next;
+            },
+            "Show slope values as percent, promille, rise/run ratio, or degrees.",
+            refreshOnly: true),
         AnalysisParam.ColorRamp(
             "Colours the terrain preview by slope. Drag the ramp's stops, the band interval, or the mapped range."),
     };
@@ -178,6 +213,12 @@ internal sealed class AspectAnalysisDescriptor : AnalysisTypeDescriptor
 internal sealed class ElevationAnalysisDescriptor : AnalysisTypeDescriptor
 {
     public override string Kind => "elevation";
+
+    public override string Summarize(TerrainDefinition terrain, AnalysisDefinition definition, TerrainAnalysisSummary? summary, ResultFormatter format)
+    {
+        var elevation = (ElevationAnalysisDefinition)definition;
+        return $"{elevation.RangeLow:G4} to {(elevation.RangeHigh > elevation.RangeLow ? elevation.RangeHigh.ToString("G4") : "Auto")}";
+    }
     public override Type DefinitionType => typeof(ElevationAnalysisDefinition);
     public override string TypeLabel => "Elevation";
     public override string MenuLabel => "Elevation";
@@ -213,6 +254,15 @@ internal sealed class ElevationAnalysisDescriptor : AnalysisTypeDescriptor
 internal sealed class CutFillAnalysisDescriptor : AnalysisTypeDescriptor
 {
     public override string Kind => "cut-fill";
+
+    public override string Summarize(TerrainDefinition terrain, AnalysisDefinition definition, TerrainAnalysisSummary? summary, ResultFormatter format)
+    {
+        var cutFill = (CutFillAnalysisDefinition)definition;
+        static int Refs(SourceReferenceSet set) => set.ObjectIds.Count + set.LayerPaths.Count;
+        return summary != null
+            ? $"{summary.CutVolume:F2} / {summary.FillVolume:F2} / {summary.NetVolume:F2}"
+            : $"{SummaryText.Sources(cutFill.Reference)} · {Refs(cutFill.Boundary)} bounds";
+    }
     public override Type DefinitionType => typeof(CutFillAnalysisDefinition);
     public override string TypeLabel => "Cut / Fill";
     public override string MenuLabel => "Cut / Fill";
@@ -255,14 +305,8 @@ internal sealed class CutFillAnalysisDescriptor : AnalysisTypeDescriptor
         return rows;
     }
 
-    public override IReadOnlyList<AnalysisParam> Parameters { get; } = new[]
+    public override IReadOnlyList<AnalysisParam> Parameters { get; } = ComparisonParameters.Analysis().Concat(new[]
     {
-        AnalysisParam.Sources(
-            "Reference", "Geometry",
-            a => ((CutFillAnalysisDefinition)a).Reference,
-            RhinoObjectType.Mesh | RhinoObjectType.Brep | RhinoObjectType.Extrusion,
-            "Existing ground as Rhino geometry: a survey mesh or surface.",
-            visibleWhen: a => ComparisonModes.Of((ReferenceComparisonAnalysisDefinition)a) == ComparisonMode.Geometry),
         AnalysisParam.Sources(
             "Boundary", "Boundary",
             a => ((CutFillAnalysisDefinition)a).Boundary,
@@ -308,7 +352,7 @@ internal sealed class CutFillAnalysisDescriptor : AnalysisTypeDescriptor
                 AnalysisFormatting.GetRoleLayerPath(terrain, LayerRole.CutFillContours)),
             defaultText: (terrain, _) => AnalysisFormatting.GetRoleColorText(terrain, LayerRole.CutFillContours),
             visibleWhen: a => ((CutFillAnalysisDefinition)a).ShowDeltaContours),
-    };
+    }).ToArray();
 
     public override string? DescribeBlocker(TerrainDefinition terrain, AnalysisDefinition analysis)
     {
@@ -335,6 +379,14 @@ internal sealed class CutFillAnalysisDescriptor : AnalysisTypeDescriptor
 internal sealed class WaterflowAnalysisDescriptor : AnalysisTypeDescriptor
 {
     public override string Kind => "waterflow";
+
+    public override string Summarize(TerrainDefinition terrain, AnalysisDefinition definition, TerrainAnalysisSummary? summary, ResultFormatter format)
+    {
+        var waterflow = (WaterflowAnalysisDefinition)definition;
+        return summary != null
+            ? $"{summary.GeneratedOutputCount} paths · {summary.WaterflowBoundaryCount} boundary"
+            : $"{SummaryText.Sources(waterflow.Sources)} · downhill paths";
+    }
     public override Type DefinitionType => typeof(WaterflowAnalysisDefinition);
     public override string TypeLabel => "Waterflow from Points";
     public override string MenuLabel => "Waterflow from Points";

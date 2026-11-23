@@ -51,6 +51,24 @@ internal static class ComparisonModes
     /// <paramref name="setTerrain"/> keeps the drawn-profile list in step with the compared terrain.
     /// Turning comparison on starts with cut/fill shading on (the approved default); Off turns it off.
     /// </summary>
+    public static void Set(TerrainSectionAnnotationDefinitionBase section, ComparisonMode mode) =>
+        Set(section, mode, id => SetSectionTerrain(section, id));
+
+    /// <summary>
+    /// A section draws the terrain it compares against as well as comparing against it, so choosing one
+    /// owns that profile: the previous choice's profile goes with it, and the new one joins the drawn
+    /// terrains (the cut/fill reference must be one of them - see <c>TerrainSerializer</c>).
+    /// </summary>
+    public static void SetSectionTerrain(TerrainSectionAnnotationDefinitionBase section, Guid? terrainId)
+    {
+        if (section.CutFillReferenceTerrainId is { } previous)
+            section.ComparisonTerrainIds.RemoveAll(id => id == previous);
+
+        section.CutFillReferenceTerrainId = terrainId;
+        if (terrainId is { } added && !section.ComparisonTerrainIds.Contains(added))
+            section.ComparisonTerrainIds.Add(added);
+    }
+
     public static void Set(TerrainSectionAnnotationDefinitionBase section, ComparisonMode mode, Action<Guid?> setTerrain)
     {
         bool wasOff = Of(section) == ComparisonMode.Off;

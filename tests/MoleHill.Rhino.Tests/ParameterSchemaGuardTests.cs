@@ -147,6 +147,19 @@ public class ParameterSchemaGuardTests
                 AssertSet(type, parameter, "SetText", where);
                 break;
 
+            case ParameterKind.InsertionPoint:
+                AssertSet(type, parameter, "GetInsertion", where);
+                AssertSet(type, parameter, "SetInsertion", where);
+                break;
+
+            case ParameterKind.TerrainReference:
+                AssertSet(type, parameter, "GetTerrainReference", where);
+                AssertSet(type, parameter, "SetTerrainReference", where);
+                break;
+
+            case ParameterKind.Placeholder:
+                break;
+
             case ParameterKind.PlanPoint:
                 AssertSet(type, parameter, "GetPlanPoint", where);
                 AssertSet(type, parameter, "SetPlanPoint", where);
@@ -158,7 +171,10 @@ public class ParameterSchemaGuardTests
                 break;
 
             case ParameterKind.ReadOnly:
-                AssertSet(type, parameter, "GetReadOnly", where);
+                Assert.True(
+                    Get<object?>(type, parameter, "GetReadOnly") != null ||
+                    Get<object?>(type, parameter, "GetReadOnlyFromTerrain") != null,
+                    $"{where}: ReadOnly has neither GetReadOnly nor GetReadOnlyFromTerrain.");
                 break;
 
             case ParameterKind.Section:
@@ -347,4 +363,19 @@ public class ParameterSchemaGuardTests
 
     private static void AssertSet(Type type, object instance, string property, string where) =>
         Assert.True(type.GetProperty(property)!.GetValue(instance) != null, $"{where}: {property} is null.");
+
+    /// <summary>
+    /// Every registered card type declares its rows, so the panel builds every card body from the schema and
+    /// carries no hand-written fallback for a type without one.
+    /// </summary>
+    [Fact]
+    public void EveryCardType_DeclaresItsRows()
+    {
+        var empty = TerrainTypeRegistry.Modifiers.Where(d => d.Parameters.Count == 0).Select(d => "modifier/" + d.Kind)
+            .Concat(AnalysisTypeRegistry.Analyses.Where(d => d.Parameters.Count == 0).Select(d => "analysis/" + d.Kind))
+            .Concat(AnnotationTypeRegistry.Annotations.Where(d => d.Parameters.Count == 0).Select(d => "annotation/" + d.Kind))
+            .Concat(ObjectTypeRegistry.Objects.Where(d => d.Parameters.Count == 0).Select(d => "object/" + d.Kind))
+            .ToList();
+        Assert.True(empty.Count == 0, "Card types with no declared rows: " + string.Join(", ", empty));
+    }
 }

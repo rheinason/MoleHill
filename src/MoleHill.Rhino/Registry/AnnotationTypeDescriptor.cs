@@ -74,6 +74,13 @@ internal abstract class AnnotationTypeDescriptor
     public virtual string? DescribeBasis(TerrainDefinition terrain, AnnotationDefinition annotation) => null;
 
     /// <summary>
+    /// The card's collapsed summary line after its type name: what the last build measured when there is a
+    /// result, otherwise what the card is set to. Evaluated with point decimals (<see cref="SummaryText.Invariant{T}"/>).
+    /// </summary>
+    public virtual string Summarize(TerrainDefinition terrain, AnnotationDefinition definition, TerrainAnalysisSummary? summary, ResultFormatter format) =>
+        string.Empty;
+
+    /// <summary>
     /// Runs this annotation's build during the analysis pass: emits its generated objects onto
     /// <c>context.Build</c> and returns the summary, or returns null when the type produces nothing there.
     /// The pass has already checked <c>IsEnabled</c>, consulted the stage cache and prepared the mesh data

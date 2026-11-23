@@ -611,10 +611,15 @@ rotation) and is never converted, because the fold between two faces has no rise
 That guard only sees *declared* rows, which is the argument for declaring them: the boundary-peel block
 was hand-written panel code, so its "Slope Limit" row was invisible to the guard and shipped as an
 unlabelled degrees field. It now lives in `GeometryInputParameterCatalog` and is shared by Triangulate
-and Add Geometry, with the panel keeping only its **placement** inside the "Peel Border" rule — the same
-custom-placement deal Triangulate's DEM Surface and Contour Mode rows already had
-(`IsBespokePositionedModifierParameter` + `BuildBespokePositionedModifierRow`). Prefer that pattern over
-a hand-written row whenever a card needs unusual layout: custom placement, standard row.
+and Add Geometry, as a closed "Peel Border" section the catalog declares itself.
+
+Every card body is now built from declared rows (`ParameterSchemaGuardTests.EveryCardType_DeclaresItsRows`),
+in declared order: grouping is a `Section` entry, and what used to be hand-placed or hand-written panel
+code is a row kind - `InsertionPoint` (where a drawing goes), `TerrainReference` (another terrain, with
+its "not built yet / Rebuild" status), `PlanPoint`, a single-object `Sources` row, a `RowAction` button on
+a Sources row (Data Clip's Rectangle, the DEM's GeoTIFF import, run by key in the panel) and `Placeholder`
+for content the panel draws in a declared position (a section's profile list, Text Size). The comparison
+rows of Earthworks, Cut / Fill and the section cards are declared once in `ComparisonParameters`.
 
 ## Flat-array data format (Core)
 

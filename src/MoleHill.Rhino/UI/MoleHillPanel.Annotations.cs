@@ -33,12 +33,14 @@ public sealed partial class MoleHillPanel
         else if (descriptor?.DescribeBasis(terrain, annotation) is { } basis)
             layout.AddRow(CreateNoteRow(basis));
 
-        AppendBespokeAnnotationRowsBefore(layout, terrain, annotation);
-        TryBuildSchemaAnnotationBody(layout, terrain, annotation);
+        BuildSchemaAnnotationBody(layout, terrain, annotation);
         // A card that declares where its Text Size goes has it there already (AnnotationParameterCatalog.TextSize).
         if (descriptor?.Parameters.Any(parameter => parameter.Key == AnnotationParameterCatalog.TextSizeKey) != true)
             AppendAnnotationTextSizeRows(layout, terrain, annotation);
-        AppendBespokeAnnotationRowsAfter(layout, terrain, annotation, summary);
+        AddResultRows(
+            layout,
+            GetAnnotationKind(annotation),
+            () => descriptor?.DescribeResult(annotation, summary, ResultFormats));
         Control? diagnosticsRow = CreateRuntimeDiagnosticsRow(
             terrain,
             new RuntimeOverlayOwner(RuntimeOverlayOwnerKind.Analysis, annotation.Id));
@@ -46,122 +48,6 @@ public sealed partial class MoleHillPanel
             layout.AddRow(diagnosticsRow);
 
         return layout;
-    }
-
-    /// <summary>
-    /// Rows that must run before the schema-generated rows to preserve the card layout: the shared
-    /// terrain-section block (sources + insertion origin + text height + colour). The insertion-origin
-    /// picker needs an interactive GetPoint, so the whole block stays bespoke.
-    /// </summary>
-    private void AppendBespokeAnnotationRowsBefore(DynamicLayout layout, TerrainDefinition terrain, AnnotationDefinition annotation)
-    {
-        switch (annotation)
-        {
-            // Input names per type (design review Steps 27, 31, 32); every curve picked is used.
-            case TerrainSectionAnnotationDefinition terrainSection:
-                AddTerrainSectionCommonRows(layout, terrain, terrainSection, "Section Line",
-                    "Curves the terrain is cut along. Each curve produces one section.");
-                break;
-
-            case CrossSectionStationAnnotationDefinition crossSection:
-                AddTerrainSectionCommonRows(layout, terrain, crossSection, "Paths",
-                    "Curves cut across at every Station Interval; Section Width is the total width of each cut.");
-                break;
-
-            case LegendAnnotationDefinition:
-                layout.AddRow(CreateReadOnlyValueRow(
-                    "Colouring",
-                    TerrainAnalysisPreviewBuilder.FindColoringAnalysis(terrain)?.Label ?? "None",
-                    "The analysis currently colouring the terrain; the legend keys it. Turn on an analysis " +
-                    "that colours the terrain, or move one above the others, to key a different one."));
-                break;
-
-            case LongitudinalSectionAnnotationDefinition longitudinal:
-                AddTerrainSectionCommonRows(layout, terrain, longitudinal, "Path",
-                    "Curves the terrain is sampled along. Elevation is read at every Sample Interval.");
-                break;
-        }
-    }
-
-    /// <summary>
-    /// What follows the schema rows. The insertion-origin pickers are the escape hatch: each needs an
-    /// interactive GetPoint and, for the Legend, a <c>refreshOnly</c> callback, so they are real controls
-    /// and cannot be rows. Everything the last build measured is data on the descriptor
-    /// (<see cref="AnnotationTypeDescriptor.DescribeResult"/>) and is drawn generically below.
-    /// </summary>
-    private void AppendBespokeAnnotationRowsAfter(DynamicLayout layout, TerrainDefinition terrain, AnnotationDefinition annotation, TerrainAnalysisSummary? summary)
-    {
-        switch (annotation)
-        {
-            case ReportTableAnnotationDefinition reportTable:
-            {
-                layout.AddRow(CreateInsertionOriginEditor(
-                    terrain,
-                    reportTable.Id,
-                    reportTable.HasInsertionPlane,
-                    reportTable.InsertionOriginX,
-                    reportTable.InsertionOriginY,
-                    reportTable.InsertionOriginZ,
-                    "Top-left corner of the drawn table. Auto places it beside the terrain.",
-                    "Pick the top-left corner where the table will be drawn.",
-                    "Clear the origin and let the table place itself beside the terrain.",
-                    (item, picked) =>
-                    {
-                        if (item is not ReportTableAnnotationDefinition table)
-                            return;
-
-                        table.InsertionOriginX = picked.X;
-                        table.InsertionOriginY = picked.Y;
-                        table.InsertionOriginZ = picked.Z;
-                        table.HasInsertionPlane = true;
-                    },
-                    item =>
-                    {
-                        if (item is ReportTableAnnotationDefinition table)
-                            table.HasInsertionPlane = false;
-                    }));
-                break;
-            }
-
-            case LegendAnnotationDefinition legend:
-            {
-                layout.AddRow(CreateInsertionOriginEditor(
-                    terrain,
-                    legend.Id,
-                    legend.HasInsertionPlane,
-                    legend.InsertionOriginX,
-                    legend.InsertionOriginY,
-                    legend.InsertionOriginZ,
-                    "Top-left corner of the drawn key. Auto places it beside the terrain, level with its foot.",
-                    "Pick the top-left corner where the key will be drawn.",
-                    "Clear the origin and let the key place itself beside the terrain.",
-                    (item, picked) =>
-                    {
-                        if (item is not LegendAnnotationDefinition key)
-                            return;
-
-                        key.InsertionOriginX = picked.X;
-                        key.InsertionOriginY = picked.Y;
-                        key.InsertionOriginZ = picked.Z;
-                        key.HasInsertionPlane = true;
-                    },
-                    item =>
-                    {
-                        if (item is LegendAnnotationDefinition key)
-                            key.HasInsertionPlane = false;
-                    },
-                    refreshOnly: true));
-                break;
-            }
-        }
-
-        if (annotation is TerrainSectionAnnotationDefinitionBase section)
-            AddTerrainSectionComparison(layout, terrain, section);
-
-        AddResultRows(
-            layout,
-            GetAnnotationKind(annotation),
-            () => AnnotationTypeRegistry.ForType(annotation.GetType())?.DescribeResult(annotation, summary, ResultFormats));
     }
 
     /// <summary>The unit-aware formatters result rows need, bound to the active document and the user's slope unit.</summary>
@@ -189,144 +75,6 @@ public sealed partial class MoleHillPanel
 
         layout.AddRow(new CardSection(cardKind, "results", "Results", expandedByDefault, null, body));
     }
-
-    /// <summary>
-    /// The range the legend should describe: the one the preview mesh was actually coloured with, stamped
-    /// onto the summary when the mesh was built. Falls back to resolving the configured bounds directly,
-    /// which is correct for an explicit range and is the best guess before the first colouring.
-    /// </summary>
-    private void AddTerrainSectionCommonRows(
-        DynamicLayout layout,
-        TerrainDefinition terrain,
-        TerrainSectionAnnotationDefinitionBase annotation,
-        string sourceLabel,
-        string sourceHelp)
-    {
-        void MutateSection(Action<TerrainSectionAnnotationDefinitionBase> apply) =>
-            MutateAnnotation(terrain.TerrainId, annotation.Id, item =>
-            {
-                if (item is TerrainSectionAnnotationDefinitionBase section)
-                    apply(section);
-            }, scheduleRebuild: true);
-
-        layout.AddRow(CreateSourceEditor(
-            sourceLabel,
-            annotation.Sources,
-            apply => MutateSection(item => apply(item.Sources)),
-            RhinoObjectType.Curve,
-            doc => _controller.GetSelectedLayerPaths(doc),
-            sourceHelp));
-        // Where the drawing goes is part of the main flow; picked or automatic (Step 26).
-        layout.AddRow(CreateInsertionOriginEditor(terrain, annotation));
-    }
-
-    /// <summary>
-    /// What a section is compared against, in one closed Comparison section below the drawing's own
-    /// groups: a terrain to compare to and its status, Rhino geometry that takes precedence, the cut/fill
-    /// shading, and the other terrains drawn as profiles. The summary names the reference, so a closed
-    /// section still says what is compared.
-    /// </summary>
-    private void AddTerrainSectionComparison(DynamicLayout cardLayout, TerrainDefinition terrain, TerrainSectionAnnotationDefinitionBase annotation)
-    {
-        void MutateSection(Action<TerrainSectionAnnotationDefinitionBase> apply) =>
-            MutateAnnotation(terrain.TerrainId, annotation.Id, item =>
-            {
-                if (item is TerrainSectionAnnotationDefinitionBase section)
-                    apply(section);
-            }, scheduleRebuild: true);
-
-        var layout = new DynamicLayout { DefaultSpacing = new Size(UiMetrics.SpaceMedium, UiMetrics.SpaceMedium) };
-
-        // Design review Step 29: comparison is one optional choice; only what the chosen mode needs shows.
-        ComparisonMode mode = ComparisonModes.Of(annotation);
-        layout.AddRow(CreateDropDownEditor(
-            "Compare To",
-            SectionComparisonOptions,
-            mode.ToString(),
-            key => MutateSection(item => ComparisonModes.Set(
-                item, Enum.Parse<ComparisonMode>(key), id => SetSectionCompareTerrain(item, id))),
-            "What this section is compared against: nothing, this terrain before its modifiers, another " +
-            "terrain, or Rhino geometry. Off draws no reference and no cut/fill shading."));
-
-        if (mode == ComparisonMode.Terrain)
-        {
-            layout.AddRow(CreateCompareTerrainEditor(
-                terrain,
-                annotation.CutFillReferenceTerrainId,
-                id => MutateSection(item => SetSectionCompareTerrain(item, id)),
-                "The terrain to draw on this section as existing ground, and to shade cut and fill against."));
-            if (annotation.CutFillReferenceTerrainId is { } compareId &&
-                CreateCompareTerrainStatusRow(
-                    terrain,
-                    compareId,
-                    "its profile and the cut/fill shading are left off this section") is { } status)
-            {
-                layout.AddRow(status);
-            }
-        }
-
-        if (mode == ComparisonMode.Geometry)
-        {
-            layout.AddRow(CreateSourceEditor(
-                "Geometry",
-                annotation.CutFillReference,
-                apply => MutateSection(item => apply(item.CutFillReference)),
-                RhinoObjectType.Mesh | RhinoObjectType.Brep | RhinoObjectType.Extrusion,
-                doc => _controller.GetSelectedLayerPaths(doc),
-                "Existing ground as Rhino geometry, a survey mesh or surface, sliced along the same section line."));
-        }
-
-        // Shading compares against a drawn reference; with the original surface it is the comparison itself.
-        if (mode is ComparisonMode.Terrain or ComparisonMode.Geometry)
-        {
-            layout.AddRow(CreateCheckEditor(
-                "Shade Cut / Fill",
-                annotation.ShowCutFillRegions,
-                value => MutateSection(item => item.ShowCutFillRegions = value),
-                "Shade cut and fill between this terrain and the reference. Off draws the reference profile only."));
-        }
-
-        AddSectionProfileRows(layout, terrain, annotation);
-
-        // No hatch pattern, scale or angle rows: cut and fill appearance comes from the
-        // SectionsCutFillCut/Fill layer roles (edited in the layer template), so preview and bake
-        // match every other generated output. The definition's hatch fields remain only as the
-        // legacy fallback the builder reads when a role supplies no pattern.
-        string reference = mode switch
-        {
-            ComparisonMode.Off => "Off",
-            ComparisonMode.Geometry => "Rhino geometry",
-            ComparisonMode.Terrain => annotation.CutFillReferenceTerrainId is { } referenceId && RhinoDoc.ActiveDoc is { } doc
-                ? _controller.GetTerrains(doc).FirstOrDefault(item => item.TerrainId == referenceId)?.Name ?? "Another terrain"
-                : "Another terrain",
-            _ => "Original terrain",
-        };
-        string summary = mode != ComparisonMode.Off && annotation.ShowCutFillRegions ? SummaryText.Join(reference, "cut/fill") : reference;
-        cardLayout.AddRow(new CardSection(GetAnnotationKind(annotation), "comparison", "Comparison", false, summary, layout));
-    }
-
-    /// <summary>
-    /// The compared terrain is drawn as well as compared against, so the dropdown owns that profile: the
-    /// previous choice's profile goes with it, and the new one joins the drawn terrains (the cut/fill
-    /// reference must be one of them — see <c>TerrainSerializer</c>).
-    /// </summary>
-    private static void SetSectionCompareTerrain(TerrainSectionAnnotationDefinitionBase section, Guid? terrainId)
-    {
-        if (section.CutFillReferenceTerrainId is { } previous)
-            section.ComparisonTerrainIds.RemoveAll(id => id == previous);
-
-        section.CutFillReferenceTerrainId = terrainId;
-        if (terrainId is { } added && !section.ComparisonTerrainIds.Contains(added))
-            section.ComparisonTerrainIds.Add(added);
-    }
-
-    private static readonly IReadOnlyList<(string Key, string Label)> SectionComparisonOptions = new[]
-    {
-        (nameof(ComparisonMode.Off), "Off"),
-        (nameof(ComparisonMode.Original), "Original Terrain"),
-        (nameof(ComparisonMode.Terrain), "Another Terrain"),
-        (nameof(ComparisonMode.Geometry), "Rhino Geometry"),
-    };
 
     /// <summary>Above this many terrains the profile list gets a filter box.</summary>
     private const int SectionProfileFilterThreshold = 8;
@@ -526,86 +274,6 @@ public sealed partial class MoleHillPanel
         return swatch;
     }
 
-    private Control CreateInsertionOriginEditor(
-        TerrainDefinition terrain,
-        TerrainSectionAnnotationDefinitionBase annotation) =>
-        CreateInsertionOriginEditor(
-            terrain,
-            annotation.Id,
-            annotation.HasInsertionPlane,
-            annotation.InsertionOriginX,
-            annotation.InsertionOriginY,
-            annotation.InsertionOriginZ,
-            "Insertion origin where the laid-out section is placed. World X/Z axes are used for direction.",
-            "Pick the origin point where the laid-out section will be placed.",
-            "Clear the insertion origin and let the section auto-position next to the terrain.",
-            (item, picked) =>
-            {
-                if (item is not TerrainSectionAnnotationDefinitionBase section)
-                    return;
-
-                section.InsertionOriginX = picked.X;
-                section.InsertionOriginY = picked.Y;
-                section.InsertionOriginZ = picked.Z;
-                section.InsertionXAxisX = 1.0;
-                section.InsertionXAxisY = 0.0;
-                section.InsertionXAxisZ = 0.0;
-                section.InsertionYAxisX = 0.0;
-                section.InsertionYAxisY = 1.0;
-                section.InsertionYAxisZ = 0.0;
-                section.HasInsertionPlane = true;
-            },
-            item =>
-            {
-                if (item is TerrainSectionAnnotationDefinitionBase section)
-                    section.HasInsertionPlane = false;
-            });
-
-    /// <summary>
-    /// The shared origin-picker row: a read-out, a Pick that runs an interactive GetPoint, and an Auto
-    /// that hands placement back to the builder. It stays bespoke rather than schema-declared because the
-    /// pick is a document interaction, and it takes accessors rather than a base type because the
-    /// annotations that place something in the drawing — sections and the report table — have no common
-    /// base and should not be given one just to share a row.
-    /// </summary>
-    private Control CreateInsertionOriginEditor(
-        TerrainDefinition terrain,
-        Guid annotationId,
-        bool hasOrigin,
-        double originX,
-        double originY,
-        double originZ,
-        string help,
-        string pickHelp,
-        string autoHelp,
-        Action<AnnotationDefinition, RhinoPoint3d> applyPick,
-        Action<AnnotationDefinition> applyAuto,
-        bool refreshOnly = false)
-    {
-        // Something drawn with the preview (the legend) only needs redrawing where it is; anything the
-        // build lays out needs the build.
-        void Commit(Action<AnnotationDefinition> apply)
-        {
-            if (refreshOnly)
-                MutateAndRefreshAnnotation(terrain.TerrainId, annotationId, apply);
-            else
-                MutateAnnotation(terrain.TerrainId, annotationId, apply, scheduleRebuild: true);
-        }
-
-        // Design review Step 26: the source picker's pattern, shared with every plan-point row.
-        string coordinates = $"({UserNumber.Format(originX, "F2")}, {UserNumber.Format(originY, "F2")}, {UserNumber.Format(originZ, "F2")})";
-        return CreatePointPickRow(
-            "Insertion Point",
-            hasOrigin,
-            coordinates,
-            help,
-            "Pick insertion point",
-            picked => Commit(item => applyPick(item, picked)),
-            () => Commit(applyAuto),
-            autoHelp,
-            pickHelp);
-    }
-
     /// <summary>
     /// A point picked in the viewport, in the source picker's pattern (design review Steps 26 and 53): a
     /// Pick Point pill while nothing is picked; a Picked pill (click to pick again, coordinates in its
@@ -794,51 +462,7 @@ public sealed partial class MoleHillPanel
         });
     }
 
-    private static string GetAnnotationCollapsedSummary(TerrainDefinition terrain, AnnotationDefinition annotation)
-    {
-        TerrainAnalysisSummary? summary = GetAnalysisSummary(terrain, annotation.Id);
-        return annotation switch
-        {
-            ContourAnnotationDefinition contour => summary != null
-                ? $"{summary.ContourCurveCount} curves · {contour.Interval:G4} @ {contour.StartZ:G4}"
-                : $"{contour.Interval:G4} every · start {contour.StartZ:G4}",
-            CurveElevationLabelAnnotationDefinition curveElevation => summary != null
-                ? summary.GeneratedOutputCount > 0
-                    ? $"{summary.GeneratedOutputCount} labels · {FormatAnalysisValue(summary.SampleAverageValue, curveElevation.ValueFormat)} avg"
-                    : "0 labels"
-                : $"{SummaryText.Sources(curveElevation.Sources)} · {curveElevation.Interval:G4} every",
-            CurveSlopeLabelAnnotationDefinition curveSlope => summary != null
-                ? summary.GeneratedOutputCount > 0
-                    ? $"{summary.GeneratedOutputCount} labels · {FormatSlopeValue(summary.SampleAverageValue, curveSlope.Unit)} avg"
-                    : "0 labels"
-                : $"{SummaryText.Sources(curveSlope.Sources)} · {curveSlope.Interval:G4} every",
-            ProjectedElevationLabelAnnotationDefinition projectedElevation => summary != null
-                ? summary.GeneratedOutputCount > 0
-                    ? $"{summary.GeneratedOutputCount} labels · {FormatAnalysisValue(summary.SampleMinValue, projectedElevation.ValueFormat)} to {FormatAnalysisValue(summary.SampleMaxValue, projectedElevation.ValueFormat)}"
-                    : "0 labels"
-                : $"{SummaryText.Sources(projectedElevation.Sources)} · projected Z",
-            PointSlopeLabelAnnotationDefinition pointSlope => summary != null
-                ? summary.GeneratedOutputCount > 0
-                    ? $"{summary.GeneratedOutputCount} labels · {FormatSlopeValue(summary.SampleAverageValue, pointSlope.Unit)} avg"
-                    : "0 labels"
-                : $"{SummaryText.Sources(pointSlope.Sources)} · terrain slope",
-            TerrainSectionAnnotationDefinition section => summary != null
-                ? $"{summary.GeneratedOutputCount} objects · {summary.SampleSourceCount} cuts"
-                : $"{SummaryText.Sources(section.Sources)} · profile",
-            CrossSectionStationAnnotationDefinition crossSection => summary != null
-                ? $"{summary.GeneratedOutputCount} objects · {crossSection.StationInterval:G4} every"
-                : $"{SummaryText.Sources(crossSection.Sources)} · {crossSection.StationInterval:G4} stations",
-            LongitudinalSectionAnnotationDefinition longitudinal => summary != null
-                ? $"{summary.GeneratedOutputCount} objects · V exag {longitudinal.VerticalExaggeration:G3}"
-                : $"{SummaryText.Sources(longitudinal.Sources)} · sample {longitudinal.SampleInterval:G4}",
-            ReportTableAnnotationDefinition => summary != null
-                ? $"{summary.ReportTableCount} tables · {summary.ReportRowCount} rows"
-                : "measured quantities",
-            LegendAnnotationDefinition => TerrainAnalysisPreviewBuilder.FindColoringAnalysis(terrain) is { } coloring
-                && TerrainLegendBuilder.DescribeUnavailable(terrain) == null
-                    ? $"keys {coloring.Label}"
-                    : "nothing to key",
-            _ => string.Empty
-        };
-    }
+    private static string GetAnnotationCollapsedSummary(TerrainDefinition terrain, AnnotationDefinition annotation) =>
+        AnnotationTypeRegistry.ForType(annotation.GetType())?.Summarize(terrain, annotation, GetAnalysisSummary(terrain, annotation.Id), ResultFormats)
+            ?? string.Empty;
 }

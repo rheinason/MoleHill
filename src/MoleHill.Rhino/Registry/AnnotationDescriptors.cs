@@ -16,6 +16,30 @@ namespace MoleHill.Rhino.Registry;
 
 internal static class AnnotationParameterCatalog
 {
+    /// <summary>
+    /// Where a section card's laid-out drawing goes (design review Step 26). A picked point places it with
+    /// world X/Z axes; clearing hands placement back to the builder, beside the terrain.
+    /// </summary>
+    public static AnnotationParam SectionInsertionPoint() => AnnotationParam.InsertionPoint(
+        "InsertionPoint",
+        a =>
+        {
+            var section = (TerrainSectionAnnotationDefinitionBase)a;
+            return (section.HasInsertionPlane, section.InsertionOriginX, section.InsertionOriginY, section.InsertionOriginZ);
+        },
+        (a, point) =>
+        {
+            var section = (TerrainSectionAnnotationDefinitionBase)a;
+            section.HasInsertionPlane = point.HasValue;
+            if (point is not { } p)
+                return;
+
+            (section.InsertionOriginX, section.InsertionOriginY, section.InsertionOriginZ) = (p.X, p.Y, p.Z);
+            (section.InsertionXAxisX, section.InsertionXAxisY, section.InsertionXAxisZ) = (1.0, 0.0, 0.0);
+            (section.InsertionYAxisX, section.InsertionYAxisY, section.InsertionYAxisZ) = (0.0, 1.0, 0.0);
+        },
+        "Where the laid-out section is drawn. Pick a point, or leave it to sit beside the terrain.");
+
     /// <summary>Key of the <see cref="TextSize"/> placeholder.</summary>
     public const string TextSizeKey = "textSize";
 
@@ -152,6 +176,14 @@ internal static class AnnotationParameterCatalog
 internal sealed class ContourAnnotationDescriptor : AnnotationTypeDescriptor
 {
     public override string Kind => "contour";
+
+    public override string Summarize(TerrainDefinition terrain, AnnotationDefinition definition, TerrainAnalysisSummary? summary, ResultFormatter format)
+    {
+        var contour = (ContourAnnotationDefinition)definition;
+        return summary != null
+            ? $"{summary.ContourCurveCount} curves · {contour.Interval:G4} @ {contour.StartZ:G4}"
+            : $"{contour.Interval:G4} every · start {contour.StartZ:G4}";
+    }
     public override Type DefinitionType => typeof(ContourAnnotationDefinition);
     public override string TypeLabel => "Contours";
     public override string MenuLabel => "Contours";
@@ -260,6 +292,16 @@ internal sealed class ContourAnnotationDescriptor : AnnotationTypeDescriptor
 internal sealed class CurveElevationLabelAnnotationDescriptor : AnnotationTypeDescriptor
 {
     public override string Kind => "curve-elevation-label";
+
+    public override string Summarize(TerrainDefinition terrain, AnnotationDefinition definition, TerrainAnalysisSummary? summary, ResultFormatter format)
+    {
+        var labels = (CurveElevationLabelAnnotationDefinition)definition;
+        return summary == null
+            ? $"{SummaryText.Sources(labels.Sources)} · {labels.Interval:G4} every"
+            : summary.GeneratedOutputCount > 0
+                ? $"{summary.GeneratedOutputCount} labels · {AnalysisFormatting.FormatValue(summary.SampleAverageValue, labels.ValueFormat)} avg"
+                : "0 labels";
+    }
     public override Type DefinitionType => typeof(CurveElevationLabelAnnotationDefinition);
     public override string TypeLabel => "Spot Heights (Curve)";
     public override string MenuLabel => "Spot Heights (Curve)";
@@ -315,6 +357,16 @@ internal sealed class CurveElevationLabelAnnotationDescriptor : AnnotationTypeDe
 internal sealed class CurveSlopeLabelAnnotationDescriptor : AnnotationTypeDescriptor
 {
     public override string Kind => "curve-slope-label";
+
+    public override string Summarize(TerrainDefinition terrain, AnnotationDefinition definition, TerrainAnalysisSummary? summary, ResultFormatter format)
+    {
+        var labels = (CurveSlopeLabelAnnotationDefinition)definition;
+        return summary == null
+            ? $"{SummaryText.Sources(labels.Sources)} · {labels.Interval:G4} every"
+            : summary.GeneratedOutputCount > 0
+                ? $"{summary.GeneratedOutputCount} labels · {AnalysisFormatting.FormatSlopeValue(summary.SampleAverageValue, labels.Unit)} avg"
+                : "0 labels";
+    }
     public override Type DefinitionType => typeof(CurveSlopeLabelAnnotationDefinition);
     public override string TypeLabel => "Spot Slope (Curve)";
     public override string MenuLabel => "Spot Slope (Curve)";
@@ -377,6 +429,16 @@ internal sealed class CurveSlopeLabelAnnotationDescriptor : AnnotationTypeDescri
 internal sealed class ProjectedElevationLabelAnnotationDescriptor : AnnotationTypeDescriptor
 {
     public override string Kind => "projected-elevation-label";
+
+    public override string Summarize(TerrainDefinition terrain, AnnotationDefinition definition, TerrainAnalysisSummary? summary, ResultFormatter format)
+    {
+        var labels = (ProjectedElevationLabelAnnotationDefinition)definition;
+        return summary == null
+            ? $"{SummaryText.Sources(labels.Sources)} · projected Z"
+            : summary.GeneratedOutputCount > 0
+                ? $"{summary.GeneratedOutputCount} labels · {AnalysisFormatting.FormatValue(summary.SampleMinValue, labels.ValueFormat)} to {AnalysisFormatting.FormatValue(summary.SampleMaxValue, labels.ValueFormat)}"
+                : "0 labels";
+    }
     public override Type DefinitionType => typeof(ProjectedElevationLabelAnnotationDefinition);
     public override string TypeLabel => "Spot Heights (Points)";
     public override string MenuLabel => "Spot Heights (Points)";
@@ -426,6 +488,16 @@ internal sealed class ProjectedElevationLabelAnnotationDescriptor : AnnotationTy
 internal sealed class PointSlopeLabelAnnotationDescriptor : AnnotationTypeDescriptor
 {
     public override string Kind => "point-slope-label";
+
+    public override string Summarize(TerrainDefinition terrain, AnnotationDefinition definition, TerrainAnalysisSummary? summary, ResultFormatter format)
+    {
+        var labels = (PointSlopeLabelAnnotationDefinition)definition;
+        return summary == null
+            ? $"{SummaryText.Sources(labels.Sources)} · terrain slope"
+            : summary.GeneratedOutputCount > 0
+                ? $"{summary.GeneratedOutputCount} labels · {AnalysisFormatting.FormatSlopeValue(summary.SampleAverageValue, labels.Unit)} avg"
+                : "0 labels";
+    }
     public override Type DefinitionType => typeof(PointSlopeLabelAnnotationDefinition);
     public override string TypeLabel => "Spot Slope (Points)";
     public override string MenuLabel => "Spot Slope (Points)";
@@ -617,6 +689,14 @@ internal sealed class GradeBetweenPointsAnnotationDescriptor : AnnotationTypeDes
 internal sealed class TerrainSectionAnnotationDescriptor : AnnotationTypeDescriptor
 {
     public override string Kind => "terrain-section";
+
+    public override string Summarize(TerrainDefinition terrain, AnnotationDefinition definition, TerrainAnalysisSummary? summary, ResultFormatter format)
+    {
+        var section = (TerrainSectionAnnotationDefinition)definition;
+        return summary != null
+            ? $"{summary.GeneratedOutputCount} objects · {summary.SampleSourceCount} cuts"
+            : $"{SummaryText.Sources(section.Sources)} · profile";
+    }
     public override Type DefinitionType => typeof(TerrainSectionAnnotationDefinition);
     public override string TypeLabel => "Section Cut";
     public override string MenuLabel => "Section Cut";
@@ -646,6 +726,12 @@ internal sealed class TerrainSectionAnnotationDescriptor : AnnotationTypeDescrip
 
     public override IReadOnlyList<AnnotationParam> Parameters { get; } = ParameterSections.Arrange(new AnnotationParam[]
     {
+        AnnotationParam.Sources(
+            "Sources", "Section Line",
+            a => ((TerrainSectionAnnotationDefinitionBase)a).Sources,
+            RhinoObjectType.Curve,
+            "Curves the terrain is cut along. Each curve produces one section."),
+        AnnotationParameterCatalog.SectionInsertionPoint(),
         AnnotationParameterCatalog.VerticalExaggeration(),
         AnnotationParam.Number(
             "StationTickInterval", "Tick Interval",
@@ -674,9 +760,9 @@ internal sealed class TerrainSectionAnnotationDescriptor : AnnotationTypeDescrip
             a => ((TerrainSectionAnnotationDefinition)a).ShowStationLabels,
             (a, v) => ((TerrainSectionAnnotationDefinition)a).ShowStationLabels = v,
             "Print station distance text below each tick."),
-    }.Concat(AnnotationParameterCatalog.SectionLabelling()).Append(AnnotationParameterCatalog.TextSize()),
+    }.Concat(AnnotationParameterCatalog.SectionLabelling()).Append(AnnotationParameterCatalog.TextSize()).Concat(ComparisonParameters.Sections()),
         // Design review Steps 30-31: scale and Section Marks on the card, the drawing's labels closed below.
-        new ParameterGroup(null, "", new[] { "VerticalExaggeration", "ShowPlanLabels" }),
+        new ParameterGroup(null, "", new[] { "Sources", "InsertionPoint", "VerticalExaggeration", "ShowPlanLabels" }),
         new ParameterGroup("sectionAnnotation", "Section Annotation", new[]
         {
             "ShowSectionTitle", "ShowStationLabels", "ShowStationTicks", "StationTickInterval",
@@ -714,6 +800,14 @@ internal sealed class TerrainSectionAnnotationDescriptor : AnnotationTypeDescrip
 internal sealed class CrossSectionStationAnnotationDescriptor : AnnotationTypeDescriptor
 {
     public override string Kind => "cross-section-station";
+
+    public override string Summarize(TerrainDefinition terrain, AnnotationDefinition definition, TerrainAnalysisSummary? summary, ResultFormatter format)
+    {
+        var section = (CrossSectionStationAnnotationDefinition)definition;
+        return summary != null
+            ? $"{summary.GeneratedOutputCount} objects · {section.StationInterval:G4} every"
+            : $"{SummaryText.Sources(section.Sources)} · {section.StationInterval:G4} stations";
+    }
     public override Type DefinitionType => typeof(CrossSectionStationAnnotationDefinition);
     public override string TypeLabel => "Cross-Sections";
     public override string MenuLabel => "Cross-Sections";
@@ -743,6 +837,12 @@ internal sealed class CrossSectionStationAnnotationDescriptor : AnnotationTypeDe
 
     public override IReadOnlyList<AnnotationParam> Parameters { get; } = ParameterSections.Arrange(new AnnotationParam[]
     {
+        AnnotationParam.Sources(
+            "Sources", "Paths",
+            a => ((TerrainSectionAnnotationDefinitionBase)a).Sources,
+            RhinoObjectType.Curve,
+            "Curves cut across at every Station Interval; Section Width is the total width of each cut."),
+        AnnotationParameterCatalog.SectionInsertionPoint(),
         AnnotationParam.Number(
             "StationInterval", "Station Interval",
             a => ((CrossSectionStationAnnotationDefinition)a).StationInterval,
@@ -795,10 +895,10 @@ internal sealed class CrossSectionStationAnnotationDescriptor : AnnotationTypeDe
             (a, v) => ((CrossSectionStationAnnotationDefinition)a).ElevationGridInterval = Math.Max(0.0, v),
             "Vertical spacing of grid lines on the unrolled cross-sections. 0 = auto.",
             min: 0.0),
-    }.Concat(AnnotationParameterCatalog.SectionLabelling()).Append(AnnotationParameterCatalog.TextSize()),
+    }.Concat(AnnotationParameterCatalog.SectionLabelling()).Append(AnnotationParameterCatalog.TextSize()).Concat(ComparisonParameters.Sections()),
         // Design review Steps 24-29: the cut on the card; what it marks in plan, what the drawing
         // carries and how the drawings are laid out each sit closed below.
-        new ParameterGroup(null, "", new[] { "StationInterval", "CrossSectionWidth", "VerticalExaggeration" }),
+        new ParameterGroup(null, "", new[] { "Sources", "InsertionPoint", "StationInterval", "CrossSectionWidth", "VerticalExaggeration" }),
         new ParameterGroup("planAnnotation", "Plan Annotation", new[] { "ShowCutLinesOnTerrain", "ShowPlanLabels" }),
         new ParameterGroup("sectionAnnotation", "Section Annotation", new[]
         {
@@ -838,6 +938,14 @@ internal sealed class CrossSectionStationAnnotationDescriptor : AnnotationTypeDe
 internal sealed class LongitudinalSectionAnnotationDescriptor : AnnotationTypeDescriptor
 {
     public override string Kind => "longitudinal-section";
+
+    public override string Summarize(TerrainDefinition terrain, AnnotationDefinition definition, TerrainAnalysisSummary? summary, ResultFormatter format)
+    {
+        var section = (LongitudinalSectionAnnotationDefinition)definition;
+        return summary != null
+            ? $"{summary.GeneratedOutputCount} objects · V exag {section.VerticalExaggeration:G3}"
+            : $"{SummaryText.Sources(section.Sources)} · sample {(section.SampleInterval > 0.0 ? section.SampleInterval.ToString("G4") : "Auto")}";
+    }
     public override Type DefinitionType => typeof(LongitudinalSectionAnnotationDefinition);
     public override string TypeLabel => "Section Along Curve";
     public override string MenuLabel => "Section Along Curve";
@@ -886,6 +994,12 @@ internal sealed class LongitudinalSectionAnnotationDescriptor : AnnotationTypeDe
 
     public override IReadOnlyList<AnnotationParam> Parameters { get; } = ParameterSections.Arrange(new AnnotationParam[]
     {
+        AnnotationParam.Sources(
+            "Sources", "Path",
+            a => ((TerrainSectionAnnotationDefinitionBase)a).Sources,
+            RhinoObjectType.Curve,
+            "Curves the terrain is sampled along. Elevation is read at every Sample Interval."),
+        AnnotationParameterCatalog.SectionInsertionPoint(),
         AnnotationParam.OptionalNumber(
             "SampleInterval", "Sample Interval",
             a => ((LongitudinalSectionAnnotationDefinition)a).SampleInterval,
@@ -922,9 +1036,9 @@ internal sealed class LongitudinalSectionAnnotationDescriptor : AnnotationTypeDe
             (a, v) => ((LongitudinalSectionAnnotationDefinition)a).StationLabelInterval = Math.Max(0.0, v),
             "Spacing between station labels. 0 = auto (~quarter of total length).",
             min: 0.0),
-    }.Concat(AnnotationParameterCatalog.SectionLabelling()).Append(AnnotationParameterCatalog.TextSize()),
+    }.Concat(AnnotationParameterCatalog.SectionLabelling()).Append(AnnotationParameterCatalog.TextSize()).Concat(ComparisonParameters.Sections()),
         // Design review Step 32: sampling, scale and Section Marks on the card, the drawing's labels closed below.
-        new ParameterGroup(null, "", new[] { "SampleInterval", "VerticalExaggeration", "ShowPlanLabels" }),
+        new ParameterGroup(null, "", new[] { "Sources", "InsertionPoint", "SampleInterval", "VerticalExaggeration", "ShowPlanLabels" }),
         new ParameterGroup("sectionAnnotation", "Section Annotation", new[]
         {
             "ShowSectionTitle", "ShowBaseline", "ShowStationLabels", "StationLabelInterval",
@@ -969,6 +1083,13 @@ internal sealed class LongitudinalSectionAnnotationDescriptor : AnnotationTypeDe
 internal sealed class ReportTableAnnotationDescriptor : AnnotationTypeDescriptor
 {
     public override string Kind => "report-table";
+
+    public override string Summarize(TerrainDefinition terrain, AnnotationDefinition definition, TerrainAnalysisSummary? summary, ResultFormatter format)
+    {
+        return summary != null
+            ? $"{summary.ReportTableCount} tables · {summary.ReportRowCount} rows"
+            : "measured quantities";
+    }
     public override Type DefinitionType => typeof(ReportTableAnnotationDefinition);
     public override string TypeLabel => "Report Table";
     public override string MenuLabel => "Report Table";
@@ -1003,6 +1124,18 @@ internal sealed class ReportTableAnnotationDescriptor : AnnotationTypeDescriptor
 
     public override IReadOnlyList<AnnotationParam> Parameters { get; } = new[]
     {
+        AnnotationParam.InsertionPoint(
+            "InsertionPoint",
+            a => (((ReportTableAnnotationDefinition)a).HasInsertionPlane, ((ReportTableAnnotationDefinition)a).InsertionOriginX,
+                ((ReportTableAnnotationDefinition)a).InsertionOriginY, ((ReportTableAnnotationDefinition)a).InsertionOriginZ),
+            (a, point) =>
+            {
+                var table = (ReportTableAnnotationDefinition)a;
+                table.HasInsertionPlane = point.HasValue;
+                if (point is { } p)
+                    (table.InsertionOriginX, table.InsertionOriginY, table.InsertionOriginZ) = (p.X, p.Y, p.Z);
+            },
+            "Top-left corner of the drawn table. Pick it, or leave it to place itself beside the terrain."),
         AnnotationParam.Section("contents", "Contents", expanded: true),
         AnnotationParam.Bool(
             "IncludeOverview", "Terrain",
@@ -1122,6 +1255,14 @@ internal sealed class LegendAnnotationDescriptor : AnnotationTypeDescriptor
     };
 
     public override string Kind => "legend";
+
+    public override string Summarize(TerrainDefinition terrain, AnnotationDefinition definition, TerrainAnalysisSummary? summary, ResultFormatter format)
+    {
+        return TerrainAnalysisPreviewBuilder.FindColoringAnalysis(terrain) is { } coloring
+            && TerrainLegendBuilder.DescribeUnavailable(terrain) == null
+                ? $"keys {coloring.Label}"
+                : "nothing to key";
+    }
     public override Type DefinitionType => typeof(LegendAnnotationDefinition);
     public override string TypeLabel => "Legend";
     public override string MenuLabel => "Legend";
@@ -1134,6 +1275,13 @@ internal sealed class LegendAnnotationDescriptor : AnnotationTypeDescriptor
 
     public override IReadOnlyList<AnnotationParam> Parameters { get; } = new[]
     {
+        // Design review Step 39: which analysis the legend keys, as the preview colours it.
+        AnnotationParam.ReadOnly(
+            "Colouring", "Colouring",
+            null,
+            "The analysis currently colouring the terrain; the legend keys it. Turn on an analysis that " +
+            "colours the terrain, or move one above the others, to key a different one.",
+            getFromTerrain: (terrain, _) => TerrainAnalysisPreviewBuilder.FindColoringAnalysis(terrain)?.Label ?? "None"),
         AnnotationParam.Text(
             "Title", "Title",
             a => ((LegendAnnotationDefinition)a).Title,
@@ -1175,6 +1323,19 @@ internal sealed class LegendAnnotationDescriptor : AnnotationTypeDescriptor
             "swatches always show the analysis's own colours.",
             refreshOnly: true),
         AnnotationParameterCatalog.TextSize(),
+        AnnotationParam.InsertionPoint(
+            "InsertionPoint",
+            a => (((LegendAnnotationDefinition)a).HasInsertionPlane, ((LegendAnnotationDefinition)a).InsertionOriginX,
+                ((LegendAnnotationDefinition)a).InsertionOriginY, ((LegendAnnotationDefinition)a).InsertionOriginZ),
+            (a, point) =>
+            {
+                var key = (LegendAnnotationDefinition)a;
+                key.HasInsertionPlane = point.HasValue;
+                if (point is { } p)
+                    (key.InsertionOriginX, key.InsertionOriginY, key.InsertionOriginZ) = (p.X, p.Y, p.Z);
+            },
+            "Top-left corner of the drawn key. Pick it, or leave it to place itself beside the terrain, level with its foot.",
+            refreshOnly: true),
     };
 
     public override string? DescribeBlocker(TerrainDefinition terrain, AnnotationDefinition annotation) =>

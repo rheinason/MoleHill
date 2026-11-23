@@ -46,26 +46,15 @@ public sealed partial class MoleHillPanel : Panel
                 label.TextColor = tabIndex == _selectedTabIndex ? UiTheme.PrimaryText : UiTheme.MutedText;
         }
 
-        Label MakeTabToggleLabel(string toolTip, Action onClick)
-        {
-            var label = UiControls.Label(string.Empty);
-            label.TextAlignment = TextAlignment.Center;
-            label.Width = UiMetrics.Chs(2);
-            ApplyHelp(label, toolTip);
-            label.MouseDown += (_, e) =>
-            {
-                if (e.Buttons != MouseButtons.Primary)
-                    return;
-
-                onClick();
-            };
-            return label;
-        }
+        // The tab's view toggle: a drawn icon (the panel's own set) rather than a text glyph, so it reads at
+        // 16 px in both themes and has the hover, pressed and focus states every icon button has.
+        IconButton MakeTabToggleLabel(string toolTip, Action onClick) =>
+            MakeIconButton(PanelButtonIcon.TerrainMesh, (_, _) => onClick(), toolTip);
 
         // What each tab needs with its label showing, so the strip can tell whether all five fit.
         var tabLabelWidths = new List<float>();
 
-        Control MakeTabHeader(string text, string purpose, string iconName, int tabIndex, Label? toggleLabel = null)
+        Control MakeTabHeader(string text, string purpose, string iconName, int tabIndex, IconButton? toggleLabel = null)
         {
             var textLabel = UiControls.Label(text);
             float textWidth = (textLabel.Font ?? SystemFonts.Default()).MeasureString(text).Width;
@@ -181,7 +170,7 @@ public sealed partial class MoleHillPanel : Panel
             return outer;
         }
 
-        Label MakeZonesViewButton()
+        IconButton MakeZonesViewButton()
         {
             var label = MakeTabToggleLabel("Toggle between terrain mesh and zone meshes.", () =>
             {
@@ -202,7 +191,7 @@ public sealed partial class MoleHillPanel : Panel
             return label;
         }
 
-        Label MakeAnalysisVisibilityButton()
+        IconButton MakeAnalysisVisibilityButton()
         {
             var label = MakeTabToggleLabel("Toggle analysis colors and analysis-owned outputs.", () =>
             {
@@ -570,27 +559,25 @@ public sealed partial class MoleHillPanel : Panel
         return CreateSectionToolbar("ANNOTATION", addButton);
     }
 
-    private static void UpdateZonesTabButton(Label? button, TerrainDefinition? terrain)
+    private static void UpdateZonesTabButton(IconButton? button, TerrainDefinition? terrain)
     {
         if (button == null)
             return;
 
         bool showZonesOnly = terrain?.ShowZoneMeshes == true && terrain.ShowTerrainMesh != true;
-        button.Text = showZonesOnly ? "\u25A6" : "\u25A0";
-        button.TextColor = terrain == null ? UiTheme.MutedText : UiTheme.PrimaryText;
+        SetButtonIcon(button, showZonesOnly ? PanelButtonIcon.ZoneMeshes : PanelButtonIcon.TerrainMesh, muted: terrain == null);
         button.ToolTip = showZonesOnly
             ? "Showing zone meshes. Click to show the terrain mesh."
             : "Showing the terrain mesh. Click to show zone meshes.";
     }
 
-    private static void UpdateAnalysisTabButton(Label? button, TerrainDefinition? terrain)
+    private static void UpdateAnalysisTabButton(IconButton? button, TerrainDefinition? terrain)
     {
         if (button == null)
             return;
 
         bool isVisible = terrain?.ShowAnalysisOutputs != false;
-        button.Text = isVisible ? "\u25CF" : "\u25CB";
-        button.TextColor = isVisible ? UiTheme.PrimaryText : UiTheme.MutedText;
+        SetButtonIcon(button, isVisible ? PanelButtonIcon.AnalysisVisible : PanelButtonIcon.AnalysisHidden, muted: !isVisible);
         button.ToolTip = isVisible
             ? "Analysis preview is visible. Click to hide analysis colors and outputs."
             : "Analysis preview is hidden. Click to show analysis colors and outputs.";
