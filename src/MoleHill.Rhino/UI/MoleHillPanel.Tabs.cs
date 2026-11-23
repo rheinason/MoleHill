@@ -54,6 +54,9 @@ public sealed partial class MoleHillPanel : Panel
         // What each tab needs with its label showing, so the strip can tell whether all five fit.
         var tabLabelWidths = new List<float>();
 
+        // Each header's parts, so the strip can switch the tabs between labelled and compact (icons only).
+        var tabParts = new List<(Control Header, Panel Main, Panel? Toggle)>();
+
         Control MakeTabHeader(string text, string purpose, string iconName, int tabIndex, IconButton? toggleLabel = null)
         {
             var textLabel = UiControls.Label(text);
@@ -84,12 +87,20 @@ public sealed partial class MoleHillPanel : Panel
             }
 
             mainRow.Items.Add(textLabel);
+            var mainCentre = new StackLayout
+            {
+                Orientation = Orientation.Vertical,
+                HorizontalContentAlignment = HorizontalAlignment.Center,
+                Items = { mainRow }
+            };
             var mainPanel = new Panel
             {
                 Padding = toggleLabel == null
                     ? new Padding(UiMetrics.SpaceLarge, UiMetrics.SpaceMedium)
                     : new Padding(UiMetrics.SpaceLarge, UiMetrics.SpaceMedium, UiMetrics.SpaceMedium, UiMetrics.SpaceMedium),
-                Content = mainRow
+                // Centred in the tab (design review Step 79): an icon-only tab wider than its icon left the icon
+                // hugging its left edge.
+                Content = mainCentre
             };
 
             var row = new StackLayout
@@ -104,6 +115,7 @@ public sealed partial class MoleHillPanel : Panel
                 }
             };
 
+            Panel? togglePanelPart = null;
             if (toggleLabel != null)
             {
                 var divider = new Panel
@@ -119,6 +131,7 @@ public sealed partial class MoleHillPanel : Panel
 
                 row.Items.Add(divider);
                 row.Items.Add(togglePanel);
+                togglePanelPart = togglePanel;
             }
 
             var inner = new Panel
@@ -150,6 +163,11 @@ public sealed partial class MoleHillPanel : Panel
                 if (e.Buttons == MouseButtons.Primary)
                     SelectThisTab();
             };
+            mainCentre.MouseDown += (_, e) =>
+            {
+                if (e.Buttons == MouseButtons.Primary)
+                    SelectThisTab();
+            };
             textLabel.MouseDown += (_, e) =>
             {
                 if (e.Buttons == MouseButtons.Primary)
@@ -166,6 +184,7 @@ public sealed partial class MoleHillPanel : Panel
 
             _tabChipMap[tabIndex] = inner;
             _tabChipLabelMap[tabIndex] = textLabel;
+            tabParts.Add((outer, mainPanel, togglePanelPart));
 
             return outer;
         }
@@ -211,22 +230,54 @@ public sealed partial class MoleHillPanel : Panel
         _zonesEyeButton = MakeZonesViewButton();
         _analysisEyeButton = MakeAnalysisVisibilityButton();
 
+        MakeTabHeader("Modifiers", "shape the terrain, a stack applied from the bottom up.", "TabModifiers", 0);
+        MakeTabHeader("Objects", "place and scatter Rhino objects on the terrain.", "TabObjects", 1);
+        MakeTabHeader("Zones", "split the terrain into areas with their own layers and colours.", "TabZones", 2, _zonesEyeButton);
+        MakeTabHeader("Analysis", "measure the terrain: slope, elevation, cut/fill, water.", "TabAnalysis", 3, _analysisEyeButton);
+        MakeTabHeader("Annotation", "draw contours, labels, sections and tables.", "TabAnnotation", 4);
+
         var tabStrip = new StackLayout
         {
             Orientation = Orientation.Horizontal,
             Spacing = UiMetrics.SpaceXSmall,
             Padding = new Padding(UiMetrics.SpaceSmall, UiMetrics.SpaceXSmall, UiMetrics.SpaceSmall, 0),
             VerticalContentAlignment = VerticalAlignment.Bottom,
-            HorizontalContentAlignment = HorizontalAlignment.Stretch,
-            Items =
-            {
-                new StackLayoutItem(MakeTabHeader("Modifiers", "shape the terrain, a stack applied from the bottom up.", "TabModifiers", 0), expand: true),
-                new StackLayoutItem(MakeTabHeader("Objects", "place and scatter Rhino objects on the terrain.", "TabObjects", 1), expand: true),
-                new StackLayoutItem(MakeTabHeader("Zones", "split the terrain into areas with their own layers and colours.", "TabZones", 2, _zonesEyeButton), expand: true),
-                new StackLayoutItem(MakeTabHeader("Analysis", "measure the terrain: slope, elevation, cut/fill, water.", "TabAnalysis", 3, _analysisEyeButton), expand: true),
-                new StackLayoutItem(MakeTabHeader("Annotation", "draw contours, labels, sections and tables.", "TabAnnotation", 4), expand: true)
-            }
+            HorizontalContentAlignment = HorizontalAlignment.Stretch
         };
+        bool? compactTabs = null;
+
+        // Labelled, every tab takes an equal share. Compact (icons only), a tab with a view toggle takes just
+        // what it needs and the plain tabs share the rest, with tighter padding: equal shares at 240 px left the
+        // Zones and Analysis tabs 5 px beside their toggles, so their icons vanished and a click on the tab
+        // hit the toggle instead (found in the manual test run).
+        void LayOutTabs(bool compact)
+        {
+            if (compactTabs == compact)
+                return;
+
+            compactTabs = compact;
+            tabStrip.SuspendLayout();
+            tabStrip.Items.Clear();
+            foreach (var (header, main, toggle) in tabParts)
+            {
+                int side = compact ? UiMetrics.SpaceSmall : UiMetrics.SpaceLarge;
+                main.Padding = toggle == null
+                    ? new Padding(side, UiMetrics.SpaceMedium)
+                    : new Padding(side, UiMetrics.SpaceMedium, compact ? UiMetrics.SpaceXSmall : UiMetrics.SpaceMedium, UiMetrics.SpaceMedium);
+                if (toggle != null)
+                {
+                    toggle.Padding = compact
+                        ? new Padding(UiMetrics.SpaceXSmall, UiMetrics.SpaceMedium, UiMetrics.SpaceSmall, UiMetrics.SpaceMedium)
+                        : new Padding(UiMetrics.SpaceMedium, UiMetrics.SpaceMedium, UiMetrics.SpaceLarge, UiMetrics.SpaceMedium);
+                }
+
+                tabStrip.Items.Add(new StackLayoutItem(header, expand: !compact || toggle == null));
+            }
+
+            tabStrip.ResumeLayout();
+        }
+
+        LayOutTabs(compact: false);
         UpdateTabSelectionStyles();
 
         // Icons only once the five labelled tabs do not all fit (UI-07: one row, shrink in the Blender way,
@@ -243,6 +294,7 @@ public sealed partial class MoleHillPanel : Panel
             bool showText = needed <= tabStrip.Width;
             foreach (var label in _tabChipLabelMap.Values)
                 label.Visible = showText;
+            LayOutTabs(compact: !showText);
         }
 
         tabStrip.SizeChanged += (_, _) => UpdateTabTextVisibility();
@@ -456,17 +508,11 @@ public sealed partial class MoleHillPanel : Panel
     /// </summary>
     private Control CreateSectionToolbar(string title, Button primaryButton, string? helperText = null, Control? trailingControl = null)
     {
-        var heading = new StackLayout
-        {
-            Orientation = Orientation.Horizontal,
-            Spacing = UiMetrics.SpaceLarge,
-            VerticalContentAlignment = VerticalAlignment.Center,
-            HorizontalContentAlignment = HorizontalAlignment.Stretch,
-            Items = { new StackLayoutItem(UiControls.Label(title, UiLabelRole.Section), expand: true) }
-        };
-        if (trailingControl != null)
-            heading.Items.Add(new StackLayoutItem(trailingControl));
-        heading.Items.Add(new StackLayoutItem(primaryButton));
+        // Title, then the tab's controls and Add on the same line while they fit; below it when they do not
+        // (Zones' View choice and Add Zones ran under the scrollbar at 240 px).
+        Control heading = trailingControl == null
+            ? new AdaptivePrimaryActionRow(UiControls.Label(title, UiLabelRole.Section), UiMetrics.SpaceLarge, primaryButton)
+            : new AdaptivePrimaryActionRow(UiControls.Label(title, UiLabelRole.Section), UiMetrics.SpaceLarge, trailingControl, primaryButton);
 
         var section = new StackLayout
         {
