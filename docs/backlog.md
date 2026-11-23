@@ -617,6 +617,12 @@ with a few meaningful controls and access to the underlying stack. Rebind docume
 when applying it in another file, preserve real-world sizes across document units, and identify any
 external dependencies. Inspiration: Blender asset libraries and reusable VFX setups.
 
+**Partly shipped 2026-11-23** (branch `ui-structure`): Import / Export Terrain Definition in the panel's
+terrain menu moves a whole terrain between files as a `.mhterrain` file. Assigned layer paths travel,
+picked objects and links to other terrains do not, lengths convert to the document's units, and an
+import preview lists the layers to reassign. Still open: named presets of a partial stack, a few exposed
+controls, and rebinding sources as part of applying one.
+
 ---
 
 ### B16 — Scatter presets using the user's own blocks
@@ -799,6 +805,33 @@ evaluator refuses); a contour that collapses becomes a spot point. Live-tested i
 curves and spot points that rebuild it within a stated tolerance: landform lines (B17) and extremum
 points first, then contours where the rebuilt surface deviates most, repeated until within tolerance, so
 the terrain stays editable afterwards. B6 inverted: the output is editable input, not a reduced mesh.
+
+### B31 — Spot Heights as one card
+
+**Approved in the design review (Steps 34-36), deferred 2026-11-23.** Merge the point-elevation and
+curve-elevation label cards into one **Spot Heights** card: Placement **At Points** / **Along Curves**
+(Interval only for Along Curves; At Points also accepts curve edit points), both sharing a closed Label
+Settings group. It changes saved data, so it needs a schema migration step that preserves each existing
+card's sources, formatting, block actions and card identity (id, position in the stack, enabled state),
+with a characterization test per source type. Design boards: `docs/ui-design-handoff.md` Steps 34-36.
+
+### B32 — Scatter Sequence view
+
+**Approved in the design review, deferred 2026-11-23.** Along a curve with Sequence order, the Block Mix
+should read as an ordered sequence (drag to reorder, repeat counts) rather than as weighted percentages.
+Compatibility question to settle first: existing documents use **weight 0** to leave a block out of the
+mix, and a sequence view has no weights to show it with. Either keep an explicit per-entry include flag
+(the entries already carry `IsEnabled`) and migrate zero weights onto it, or keep weights in the model
+and hide them in Sequence. Live-check placement order before and after on a saved document.
+
+### B33 — Exact long-section profiles
+
+**Measured 2026-11-23, not scheduled.** Section Along Curve samples at a fixed spacing (Auto = Detail
+Size), so a knife-edge crest between two samples is cut off. Measured on a 0.1 m survey mesh with a sharp
+1.5 m ridge: the old 1 m default missed the crest by 1.36 m, Auto at 0.25 m by 0.38 m. Sampling also at
+every point where the curve crosses a mesh edge makes the profile exact for a piecewise-linear surface
+(the terrain is one), at a cost proportional to the edges crossed. `TerrainSectionSlicer.SampleAlongCurve`
+is the one place to change; `MeshSectionIndex` already indexes the edges.
 
 ### Smaller command follow-ups
 
