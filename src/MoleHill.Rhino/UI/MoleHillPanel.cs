@@ -102,7 +102,8 @@ public sealed partial class MoleHillPanel : Panel
             : null;
 
         _modifierCards = CardStack.Reorderable("modifier-drag", "Drop here to reorder modifiers.", (terrainId, source, anchor) =>
-            ReorderFromDrop(terrainId, t => StackReorder.Move(t.Modifiers, m => m.Id, source, anchor, displayReversed: true), rebuild: true),
+            ReorderFromDrop(terrainId, t => StackReorder.Move(t.Modifiers, m => m.Id, source, anchor, displayReversed: true,
+                minimumIndex: t.Modifiers.Count > 0 && t.Modifiers[0] is TriangulateModifierDefinition ? 1 : 0), rebuild: true),
             () => RebuildModifierLayout(SelectedTerrainOrNull()));
         _objectCards = CardStack.Fixed(() => RebuildObjectsLayout(SelectedTerrainOrNull()));
         _zoneCards = CardStack.Reorderable("zone-drag", "Drop here to reorder zones.", (terrainId, source, anchor) =>

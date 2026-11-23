@@ -109,4 +109,30 @@ public class TerrainTransferTests
         Assert.Throws<InvalidDataException>(() => TerrainTransfer.Read("{\"hello\": 1}", Meters, _ => true));
         Assert.Throws<InvalidDataException>(() => TerrainTransfer.Read("not json", Meters, _ => true));
     }
+
+    [Fact]
+    public void Read_ANewerSchema_OrADamagedUnit_SaysSoInsteadOfThrowingSomethingElse()
+    {
+        string json = TerrainTransfer.Export(Sample(out _, out _), UnitSystem.Meters);
+        string newer = System.Text.RegularExpressions.Regex.Replace(json, "\"schemaVersion\": \\d+", "\"schemaVersion\": 9999");
+        string badUnit = json.Replace("\"unitSystem\": \"Meters\"", "\"unitSystem\": 3", StringComparison.Ordinal);
+
+        var exception = Assert.Throws<InvalidDataException>(() => TerrainTransfer.Read(newer, Meters, _ => true));
+        Assert.Contains("newer version", exception.Message);
+        Assert.Equal(1.0, TerrainTransfer.Read(badUnit, Meters, _ => true).Terrain.Annotations
+            .OfType<LongitudinalSectionAnnotationDefinition>().Single().SampleInterval / 1000.0, 9);
+    }
+
+    [Fact]
+    public void ClearTerrainLinks_CountsARemovedProfileColour()
+    {
+        Guid other = Guid.NewGuid();
+        var terrain = new TerrainDefinition();
+        var section = new TerrainSectionAnnotationDefinition();
+        section.ProfileColorArgbs[other] = unchecked((int)0xFF00FF00);
+        terrain.Annotations.Add(section);
+
+        Assert.Equal(1, TerrainTransfer.ClearTerrainLinks(terrain, id => id == other));
+        Assert.Empty(section.ProfileColorArgbs);
+    }
 }

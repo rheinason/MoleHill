@@ -2,22 +2,6 @@ using MoleHill.Rhino.Model;
 
 namespace MoleHill.Rhino.Registry;
 
-/// <summary>What a comparing card measures or draws against (design review Steps 29, 66, 68).</summary>
-internal enum ComparisonMode
-{
-    /// <summary>Sections only: no reference drawn and no cut/fill shading.</summary>
-    Off,
-
-    /// <summary>This terrain's own surface before its modifiers moved it.</summary>
-    Original,
-
-    /// <summary>Another MoleHill terrain in the document.</summary>
-    Terrain,
-
-    /// <summary>Rhino geometry: a survey mesh or surface.</summary>
-    Geometry,
-}
-
 /// <summary>
 /// The comparison mode of Earthworks, Cut / Fill and the section cards, read from the data they already
 /// save, so every existing card shows exactly the comparison it builds: geometry when Rhino geometry is
@@ -77,7 +61,8 @@ internal static class ComparisonModes
             {
                 // Off turns shading off; turning comparison on starts with it on. Between two comparing
                 // modes the user's own choice stands.
-                if (!shading || wasOff)
+                // Original has no reference of its own, so its shading is what tells it from Off.
+                if (!shading || wasOff || mode == ComparisonMode.Original)
                     section.ShowCutFillRegions = shading;
             });
     }

@@ -103,4 +103,19 @@ public class ComparisonModesTests : IDisposable
         Assert.NotNull(blocker);
         Assert.StartsWith("Pick the survey mesh", blocker);
     }
+
+    [Fact]
+    public void Section_BackToOriginal_AfterUntickingShading_IsOriginalNotOff()
+    {
+        var section = new TerrainSectionAnnotationDefinition();
+        void SetTerrain(Guid? id) => section.CutFillReferenceTerrainId = id;
+        ComparisonModes.Set(section, ComparisonMode.Terrain, SetTerrain);
+        SetTerrain(Guid.NewGuid());
+        section.ShowCutFillRegions = false;
+
+        ComparisonModes.Set(section, ComparisonMode.Original, SetTerrain);
+
+        Assert.Equal(ComparisonMode.Original, ComparisonModes.Of(section));
+        Assert.True(section.ShowCutFillRegions);
+    }
 }

@@ -8,14 +8,6 @@ using Rhino;
 
 namespace MoleHill.Rhino.Services;
 
-/// <summary>What importing a terrain definition file will create, shown before anything is added.</summary>
-internal sealed record TerrainImportPreview(
-    TerrainDefinition Terrain,
-    IReadOnlyList<string> FoundLayers,
-    IReadOnlyList<string> MissingLayers,
-    int ClearedTerrainLinks,
-    string SourceUnits);
-
 /// <summary>
 /// Moves a terrain's definition - its cards and settings - between documents as a file (design review
 /// Steps 77, 78, 80). Only what another document can resolve travels: assigned <b>layer paths</b>. Picked
@@ -65,14 +57,28 @@ internal static class TerrainTransfer
         if (root is not JsonObject file || file[FormatKey] is null || file["document"] is not JsonNode document)
             throw new InvalidDataException("This file is not a MoleHill terrain definition.");
 
-        if (!Enum.TryParse(file["unitSystem"]?.GetValue<string>(), out UnitSystem sourceUnits))
+        string? unitName = file["unitSystem"] is JsonValue unitValue && unitValue.TryGetValue(out string? name) ? name : null;
+        if (!Enum.TryParse(unitName, out UnitSystem sourceUnits))
             sourceUnits = UnitSystem.Meters;
         ModelUnitContext sourceContext = ModelUnitContext.FromUnitSystem(sourceUnits);
         if (!sourceContext.IsSupported)
             throw new InvalidDataException($"The file's units ({sourceUnits}) are not supported.");
 
-        TerrainDefinition terrain = TerrainSerializer.Deserialize(document.ToJsonString(), sourceContext).FirstOrDefault()
-            ?? throw new InvalidDataException("The file holds no terrain.");
+        TerrainDefinition terrain;
+        try
+        {
+            terrain = TerrainSerializer.Deserialize(document.ToJsonString(), sourceContext).FirstOrDefault()
+                ?? throw new InvalidDataException("The file holds no terrain.");
+        }
+        catch (NotSupportedException exception)
+        {
+            // GuardSupportedSchema: written by a newer MoleHill.
+            throw new InvalidDataException("This terrain definition was written by a newer version of MoleHill. Update MoleHill to import it.", exception);
+        }
+        catch (Exception exception) when (exception is JsonException or InvalidOperationException or FormatException)
+        {
+            throw new InvalidDataException("This terrain definition file is damaged and cannot be read.", exception);
+        }
 
         int clearedLinks = ClearTerrainLinks(terrain, _ => true);
         StripDocumentState(terrain);
@@ -136,7 +142,10 @@ internal static class TerrainTransfer
         {
             cleared += section.ComparisonTerrainIds.RemoveAll(id => drop(id));
             foreach (Guid id in section.ProfileColorArgbs.Keys.Where(drop).ToList())
+            {
                 section.ProfileColorArgbs.Remove(id);
+                cleared++;
+            }
             if (section.CutFillReferenceTerrainId is { } reference && drop(reference))
             {
                 section.CutFillReferenceTerrainId = null;

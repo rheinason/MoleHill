@@ -125,9 +125,15 @@ internal sealed class NumberField : Panel
         return ok;
     }
 
+    /// <summary>The text <see cref="Echo"/> last wrote: unchanged text means "not edited", so the full-precision value stands.</summary>
+    private string _echoed = string.Empty;
+
+    private bool IsEdited => !string.Equals(TextBox.Text, _echoed, StringComparison.Ordinal);
+
     private void Commit()
     {
-        if (TryReadTyped(out double typed))
+        // The field shows a rounded value; re-reading that text would store the rounding.
+        if (IsEdited && TryReadTyped(out double typed))
             _value = typed;
 
         Echo();
@@ -136,7 +142,7 @@ internal sealed class NumberField : Panel
 
     private void Step(int direction, int multiple = 1)
     {
-        double from = TryReadTyped(out double typed) ? typed : _value;
+        double from = IsEdited && TryReadTyped(out double typed) ? typed : _value;
         double step = Increment > 0 ? Increment : 1.0;
         _value = Clamp(from + direction * multiple * step);
         Echo();
@@ -151,7 +157,8 @@ internal sealed class NumberField : Panel
             return;
 
         _echoing = true;
-        TextBox.Text = UserNumber.WithUnit(UserNumber.Format(_value, "F" + _decimals), _unit);
+        _echoed = UserNumber.WithUnit(UserNumber.Format(_value, "F" + _decimals), _unit);
+        TextBox.Text = _echoed;
         _echoing = false;
     }
 

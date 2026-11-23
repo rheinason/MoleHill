@@ -566,7 +566,7 @@ internal sealed class ColorRampControl : Panel
         var modes = new[] { AnalysisColorMapper.Mode.Gradient, AnalysisColorMapper.Mode.Stepped, AnalysisColorMapper.Mode.Constant };
         var segments = new SegmentedControl(
             new[] { "Linear", "Stepped", "Constant" },
-            Math.Max(0, Array.IndexOf(modes, _mode)),
+            Array.IndexOf(modes, _mode),
             new string?[]
             {
                 "Blend smoothly between the stops.",

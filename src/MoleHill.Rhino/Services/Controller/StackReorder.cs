@@ -11,22 +11,25 @@ internal static class StackReorder
     /// drawn in list order, or bottom-to-top when <paramref name="displayReversed"/> (modifiers, whose first
     /// item is the bottom card), so "above" means after the anchor in the list and the tail means the start.
     /// </summary>
-    public static void Move<T>(List<T> items, Func<T, Guid> idOf, Guid sourceId, Guid anchorId, bool displayReversed = false)
+    /// <param name="minimumIndex">Items below this index are pinned: they do not move and nothing lands among
+    /// them (the base Triangulate is modifier 0).</param>
+    public static void Move<T>(List<T> items, Func<T, Guid> idOf, Guid sourceId, Guid anchorId, bool displayReversed = false, int minimumIndex = 0)
     {
         if (sourceId == anchorId)
             return;
 
         int from = items.FindIndex(item => idOf(item) == sourceId);
-        if (from < 0)
+        if (from < 0 || from < minimumIndex)
             return;
 
         T moved = items[from];
         items.RemoveAt(from);
 
+        int floor = Math.Min(minimumIndex, items.Count);
         if (anchorId == Guid.Empty)
         {
             if (displayReversed)
-                items.Insert(0, moved);
+                items.Insert(floor, moved);
             else
                 items.Add(moved);
             return;
@@ -36,7 +39,7 @@ internal static class StackReorder
         int insert = anchor < 0
             ? items.Count
             : displayReversed ? Math.Min(anchor + 1, items.Count) : anchor;
-        items.Insert(insert, moved);
+        items.Insert(Math.Max(insert, floor), moved);
     }
 
 }

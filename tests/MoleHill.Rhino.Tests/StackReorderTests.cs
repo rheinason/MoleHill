@@ -49,4 +49,16 @@ public class StackReorderTests
     [InlineData(true)]
     public void Move_UnknownSource_LeavesOrderUnchanged(bool reversed) =>
         Assert.Equal(Items(), Move(Guid.NewGuid(), B, reversed));
+
+    [Fact]
+    public void Move_PinnedBase_NothingLandsBelowIt_AndItDoesNotMove()
+    {
+        // Modifiers are drawn bottom-up; A is the pinned base Triangulate at index 0.
+        var items = Items();
+        StackReorder.Move(items, id => id, C, Guid.Empty, displayReversed: true, minimumIndex: 1);
+        Assert.Equal(new[] { A, C, B, D }, items);
+
+        StackReorder.Move(items, id => id, A, D, displayReversed: true, minimumIndex: 1);
+        Assert.Equal(new[] { A, C, B, D }, items);
+    }
 }

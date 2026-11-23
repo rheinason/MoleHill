@@ -51,9 +51,22 @@ public static class UserNumber
     {
         value = 0.0;
         string trimmed = (text ?? string.Empty).Trim();
-        for (int length = trimmed.Length; length > 0; length--)
+
+        // The number is the leading run of number characters; whatever follows is the unit. A run that mixes
+        // a comma with a point, or has two commas, is a thousands-separated number ("1,234.5"): refused, not
+        // shortened until some prefix ("1,234") happens to parse as 1.234.
+        int end = 0;
+        while (end < trimmed.Length && (char.IsDigit(trimmed[end]) || trimmed[end] is '.' or ',' or '-' or '+' or 'e' or 'E'))
+            end++;
+        string token = trimmed[..end];
+        int commas = token.Count(c => c == ',');
+        if (commas > 1 || (commas == 1 && token.Contains('.')))
+            return false;
+
+        // Shorten only within the token, so a dangling exponent ("2.5e") still reads as 2.5.
+        for (int length = token.Length; length > 0; length--)
         {
-            if (TryParse(trimmed[..length], out value))
+            if (TryParse(token[..length], out value))
                 return true;
         }
 

@@ -98,4 +98,11 @@ public class UserNumberTests
             UserNumber.TryParseLeading(UserNumber.WithUnit(UserNumber.Format(1234.5678, 3), "m"), out double v) ? v : double.NaN);
         Assert.Equal(1234.568, back, 9);
     }
+
+    [Theory]
+    [InlineData("1,234.5")]
+    [InlineData("1,234,567")]
+    [InlineData("1,234.5 m")]
+    public void TryParseLeading_ThousandsSeparatedNumber_IsRefusedNotMisread(string text) =>
+        Assert.False(UserNumber.TryParseLeading(text, out _));
 }

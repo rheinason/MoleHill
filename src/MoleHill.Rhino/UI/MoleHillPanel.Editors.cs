@@ -799,11 +799,12 @@ public sealed partial class MoleHillPanel
         IReadOnlyDictionary<string, string>? optionHelp = null,
         bool fullRow = false)
     {
-        int selectedIndex = Math.Max(0, options
+        // -1 when the stored key matches no option: nothing shows selected, so any segment can be picked.
+        int selectedIndex = Math.Max(-1, options
             .Select((option, index) => (option, index))
             .Where(item => string.Equals(item.option.Key, selectedKey, StringComparison.OrdinalIgnoreCase))
             .Select(item => item.index)
-            .DefaultIfEmpty(0)
+            .DefaultIfEmpty(-1)
             .First());
         var segments = new SegmentedControl(
             options.Select(option => option.Label).ToList(),

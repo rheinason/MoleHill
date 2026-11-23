@@ -33,6 +33,7 @@ public class ModifierTypeSwitchGuardTests
         ["src/MoleHill.Rhino/Services/Persistence/TerrainUnitScaler.cs"] = (1, "The encoded sculpt field is not a plain multiply, so Sculpt keeps explicit scaling code."),
         ["src/MoleHill.Rhino/Services/Sculpt/SculptConstraintMaskBuilder.cs"] = (1, "Sculpt reads the Grade Path stages stacked above it to build its protect mask: a deliberate cross-type dependency."),
         ["src/MoleHill.Rhino/Services/Sculpt/SculptSessionController.cs"] = (2, "The interactive sculpt session is Sculpt-specific by definition."),
+        ["src/MoleHill.Rhino/UI/MoleHillPanel.cs"] = (1, BasePinned + " A dragged card never lands below the base."),
         ["src/MoleHill.Rhino/UI/MoleHillPanel.Modifiers.cs"] = (5, BasePinned + " Also the Sculpt session row (a live viewport tool) and the mesh-quality warning Smooth and Sculpt show above their rows."),
         ["src/MoleHill.Rhino/UI/MoleHillPanel.Tabs.cs"] = (1, BasePinned),
     };

@@ -28,7 +28,8 @@ internal sealed class SegmentedControl : Drawable
     {
         _labels = labels;
         _help = help;
-        _selected = Math.Clamp(selectedIndex, 0, Math.Max(0, labels.Count - 1));
+        // -1 (a stored value no option matches) shows nothing selected, so every segment stays pickable.
+        _selected = selectedIndex >= 0 && selectedIndex < labels.Count ? selectedIndex : -1;
         Height = UiMetrics.ControlHeight;
         CanFocus = true;
         Paint += (_, e) => Draw(e.Graphics);
@@ -62,6 +63,8 @@ internal sealed class SegmentedControl : Drawable
 
     public int SelectedIndex => _selected;
 
+    private bool _rowToolTipCaptured;
+
     /// <summary>Raised when the user picks a different segment.</summary>
     public event EventHandler? SelectedIndexChanged;
 
@@ -81,7 +84,12 @@ internal sealed class SegmentedControl : Drawable
             return;
 
         // The hovered segment's own help, when it has some, replaces the row's tooltip while over it.
-        _rowToolTip ??= ToolTip;
+        if (!_rowToolTipCaptured)
+        {
+            _rowToolTip = ToolTip;
+            _rowToolTipCaptured = true;
+        }
+
         _hover = index;
         string? segmentHelp = index >= 0 && _help != null && index < _help.Count ? _help[index] : null;
         ToolTip = segmentHelp ?? _rowToolTip;

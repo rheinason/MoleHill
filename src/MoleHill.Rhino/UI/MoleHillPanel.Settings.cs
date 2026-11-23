@@ -71,19 +71,36 @@ public sealed partial class MoleHillPanel : Panel
                 OnPickTerrainColor(_, EventArgs.Empty);
         };
         // Typing previews the opacity live; a commit (Enter, leaving, an arrow) settles it.
-        void ApplyOpacity(double value)
+        void ApplyOpacity(double value, bool typing = false)
         {
             if (_isRefreshing || _isUpdatingOpacityControls)
                 return;
 
             int opacityPercent = (int)Math.Round(value);
-            SetTerrainOpacityControls(opacityPercent);
+            if (typing)
+            {
+                // Mid-typing: move the slider and the preview, never the text being typed.
+                _isUpdatingOpacityControls = true;
+                try
+                {
+                    _terrainOpacitySlider.Value = opacityPercent;
+                }
+                finally
+                {
+                    _isUpdatingOpacityControls = false;
+                }
+            }
+            else
+            {
+                SetTerrainOpacityControls(opacityPercent);
+            }
+
             ApplyTerrainOpacity(opacityPercent);
         }
         _terrainOpacityStepper.Edited += (_, _) =>
         {
             if (_terrainOpacityStepper.TryReadTyped(out double typed))
-                ApplyOpacity(typed);
+                ApplyOpacity(typed, typing: true);
         };
         _terrainOpacityStepper.ValueChanged += (_, _) => ApplyOpacity(_terrainOpacityStepper.Value);
         _terrainOpacityStepper.TextBox.LostFocus += (_, _) => endStepperDeferral();
