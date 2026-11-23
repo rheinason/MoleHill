@@ -214,6 +214,36 @@ public sealed partial class MoleHillPanel
                 return rows;
             }
 
+            case ParameterKind.Key:
+            {
+                var items = new StackLayout
+                {
+                    Orientation = Orientation.Horizontal,
+                    Spacing = UiMetrics.SpaceLarge,
+                    VerticalContentAlignment = VerticalAlignment.Center,
+                };
+                foreach ((int argb, string name) in parameter.GetKey!(definition))
+                {
+                    items.Items.Add(new StackLayout
+                    {
+                        Orientation = Orientation.Horizontal,
+                        Spacing = UiMetrics.SpaceSmall,
+                        VerticalContentAlignment = VerticalAlignment.Center,
+                        Items =
+                        {
+                            new Panel
+                            {
+                                Size = new Eto.Drawing.Size(UiMetrics.CardTypeIconSize, UiMetrics.CardTypeIconSize),
+                                BackgroundColor = Eto.Drawing.Color.FromArgb(argb),
+                            },
+                            UiControls.Label(name),
+                        },
+                    });
+                }
+
+                return new PropertyRow(CreateHelpLabel(label, parameter.Help ?? string.Empty, 0), items, expandWidget: true);
+            }
+
             case ParameterKind.Placeholder:
                 return bespoke?.Invoke(parameter, definition) ?? new Panel();
 

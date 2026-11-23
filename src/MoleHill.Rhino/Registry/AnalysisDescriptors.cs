@@ -1115,6 +1115,17 @@ internal sealed class CurvatureAnalysisDescriptor : AnalysisTypeDescriptor
             "recolours without measuring again.",
             refreshOnly: true,
             fullRow: true),
+        AnalysisParam.ColorKey(
+            "LandformKey", "Key",
+            _ => LandformClassifier.All
+                .Select(landform =>
+                {
+                    var (r, g, b) = LandformClassifier.ColorOf(landform);
+                    return (unchecked((int)0xFF000000) | (r << 16) | (g << 8) | b, LandformClassifier.NameOf(landform));
+                })
+                .ToList(),
+            "The colour each landform is drawn in on the terrain.",
+            visibleWhen: a => Curvature(a).Display == CurvatureDisplay.Landforms),
         AnalysisParam.Choice(
             "Measure", "Measure",
             MeasureOptions,

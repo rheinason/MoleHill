@@ -16,7 +16,7 @@ file that needs Rhino's runtime must be added to that `Exclude` at its new path.
 | `Display/` | The display conduit, presentation/render meshes, colours, preview view, runtime overlay, scatter block preview, analysis preview builder, drainage preview cache, the route-suggestion review overlay |
 | `Output/` | Layer roles/templates/creation/routing, annotation styles, hatch patterns, generated-object model, block catalog and templates, `AnnotationBlockLibrary` (copy the built-in annotation block, field inspection and preview field resolution) and `AnnotationBlockEditor` (open a block in Rhino's block editor by name), per-terrain layer rename/cleanup, content visibility |
 | `Annotation/` | Annotation, legend, report and section builders, section layout/profile comparison, zone analysis and gradient-compliance evaluation |
-| `Persistence/` | Terrain JSON serializer, document store/identity/ownership, unit scaling, colour-ramp and field-code stores |
+| `Persistence/` | Terrain JSON serializer, document store/identity/ownership, unit scaling, colour-ramp and field-code stores, and `TerrainTransfer` (a terrain definition as a `.mhterrain` file: layer paths only; also the shared re-id and terrain-link clearing Duplicate and Delete use) |
 | `Objects/` | Object-owned transform-aware placement bases, geometry sampling/footprint fitting, and the temporary base-preview conduit |
 | `Import/` | GeoTIFF and raster georeferencing, DEM sampling, LandXML, survey import geometry/placement/naming, project-base plane, document north, Displace's heightmap image loader (`HeightmapImageLoader`: System.Drawing to 8-bit luminance, file stamp, small decode cache) |
 | `CurveReview/` | The curve-review conduit, form, rules, labeller and analysis |

@@ -160,6 +160,10 @@ public class ParameterSchemaGuardTests
             case ParameterKind.Placeholder:
                 break;
 
+            case ParameterKind.Key:
+                AssertSet(type, parameter, "GetKey", where);
+                break;
+
             case ParameterKind.PlanPoint:
                 AssertSet(type, parameter, "GetPlanPoint", where);
                 AssertSet(type, parameter, "SetPlanPoint", where);

@@ -215,9 +215,15 @@ internal sealed class ColorRampControl : Panel
     /// actually hold. This is painted rather than built from Labels precisely so it can never widen the
     /// panel: a row of Labels would each demand their preferred width and push the dock sideways.
     /// </summary>
+    private static string CompassPoint(double bearing) =>
+        ((int)Math.Round(bearing / 90.0) % 4) switch { 0 => "N", 1 => "E", 2 => "S", _ => "W" };
+
     private Control BuildTickRow()
     {
-        var ticks = AnalysisRange.BuildTicks(_range);
+        // A cyclic range is the compass (design review Step 75): its ticks are the cardinal points.
+        bool compass = _options.Shape == RangeShape.Cyclic;
+        IReadOnlyList<double> ticks = compass ? new[] { 0.0, 90.0, 180.0, 270.0, 360.0 } : AnalysisRange.BuildTicks(_range);
+        Func<double, string> label = compass ? CompassPoint : _options.FormatValue;
         var font = SystemFonts.Default(SystemFonts.Default().Size - 1.5f);
 
         var row = new Drawable
@@ -234,7 +240,7 @@ internal sealed class ColorRampControl : Panel
             var g = e.Graphics;
             float widest = 0f;
             foreach (double tick in ticks)
-                widest = Math.Max(widest, g.MeasureString(font, _options.FormatValue(tick)).Width);
+                widest = Math.Max(widest, g.MeasureString(font, label(tick)).Width);
 
             // Thin until the widest label plus a gap fits its slot. At 240px with long numbers this can
             // come down to just the two ends, which is still an honest legend — unlike overlapping text.
@@ -245,7 +251,7 @@ internal sealed class ColorRampControl : Panel
             {
                 // Until something has been coloured the range is a guess; ticks would dress it up as a
                 // measurement, so the ramp shows its colours and stays quiet about values.
-                string text = _options.HasData ? _options.FormatValue(ticks[i]) : string.Empty;
+                string text = _options.HasData ? label(ticks[i]) : string.Empty;
                 if (text.Length == 0)
                     continue;
 
@@ -490,11 +496,12 @@ internal sealed class ColorRampControl : Panel
     /// </summary>
     private Control BuildStopToolbar()
     {
-        var add = ToolButton("+", "Add a stop in the widest gap.", () => ApplyRamp(_ramp.Insert(), _selected));
-        var remove = ToolButton("−", "Remove the selected stop.",
+        // Design review Step 74: borderless icon actions with the icon set's hover and focus states.
+        var add = ToolButton(PanelButtonIcon.Add, "Add a stop in the widest gap.", () => ApplyRamp(_ramp.Insert(), _selected));
+        var remove = ToolButton(PanelButtonIcon.Remove, "Remove the selected stop (a ramp keeps at least two).",
             () => ApplyRamp(_ramp.RemoveAt(_selected), Math.Max(0, _selected - 1)));
-        var distribute = ToolButton("⇉", "Space the stops evenly.", () => ApplyRamp(_ramp.Distribute(), _selected));
-        var reverse = ToolButton("⇄", "Reverse the ramp.", () => ApplyRamp(_ramp.Reverse(), _selected));
+        var distribute = ToolButton(PanelButtonIcon.Distribute, "Space the stops evenly.", () => ApplyRamp(_ramp.Distribute(), _selected));
+        var reverse = ToolButton(PanelButtonIcon.Reverse, "Reverse the ramp.", () => ApplyRamp(_ramp.Reverse(), _selected));
 
         var presets = UiControls.Button("Presets", (_, _) => ShowPresetMenu(),
             "Replace the ramp with a built-in or saved one.", UiButtonRole.Inline);
@@ -505,12 +512,8 @@ internal sealed class ColorRampControl : Panel
             UiMetrics.SpaceSmall, add, remove, distribute, reverse, presets, save);
     }
 
-    private static Button ToolButton(string glyph, string help, Action onClick)
-    {
-        var button = UiControls.Button(glyph, (_, _) => onClick(), help, UiButtonRole.Inline);
-        button.Width = UiMetrics.IconButtonWidth;
-        return button;
-    }
+    private static IconButton ToolButton(PanelButtonIcon icon, string help, Action onClick) =>
+        UiControls.IconButton(icon, (_, _) => onClick(), help);
 
     // ── Mapping ────────────────────────────────────────────────────────────
 
@@ -559,18 +562,20 @@ internal sealed class ColorRampControl : Panel
 
     private Control BuildModeRow()
     {
-        var linear = Tab("Linear", _mode == AnalysisColorMapper.Mode.Gradient,
-            "Blend smoothly between the stops.",
-            () => SetMode(AnalysisColorMapper.Mode.Gradient));
-        var stepped = Tab("Stepped", _mode == AnalysisColorMapper.Mode.Stepped,
-            "Equal-width bands across the range, sized by the interval below.",
-            () => SetMode(AnalysisColorMapper.Mode.Stepped));
-        var constant = Tab("Constant", _mode == AnalysisColorMapper.Mode.Constant,
-            "Hold each stop's colour until the next stop, so the stops are the band edges. " +
-            "Use this for unequal bands — one wide acceptable range, then a few narrow ones.",
-            () => SetMode(AnalysisColorMapper.Mode.Constant));
-
-        return new AdaptiveColumns(UiMetrics.SpaceSmall, UiMetrics.Chs(8), linear, stepped, constant);
+        // The panel's one segmented primitive, like every other 2-3 way choice.
+        var modes = new[] { AnalysisColorMapper.Mode.Gradient, AnalysisColorMapper.Mode.Stepped, AnalysisColorMapper.Mode.Constant };
+        var segments = new SegmentedControl(
+            new[] { "Linear", "Stepped", "Constant" },
+            Math.Max(0, Array.IndexOf(modes, _mode)),
+            new string?[]
+            {
+                "Blend smoothly between the stops.",
+                "Equal-width bands across the range, sized by the interval below.",
+                "Hold each stop's colour until the next stop, so the stops are the band edges. " +
+                    "Use this for unequal bands — one wide acceptable range, then a few narrow ones.",
+            });
+        segments.SelectedIndexChanged += (_, _) => SetMode(modes[segments.SelectedIndex]);
+        return segments;
     }
 
     /// <summary>
@@ -824,19 +829,5 @@ internal sealed class ColorRampControl : Panel
         _autoRange = auto;
         _options.OnAutoRangeChanged?.Invoke(auto);
         Rebuild();
-    }
-
-    /// <summary>One half of the Linear/Stepped pair. A real Button so it keeps native focus and keyboard
-    /// use; only its fill says which one is active.</summary>
-    private static Button Tab(string text, bool active, string help, Action onClick)
-    {
-        var button = UiControls.Button(text, (_, _) => onClick(), help, UiButtonRole.Inline);
-        if (active)
-        {
-            button.BackgroundColor = UiTheme.RampAccent;
-            button.TextColor = UiTheme.RampAccentText;
-        }
-
-        return button;
     }
 }

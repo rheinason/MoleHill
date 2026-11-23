@@ -67,6 +67,9 @@ internal enum ParameterKind
     /// </summary>
     Placeholder,
 
+    /// <summary>A categorical colour key: a swatch and a name per category (a curvature card's landforms).</summary>
+    Key,
+
     /// <summary>
     /// A file on disk: its full path in a text box beside a Browse button. The path lives in the text
     /// accessors; <see cref="ParameterDescriptor{TDefinition}.FileFilterName"/> and
@@ -177,6 +180,9 @@ internal sealed class ParameterDescriptor<TDefinition>
 
     /// <summary>What the card shows while the chosen terrain cannot be compared against ("Until then, ...").</summary>
     public string? TerrainReferenceMeanwhile { get; init; }
+
+    /// <summary>A <see cref="ParameterKind.Key"/>'s categories: colour (ARGB) and name, in legend order.</summary>
+    public Func<TDefinition, IReadOnlyList<(int Argb, string Label)>>? GetKey { get; init; }
 
     /// <summary>A read-only row's text when it needs the terrain (the analysis a legend keys).</summary>
     public Func<TerrainDefinition, TDefinition, string>? GetReadOnlyFromTerrain { get; init; }
@@ -437,6 +443,15 @@ internal sealed class ParameterDescriptor<TDefinition>
             Help = help,
             VisibleWhen = visibleWhen,
         };
+
+    /// <summary>A categorical colour key (design review Step 73: the landforms' three swatches).</summary>
+    public static ParameterDescriptor<TDefinition> ColorKey(
+        string key,
+        string label,
+        Func<TDefinition, IReadOnlyList<(int Argb, string Label)>> get,
+        string? help = null,
+        Func<TDefinition, bool>? visibleWhen = null) =>
+        new() { Kind = ParameterKind.Key, Key = key, Label = label, GetKey = get, Help = help, VisibleWhen = visibleWhen };
 
     /// <summary>Content the panel builds itself, in this position; <paramref name="key"/> names which.</summary>
     public static ParameterDescriptor<TDefinition> Placeholder(string key, string label) =>

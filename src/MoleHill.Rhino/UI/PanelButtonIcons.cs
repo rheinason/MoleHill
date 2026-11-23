@@ -23,7 +23,10 @@ internal enum PanelButtonIcon
     AnalysisHidden,
     Rebuild,
     ResetBuild,
-    Bake
+    Bake,
+    Remove,
+    Distribute,
+    Reverse
 }
 
 /// <summary>
@@ -146,6 +149,26 @@ internal static class PanelButtonIcons
                 var rib = new Pen(Faded(0.6f), 1.3f * scale) { LineCap = PenLineCap.Round };
                 g.DrawLine(rib, P(6.8f, 7.4f), P(7f, 11.8f));
                 g.DrawLine(rib, P(9.2f, 7.4f), P(9f, 11.8f));
+                break;
+
+            case PanelButtonIcon.Remove:
+                Stroke(P(3f, 8f), P(13f, 8f));
+                break;
+
+            case PanelButtonIcon.Distribute:
+                // Three evenly spaced stops on a line: "space them evenly".
+                Stroke(P(2f, 11.5f), P(14f, 11.5f));
+                FillRect(2.6f, 4f, 2.4f, 5.4f);
+                FillRect(6.8f, 4f, 2.4f, 5.4f);
+                FillRect(11f, 4f, 2.4f, 5.4f);
+                break;
+
+            case PanelButtonIcon.Reverse:
+                // Two opposed arrows: swap the ends.
+                Stroke(P(3f, 5.5f), P(13f, 5.5f));
+                Stroke(P(10.5f, 3f), P(13f, 5.5f), P(10.5f, 8f));
+                Stroke(P(13f, 10.5f), P(3f, 10.5f));
+                Stroke(P(5.5f, 8f), P(3f, 10.5f), P(5.5f, 13f));
                 break;
 
             case PanelButtonIcon.Clear:

@@ -1638,6 +1638,18 @@ Swatches are vertex-coloured meshes â€” the mechanism that colours the terrain â
 ground it keys; outlines and text follow the layer. Sizes are multiples of the style's text height and
 all text is drawn at exactly that height, for the reason the report table gives.
 
+## Rhino: terrain definition transfer
+
+A terrain's definition - its cards and settings - moves between documents as a `.mhterrain` file
+(`Services/Persistence/TerrainTransfer`, panel menu in `MoleHillPanel.Transfer.cs`). Only what another
+document can resolve travels: **assigned layer paths**. Picked object ids, geometry, build results and
+links to other terrains are left out on export and cleared again on import, since a hand-edited file is
+not trusted to have done it. The file records its model units and lengths are converted with
+`TerrainUnitScaler`; the import is a new terrain with fresh ids (`TerrainTransfer.RenewIdentity`, which
+Duplicate shares). Before anything is added, the import preview sorts the layer paths into those the
+document has and those to reassign. `TerrainTransfer.SourceSets` finds every source set by walking the
+model, so a new card's sources are covered without being listed.
+
 ## Rhino: survey field codes
 
 Reading a coded survey file is **input preparation**, not a modifier. `mhImportSurveyPoints` produces

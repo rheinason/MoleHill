@@ -87,7 +87,8 @@ public sealed partial class MoleHillPanel : Panel
             UiMetrics.SpaceMedium,
             _newButton,
             _dupButton,
-            _deleteButton);
+            _deleteButton,
+            BuildTerrainMenuButton());
         var identityGroup = new DynamicLayout
         {
             BackgroundColor = UiTheme.ToolbarBackground,

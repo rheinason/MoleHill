@@ -86,6 +86,9 @@ Escape closes the popup from either the search box or the grid.
   Simplify likewise uses ordinary schema rows: its Mode choice reveals Maximum Deviation, Target
   Vertices, or Retain Percentage, and its collapsed summary shows the active request. Measured
   reduction/error details stay in build diagnostics rather than document state.
+- `MoleHillPanel.Transfer.cs` - the terrain menu (the ⋯ beside New/Copy/Delete): Import and Export Terrain
+  Definition, and the import preview anchored below the terrain selector, which lists the assigned layers
+  this document has and those to reassign. What travels is `Services/Persistence/TerrainTransfer`'s rule.
 - `MoleHillPanel.CompareTerrain.cs` - the comparison rows shared by Cut/Fill, Earthworks and the section
   cards: the "Compare To Terrain" dropdown and a status row that says when the chosen terrain is
   building, unbuilt, empty, edited without a rebuild, or newer than this terrain's results, with a button
