@@ -167,10 +167,13 @@ internal static class AdaptiveWidth
 {
     public static int Estimate(Control control) => control switch
     {
-        // Take whichever is larger of an explicit Width and the text-length guess: a control that's been
-        // given a fixed Width (e.g. the layer-assignment button trio) should never be estimated smaller
-        // than that, and one that's merely reporting its default/unmeasured Width shouldn't be trusted
-        // below what its text needs.
+        // Once laid out, a control's own width is the truth. The caption guess below measures with the
+        // bold digit width, so it overestimated short captions: "Edit…" + "Apply" came to about 124 px
+        // against 90 px real, and the Output Layers buttons wrapped one above the other at any width.
+        Button or CheckBox when control.Loaded && control.Width > 0 => control.Width,
+        // Before layout, take whichever is larger of an explicit Width and the text-length guess: a
+        // control given a fixed Width should never be estimated smaller than that, and one reporting its
+        // default/unmeasured Width shouldn't be trusted below what its text needs.
         Button button => Math.Max(button.Width, UiMetrics.Chs((button.Text?.Length ?? 0) + 3)),
         CheckBox check => Math.Max(check.Width, UiMetrics.Chs((check.Text?.Length ?? 0) + 4)),
         _ when control.Width > 0 => control.Width,

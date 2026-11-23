@@ -57,6 +57,8 @@ public sealed partial class MoleHillPanel : Panel
         };
 
         _terrainOpacityStepper.DecimalPlaces = 0;
+        _terrainOpacityStepper.Unit = "%";
+        _terrainOpacityStepper.Width = UiMetrics.NumericField;
         _terrainOpacityStepper.Increment = 5;
         _terrainOpacityStepper.MinValue = 0;
         _terrainOpacityStepper.MaxValue = 100;
@@ -239,30 +241,33 @@ public sealed partial class MoleHillPanel : Panel
         var toleranceRow = new PropertyRow(
             CreateHelpLabel("Detail Size", "Smallest terrain detail to preserve automatically. Smaller values keep more detail; larger values simplify and merge nearby geometry more aggressively.", 0),
             _toleranceStepper);
-        var opacityLabel = CreateHelpLabel("Opacity", "Terrain opacity used for preview and bake.", UiMetrics.ShortLabel);
+        // Colour and opacity are two rows. Sharing one, the swatch, an "Opacity" caption, the slider, the
+        // number and Reset fought for a narrow panel's editor column: the slider shrank to a stub and the
+        // number and Reset wrapped under it (seen live at 240 px). Opacity now reads like Preview Line Weight.
         var resetTerrainColorButton = MakeInlineButton("Reset", (_, _) => ResetTerrainColor(), "Restore the default terrain display color.");
-        var terrainColorPrimary = new StackLayout
-        {
-            Orientation = Orientation.Horizontal,
-            Spacing = UiMetrics.SpaceSmall,
-            VerticalContentAlignment = VerticalAlignment.Center,
-            Items =
-            {
-                _terrainColorSwatch,
-                opacityLabel,
-                new StackLayoutItem(_terrainOpacitySlider, expand: true)
-            }
-        };
-        // The stepper + reset button drop to their own line before the slider gets squeezed to nothing.
-        var terrainColorControls = new AdaptivePrimaryActionRow(terrainColorPrimary, UiMetrics.SpaceSmall, _terrainOpacityStepper, resetTerrainColorButton);
         var terrainColorRow = new PropertyRow(
-            CreateHelpLabel("Terrain Color", "Base display color for the terrain preview and baked terrain. Click the swatch to change. Opacity affects this terrain mesh only.", 0),
-            terrainColorControls,
+            CreateHelpLabel("Terrain Color", "Base display color for the terrain preview and baked terrain. Click the swatch to change.", 0),
+            new StackLayout
+            {
+                Orientation = Orientation.Horizontal,
+                Spacing = UiMetrics.SpaceMedium,
+                VerticalContentAlignment = VerticalAlignment.Center,
+                Items = { _terrainColorSwatch, new StackLayoutItem(null, expand: true), resetTerrainColorButton }
+            },
             expandWidget: true);
-        var terrainDisplayRow = new PropertyRow(
-            new Panel(),
-            new AdaptiveControlGroup(UiMetrics.SpaceSmall, _showWiresCheck, _showSlowBuildWarningCheck),
+        var opacityRow = new PropertyRow(
+            CreateHelpLabel("Opacity", "Terrain opacity used for preview and bake. Affects this terrain mesh only.", 0),
+            new StackLayout
+            {
+                Orientation = Orientation.Horizontal,
+                Spacing = UiMetrics.SpaceMedium,
+                VerticalContentAlignment = VerticalAlignment.Center,
+                Items = { new StackLayoutItem(_terrainOpacitySlider, expand: true), _terrainOpacityStepper }
+            },
             expandWidget: true);
+        // Checkbox options span the card rather than sitting in the editor column beside an empty label:
+        // a checkbox's caption cannot wrap, so in that column "Warn Before Slow Builds" was cut off.
+        var terrainDisplayRow = new AdaptiveControlGroup(UiMetrics.SpaceLarge, _showWiresCheck, _showSlowBuildWarningCheck);
         var previewLineWeightRow = new PropertyRow(
             CreateHelpLabel(
                 "Preview Line Weight",
@@ -282,9 +287,9 @@ public sealed partial class MoleHillPanel : Panel
                 }
             },
             expandWidget: true);
-        var bakeTrackingControls = new AdaptiveControlGroup(UiMetrics.SpaceSmall, _replacePreviousBakesCheck, _untrackSelectedBakesButton, _untrackAllBakesButton);
+        var bakeTrackingControls = new AdaptiveControlGroup(UiMetrics.SpaceSmall, _untrackSelectedBakesButton, _untrackAllBakesButton);
         var bakeTrackingRow = new PropertyRow(
-            CreateHelpLabel("Tracking", "Replace previous bake sets automatically, or untrack baked objects you want to keep.", 0),
+            CreateHelpLabel("Tracking", "Untrack baked objects you want to keep, so the next bake leaves them alone.", 0),
             bakeTrackingControls,
             expandWidget: true);
         var settingsInner = new StackLayout
@@ -293,10 +298,12 @@ public sealed partial class MoleHillPanel : Panel
             Items =
             {
                 new StackLayoutItem(terrainColorRow, HorizontalAlignment.Stretch),
+                new StackLayoutItem(opacityRow, HorizontalAlignment.Stretch),
                 new StackLayoutItem(terrainDisplayRow, HorizontalAlignment.Stretch),
                 new StackLayoutItem(previewLineWeightRow, HorizontalAlignment.Stretch),
                 new StackLayoutItem(toleranceRow, HorizontalAlignment.Stretch),
                 new StackLayoutItem(slopeUnitRow, HorizontalAlignment.Stretch),
+                new StackLayoutItem(_replacePreviousBakesCheck, HorizontalAlignment.Left),
                 new StackLayoutItem(bakeTrackingRow, HorizontalAlignment.Stretch),
                 new StackLayoutItem(layerTemplateRow, HorizontalAlignment.Stretch)
             }
