@@ -29,8 +29,8 @@ internal sealed class SurveyImportDialog : Dialog<bool>
     private readonly DropDown _preset = new();
     private readonly DropDown _delimiter = new();
     private readonly DropDown _fileUnit = new();
-    private readonly NumberField _headerRows = new() { MinValue = 0, MaxValue = 50, DecimalPlaces = 0, Width = UiMetrics.Chs(7) };
-    private readonly NumberField _verticalOffset = new() { DecimalPlaces = 3, MinValue = -100000, MaxValue = 100000, Width = UiMetrics.Chs(11) };
+    private readonly NumberField _headerRows = new() { MinValue = 0, MaxValue = 50, DecimalPlaces = 0, Width = UiMetrics.DialogNumberField };
+    private readonly NumberField _verticalOffset = new() { DecimalPlaces = 3, MinValue = -100000, MaxValue = 100000, Width = UiMetrics.DialogNumberField };
 
     private readonly GridView _previewGrid = new() { ShowHeader = true, Height = 260 };
     private readonly ObservableCollection<PreviewRow> _previewRows = new();

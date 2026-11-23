@@ -38,7 +38,7 @@ internal sealed class TerrainInputValidationDialog : Dialog<TerrainValidationDia
         _tolerance.Increment = Math.Pow(10.0, -Math.Max(1, toleranceDecimals - 1));
         _tolerance.Value = defaultTolerance;
         _tolerance.Unit = unit;
-        _tolerance.Width = UiMetrics.NumericField;
+        _tolerance.Width = UiMetrics.DialogNumberField;
 
         var preview = UiDialogs.Button("Preview", (_, _) => RefreshSummary(), "Work out what the checked operations would change, without changing anything.");
         var apply = UiDialogs.Button("Apply", (_, _) =>

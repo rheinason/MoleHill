@@ -36,11 +36,16 @@ internal static class UiDialogs
         UiControls.StyleInputs(content);
     }
 
-    /// <summary>A dialog button: the panel's regular height and a common minimum width.</summary>
+    /// <summary>
+    /// A dialog button: the panel's regular height, its caption with room either side, and never narrower
+    /// than <see cref="UiMetrics.DialogButtonWidth"/>. A native button sizes itself to its text with no side
+    /// padding, which clipped "Restore Defaults" and "Open Settings Folder" live.
+    /// </summary>
     public static Button Button(string text, EventHandler<EventArgs>? onClick, string? toolTip = null)
     {
         var button = UiControls.Button(text, onClick, toolTip);
-        button.MinimumSize = new Size(UiMetrics.DialogButtonWidth, UiMetrics.ControlHeight);
+        int width = Math.Max(UiMetrics.DialogButtonWidth, TextWidth(text) + 2 * UiMetrics.SpaceXLarge);
+        button.MinimumSize = new Size(width, UiMetrics.ControlHeight);
         return button;
     }
 
@@ -87,8 +92,12 @@ internal static class UiDialogs
     /// <summary>Secondary explanation under a group or field.</summary>
     public static Label Note(string text = "") => UiControls.Label(text, UiLabelRole.Meta, WrapMode.Word);
 
-    /// <summary>A group heading, the same as a card section's.</summary>
-    public static Label Heading(string text) => UiControls.Label(text, UiLabelRole.Section);
+    /// <summary>
+    /// A group heading: bold, primary text, one line that ellipsizes. Drawn, because Rhino's dialog styling
+    /// resets a <see cref="Label"/>'s font to the regular UI font, so a bold label heading rendered as plain
+    /// text (seen live; the card header's drawn name keeps its weight).
+    /// </summary>
+    public static Control Heading(string text) => new TextLine(text, new Font(SystemFont.Bold), UiTheme.PrimaryText);
 
     /// <summary>
     /// One labelled field: the label in the shared label column (Title Case, no colon, as on a card), the
@@ -97,7 +106,8 @@ internal static class UiDialogs
     public static Control Field(string label, Control editor, string? toolTip = null, bool expand = true)
     {
         Label caption = UiControls.Label(label);
-        caption.Width = UiMetrics.LabelColumn;
+        // The shared column, widened for a label longer than it rather than clipping it ("Unmatched Codes").
+        caption.Width = Math.Max(UiMetrics.LabelColumn, TextWidth(label) + UiMetrics.SpaceSmall);
         if (!string.IsNullOrWhiteSpace(toolTip))
         {
             caption.ToolTip = toolTip;
@@ -127,6 +137,15 @@ internal static class UiDialogs
                     new TableCell(Field(secondLabel, second, secondHelp), scaleWidth: true))
             }
         };
+
+    private static int TextWidth(string text)
+    {
+        if (string.IsNullOrEmpty(text))
+            return 0;
+
+        using var font = new Font(SystemFont.Default);
+        return (int)Math.Ceiling(font.MeasureString(text).Width);
+    }
 
     /// <summary>The filter box over a list. The placeholder names what is filtered: "Filter layers…".</summary>
     public static TextBox Search(string what)

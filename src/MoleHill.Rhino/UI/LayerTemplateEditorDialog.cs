@@ -98,7 +98,8 @@ internal sealed class LayerTemplateEditorDialog : Dialog<bool>
 
     private readonly Label _pathLabel = UiControls.Label(string.Empty, UiLabelRole.Meta);
     private readonly Button _rolePicker = new() { Text = "Nothing", Width = UiMetrics.Chs(40) };
-    private readonly Button _addMissingButton = new() { Text = "All roles listed" };
+    // Sized once for its longest caption; RefreshRoleMap rewrites the text with the current count.
+    private readonly Button _addMissingButton = UiDialogs.Button("Add 99 missing role layer(s)", null);
     private List<string> _missingRoleLayers = new();
     private readonly Label _roleHint = UiDialogs.Note();
 
@@ -106,7 +107,7 @@ internal sealed class LayerTemplateEditorDialog : Dialog<bool>
     private readonly Label _displayHex = new();
     private readonly Panel _printSwatch = new() { Width = 20, Height = 20 };
     private readonly Label _printHex = new();
-    private readonly NumberField _weightStepper = new() { DecimalPlaces = 2, MinValue = 0.0, Increment = 0.05, Unit = "mm", Width = UiMetrics.NumericField };
+    private readonly NumberField _weightStepper = new() { DecimalPlaces = 2, MinValue = 0.0, Increment = 0.05, Unit = "mm", Width = UiMetrics.DialogNumberField };
     private readonly DropDown _annotationStylePicker = new() { Width = UiMetrics.Chs(28) };
     private readonly List<Control> _selectionDependent = new();
 

@@ -55,6 +55,9 @@ internal static class UiMetrics
     /// <summary>Minimum width of a dialog button, so OK and Cancel sit as a matched pair.</summary>
     public static int DialogButtonWidth => Chs(9);
 
+    /// <summary>A number field standing alone in a dialog row: the value, its unit and the arrows ("0.00100 m").</summary>
+    public static int DialogNumberField => Chs(12);
+
     public const int ControlHeight = 26;
     public const int CompactControlHeight = 22;
 
