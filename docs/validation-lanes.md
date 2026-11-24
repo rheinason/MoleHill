@@ -89,7 +89,7 @@ process (see "Known broken" below). So this lane runs them **inside** a disposab
 4. `HostedPerformanceLane.Start` runs on a background thread and returns at once. A `run_csharp` script
    runs on Rhino's UI thread, and holding it would stall the process being measured. The driver polls
    for the result file.
-5. Each scenario runs one discarded warm-up and then `-Samples` (default 5) measured samples, each on a
+5. Each scenario runs ten discarded warm-ups and then `-Samples` (default 5) measured samples, each on a
    fresh fixture and cache with a GC between samples. Every `TerrainBuildTiming` row becomes a metric
    `{scenario}/{phase}/{stage}`, alongside the measured `wall`, and gets a median and a p95.
 6. The result is compared with `tests/perf-baselines/hosted-perf.json`. A metric **regresses** when its
@@ -130,6 +130,16 @@ faster must print "Finished meshes identical to the baseline", and one that does
 that allocated two large arrays per mesh normalization added 40 ms to the unchanged Ponding analysis,
 consistently across all five samples. Its full collections were landing inside that stage. Renting the
 buffers removed it. Look at the sample spread first: a tight spread is systematic.
+
+**Only the first scenario slow is the JIT, not the machine.** With one warm-up, the first scenario in a
+fresh slot (geometry-heavy) was sampled while .NET's tiered JIT was still optimizing its code: its builds
+took 1.4–1.8 s for the first six runs, then 1.0 s. The lane failed by 1.3–2.6× on geometry-heavy alone
+while analysis-heavy and interactive, which run after it, matched the baseline (2026-11-23, on `main` and
+a branch alike; identical micro-benchmarks in that slot and in a console process ran at the same speed).
+The baseline had been recorded in a slot that had already run every scenario many times. This, not the
+machine, explains every "slower today" episode in the history, including runs that flipped between slow
+and fast minutes apart: a reused slot was warm. The lane now discards ten warm-ups per scenario (the switch came at the seventh run). If
+the first scenario alone regresses, suspect warm-up before code: rerun with `-Scenario` on it.
 
 **Uniformly twice as slow is power throttling, not a busy machine.** A spawned slot is visible but never
 the foreground window. Windows therefore throttles it as background work (EcoQoS), and on a hybrid CPU

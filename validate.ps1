@@ -314,7 +314,7 @@ try {
             ResultPath   = $resultPath
             BaselinePath = $(if ($UpdateBaseline -or -not (Test-Path $baselinePath)) { $null } else { (Resolve-Path $baselinePath).Path })
             Samples      = $Samples
-            Warmups      = 1
+            Warmups      = 10  # see HostedPerformanceLane.Request.Warmups: fewer measures the JIT, not MoleHill
             Margin       = $Margin
             FloorMs      = $FloorMs
             Commit       = $commit
