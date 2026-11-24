@@ -26,7 +26,13 @@ public static class HostedPerformanceLane
         public string ResultPath { get; set; } = string.Empty;
         public string? BaselinePath { get; set; }
         public int Samples { get; set; } = 5;
-        public int Warmups { get; set; } = 1;
+        /// <summary>
+        /// Discarded runs per scenario before sampling. One was not enough: the first scenario in a fresh slot
+        /// was still being tiered up by the JIT during its samples (geometry-heavy ran 1.4-1.8 s per build for its
+        /// first six runs, then 1.0 s), and read 1.3-2.6x slow against a baseline recorded in a warmed slot.
+        /// Every "machine is slower" episode since October was this; see docs/validation-lanes.md.
+        /// </summary>
+        public int Warmups { get; set; } = 10;
         public double Margin { get; set; } = 0.20;
         public double FloorMs { get; set; } = 25.0;
         public string? Commit { get; set; }

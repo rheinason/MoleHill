@@ -5,12 +5,11 @@ namespace MoleHill.Rhino.Tests;
 
 /// <summary>
 /// Pins the hosting Rhino to the performance cores of a hybrid CPU, and raises its priority, before anything is
-/// timed. <see cref="HostedPowerThrottling"/> alone was not enough: with throttling off, identical code still
-/// measured in two states about 2x apart on the maintainer's i7-13700K (Grade Pad 76 ms or 158 ms three
-/// minutes apart, 2026-10-07; the whole geometry-heavy scenario "regressed" on 2026-11-23 on main and the branch
-/// alike). The slot is never the foreground window, so Windows may still place its threads on efficiency cores.
-/// Restricting the process to the highest efficiency class removes that choice. The change is per process, so it
-/// touches only the disposable slot.
+/// timed. The slot is never the foreground window, so Windows may place its threads on efficiency cores;
+/// restricting the process to the highest efficiency class removes that choice. The change is per process, so it
+/// touches only the disposable slot. (It was added for the two-state timings seen 2026-10-07 and 2026-11-23, but
+/// those turned out to be too few warm-ups - see <see cref="HostedPerformanceLane.Request.Warmups"/>. Pinning is
+/// kept as a guard against the E-core placement it does prevent.)
 /// </summary>
 public static class HostedCorePinning
 {
