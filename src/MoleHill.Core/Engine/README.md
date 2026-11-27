@@ -103,9 +103,10 @@ Key files:
   each tile is remeshed on its own with its cut edges held, in parallel. Before tiling, faces straddling a grid
   line are refined by longest-edge bisection so cut edges are short; wall faces are classified once on the
   original and carried through the passes; every pass projects onto the original surface, and feature
-  vertices take the original surface's height except over a wall. Tiles are canonically ordered and keyed by
+  vertices take the original surface's height except over a wall; the breakline and crease edges a pass pinned
+  are handed to the next rather than re-found. Tiles are canonically ordered and keyed by
   content, and `TiledRemeshMemo` reuses unchanged tiles exactly on the next run. Supporting hooks in
-  `IsotropicRemesher.Options` (internal): `HoldEdges`, `Projection`, `FrozenFaces`, `WallFaces`. See
+  `IsotropicRemesher.Options` (internal): `HoldEdges`, `Projection`, `FrozenFaces`, `WallFaces`, `PinnedEdges`. See
   architecture.md, "Remesh: tiled, and incremental".
 - `FeaturePolylineGraph.cs` — feature topology for the isotropic remesh: chains boundary ∪ creases ∪
   constraint edges into polylines with arc-length parameters and classifies vertices

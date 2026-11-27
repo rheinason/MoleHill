@@ -2255,6 +2255,12 @@ cold one exactly:
 - **Hold edges, not faces**, and **refine along the cut lines first** by longest-edge bisection.
 - **One surface, one wall classification**: every pass projects onto the original terrain; wall faces are
   classified once and carried by flag.
+- **Pinned edges are carried, not re-found**: the breakline and crease edges a pass pinned
+  (`FeaturePolylineGraph.CarriedEdges`, through splits and collapses) are handed to the next pass as
+  `Options.PinnedEdges`. Re-matching them against the breaklines failed on a curve coarser than its stations:
+  a collapse leaves an edge cutting across the bend, the match refuses it, and the next pass flipped across
+  it (a curvy Grade Path's rails sagged 0.42 m, `TiledRemeshCarriedFeatureTests`). The border is not
+  carried: inside a tile it includes the cut.
 - **Incremental**: a tile's output is a pure function of its key (canonical faces, held edges, wall flags,
   breaklines, an order-free hash of the original surface under it, settings); `TiledRemeshMemo` in
   `TerrainRuntimeCache.RemeshMemos` reuses unchanged tiles and is replaced, never modified. An automatic

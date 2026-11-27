@@ -1,4 +1,4 @@
-using MoleHill.Core.Grading;
+﻿using MoleHill.Core.Grading;
 
 namespace MoleHill.Core.Engine;
 
@@ -89,13 +89,15 @@ public static class TiledIsotropicRemesher
         double[] outV = vertices;
         int[] outF = faces;
         bool[] outFrozen = walls;
+        // The breakline and crease edges each pass pinned, handed to the next (see IsotropicRemesher.Options.PinnedEdges).
+        int[] carried = Array.Empty<int>();
         var counts = new OperatorCounts();
         var passTimes = new List<string>(PassOffsets.Length);
         double previousMs = msSurface;
         for (int pass = 0; pass < PassOffsets.Length; pass++)
         {
             var context = new PassContext(pass, surfaceHash, previous?.Passes[pass], memo.Passes[pass], counts);
-            (outV, outF, outFrozen, _) = Pass(outV, outF, outFrozen, constraints, options, size, size * PassOffsets[pass], surface, context, out string passTiming);
+            (outV, outF, outFrozen, carried, _) = Pass(outV, outF, outFrozen, carried, constraints, options, size, size * PassOffsets[pass], surface, context, out string passTiming);
             double now = timer.Elapsed.TotalMilliseconds;
             passTimes.Add($"{now - previousMs:0} ({passTiming})");
             previousMs = now;
@@ -109,6 +111,7 @@ public static class TiledIsotropicRemesher
             Vertices = outV,
             Faces = outF,
             FrozenFaces = outFrozen,
+            CarriedEdges = carried,
             Splits = (int)counts.Splits,
             Collapses = (int)counts.Collapses,
             Flips = (int)counts.Flips,
@@ -137,7 +140,7 @@ public static class TiledIsotropicRemesher
         public int RemeshedTiles { get; internal set; }
     }
 
-    internal sealed record TileOutput(double[] V, int[] F, bool[] Frozen, int Splits, int Collapses, int Flips, int Relaxed, bool Failed);
+    internal sealed record TileOutput(double[] V, int[] F, bool[] Frozen, int[] Carried, int Splits, int Collapses, int Flips, int Relaxed, bool Failed);
 
     private sealed class OperatorCounts
     {
@@ -161,10 +164,11 @@ public static class TiledIsotropicRemesher
     }
 
     /// <summary>One pass over a grid of <paramref name="size"/> offset by <paramref name="offset"/> in X and Y.</summary>
-    internal static (double[] Vertices, int[] Faces, bool[] Frozen, int FailedTiles) Pass(
+    internal static (double[] Vertices, int[] Faces, bool[] Frozen, int[] Carried, int FailedTiles) Pass(
         double[] vertices,
         int[] faces,
         bool[] frozen,
+        int[] carried,
         IReadOnlyList<ConstraintPolyline> constraints,
         IsotropicRemesher.Options options,
         double size,
@@ -173,13 +177,14 @@ public static class TiledIsotropicRemesher
     {
         var counts = new OperatorCounts();
         var context = new PassContext(0, new SurfaceHasher(Array.Empty<double>(), Array.Empty<int>(), Array.Empty<bool>(), size), null, new Dictionary<UInt128, TileOutput>(), counts);
-        return Pass(vertices, faces, frozen, constraints, options, size, offset, surface, context, out _);
+        return Pass(vertices, faces, frozen, carried, constraints, options, size, offset, surface, context, out _);
     }
 
-    private static (double[] Vertices, int[] Faces, bool[] Frozen, int FailedTiles) Pass(
+    private static (double[] Vertices, int[] Faces, bool[] Frozen, int[] Carried, int FailedTiles) Pass(
         double[] vertices,
         int[] faces,
         bool[] frozen,
+        int[] carried,
         IReadOnlyList<ConstraintPolyline> constraints,
         IsotropicRemesher.Options options,
         double size,
@@ -189,7 +194,7 @@ public static class TiledIsotropicRemesher
         out string timing)
     {
         var clock = System.Diagnostics.Stopwatch.StartNew();
-        TileInput[] tiles = PrepareTiles(vertices, faces, frozen, options, size, offset, surface, out double msSplit, out double msCuts);
+        TileInput[] tiles = PrepareTiles(vertices, faces, frozen, carried, options, size, offset, surface, out double msSplit, out double msCuts);
         var outputs = new TileOutput[tiles.Length];
         var keys = new UInt128[tiles.Length];
         var tileMs = new double[tiles.Length];
@@ -243,6 +248,10 @@ public static class TiledIsotropicRemesher
         public required int[] Faces { get; init; }
         public required int[] HoldEdges { get; init; }
         public required bool[] Frozen { get; init; }
+
+        /// <summary>The edges an earlier pass pinned, as sorted local vertex pairs (<see cref="IsotropicRemesher.Options.PinnedEdges"/>).</summary>
+        public required int[] PinnedEdges { get; init; }
+
         public double MinX { get; init; }
         public double MinY { get; init; }
         public double MaxX { get; init; }
@@ -254,6 +263,7 @@ public static class TiledIsotropicRemesher
         double[] vertices,
         int[] faces,
         bool[] frozen,
+        int[] carried,
         IsotropicRemesher.Options options,
         double size,
         double offset,
@@ -264,7 +274,10 @@ public static class TiledIsotropicRemesher
         var clock = System.Diagnostics.Stopwatch.StartNew();
         double inverse = 1.0 / size;
         var grown = new List<double>(vertices);
-        (faces, frozen) = SplitLongCutEdges(grown, faces, frozen, options.TargetEdgeLength * SplitFactor, inverse, offset, surface);
+        var pinned = IndexedMeshTools.CreateEdgeKeySet(carried.Length / 2);
+        for (int i = 0; i + 1 < carried.Length; i += 2)
+            pinned.Add(EdgeKey(carried[i], carried[i + 1]));
+        (faces, frozen) = SplitLongCutEdges(grown, faces, frozen, pinned, options.TargetEdgeLength * SplitFactor, inverse, offset, surface);
         vertices = grown.ToArray();
         int faceCount = faces.Length / 3;
         msSplit = clock.Elapsed.TotalMilliseconds;
@@ -360,6 +373,32 @@ public static class TiledIsotropicRemesher
                 }
             }
 
+            int[] pinnedEdges = Array.Empty<int>();
+            if (pinned.Count > 0)
+            {
+                var found = new SortedSet<(int A, int B)>();
+                for (int m = 0; m < count; m++)
+                {
+                    int f = members[m];
+                    for (int k = 0; k < 3; k++)
+                    {
+                        int g0 = faces[f * 3 + k], g1 = faces[f * 3 + ((k + 1) % 3)];
+                        if (!pinned.Contains(EdgeKey(g0, g1)))
+                            continue;
+                        int a = localOf[g0], b = localOf[g1];
+                        found.Add(a < b ? (a, b) : (b, a));
+                    }
+                }
+
+                pinnedEdges = new int[found.Count * 2];
+                int w = 0;
+                foreach ((int a, int b) in found)
+                {
+                    pinnedEdges[w++] = a;
+                    pinnedEdges[w++] = b;
+                }
+            }
+
             tiles[i] = new TileInput
             {
                 Key = keys[i],
@@ -367,6 +406,7 @@ public static class TiledIsotropicRemesher
                 Faces = localF,
                 HoldEdges = holdEdges,
                 Frozen = localFrozen,
+                PinnedEdges = pinnedEdges,
                 MinX = minX,
                 MinY = minY,
                 MaxX = maxX,
@@ -445,10 +485,13 @@ public static class TiledIsotropicRemesher
         ReadOnlySpan<byte> f = System.Runtime.InteropServices.MemoryMarshal.AsBytes(tile.Faces.AsSpan());
         ReadOnlySpan<byte> h = System.Runtime.InteropServices.MemoryMarshal.AsBytes(tile.HoldEdges.AsSpan());
         ReadOnlySpan<byte> z = System.Runtime.InteropServices.MemoryMarshal.AsBytes(tile.Frozen.AsSpan());
+        ReadOnlySpan<byte> p = System.Runtime.InteropServices.MemoryMarshal.AsBytes(tile.PinnedEdges.AsSpan());
         low.AddBytes(v); high.AddBytes(v);
         low.AddBytes(f); high.AddBytes(f);
         low.AddBytes(h); high.AddBytes(h);
         low.AddBytes(z); high.AddBytes(z);
+        low.Add(tile.PinnedEdges.Length); high.Add(tile.PinnedEdges.Length);
+        low.AddBytes(p); high.AddBytes(p);
 
         ulong constraintSum = 0;
         foreach (ConstraintPolyline c in constraints)
@@ -573,13 +616,14 @@ public static class TiledIsotropicRemesher
             HoldEdges = tile.HoldEdges,
             Projection = surface,
             FrozenFaces = tile.Frozen,
-            WallFaces = options.WallFaces
+            WallFaces = options.WallFaces,
+            PinnedEdges = tile.PinnedEdges
         };
 
         IsotropicRemesher.Result result = IsotropicRemesher.Remesh(tile.Vertices, tile.Faces, tileConstraints, tileOptions);
         return result.Success && result.FrozenFaces.Length == result.Faces.Length / 3
-            ? new TileOutput(result.Vertices, result.Faces, result.FrozenFaces, result.Splits, result.Collapses, result.Flips, result.RelaxedVertices, false)
-            : new TileOutput(tile.Vertices, tile.Faces, tile.Frozen, 0, 0, 0, 0, true);
+            ? new TileOutput(result.Vertices, result.Faces, result.FrozenFaces, result.CarriedEdges, result.Splits, result.Collapses, result.Flips, result.RelaxedVertices, false)
+            : new TileOutput(tile.Vertices, tile.Faces, tile.Frozen, tile.PinnedEdges, 0, 0, 0, 0, true);
     }
 
     /// <summary>A grid over the original wall faces alone, or null when there are none.</summary>
@@ -626,7 +670,7 @@ public static class TiledIsotropicRemesher
     /// back (654 faces became 40,692 in one tile of the 1 m park). Deterministic: a face's choice depends on
     /// its own geometry, and midpoints are added in edge-key order.
     /// </summary>
-    private static (int[] Faces, bool[] Frozen) SplitLongCutEdges(List<double> verts, int[] faces, bool[] frozen, double threshold, double inverse, double offset, TerrainFaceGrid surface)
+    private static (int[] Faces, bool[] Frozen) SplitLongCutEdges(List<double> verts, int[] faces, bool[] frozen, HashSet<long> pinned, double threshold, double inverse, double offset, TerrainFaceGrid surface)
     {
         double thresholdSquared = threshold * threshold;
         int[] tris = faces;
@@ -689,6 +733,12 @@ public static class TiledIsotropicRemesher
                 verts.Add(mx);
                 verts.Add(my);
                 verts.Add(mz);
+                // A pinned edge stays pinned in both halves.
+                if (pinned.Remove(key))
+                {
+                    pinned.Add(EdgeKey(a, midpoints[key]));
+                    pinned.Add(EdgeKey(midpoints[key], b));
+                }
             }
 
             var next = new List<int>(tris.Length + (keys.Length * 6));
@@ -875,7 +925,7 @@ public static class TiledIsotropicRemesher
     /// Concatenates the tiles and welds vertices at identical coordinates. Held vertices keep their input
     /// coordinates bit for bit in every tile that holds them, so the cut welds exactly.
     /// </summary>
-    private static (double[] Vertices, int[] Faces, bool[] Frozen, int FailedTiles) Stitch(TileOutput[] outputs, int failed)
+    private static (double[] Vertices, int[] Faces, bool[] Frozen, int[] Carried, int FailedTiles) Stitch(TileOutput[] outputs, int failed)
     {
         int totalVertices = outputs.Sum(static o => o.V.Length / 3);
         int totalFaces = outputs.Sum(static o => o.F.Length / 3);
@@ -883,6 +933,8 @@ public static class TiledIsotropicRemesher
         var vertices = new List<double>(totalVertices * 3);
         var faces = new int[totalFaces * 3];
         var frozen = new bool[totalFaces];
+        var carried = new List<int>();
+        var carriedSeen = IndexedMeshTools.CreateEdgeKeySet(0);
         int write = 0;
         int writeFace = 0;
         foreach (TileOutput output in outputs)
@@ -909,11 +961,22 @@ public static class TiledIsotropicRemesher
 
             for (int i = 0; i < f.Length; i++)
                 faces[write++] = remap[f[i]];
+
+            // A cut edge is carried by both tiles that hold it; keep it once.
+            for (int i = 0; i + 1 < output.Carried.Length; i += 2)
+            {
+                int a = remap[output.Carried[i]], b = remap[output.Carried[i + 1]];
+                if (carriedSeen.Add(EdgeKey(a, b)))
+                {
+                    carried.Add(a);
+                    carried.Add(b);
+                }
+            }
             Array.Copy(fz, 0, frozen, writeFace, fz.Length);
             writeFace += fz.Length;
         }
 
-        return (vertices.ToArray(), faces, frozen, failed);
+        return (vertices.ToArray(), faces, frozen, carried.ToArray(), failed);
     }
 
     private static bool Overlaps(ConstraintPolyline constraint, double minX, double minY, double maxX, double maxY)

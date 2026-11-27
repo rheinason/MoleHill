@@ -87,6 +87,13 @@ public static class IsotropicRemesher
         /// top or foot; every other feature vertex takes the original surface's height.
         /// </summary>
         internal TerrainFaceGrid? WallFaces { get; init; }
+
+        /// <summary>
+        /// Optional input edges, as vertex-index pairs, that an earlier remesh pinned as breakline or crease
+        /// features (<see cref="Result.CarriedEdges"/>). They are pinned again here as they stand, rather than
+        /// re-found from the breaklines and the crease angle: the tiled remesher hands each pass's to the next.
+        /// </summary>
+        internal int[]? PinnedEdges { get; init; }
     }
 
     public sealed class Result
@@ -109,6 +116,12 @@ public static class IsotropicRemesher
 
         /// <summary>Feature edges of the output mesh as vertex-index pairs (for downstream quad pairing).</summary>
         public int[] FeatureEdges { get; init; } = Array.Empty<int>();
+
+        /// <summary>
+        /// The output's breakline and crease feature edges (not the border), as vertex-index pairs: what a
+        /// later remesh of this output must pin again (<see cref="Options.PinnedEdges"/>).
+        /// </summary>
+        internal int[] CarriedEdges { get; init; } = Array.Empty<int>();
 
         /// <summary>Per output face: true when the face is a frozen (steep retaining-wall) face.</summary>
         public bool[] FrozenFaces { get; init; } = Array.Empty<bool>();
@@ -162,7 +175,8 @@ public static class IsotropicRemesher
             vertices, faces, faceCount, constraints, options.CreaseAngleDeg, options.WallFaceMinSlopeDeg, options.Tolerance,
             minCreaseChainLength: options.TargetEdgeLength * 3.0,
             heldVertices: HeldVertexMask(options.HoldEdges, vertexCount),
-            frozenFaces: options.FrozenFaces);
+            frozenFaces: options.FrozenFaces,
+            pinnedEdges: options.PinnedEdges);
         double msGraph = System.Diagnostics.Stopwatch.GetElapsedTime(tsStart).TotalMilliseconds;
 
         // Back-projection grid over the ORIGINAL mesh with wall faces excluded: a near-vertical wall is
@@ -395,6 +409,10 @@ public static class IsotropicRemesher
         public readonly List<int> Chain;
         public readonly List<double> Param;
         public readonly Dictionary<long, int> FeatureEdges;
+
+        /// <summary>The subset of <see cref="FeatureEdges"/> a later remesh must pin again (<see cref="FeaturePolylineGraph.CarriedEdges"/>).</summary>
+        public readonly HashSet<long> CarriedEdges;
+
         public readonly FeaturePolylineGraph Graph;
 
         /// <summary>Edges no operator may split or collapse away (<see cref="Options.HoldEdges"/>). Their endpoints are frozen.</summary>
@@ -434,6 +452,7 @@ public static class IsotropicRemesher
             Chain = new List<int>(graph.VertexChain);
             Param = new List<double>(graph.VertexParam);
             FeatureEdges = new Dictionary<long, int>(graph.FeatureEdgeChains, IndexedMeshTools.EdgeKeyComparer.Instance);
+            CarriedEdges = new HashSet<long>(graph.CarriedEdges, IndexedMeshTools.EdgeKeyComparer.Instance);
             FaceFrozen = new List<bool>(graph.FrozenFaces);
             FaceQuarantined = new List<bool>(graph.QuarantinedFaces);
         }
@@ -531,6 +550,18 @@ public static class IsotropicRemesher
                 }
             }
 
+            var carriedPairs = new List<int>(CarriedEdges.Count * 2);
+            foreach (long key in CarriedEdges)
+            {
+                int a = compaction.OldToNew[(int)(key >> 32)];
+                int b = compaction.OldToNew[(int)(key & 0xFFFFFFFFL)];
+                if (a >= 0 && b >= 0)
+                {
+                    carriedPairs.Add(a);
+                    carriedPairs.Add(b);
+                }
+            }
+
             return new Result
             {
                 Success = true,
@@ -541,6 +572,7 @@ public static class IsotropicRemesher
                 Flips = flips,
                 RelaxedVertices = relaxed,
                 FeatureEdges = featurePairs.ToArray(),
+                CarriedEdges = carriedPairs.ToArray(),
                 FrozenFaces = FaceFrozen.ToArray(),
                 Timing = timing
             };
@@ -687,6 +719,11 @@ public static class IsotropicRemesher
         state.FeatureEdges.Remove(EdgeKey(a, b));
         state.FeatureEdges[EdgeKey(a, mid)] = chain;
         state.FeatureEdges[EdgeKey(mid, b)] = chain;
+        if (state.CarriedEdges.Remove(EdgeKey(a, b)))
+        {
+            state.CarriedEdges.Add(EdgeKey(a, mid));
+            state.CarriedEdges.Add(EdgeKey(mid, b));
+        }
     }
 
     /// <summary>
@@ -1185,6 +1222,7 @@ public static class IsotropicRemesher
 
         // Re-key feature edges that touched the removed vertex.
         state.FeatureEdges.Remove(plan.EdgeKey);
+        state.CarriedEdges.Remove(plan.EdgeKey);
         foreach (int n in adjacency.NeighborsOf(removed))
         {
             if (n == survivor)
@@ -1195,6 +1233,9 @@ public static class IsotropicRemesher
                 state.FeatureEdges.Remove(oldKey);
                 state.FeatureEdges[EdgeKey(survivor, n)] = chain;
             }
+
+            if (state.CarriedEdges.Remove(oldKey))
+                state.CarriedEdges.Add(EdgeKey(survivor, n));
         }
     }
 

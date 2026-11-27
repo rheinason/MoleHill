@@ -63,6 +63,14 @@ internal sealed class FeaturePolylineGraph
     public List<Chain> Chains = new();
 
     /// <summary>
+    /// The feature edges a later remesh of this mesh's output must keep: those on a breakline, on a detected
+    /// crease, or handed in already pinned. Not the border or a non-manifold edge, which a later remesh finds
+    /// again from its own mesh, and must: inside a tile the border includes the tile's cut, and carrying that
+    /// would pin the cut through every later pass.
+    /// </summary>
+    public HashSet<long> CarriedEdges = new(IndexedMeshTools.EdgeKeyComparer.Instance);
+
+    /// <summary>
     /// Arc parameter of corner/frozen vertices per chain they lie on (feature vertices use the arrays).
     /// Key = (vertex &lt;&lt; 32) | chainId. Populated at build time only; corners never move or gain chains.
     /// </summary>
@@ -78,7 +86,8 @@ internal sealed class FeaturePolylineGraph
         double tolerance,
         double minCreaseChainLength = 0.0,
         bool[]? heldVertices = null,
-        bool[]? frozenFaces = null)
+        bool[]? frozenFaces = null,
+        int[]? pinnedEdges = null)
     {
         int vertexCount = vertices.Length / 3;
         var graph = new FeaturePolylineGraph
@@ -170,10 +179,29 @@ internal sealed class FeaturePolylineGraph
                 FilterShortCreaseChains(vertices, creaseEdges, minCreaseChainLength);
     
             foreach (long key in creaseEdges)
+            {
                 featureEdges.Add(key);
+                graph.CarriedEdges.Add(key);
+            }
         }
 
-        MarkConstraintFeatureEdges(vertices, vertexCount, faces, faceCount, constraints, Math.Max(tolerance, 1e-6), featureEdges);
+        MarkConstraintFeatureEdges(vertices, vertexCount, faces, faceCount, constraints, Math.Max(tolerance, 1e-6), graph.CarriedEdges);
+
+        // Edges an earlier remesh already pinned. Matching them against the breaklines again is not enough: a
+        // collapse along a curved breakline leaves an edge that cuts across the bend, which the match rightly
+        // refuses, so a breakline the first tiled pass kept was flipped and relaxed away by the next.
+        if (pinnedEdges is { Length: > 1 })
+        {
+            for (int i = 0; i + 1 < pinnedEdges.Length; i += 2)
+            {
+                long key = EdgeKey(pinnedEdges[i], pinnedEdges[i + 1]);
+                if (edgeIncidence.TryGetValue(key, out int count) && count <= 2)
+                    graph.CarriedEdges.Add(key);
+            }
+        }
+
+        foreach (long key in graph.CarriedEdges)
+            featureEdges.Add(key);
 
         // --- Frozen vertices (walls) take precedence over every other classification ------------------
         for (int f = 0; f < faceCount; f++)
