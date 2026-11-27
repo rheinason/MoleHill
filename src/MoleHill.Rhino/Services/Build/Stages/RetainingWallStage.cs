@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using MoleHill.Core.Engine;
 using MoleHill.Core.Grading;
+using MoleHill.Core.Processing;
 using MoleHill.Rhino.Model;
 using MoleHill.Rhino.Registry;
 using MoleHill.Shared;
@@ -22,7 +23,7 @@ internal static partial class RetainingWallStage
             c.StageKey,
             "Retaining Wall",
             TerrainBuildService.ComputeModifierStageFingerprint(c.Snapshot, c.Terrain, retainingWall, c.CurrentMeshFingerprint),
-            () => input == null ? TerrainBuildService.WarnMissingMesh(c.Build, retainingWall.Label) : ApplyRetainingWalls(c.Snapshot, c.Terrain, input, retainingWall, c.Build, c.Mode, c.RuntimeCache, c.StageKey, c.ShouldCancel),
+            () => input == null ? TerrainBuildService.WarnMissingMesh(c.Build, retainingWall.Label) : ApplyRetainingWalls(c.Snapshot, c.Terrain, input, retainingWall, c.Build, c.Mode, c.RuntimeCache, c.StageKey, c.ShouldCancel, c.CurrentMeshFingerprint),
             result => TerrainBuildService.DescribeModifierMeshResult(retainingWall.Label, result),
             out ulong fingerprint,
             c.ShouldCancel);
@@ -38,7 +39,8 @@ internal static partial class RetainingWallStage
         TerrainBuildMode mode,
         TerrainRuntimeCache runtimeCache,
         string stageKey,
-        Func<bool>? shouldCancel)
+        Func<bool>? shouldCancel,
+        ulong incomingMeshFingerprint = 0)
     {
         TerrainTolerancePolicy.Profile toleranceProfile = TerrainBuildService.GetToleranceProfile(snapshot, terrain);
         double wallTolerance = toleranceProfile.RetainingWallTolerance(modifier.MaxWallWidth);
@@ -76,7 +78,8 @@ internal static partial class RetainingWallStage
             modifier,
             maxWallWidth,
             wallTolerance,
-            railCleanupTolerance);
+            railCleanupTolerance,
+            incomingMeshFingerprint);
         // A plan built without solids cannot serve a build that needs them, so BuiltSolids is part of
         // the match rather than a note on the entry.
         bool planFromCache =
@@ -91,12 +94,22 @@ internal static partial class RetainingWallStage
         }
         else
         {
+            IReadOnlyList<Curve> plannedCurves = wallCurves;
+            IReadOnlyList<double>? drawnHeights = null;
+            if (modifier.UsesWallHeight)
+            {
+                drawnHeights = wallCurves.Select(MeanDrawnZ).ToList();
+                plannedCurves = DrapeWallCurves(wallCurves, mesh, toleranceProfile.DetailSize, wallTolerance, build);
+            }
+
             plan = RetainingWallPlannerCore.Plan(
-                wallCurves,
+                plannedCurves,
                 maxWallWidth,
                 curveParsingTolerance: wallTolerance,
                 curveCleanupTolerance: railCleanupTolerance,
-                buildSolids: buildWallSolids);
+                buildSolids: buildWallSolids,
+                topLift: modifier.UsesWallHeight ? modifier.WallHeight : 0.0,
+                tieBreakZ: drawnHeights);
 
             runtimeCache.RetainingWallPlanEntries[stageKey] = new RetainingWallPlanCacheEntry
             {
@@ -454,7 +467,8 @@ internal static partial class RetainingWallStage
         RetainingWallModifierDefinition modifier,
         double maxWallWidth,
         double wallTolerance,
-        double railCleanupTolerance)
+        double railCleanupTolerance,
+        ulong incomingMeshFingerprint)
     {
         var builder = new FingerprintBuilder();
         builder.Add(nameof(ComputeRetainingWallPlanFingerprint));
@@ -462,7 +476,65 @@ internal static partial class RetainingWallStage
         builder.Add(maxWallWidth);
         builder.Add(wallTolerance);
         builder.Add(railCleanupTolerance);
+        // A Wall Height drapes the curves onto the incoming terrain, so only then does the plan read it.
+        builder.Add(modifier.UsesWallHeight ? modifier.WallHeight : 0.0);
+        builder.Add(modifier.UsesWallHeight ? incomingMeshFingerprint : 0UL);
         return builder.ToUInt64();
+    }
+
+    /// <summary>
+    /// Lays each wall curve on the incoming terrain for a Wall Height: stationed every detail size and at
+    /// every corner, so the rails follow the ground between their own points and keep their plan shape.
+    /// Where the terrain does not reach, a curve keeps its own height. A curve that cannot be draped is
+    /// passed on as drawn and reported.
+    /// </summary>
+    private static IReadOnlyList<Curve> DrapeWallCurves(
+        IReadOnlyList<Curve> curves,
+        RhinoMesh terrain,
+        double spacing,
+        double tolerance,
+        TerrainBuildResult build)
+    {
+        DrapeTargets targets = DrapeTargets.Create(new[] { terrain }, tolerance, out _);
+        var draped = new List<Curve>(curves.Count);
+        int failed = 0;
+        foreach (Curve curve in curves)
+        {
+            CurveDrapeResult result = TerrainInputCommandAlgorithms.DrapeCurve(
+                curve,
+                targets,
+                lowestHit: false,
+                new CurveDrapeOptions
+                {
+                    Spacing = Math.Max(spacing, 4.0 * tolerance),
+                    Tolerance = tolerance,
+                    MissPolicy = DrapeMissPolicy.KeepOriginal,
+                });
+            if (!result.Succeeded || result.Runs.Count != 1)
+            {
+                failed++;
+                draped.Add(curve);
+                continue;
+            }
+
+            double[] run = result.Runs[0];
+            var points = new Point3d[run.Length / 3];
+            for (int i = 0; i < points.Length; i++)
+                points[i] = new Point3d(run[i * 3], run[i * 3 + 1], run[i * 3 + 2]);
+            if (curve.IsClosed && points.Length > 2 && points[0].DistanceTo(points[^1]) > tolerance)
+                points = points.Append(points[0]).ToArray();
+            draped.Add(new PolylineCurve(points));
+        }
+
+        if (failed > 0)
+            build.Diagnostics.Add($"Retaining Wall could not lay {failed:N0} wall curve(s) on the terrain for Wall Height; they keep their own heights.");
+        return draped;
+    }
+
+    private static double MeanDrawnZ(Curve curve)
+    {
+        BoundingBox box = curve.GetBoundingBox(true);
+        return box.IsValid ? (box.Min.Z + box.Max.Z) * 0.5 : 0.0;
     }
 
     private static void AddRetainingWallReportOverlay(

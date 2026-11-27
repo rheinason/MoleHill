@@ -24,9 +24,10 @@ internal sealed class RetainingWallModifierDescriptor : ModifierTypeDescriptor
     {
         var w = (RetainingWallModifierDefinition)modifier;
         int curves = CountSources(w.WallCurves);
-        return w.GradesTerrain
+        string height = w.UsesWallHeight ? $" | Height {w.WallHeight:G4}" : string.Empty;
+        return (w.GradesTerrain
             ? $"{Count(curves, "wall curve", "wall curves")} | grade terrain, {(w.UseAsymmetricSides ? "asymmetric sides" : $"Fill {AnalysisFormatting.FormatSlopeDegreesBrief(w.SlopeAngle)}")}"
-            : $"{Count(curves, "wall curve", "wall curves")} | breaklines only";
+            : $"{Count(curves, "wall curve", "wall curves")} | breaklines only") + height;
     }
 
     public override string? InertReason(ModifierDefinition modifier, TerrainBuildSnapshot snapshot) =>
@@ -61,6 +62,13 @@ internal sealed class RetainingWallModifierDescriptor : ModifierTypeDescriptor
             m => ((RetainingWallModifierDefinition)m).MaxWallWidth,
             (m, v) => ((RetainingWallModifierDefinition)m).MaxWallWidth = v,
             "Maximum expected spacing between paired wall rails. Wall cleanup uses an automatic internal tolerance derived from wall width and terrain detail size."),
+        ModifierParam.Number(
+            "WallHeight", "Wall Height",
+            m => ((RetainingWallModifierDefinition)m).WallHeight,
+            (m, v) => ((RetainingWallModifierDefinition)m).WallHeight = v,
+            "0 uses the curves' own heights. A height lays both curves on the terrain and raises the one on the higher ground by this much: two curves sketched anywhere make a wall. On level ground the curve drawn higher is the top.",
+            unit: ParameterUnit.ModelLength,
+            rebuildAfterCommit: true),
         ModifierParam.Choice(
             "Mode", "Mode", ModeOptions,
             m => ((RetainingWallModifierDefinition)m).Mode,

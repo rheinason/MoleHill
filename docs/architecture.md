@@ -404,6 +404,17 @@ height for a crossing leaves stations with no section, and one loft through them
 the interpolated point where its section vanishes (`SplitAtVanishingSections`). `PlannedWall.Breps` is
 therefore a list: one solid, or one per stretch between cuts.
 
+**Wall Height.** A wall stays two curves; the card's Wall Height is only a quicker way to give them
+heights. With it set, the stage drapes both curves onto the incoming terrain (stationed every detail size
+and at corners, `DrapeWallCurves`) before planning, and the planner lifts the rail on the higher ground by
+the height (`topLift`); on level ground the curve drawn higher is the top (`tieBreakZ`). Because the plan
+then reads the terrain, the plan cache key adds the incoming mesh fingerprint in that mode only.
+
+Graded rails are adopted from the graded mesh by tracing them at the conform's snap reach, which can be
+wider than the gap between a wall's rails (a narrow kerb, a converged tip). There the top rail traced along
+the toe's vertices and pinned them to its own height, so `FindSharedRailVertex` refuses an adoption in
+which two rails pass through one vertex at different heights, and the rails are inserted instead.
+
 Graded retaining-wall insertion tries a quality patch first. `MeshConstraintTopologyInserter.WallQuality.cs`
 expands a patch ring by ring until the stitched result clears a 5-degree floor, verifying achieved
 quality, plan-area conservation, a single closed perimeter and no discarded input vertex before it

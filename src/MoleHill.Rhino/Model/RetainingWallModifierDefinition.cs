@@ -49,6 +49,18 @@ public sealed class RetainingWallModifierDefinition : ModifierDefinition
     [ModelLength]
     public double MaxDistance { get; set; }
 
+    /// <summary>
+    /// Wall height above the ground. 0 (the default, and every document saved before it existed) uses the
+    /// curves' own elevations. A height drapes both curves onto the incoming terrain and lifts the one on
+    /// the higher ground by this much, so two curves sketched anywhere make a wall.
+    /// </summary>
+    [ModelLength]
+    public double WallHeight { get; set; }
+
+    /// <summary>Derived from <see cref="WallHeight"/>, so it is never written to the document.</summary>
+    [JsonIgnore]
+    public bool UsesWallHeight => WallHeight > 0.0;
+
     /// <summary>Derived from <see cref="Mode"/>, so it is never written to the document.</summary>
     [JsonIgnore]
     public bool GradesTerrain =>
