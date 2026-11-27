@@ -75,15 +75,26 @@ internal sealed class SearchableAddMenu : Form
         _detail.Width = MenuWidth - 8;
         _detail.Height = 30;
 
-        Content = new StackLayout
+        // A borderless dark window over a dark panel has no visible edge, so frame it with a 1 px rule.
+        Content = new Panel
         {
-            Orientation = Orientation.Vertical,
-            Padding = 4,
-            Spacing = 4,
-            Items = { _search, _list, _detail },
+            Padding = 1,
+            BackgroundColor = UiTheme.RampControl,
+            Content = new StackLayout
+            {
+                Orientation = Orientation.Vertical,
+                Padding = 4,
+                Spacing = 4,
+                BackgroundColor = UiTheme.RampPopup,
+                Items = { _search, _list, _detail },
+            },
         };
 
-        Shown += (_, _) => _search.Focus();
+        Shown += (_, _) =>
+        {
+            StyleList();
+            _search.Focus();
+        };
         LostFocus += (_, _) => Application.Instance.AsyncInvoke(() =>
         {
             if (!HasFocus && !_search.HasFocus && !_list.HasFocus)
@@ -115,6 +126,30 @@ internal sealed class SearchableAddMenu : Form
         float x = Math.Clamp(below.X, area.Left, Math.Max(area.Left, area.Right - size.Width));
         if ((int)x != menu.Location.X || (int)y != menu.Location.Y)
             menu.Location = new Point((int)x, (int)y);
+    }
+
+    /// <summary>
+    /// Rhino's styling repaints the list mid-grey when the window loads, over the colours set at
+    /// construction, and its native border is a light box. Set the colours again once shown, and drop the
+    /// border through the native handler, as <see cref="UiControls"/> does for flat buttons. Found live.
+    /// </summary>
+    private void StyleList()
+    {
+        _list.BackgroundColor = UiTheme.RampPopup;
+        _list.TextColor = UiTheme.PrimaryText;
+
+        object? native = _list.ControlObject;
+        var border = native?.GetType().GetProperty("BorderThickness");
+        if (border == null || !border.CanWrite)
+            return;
+        try
+        {
+            border.SetValue(native, Activator.CreateInstance(border.PropertyType, 0.0));
+        }
+        catch (Exception)
+        {
+            // Another backend without a WPF-style thickness keeps its border.
+        }
     }
 
     private void ApplyFilter()
