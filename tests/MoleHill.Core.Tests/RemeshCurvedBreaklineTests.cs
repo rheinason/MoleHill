@@ -102,8 +102,64 @@ public class RemeshCurvedBreaklineTests
     [Fact]
     public void TiledRemesh_CurvyGradePathCoarserThanItsStations_KeepsTheRails()
     {
-        // An S-curve road 4 m wide (Grade Path stations its centerline at half the width), its rails published
-        // as the stage publishes them: hard constraints at their own elevation.
+        (double[] vertices, int[] faces, List<ConstraintPolyline> rails) = CurvyGradePath();
+
+        IsotropicRemesher.Result result = TiledIsotropicRemesher.Remesh(vertices, faces, rails, Options(3.0));
+
+        var input = new Locator(vertices, faces);
+        var output = new Locator(result.Vertices, result.Faces);
+        double worst = 0;
+        foreach (ConstraintPolyline rail in rails)
+        {
+            for (int s = 0; s + 1 < rail.PointCount; s++)
+            {
+                double ax = rail.Points[s * 3], ay = rail.Points[s * 3 + 1];
+                double bx = rail.Points[s * 3 + 3], by = rail.Points[s * 3 + 4];
+                for (double u = 0; u < 1; u += 0.05)
+                {
+                    double x = ax + ((bx - ax) * u), y = ay + ((by - ay) * u);
+                    if (input.Z(x, y) is double zi && output.Z(x, y) is double zo)
+                        worst = Math.Max(worst, Math.Abs(zo - zi));
+                }
+            }
+        }
+
+        Assert.True(worst < 0.2, $"Road rail moved {worst:0.000} m (the whole-mesh remesh: 0.09 m; before the fix: 0.42 m).");
+    }
+
+    [Fact]
+    public void Remesh_GradePathEnds_KeepTheRoadEdgeEndPoints()
+    {
+        // Where the road ends, a crease of the end cap leaves each road edge's end at 39 degrees, under the
+        // 40 degree turn that makes a chain corner, so the two chained and the remesh slid the end point along
+        // the crease: the road's end corners rounded off by up to 10 cm. A breakline's end is now a corner.
+        (double[] vertices, int[] faces, List<ConstraintPolyline> rails) = CurvyGradePath();
+
+        IsotropicRemesher.Result result = IsotropicRemesher.Remesh(vertices, faces, rails, Options(1.0));
+
+        foreach (ConstraintPolyline rail in rails)
+        {
+            foreach (int end in new[] { 0, rail.PointCount - 1 })
+            {
+                double x = rail.Points[end * 3], y = rail.Points[end * 3 + 1], z = rail.Points[end * 3 + 2];
+                double nearest = double.MaxValue;
+                for (int v = 0; v < result.Vertices.Length / 3; v++)
+                {
+                    double dx = result.Vertices[v * 3] - x, dy = result.Vertices[v * 3 + 1] - y, dz = result.Vertices[v * 3 + 2] - z;
+                    nearest = Math.Min(nearest, Math.Sqrt((dx * dx) + (dy * dy) + (dz * dz)));
+                }
+
+                Assert.True(nearest < 1e-3, $"Road edge end ({x:0.###}, {y:0.###}) has no vertex: nearest {nearest:0.000} m.");
+            }
+        }
+    }
+
+    /// <summary>
+    /// An S-curve road 4 m wide (Grade Path stations its centerline at half the width) on a survey terrain, its
+    /// rails published as the stage publishes them: hard constraints at their own elevation.
+    /// </summary>
+    private static (double[] Vertices, int[] Faces, List<ConstraintPolyline> Rails) CurvyGradePath()
+    {
         static double TerrainZ(double x, double y) => (0.08 * y) + (1.5 * Math.Sin(x / 15) * Math.Cos(y / 20));
         var rng = new Random(11);
         var xy = new List<double>();
@@ -157,28 +213,7 @@ public class RemeshCurvedBreaklineTests
             .Select(static p => new ConstraintPolyline(p.Vertices, p.VertexCount, p.IsClosed, PreserveInputElevation: true))
             .ToList();
         Assert.Equal(2, rails.Count);
-
-        IsotropicRemesher.Result result = TiledIsotropicRemesher.Remesh(vertices, faces, rails, Options(3.0));
-
-        var input = new Locator(vertices, faces);
-        var output = new Locator(result.Vertices, result.Faces);
-        double worst = 0;
-        foreach (ConstraintPolyline rail in rails)
-        {
-            for (int s = 0; s + 1 < rail.PointCount; s++)
-            {
-                double ax = rail.Points[s * 3], ay = rail.Points[s * 3 + 1];
-                double bx = rail.Points[s * 3 + 3], by = rail.Points[s * 3 + 4];
-                for (double u = 0; u < 1; u += 0.05)
-                {
-                    double x = ax + ((bx - ax) * u), y = ay + ((by - ay) * u);
-                    if (input.Z(x, y) is double zi && output.Z(x, y) is double zo)
-                        worst = Math.Max(worst, Math.Abs(zo - zi));
-                }
-            }
-        }
-
-        Assert.True(worst < 0.2, $"Road rail moved {worst:0.000} m (the whole-mesh remesh: 0.09 m; before the fix: 0.42 m).");
+        return (vertices, faces, rails);
     }
 
     private static IsotropicRemesher.Options Options(double target) => new()

@@ -185,7 +185,8 @@ internal sealed class FeaturePolylineGraph
             }
         }
 
-        MarkConstraintFeatureEdges(vertices, vertexCount, faces, faceCount, constraints, Math.Max(tolerance, 1e-6), graph.CarriedEdges);
+        var breaklineEnds = new HashSet<int>();
+        MarkConstraintFeatureEdges(vertices, vertexCount, faces, faceCount, constraints, Math.Max(tolerance, 1e-6), graph.CarriedEdges, breaklineEnds);
 
         // Edges an earlier remesh already pinned. Matching them against the breaklines again is not enough: a
         // collapse along a curved breakline leaves an edge that cuts across the bend, which the match rightly
@@ -234,7 +235,16 @@ internal sealed class FeaturePolylineGraph
             AddNeighbor(neighbors, b, a);
         }
 
+        // The end of an open breakline is a point someone placed, so it is a corner even where a crease carries
+        // on from it at a gentle turn. Sliding it rounded a graded road's end corner off by up to 10 cm: the
+        // road edge and the end cap's crease met at 39 degrees, under the sharp-turn limit, and chained as one.
         var isCorner = new HashSet<int>();
+        foreach (int v in breaklineEnds)
+        {
+            if (neighbors.ContainsKey(v))
+                isCorner.Add(v);
+        }
+
         double cosSharp = Math.Cos(SharpTurnDeg * Math.PI / 180.0);
         foreach (KeyValuePair<int, List<int>> entry in neighbors)
         {
@@ -737,7 +747,8 @@ internal sealed class FeaturePolylineGraph
         int faceCount,
         IReadOnlyList<ConstraintPolyline> constraints,
         double tolerance,
-        HashSet<long> featureEdges)
+        HashSet<long> featureEdges,
+        HashSet<int> openEnds)
     {
         bool hasWork = false;
         foreach (ConstraintPolyline constraint in constraints)
@@ -806,6 +817,13 @@ internal sealed class FeaturePolylineGraph
                 }
             }
 
+            if (!constraint.IsClosed)
+            {
+                AddNearestEnd(vertices, collected, constraint.Points[0], constraint.Points[1], tolerance, openEnds);
+                int last = (pointCount - 1) * 3;
+                AddNearestEnd(vertices, collected, constraint.Points[last], constraint.Points[last + 1], tolerance, openEnds);
+            }
+
             foreach (int vertex in collected)
                 foreach (int neighbour in adjacency.NeighborsOf(vertex))
                     if (neighbour > vertex && nearSegment[neighbour] &&
@@ -816,6 +834,26 @@ internal sealed class FeaturePolylineGraph
                 nearSegment[vertex] = false;
             collected.Clear();
         }
+    }
+
+    /// <summary>The collected vertex nearest (x, y) in plan, when one lies within tolerance of it.</summary>
+    private static void AddNearestEnd(double[] vertices, List<int> collected, double x, double y, double tolerance, HashSet<int> ends)
+    {
+        int best = -1;
+        double bestSquared = tolerance * tolerance;
+        foreach (int v in collected)
+        {
+            double dx = vertices[v * 3] - x, dy = vertices[v * 3 + 1] - y;
+            double d = (dx * dx) + (dy * dy);
+            if (d <= bestSquared)
+            {
+                bestSquared = d;
+                best = v;
+            }
+        }
+
+        if (best >= 0)
+            ends.Add(best);
     }
 
     /// <summary>

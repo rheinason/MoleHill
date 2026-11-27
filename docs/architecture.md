@@ -447,7 +447,9 @@ gentle bend (every constraint point it skips within 8% of its length of it, abou
 off ~35%). Recognising only same-segment edges let the tiled remesher's second pass flip a stair stringer's rail
 0.34 m off it (`RemeshPinnedRailTests`); refusing bend chords let any later remesh of a coarsened curve flip
 across it (0.45 m, `RemeshCurvedBreaklineTests`). A chord is not taken where the constraint already runs
-through a neighbour both ends share, which would lock the sliver between them. Spatial lookup falls back to a vertex scan when a segment walk would
+through a neighbour both ends share, which would lock the sliver between them. The end of an open constraint is always a
+corner: a crease carrying on from it at under the 40° sharp-turn limit otherwise chained with it, and the
+remesh slid a graded road's end corner 16 cm along the end cap's crease. Spatial lookup falls back to a vertex scan when a segment walk would
 cost more than the mesh size.
 
 `TerrainPresentationMesh` splits wall shading seams on a presentation copy for the conduit, RDK render
