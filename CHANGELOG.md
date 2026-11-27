@@ -39,7 +39,8 @@ beta prereleases. Earlier versions are recorded only in the git history.
   when the graded terrain cannot hold them apart.
 - **Remesh keeps curved breaklines.** A Remesh coarser than a curve's stations kept the curve in its first
   pass and smoothed across it in the next: a curvy Grade Path's road edges sagged up to 0.4 m at a 3 m edge
-  length. They now stay within a few centimetres, as close as a single whole-terrain pass.
+  length. They now stay within a few centimetres, as close as a single whole-terrain pass. A second Remesh
+  card, or a Retopo after a Remesh, no longer loses a curve the first one coarsened either.
 - **Remesh's Crease Angle now defaults to 10 degrees** (was 30), on new Remesh cards and the Grasshopper
   Remesh component (was off). Most batter toes fold less than 30 degrees, so a 1:2 or 1:3 batter's toe and
   daylight line were smoothed away, up to 0.5 m off; at 10 they stay within about 0.2 m. Rough scanned ground

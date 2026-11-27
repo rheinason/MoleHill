@@ -5,22 +5,46 @@ using Xunit;
 namespace MoleHill.Core.Tests;
 
 /// <summary>
-/// A tiled remesh coarser than a curved breakline's stations kept the breakline in its first pass and lost it in
-/// the next. Each pass re-found the breaklines from the mesh, and a collapse along a curve leaves an edge cutting
-/// across the bend, which the match refuses; the next pass then flipped and relaxed straight across it. A curvy
-/// Grade Path's rails sagged 0.42 m at a 3 m target and a curved batter toe 0.47 m, where the whole-mesh remesh
-/// held both within 0.1 m. Each pass now hands the edges it pinned to the next.
+/// A remesh coarser than a curved breakline's stations collapses along it, leaving edges that cut across the
+/// bends. A later remesh then refused those edges as the breakline and flipped straight across the curve: the
+/// tiled remesher's next pass (a curvy Grade Path's rails sagged 0.42 m at a 3 m target, a curved batter toe
+/// 0.47 m) and any later remesh of the output (a second Remesh card, Retopo). Two fixes: each tiled pass hands
+/// the edges it pinned to the next, and an edge counts as running along a breakline when it is a chord of a
+/// gentle bend.
 /// </summary>
-public class TiledRemeshCarriedFeatureTests
+public class RemeshCurvedBreaklineTests
 {
+    // A 1:2 batter rising outward from a 15 m circle, embedded at 2 m stations and pinned as a breakline. Its
+    // fold (26.6 deg) is under the 30 deg crease angle the options use, so only the breakline keeps it.
+    private static double ToeDistance(double x, double y) => Math.Sqrt(((x - 30) * (x - 30)) + ((y - 30) * (y - 30))) - 15;
+
     [Fact]
     public void TiledRemesh_CurvedBreaklineCoarserThanItsStations_KeepsTheToe()
     {
-        // A 1:2 batter rising outward from a 15 m circle, embedded at 2 m stations and pinned as a breakline.
-        // Its fold (26.6 deg) is under the 30 deg crease angle, so only the breakline keeps it.
+        (double[] vertices, int[] faces, List<ConstraintPolyline> constraints) = CurvedToe();
+
+        IsotropicRemesher.Result result = TiledIsotropicRemesher.Remesh(vertices, faces, constraints, Options(3.0));
+
+        double worst = WorstToeError(vertices, faces, result.Vertices, result.Faces);
+        Assert.True(worst < 0.12, $"Curved toe moved {worst:0.000} m (the whole-mesh remesh: 0.075 m; before the fix: 0.47 m).");
+    }
+
+    [Fact]
+    public void RemeshTwice_CurvedBreaklineCoarserThanItsStations_KeepsTheToe()
+    {
+        (double[] vertices, int[] faces, List<ConstraintPolyline> constraints) = CurvedToe();
+
+        IsotropicRemesher.Result once = IsotropicRemesher.Remesh(vertices, faces, constraints, Options(3.0));
+        IsotropicRemesher.Result twice = IsotropicRemesher.Remesh(once.Vertices, once.Faces, constraints, Options(3.0));
+
+        double worst = WorstToeError(vertices, faces, twice.Vertices, twice.Faces);
+        Assert.True(worst < 0.12, $"Curved toe moved {worst:0.000} m remeshed twice (once: 0.075 m; before the fix: 0.45 m).");
+    }
+
+    private static (double[] Vertices, int[] Faces, List<ConstraintPolyline> Constraints) CurvedToe()
+    {
         const double k = 0.5;
-        double Dist(double x, double y) => Math.Sqrt(((x - 30) * (x - 30)) + ((y - 30) * (y - 30))) - 15;
-        double Z(double x, double y) => k * Math.Max(0, Dist(x, y));
+        static double Z(double x, double y) => k * Math.Max(0, ToeDistance(x, y));
 
         var rng = new Random(7);
         var xy = new List<double>();
@@ -31,7 +55,7 @@ public class TiledRemeshCarriedFeatureTests
                 bool edge = x < 0.01 || y < 0.01 || x > 59.99 || y > 59.99;
                 double px = edge ? x : x + ((rng.NextDouble() - 0.5) * 1.2);
                 double py = edge ? y : y + ((rng.NextDouble() - 0.5) * 1.2);
-                if (Math.Abs(Dist(px, py)) > 0.5)
+                if (Math.Abs(ToeDistance(px, py)) > 0.5)
                 {
                     xy.Add(px);
                     xy.Add(py);
@@ -54,23 +78,25 @@ public class TiledRemeshCarriedFeatureTests
         }
 
         (double[] vertices, int[] faces) = Triangulate(xy, segments, Z);
-        var constraints = new List<ConstraintPolyline> { new(toe, n, IsClosed: true) };
+        return (vertices, faces, new List<ConstraintPolyline> { new(toe, n, IsClosed: true) });
+    }
 
-        IsotropicRemesher.Result result = TiledIsotropicRemesher.Remesh(vertices, faces, constraints, Options(3.0));
-
-        var input = new Locator(vertices, faces);
-        var output = new Locator(result.Vertices, result.Faces);
+    /// <summary>Largest height difference between the remeshed and the input terrain within 1.5 m of the toe.</summary>
+    private static double WorstToeError(double[] inputVertices, int[] inputFaces, double[] outputVertices, int[] outputFaces)
+    {
+        var input = new Locator(inputVertices, inputFaces);
+        var output = new Locator(outputVertices, outputFaces);
         double worst = 0;
         for (double x = 3; x <= 57; x += 0.2)
         {
             for (double y = 3; y <= 57; y += 0.2)
             {
-                if (Math.Abs(Dist(x, y)) <= 1.5 && input.Z(x, y) is double zi && output.Z(x, y) is double zo)
+                if (Math.Abs(ToeDistance(x, y)) <= 1.5 && input.Z(x, y) is double zi && output.Z(x, y) is double zo)
                     worst = Math.Max(worst, Math.Abs(zo - zi));
             }
         }
 
-        Assert.True(worst < 0.12, $"Curved toe moved {worst:0.000} m (the whole-mesh remesh: 0.075 m; before the fix: 0.47 m).");
+        return worst;
     }
 
     [Fact]

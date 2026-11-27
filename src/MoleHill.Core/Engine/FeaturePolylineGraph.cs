@@ -809,7 +809,7 @@ internal sealed class FeaturePolylineGraph
             foreach (int vertex in collected)
                 foreach (int neighbour in adjacency.NeighborsOf(vertex))
                     if (neighbour > vertex && nearSegment[neighbour] &&
-                        RunsAlongConstraint(vertices, constraint, segmentCount, vertex, neighbour, firstSegment, lastSegment, tolerance))
+                        RunsAlongConstraint(vertices, constraint, segmentCount, vertex, neighbour, firstSegment, lastSegment, tolerance, adjacency, nearSegment))
                         featureEdges.Add(EdgeKey(vertex, neighbour));
 
             foreach (int vertex in collected)
@@ -819,9 +819,22 @@ internal sealed class FeaturePolylineGraph
     }
 
     /// <summary>
+    /// How far, as a fraction of its length, a mesh edge may stand off the constraint points it skips and still
+    /// count as running along it. A chord of a circular arc stands off it by about an eighth of the turn it spans
+    /// (in radians), so 0.08 admits a chord over a turn of up to ~37 degrees: below the 40 degree turn that makes
+    /// a chain corner, and well short of an edge cutting a real corner (a right angle stands off ~0.35).
+    /// </summary>
+    private const double ChordStandOffRatio = 0.08;
+
+    /// <summary>
     /// True when mesh edge <paramref name="a"/>-<paramref name="b"/>, both of whose ends lie on the constraint,
-    /// runs along it: they lie on a common segment, or the edge's midpoint lies within tolerance of a segment in
-    /// the range between them (going round the short way on a closed constraint).
+    /// runs along it: they lie on a common segment, the edge's midpoint lies within tolerance of a segment in the
+    /// range between them (going round the short way on a closed constraint), or the edge is a chord of a gentle
+    /// bend: every constraint point between its ends lies within <see cref="ChordStandOffRatio"/> of its length
+    /// of it. That last is what a remesh leaves once it has collapsed along a curved constraint; refusing it made
+    /// the next remesh (a second Remesh card, or a Retopo after one) flip straight across the curve.
+    /// A chord whose ends share a neighbour on the constraint between them is not taken: the constraint already
+    /// runs through that neighbour, and pinning the chord as well would lock the sliver between them.
     /// </summary>
     private static bool RunsAlongConstraint(
         double[] vertices,
@@ -831,36 +844,64 @@ internal sealed class FeaturePolylineGraph
         int b,
         int[] firstSegment,
         int[] lastSegment,
-        double tolerance)
+        double tolerance,
+        MeshVertexAdjacency adjacency,
+        bool[] onConstraint)
     {
         int lo = Math.Min(firstSegment[a], firstSegment[b]);
         int hi = Math.Max(lastSegment[a], lastSegment[b]);
         if (firstSegment[a] <= lastSegment[b] && firstSegment[b] <= lastSegment[a])
             return true;
 
-        double mx = (vertices[a * 3] + vertices[b * 3]) * 0.5;
-        double my = (vertices[a * 3 + 1] + vertices[b * 3 + 1]) * 0.5;
-        bool MidpointOn(int s)
-        {
-            int e = (s + 1) % constraint.PointCount;
-            return Geometry2D.DistanceToSegment(
-                mx, my,
-                constraint.Points[s * 3], constraint.Points[s * 3 + 1],
-                constraint.Points[e * 3], constraint.Points[e * 3 + 1]) <= tolerance;
-        }
-
-        if (!constraint.IsClosed || hi - lo <= segmentCount / 2)
+        // The segments between the two ends, in walk order (the short way round a closed constraint).
+        bool wraps = constraint.IsClosed && hi - lo > segmentCount / 2;
+        var segments = new List<int>();
+        if (!wraps)
         {
             for (int s = lo; s <= hi; s++)
-                if (MidpointOn(s))
-                    return true;
-            return false;
+                segments.Add(s);
+        }
+        else
+        {
+            for (int s = hi; s != (lo + 1) % segmentCount; s = (s + 1) % segmentCount)
+                segments.Add(s);
         }
 
-        for (int s = hi; s != (lo + 1) % segmentCount; s = (s + 1) % segmentCount)
-            if (MidpointOn(s))
+        double ax = vertices[a * 3], ay = vertices[a * 3 + 1];
+        double bx = vertices[b * 3], by = vertices[b * 3 + 1];
+        double mx = (ax + bx) * 0.5;
+        double my = (ay + by) * 0.5;
+        foreach (int s in segments)
+        {
+            int e = (s + 1) % constraint.PointCount;
+            if (Geometry2D.DistanceToSegment(
+                    mx, my,
+                    constraint.Points[s * 3], constraint.Points[s * 3 + 1],
+                    constraint.Points[e * 3], constraint.Points[e * 3 + 1]) <= tolerance)
                 return true;
-        return false;
+        }
+
+        double length = Math.Sqrt(((bx - ax) * (bx - ax)) + ((by - ay) * (by - ay)));
+        double allowed = Math.Max(tolerance, ChordStandOffRatio * length);
+        for (int i = 0; i + 1 < segments.Count; i++)
+        {
+            int p = (segments[i] + 1) % constraint.PointCount;
+            if (Geometry2D.DistanceToSegment(constraint.Points[p * 3], constraint.Points[p * 3 + 1], ax, ay, bx, by) > allowed)
+                return false;
+        }
+
+        foreach (int m in adjacency.NeighborsOf(a))
+        {
+            if (m == b || !onConstraint[m] || !segments.Contains(firstSegment[m]))
+                continue;
+            foreach (int n in adjacency.NeighborsOf(b))
+            {
+                if (n == m)
+                    return false;
+            }
+        }
+
+        return true;
     }
 
     /// <summary>Minimal XY spatial hash for finding the mesh vertices that lie along a constraint segment.</summary>

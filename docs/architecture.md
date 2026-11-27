@@ -442,9 +442,12 @@ Isotropic Remesh inserts the card's own constraint curves before refinement and 
 insertion fails. `FeaturePolylineGraph` protects every existing edge whose endpoints lie on a constraint
 segment, using CSR adjacency so unrelated nearby vertices cannot interrupt a subdivided chain. An edge may
 also span several of a constraint's segments, as a remesh's own output does once it has collapsed along the
-chain; it is protected when its midpoint lies on the constraint between its ends (a chord across a bend does
-not). Recognising only same-segment edges let the tiled remesher's second pass flip a stair stringer's rail
-0.34 m off it (`RemeshPinnedRailTests`). Spatial lookup falls back to a vertex scan when a segment walk would
+chain; it is protected when its midpoint lies on the constraint between its ends, or when it is a chord of a
+gentle bend (every constraint point it skips within 8% of its length of it, about a 37° turn; a corner cut stands
+off ~35%). Recognising only same-segment edges let the tiled remesher's second pass flip a stair stringer's rail
+0.34 m off it (`RemeshPinnedRailTests`); refusing bend chords let any later remesh of a coarsened curve flip
+across it (0.45 m, `RemeshCurvedBreaklineTests`). A chord is not taken where the constraint already runs
+through a neighbour both ends share, which would lock the sliver between them. Spatial lookup falls back to a vertex scan when a segment walk would
 cost more than the mesh size.
 
 `TerrainPresentationMesh` splits wall shading seams on a presentation copy for the conduit, RDK render
@@ -2259,7 +2262,7 @@ cold one exactly:
   (`FeaturePolylineGraph.CarriedEdges`, through splits and collapses) are handed to the next pass as
   `Options.PinnedEdges`. Re-matching them against the breaklines failed on a curve coarser than its stations:
   a collapse leaves an edge cutting across the bend, the match refuses it, and the next pass flipped across
-  it (a curvy Grade Path's rails sagged 0.42 m, `TiledRemeshCarriedFeatureTests`). The border is not
+  it (a curvy Grade Path's rails sagged 0.42 m, `RemeshCurvedBreaklineTests`). The border is not
   carried: inside a tile it includes the cut.
 - **Incremental**: a tile's output is a pure function of its key (canonical faces, held edges, wall flags,
   breaklines, an order-free hash of the original surface under it, settings); `TiledRemeshMemo` in
