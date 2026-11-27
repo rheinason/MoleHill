@@ -100,9 +100,21 @@ internal sealed class SearchableAddMenu : Form
             return;
 
         var menu = new SearchableAddMenu(entries);
-        PointF origin = anchor.PointToScreen(new PointF(0, anchor.Height));
-        menu.Location = new Point((int)origin.X, (int)origin.Y);
+        PointF below = anchor.PointToScreen(new PointF(0, anchor.Height));
+        PointF above = anchor.PointToScreen(new PointF(0, 0));
+        menu.Location = new Point((int)below.X, (int)below.Y);
         menu.Show();
+
+        // The panel docks anywhere, so the button may sit near a screen edge: open above it when the list
+        // would run off the bottom, and keep it on screen sideways. The size is only known once shown.
+        RectangleF area = Screen.FromPoint(below).WorkingArea;
+        Size size = menu.Size;
+        float y = below.Y + size.Height > area.Bottom && above.Y - size.Height >= area.Top
+            ? above.Y - size.Height
+            : below.Y;
+        float x = Math.Clamp(below.X, area.Left, Math.Max(area.Left, area.Right - size.Width));
+        if ((int)x != menu.Location.X || (int)y != menu.Location.Y)
+            menu.Location = new Point((int)x, (int)y);
     }
 
     private void ApplyFilter()
