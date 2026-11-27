@@ -37,6 +37,13 @@ beta prereleases. Earlier versions are recorded only in the git history.
 - **Graded walls with rails closer than the grade's snap distance** (a narrow kerb, or the rails meeting at
   a pointed end) could lift stretches of the toe onto the wall top. The rails are now inserted instead
   when the graded terrain cannot hold them apart.
+- **Remesh keeps curved breaklines.** A Remesh coarser than a curve's stations kept the curve in its first
+  pass and smoothed across it in the next: a curvy Grade Path's road edges sagged up to 0.4 m at a 3 m edge
+  length. They now stay within a few centimetres, as close as a single whole-terrain pass.
+- **Remesh's Crease Angle now defaults to 10 degrees** (was 30), on new Remesh cards and the Grasshopper
+  Remesh component (was off). Most batter toes fold less than 30 degrees, so a 1:2 or 1:3 batter's toe and
+  daylight line were smoothed away, up to 0.5 m off; at 10 they stay within about 0.2 m. Rough scanned ground
+  is unaffected. Existing cards keep their value: lower it by hand to get the same.
 - **Search in the Add menus.** Add Modifier, Analysis, Annotation and Object open a list with a search box:
   type to filter (names, initials such as `rw`, descriptions, and synonyms such as `kerb`), Up/Down and
   Enter to add, Esc to close.

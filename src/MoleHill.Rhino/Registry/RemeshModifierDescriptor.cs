@@ -18,7 +18,7 @@ internal sealed class RemeshModifierDescriptor : ModifierTypeDescriptor
     public override ModifierDefinition Create(UnitSystem unitSystem) => new RemeshModifierDefinition
     {
         Mode = "isotropic",
-        CreaseAngle = 30.0
+        CreaseAngle = 10.0
     };
     public override void RunBuildStage(ModifierBuildContext context) => RemeshStage.Run(context);
 
@@ -60,7 +60,7 @@ internal sealed class RemeshModifierDescriptor : ModifierTypeDescriptor
             "CreaseAngle", "Crease Angle",
             m => ((RemeshModifierDefinition)m).CreaseAngle,
             (m, v) => ((RemeshModifierDefinition)m).CreaseAngle = v,
-            "Keep creases: edges where the mesh folds at least this many degrees (batter toes, slope breaks) are kept — vertices slide only along them and no edge flips across. Detected from the mesh each pass and never saved as breaklines. Around 20-35 catches toe lines; leave at 0 to disable.",
+            "Keep creases: edges where the mesh folds at least this many degrees (batter toes, slope breaks) are kept — vertices slide only along them and no edge flips across. Detected from the mesh and never saved as breaklines, so a toe you smoothed away is not kept. Around 10 catches batter toes down to 1:3 and leaves rough scanned ground alone; much lower breaks the creases up. Leave at 0 to disable.",
             unit: ParameterUnit.Degrees),
         ModifierParam.Number(
             "MinAngle", "Min Angle",

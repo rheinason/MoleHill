@@ -131,7 +131,7 @@ public class RegistryGuardTests
 
         Assert.Equal("isotropic", remesh.Mode);
         Assert.Equal(0.0, remesh.EdgeLength, 9);
-        Assert.Equal(30.0, remesh.CreaseAngle, 9);
+        Assert.Equal(10.0, remesh.CreaseAngle, 9);
     }
 
     [Fact]

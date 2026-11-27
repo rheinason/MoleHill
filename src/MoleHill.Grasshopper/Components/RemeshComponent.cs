@@ -45,7 +45,7 @@ public sealed class RemeshComponent : RegistryTerrainComponent
             GhPort.Generic("Terrain", "T", "Optional typed Terrain input; its metadata is carried to the appended Terrain output.", optional: true),
             // Appended after Terrain so saved definitions keep their port indices.
             GhPort.Text("Mode", "Md", "\"rebuild\" (default: classic constrained re-triangulation, uses Max Area / Min Angle) or \"isotropic\" (the Remesh card's default engine: Edge Length target, 0 = keep density; uses Crease Angle).", access: GH_ParamAccess.item, optional: true),
-            GhPort.Number("Crease Angle", "Ca", "Isotropic mode: folds at or above this dihedral angle (degrees) are kept as edges. 0 disables.", @default: 0.0),
+            GhPort.Number("Crease Angle", "Ca", "Isotropic mode: folds at or above this dihedral angle (degrees) are kept as edges. Around 10 catches batter toes down to 1:3. 0 disables.", @default: 10.0),
         },
         Outputs = new[]
         {
