@@ -1,5 +1,8 @@
 # MoleHill Penpot reference
 
+For project access, login, the design history and a review route, start with the
+[UI design handoff](../../docs/ui-design-handoff.md).
+
 For a local Docker installation, see [`selfhost/README.md`](selfhost/README.md).
 Approved design directions, unresolved polish and the next review decisions are
 tracked in the [Rhino UI design backlog](../../docs/ui-backlog.md).

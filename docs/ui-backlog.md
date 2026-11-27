@@ -1,5 +1,8 @@
 # Rhino UI design backlog
 
+For access, login, a review route and the complete comparison page index, see
+[ui-design-handoff.md](ui-design-handoff.md).
+
 Updated 2026-11-08. Tracks the Penpot review and planned Rhino UI work.
 **The current approach is approved in principle; implementation and final visual
 polish are still pending.** No Rhino changes have shipped through this design review.
@@ -968,6 +971,10 @@ Step 79 compares the full panel before and after aligning the toolbar,
 disclosures, tabs, and cards to common edges at 240 and 416 px. Centre
 icons within compact tabs. Put **Add Analysis** on the same row as the
 section title and align the import preview to the card column.
+
+Step 80 anchors the import popover below the terrain selector with a small
+gap and the same left edge. Keep that location consistent when moving
+from the terrain menu to the import preview.
 
 During Rhino implementation, verify tooltips, reasons for unavailable actions,
 keyboard navigation, visibility toggle meaning, rebuild status, cancellation and

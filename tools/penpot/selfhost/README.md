@@ -1,5 +1,8 @@
 # Local Penpot
 
+For login, current comparison pages, review instructions and implementation
+status, see the [UI design handoff](../../../docs/ui-design-handoff.md).
+
 The official Penpot Compose stack, pinned to **2.18.6**, runs as Docker project
 `molehill-penpot`. PostgreSQL and design assets use separate persistent named
 volumes. Docker Desktop must be running with its Linux engine available.
