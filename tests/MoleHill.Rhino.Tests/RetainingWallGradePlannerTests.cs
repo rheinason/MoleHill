@@ -77,7 +77,7 @@ public class RetainingWallGradePlannerTests
         var top = new[] { new Point3d(0, 1, 3), new Point3d(10, 1, 3) };
         var wall = new RetainingWallPlannerCore.PlannedWall(
             new RetainingWallPlannerCore.WallRails(toe, top, isClosed: false, minWidth: 1.0),
-            brep: null,
+            breps: null,
             curveA: 0,
             curveB: 1,
             pairLine: new Line(toe[0], top[0]));

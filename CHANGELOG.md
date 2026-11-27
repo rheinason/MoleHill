@@ -20,6 +20,16 @@ beta prereleases. Earlier versions are recorded only in the git history.
   - A smooth curve stays smooth (`Fit=EditPoints`), or becomes an exact polyline with `Fit=Exact`.
   - Removed: `mhExtractProfile` and `mhApplyProfile`. Their drawn section lost its link to the curve when
     moved or edited; for a drawing of a long section use the Section Along Curve annotation.
+- **Kerbs with shaped ends and crossings.** A Retaining Wall whose two curves come together at the end, in
+  a point or a round nose, now builds; before, the pair was skipped as too narrow. The wall solid follows
+  the drawn end. The terrain's top breakline stops a few millimetres short of the tip, because a terrain
+  cannot hold two heights at one point, and the terrain closes the nose with a steep face.
+- **Kerb cuts.** A wall whose top curve drops to the toe's height for a crossing no longer loses its
+  solid: it is built as one solid each side, tapering into the cut. A wall tapering to zero height at an
+  end is now a closed solid too.
+- **Search in the Add menus.** Add Modifier, Analysis, Annotation and Object open a list with a search box:
+  type to filter (names, initials such as `rw`, descriptions, and synonyms such as `kerb`), Up/Down and
+  Enter to add, Esc to close.
 
 ## 1.6.0 — 2026-11-20
 

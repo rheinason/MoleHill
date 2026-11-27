@@ -97,15 +97,19 @@ internal static class RetainingWallPlannerCore
     internal sealed class PlannedWall
     {
         public WallRails Rails { get; }
-        public Brep? Brep { get; }
+        /// <summary>
+        /// The wall solids: one, or one per stretch between kerb cuts (where the wall drops to zero height).
+        /// Empty when solids were not requested or none could be made.
+        /// </summary>
+        public IReadOnlyList<Brep> Breps { get; }
         public int CurveA { get; }
         public int CurveB { get; }
         public Line PairLine { get; }
 
-        public PlannedWall(WallRails rails, Brep? brep, int curveA, int curveB, Line pairLine)
+        public PlannedWall(WallRails rails, IReadOnlyList<Brep>? breps, int curveA, int curveB, Line pairLine)
         {
             Rails = rails;
-            Brep = brep;
+            Breps = breps ?? Array.Empty<Brep>();
             CurveA = curveA;
             CurveB = curveB;
             PairLine = pairLine;
@@ -733,7 +737,7 @@ internal static class RetainingWallPlannerCore
             if (pair.Failed)
                 continue;
 
-            double minWidth = EstimateMinGap(pair, tolerance);
+            double minWidth = EstimateBodyGap(pair, tolerance);
 
             // The narrow-pair rejection must be wall-width scale: rails closer than a tenth of the
             // max wall width are almost certainly duplicate/offset artefacts of the SAME rail, not a
@@ -772,13 +776,20 @@ internal static class RetainingWallPlannerCore
 
             Point3d[] toePts = (Point3d[])toeCurve.Points.Clone();
             Point3d[] topPts = (Point3d[])topCurve.Points.Clone();
-            var rails = new WallRails(toePts, topPts, pair.IsClosed, minWidth);
 
-            Brep? brep = null;
+            // A pointed or rounded end brings the rails onto one plan point at two heights, which a 2.5D
+            // terrain cannot hold. The solid keeps the drawn end; the terrain's top rail stops where the rails
+            // are a sliver apart, and the terrain closes the nose with a steep face down to the toe.
+            Point3d[] terrainTopPts = pair.IsClosed
+                ? topPts
+                : TrimConvergedEnds(topPts, toePts, Math.Max(4.0 * tolerance, 0.1 * minWidth));
+            var rails = new WallRails(toePts, terrainTopPts, pair.IsClosed, minWidth);
+
+            IReadOnlyList<Brep>? breps = null;
             if (buildSolids)
             {
-                brep = RetainingWallBrepBuilder.Build(toePts, topPts, tolerance, pair.IsClosed);
-                if (brep == null)
+                breps = RetainingWallBrepBuilder.BuildPieces(toePts, topPts, tolerance, pair.IsClosed);
+                if (breps.Count == 0)
                 {
                     report.Add(new ReportEntry(
                         ReportLevel.Warning,
@@ -788,22 +799,51 @@ internal static class RetainingWallPlannerCore
                         pair.B.SourceIndex,
                         pairIndex));
                 }
-                else if (!brep.IsSolid)
-                {
-                    report.Add(new ReportEntry(
-                        ReportLevel.Warning,
-                        ReportReason.SolidFailed,
-                        $"Pair ({pair.A.SourceIndex}, {pair.B.SourceIndex}): solid wall Brep is open, usually because the wall tapers to zero height at an end; breaklines will still be inserted.",
-                        pair.A.SourceIndex,
-                        pair.B.SourceIndex,
-                        pairIndex));
-                }
             }
 
-            walls.Add(new PlannedWall(rails, brep, pair.A.SourceIndex, pair.B.SourceIndex, pair.GetPairLine()));
+            walls.Add(new PlannedWall(rails, breps, pair.A.SourceIndex, pair.B.SourceIndex, pair.GetPairLine()));
         }
 
         return walls;
+    }
+
+    /// <summary>
+    /// Drops the points at each end of <paramref name="rail"/> lying within <paramref name="width"/> of
+    /// <paramref name="partner"/> in plan, so converged wall ends leave the rails apart. Interior points are
+    /// never touched, and at least two points always remain.
+    /// </summary>
+    internal static Point3d[] TrimConvergedEnds(Point3d[] rail, Point3d[] partner, double width)
+    {
+        if (rail.Length < 3 || partner.Length < 2 || !(width > 0.0))
+            return rail;
+
+        int first = 0;
+        while (first < rail.Length - 2 && PlanDistanceToPolyline(rail[first], partner) < width)
+            first++;
+        int last = rail.Length - 1;
+        while (last > first + 1 && PlanDistanceToPolyline(rail[last], partner) < width)
+            last--;
+
+        if (first == 0 && last == rail.Length - 1)
+            return rail;
+
+        return rail[first..(last + 1)];
+    }
+
+    private static double PlanDistanceToPolyline(Point3d point, Point3d[] polyline)
+    {
+        double best = double.MaxValue;
+        for (int i = 0; i + 1 < polyline.Length; i++)
+        {
+            double ax = polyline[i].X, ay = polyline[i].Y;
+            double dx = polyline[i + 1].X - ax, dy = polyline[i + 1].Y - ay;
+            double lengthSq = dx * dx + dy * dy;
+            double t = lengthSq > 0.0 ? Math.Clamp(((point.X - ax) * dx + (point.Y - ay) * dy) / lengthSq, 0.0, 1.0) : 0.0;
+            double ex = ax + t * dx - point.X, ey = ay + t * dy - point.Y;
+            best = Math.Min(best, ex * ex + ey * ey);
+        }
+
+        return Math.Sqrt(best);
     }
 
     private static bool DetermineToeByMeanZ(PreparedCurve a, PreparedCurve b)
@@ -1265,7 +1305,7 @@ internal static class RetainingWallPlannerCore
 
         CurveEnd match0 = directMatch ? otherA : otherB;
         CurveEnd match1 = directMatch ? otherB : otherA;
-        double minWallWidth = Math.Min(EstimateMinGap(pair, tolerance), EstimateMinGap(other, tolerance));
+        double minWallWidth = Math.Min(EstimateBodyGap(pair, tolerance), EstimateBodyGap(other, tolerance));
         double budget = Math.Max(2.0 * minWallWidth, 4.0 * tolerance);
 
         Point2d corner0 = BoundedIntersection(pairA, match0, budget);
@@ -1473,19 +1513,53 @@ internal static class RetainingWallPlannerCore
         return reverse < forward;
     }
 
-    private static double EstimateMinGap(Pair pair, double tolerance)
+    /// <summary>
+    /// The narrowest plan spacing along the body of the wall. Rails that come together at an open end (a
+    /// kerb drawn to a point, or both rails turning through an arc onto one apex) are a shaped end, not a
+    /// collapse, so the end runs narrower than half the typical spacing are left out. Rails close along their
+    /// whole length still read as narrow, so a duplicated rail is still rejected.
+    /// </summary>
+    private static double EstimateBodyGap(Pair pair, double tolerance)
     {
         int sampleCount = Math.Clamp((int)Math.Round(Math.Min(pair.A.Length, pair.B.Length) / Math.Max(tolerance, 1e-9)), 8, 64);
-        double min = double.MaxValue;
+        var gaps = new double[sampleCount];
         for (int i = 0; i < sampleCount; i++)
         {
             double t = pair.IsClosed ? (double)i / sampleCount : (double)i / Math.Max(1, sampleCount - 1);
             Point3d a = PointAt(pair.A.Points, pair.A.CumLen, pair.A.Length, pair.A.IsClosed, pair.A.Length * t);
             Point3d b = PointAt(pair.B.Points, pair.B.CumLen, pair.B.Length, pair.B.IsClosed, pair.B.Length * t);
-            min = Math.Min(min, Distance2D(a, b));
+            gaps[i] = Distance2D(a, b);
         }
 
-        return min < double.MaxValue ? min : tolerance;
+        return BodyGap(gaps, pair.IsClosed);
+    }
+
+    /// <summary>The minimum of <paramref name="gaps"/> once narrow end runs of an open wall are left out.</summary>
+    internal static double BodyGap(IReadOnlyList<double> gaps, bool isClosed)
+    {
+        if (gaps.Count == 0)
+            return 0.0;
+
+        if (isClosed)
+            return gaps.Min();
+
+        double[] sorted = gaps.OrderBy(gap => gap).ToArray();
+        double median = sorted[sorted.Length / 2];
+        double endLimit = 0.5 * median;
+        int first = 0;
+        while (first < gaps.Count && gaps[first] < endLimit)
+            first++;
+        int last = gaps.Count - 1;
+        while (last >= first && gaps[last] < endLimit)
+            last--;
+
+        if (first > last)
+            return median;
+
+        double min = double.MaxValue;
+        for (int i = first; i <= last; i++)
+            min = Math.Min(min, gaps[i]);
+        return min;
     }
 
     private static double MinAllowedHeight(double tolerance) => PositiveLength(tolerance * 0.01, tolerance);

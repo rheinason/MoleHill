@@ -126,8 +126,7 @@ public sealed class RetainingWallComponent : RegistryTerrainComponent
         var wallBreps = new List<Brep>(plan.Walls.Count);
         foreach (var wall in plan.Walls)
         {
-            if (wall.Brep != null)
-                wallBreps.Add(wall.Brep);
+            wallBreps.AddRange(wall.Breps);
 
             AddWallConstraints(constraints, wall.Rails);
         }

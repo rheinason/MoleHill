@@ -155,7 +155,7 @@ public class WallGradingEnvelopeSweepTests
 
         return new RetainingWallPlannerCore.PlannedWall(
             new RetainingWallPlannerCore.WallRails(toe, top, closed, minWidth: gap),
-            brep: null,
+            breps: null,
             curveA: 0,
             curveB: 1,
             pairLine: new Line(toe[0], top[0]));

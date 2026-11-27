@@ -392,6 +392,18 @@ matches nothing is split at its widest gap, because a fixed join distance merges
 longer outside rail and not on the inside one. Each bend anchors at its turn-weighted middle; when
 both rails turn along arcs, their starts and ends anchor too, or a tight fillet shears.
 
+**Kerb ends and cuts.** A wall is two curves, and kerbs are drawn that way too, which brings two shapes the
+wall used to reject. Rails that come together at an open end (a point, or both turning through an arc onto
+one apex) are a shaped end, so the planner's narrow-pair test reads the gap along the wall's *body*
+(`RetainingWallPlannerCore.BodyGap`: end runs narrower than half the median gap are left out; rails close
+along their whole length are still rejected). The terrain cannot hold the two rails at one plan point, so
+the top rail handed to the terrain is trimmed at each converged end to a sliver (`TrimConvergedEnds`), and
+the terrain closes the nose with a steep face; the solid keeps the drawn end. A kerb dropped to the toe's
+height for a crossing leaves stations with no section, and one loft through them collapsed, so
+`RetainingWallBrepBuilder.BuildPieces` builds one solid per run of stations with a section, each extended to
+the interpolated point where its section vanishes (`SplitAtVanishingSections`). `PlannedWall.Breps` is
+therefore a list: one solid, or one per stretch between cuts.
+
 Graded retaining-wall insertion tries a quality patch first. `MeshConstraintTopologyInserter.WallQuality.cs`
 expands a patch ring by ring until the stitched result clears a 5-degree floor, verifying achieved
 quality, plan-area conservation, a single closed perimeter and no discarded input vertex before it

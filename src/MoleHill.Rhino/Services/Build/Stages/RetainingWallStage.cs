@@ -149,7 +149,7 @@ internal static partial class RetainingWallStage
             wallOutputTimer.Start();
             if (mode == TerrainBuildMode.Final)
             {
-                if (wall.Brep != null)
+                for (int piece = 0; piece < wall.Breps.Count; piece++)
                 {
                     build.AuxiliaryObjects.Add(new GeneratedRhinoObject
                     {
@@ -158,8 +158,10 @@ internal static partial class RetainingWallStage
                         // outlives this build, so always publish a duplicate: the same contract
                         // CloneGeneratedObject keeps for the stage cache. Publishing a cold plan's own
                         // Brep left the output and the cached plan sharing one native object.
-                        Geometry = wall.Brep.DuplicateBrep(),
-                        Name = $"Wall {wall.CurveA}-{wall.CurveB}",
+                        Geometry = wall.Breps[piece].DuplicateBrep(),
+                        Name = wall.Breps.Count == 1
+                            ? $"Wall {wall.CurveA}-{wall.CurveB}"
+                            : $"Wall {wall.CurveA}-{wall.CurveB} ({piece + 1} of {wall.Breps.Count})",
                         Kind = GeneratedObjectKind.RetainingWall,
                         LayerPath = snapshot.LayerRoles.Path(LayerRole.Walls)
                     });

@@ -476,4 +476,125 @@ public class RetainingWallPlannerLogicTests
         var wall = Assert.Single(plan.Walls);
         Assert.True(wall.Rails.IsClosed);
     }
+
+    // Kerbs: rails drawn to a point or round nose meet at the end. The meeting is a shaped end, not a
+    // collapsed wall, so the pair is kept; a 2.5D terrain cannot hold both rails at one plan point, so the
+    // top rail handed to the terrain stops a sliver short of the toe.
+    [Fact]
+    public void Plan_RailsConvergingToPoint_KeepsWallAndTrimsTerrainTopRail()
+    {
+        var toe = Enumerable.Range(0, 81).Select(i => new Point3d(i * 0.1, 0, 0)).ToArray();
+        var top = Enumerable.Range(0, 81)
+            .Select(i => i * 0.1)
+            .Select(x => new Point3d(x, x < 7.5 ? 0.05 : 0.05 * (8.0 - x) / 0.5, 0.15))
+            .ToArray();
+
+        var plan = Plan(0.2, Open(toe), Open(top));
+
+        var wall = Assert.Single(plan.Walls);
+        Assert.InRange(wall.Rails.MinWidth, 0.025, 0.05 + 1e-9); // the wider half of the taper counts as body
+        Assert.Equal(toe.Length, wall.Rails.ToePoints.Length);
+        Assert.Equal(top.Length - 1, wall.Rails.TopPoints.Length);
+        Assert.True(wall.Rails.TopPoints[^1].X < 8.0);
+        Assert.DoesNotContain(plan.Report, entry => entry.Reason == RetainingWallPlannerCore.ReportReason.SubToleranceWidth);
+    }
+
+    [Fact]
+    public void Plan_RailsMeetingThroughRoundNose_KeepsWall()
+    {
+        const double gap = 0.15, r = gap * 0.5;
+        var toe = Enumerable.Range(0, 61).Select(i => new Point3d(i * 0.1, 0, 0)).ToList();
+        var top = Enumerable.Range(0, 61).Select(i => new Point3d(i * 0.1, gap, 0.15)).ToList();
+        for (int k = 1; k <= 8; k++)
+        {
+            double a = k / 8.0 * Math.PI / 2.0;
+            toe.Add(new Point3d(6.0 + r * Math.Sin(a), r - r * Math.Cos(a), 0));
+            top.Add(new Point3d(6.0 + r * Math.Sin(a), r + r * Math.Cos(a), 0.15));
+        }
+
+        var plan = Plan(0.5, Open(toe.ToArray()), Open(top.ToArray()));
+
+        var wall = Assert.Single(plan.Walls);
+        Assert.InRange(wall.Rails.MinWidth, gap * 0.5, gap + 1e-9);
+        Assert.Equal(toe.Count, wall.Rails.ToePoints.Length);
+        Assert.True(wall.Rails.TopPoints.Length < top.Count);
+    }
+
+    [Fact]
+    public void Plan_RailsTouchingMidway_StillReadAsNarrow()
+    {
+        // An interior pinch is not a shaped end: the body gap is the pinch.
+        var toe = Enumerable.Range(0, 81).Select(i => new Point3d(i * 0.1, 0, 0)).ToArray();
+        var top = Enumerable.Range(0, 81)
+            .Select(i => i * 0.1)
+            .Select(x => new Point3d(x, Math.Abs(x - 4.0) < 0.35 ? 0.0 : 0.05, 0.15))
+            .ToArray();
+
+        var plan = Plan(0.2, Open(toe), Open(top));
+
+        Assert.Empty(plan.Walls);
+        Assert.Contains(plan.Report, entry => entry.Reason == RetainingWallPlannerCore.ReportReason.SubToleranceWidth);
+    }
+
+    [Theory]
+    [InlineData(new[] { 1.0, 1.0, 1.0, 1.0 }, false, 1.0)]
+    [InlineData(new[] { 0.0, 0.4, 1.0, 1.0, 0.9, 0.0 }, false, 0.9)]
+    [InlineData(new[] { 1.0, 1.0, 0.2, 1.0, 1.0 }, false, 0.2)]
+    [InlineData(new[] { 0.0, 0.4, 1.0, 1.0 }, true, 0.0)]
+    [InlineData(new[] { 0.01, 0.01, 0.01 }, false, 0.01)]
+    public void BodyGap_IgnoresOnlyNarrowEndRunsOfOpenWalls(double[] gaps, bool closed, double expected)
+    {
+        Assert.Equal(expected, RetainingWallPlannerCore.BodyGap(gaps, closed), 9);
+    }
+
+    // A kerb cut: the solid is built only where the wall has a section, and each piece is extended to the
+    // interpolated point where its section vanishes.
+    [Fact]
+    public void SplitAtVanishingSections_KerbCut_SplitsIntoTwoTaperedPieces()
+    {
+        var toe = Enumerable.Range(0, 11).Select(i => new Point3d(i, 0, 0)).ToArray();
+        double[] heights = { 1, 1, 1, 0.5, 0, 0, 0, 0.5, 1, 1, 1 };
+        var top = heights.Select((h, i) => new Point3d(i, 0.5, h)).ToArray();
+
+        var pieces = RetainingWallBrepBuilder.SplitAtVanishingSections(toe, top, isClosed: false, epsilon: 0.01);
+
+        Assert.Equal(2, pieces.Count);
+        Assert.All(pieces, piece => Assert.False(piece.IsClosed));
+        Assert.Equal(0.0, pieces[0].Toe[0].X, 9);
+        Assert.Equal(3.98, pieces[0].Toe[^1].X, 9);
+        Assert.Equal(0.01, pieces[0].Top[^1].Z, 9);
+        Assert.Equal(6.02, pieces[1].Toe[0].X, 9);
+        Assert.Equal(10.0, pieces[1].Toe[^1].X, 9);
+    }
+
+    [Fact]
+    public void SplitAtVanishingSections_RingWithOneCut_OpensIntoOnePiece()
+    {
+        int n = 24;
+        var toe = new Point3d[n];
+        var top = new Point3d[n];
+        for (int i = 0; i < n; i++)
+        {
+            double a = 2.0 * Math.PI * i / n;
+            toe[i] = new Point3d(3.0 * Math.Cos(a), 3.0 * Math.Sin(a), 0);
+            top[i] = new Point3d(2.9 * Math.Cos(a), 2.9 * Math.Sin(a), i == 5 ? 0.0 : 0.2);
+        }
+
+        var pieces = RetainingWallBrepBuilder.SplitAtVanishingSections(toe, top, isClosed: true, epsilon: 0.001);
+
+        var piece = Assert.Single(pieces);
+        Assert.False(piece.IsClosed);
+        Assert.Equal(n + 1, piece.Toe.Length); // the 23 other stations plus an interpolated one at each side of the cut
+    }
+
+    [Fact]
+    public void SplitAtVanishingSections_NoCut_ReturnsWallWhole()
+    {
+        var toe = new[] { new Point3d(0, 0, 0), new Point3d(5, 0, 0) };
+        var top = new[] { new Point3d(0, 1, 2), new Point3d(5, 1, 2) };
+
+        var piece = Assert.Single(RetainingWallBrepBuilder.SplitAtVanishingSections(toe, top, isClosed: false, epsilon: 0.01));
+
+        Assert.Same(toe, piece.Toe);
+    }
 }

@@ -23,8 +23,8 @@ public class RetainingWallPlannerGeometryTests
             1.0);
 
         var wall = Assert.Single(plan.Walls);
-        Assert.NotNull(wall.Brep);
-        Assert.True(wall.Brep!.IsSolid);
+        Brep wallBrep = Assert.Single(wall.Breps);
+        Assert.True(wallBrep.IsSolid);
         Assert.Equal(2, wall.Rails.ToePoints.Length);
         Assert.Equal(2, wall.Rails.TopPoints.Length);
         Assert.False(wall.Rails.IsClosed);
@@ -43,7 +43,7 @@ public class RetainingWallPlannerGeometryTests
             1.0);
 
         var wall = Assert.Single(plan.Walls);
-        Assert.NotNull(wall.Brep);
+        Brep wallBrep = Assert.Single(wall.Breps);
         Assert.Equal(2, wall.Rails.ToePoints.Length);
     }
 
@@ -59,7 +59,7 @@ public class RetainingWallPlannerGeometryTests
             1.0);
 
         var wall = Assert.Single(plan.Walls);
-        Assert.NotNull(wall.Brep);
+        Brep wallBrep = Assert.Single(wall.Breps);
         Assert.Equal(2, wall.Rails.ToePoints.Length);
     }
 
@@ -84,8 +84,8 @@ public class RetainingWallPlannerGeometryTests
 
         var wall = Assert.Single(plan.Walls);
         Assert.True(wall.Rails.IsClosed);
-        Assert.NotNull(wall.Brep);
-        Assert.True(wall.Brep!.IsSolid);
+        Brep wallBrep = Assert.Single(wall.Breps);
+        Assert.True(wallBrep.IsSolid);
         Assert.Single(plan.PairLines);
     }
 
@@ -110,8 +110,74 @@ public class RetainingWallPlannerGeometryTests
 
         var wall = Assert.Single(plan.Walls);
         Assert.True(wall.Rails.IsClosed);
-        Assert.NotNull(wall.Brep);
-        Assert.True(wall.Brep!.IsSolid);
+        Brep wallBrep = Assert.Single(wall.Breps);
+        Assert.True(wallBrep.IsSolid);
+    }
+
+    // A kerb dropped to zero height for a crossing: one lofted solid collapsed through the cut and the wall
+    // published no solid at all. Now one watertight solid each side, tapering into the cut.
+    [RhinoNativeFact]
+    public void Plan_KerbCutToZeroHeight_BuildsOneSolidEachSide()
+    {
+        var toe = Enumerable.Range(0, 81).Select(i => new Point3d(6.0 + i * 0.1, 10, 0)).ToArray();
+        var top = toe.Select(p => new Point3d(p.X, 10.05, KerbCutHeight(p.X))).ToArray();
+
+        var plan = RetainingWallPlannerCore.Plan(new Curve[] { new PolylineCurve(toe), new PolylineCurve(top) }, 0.2);
+
+        var wall = Assert.Single(plan.Walls);
+        Assert.Equal(2, wall.Breps.Count);
+        Assert.All(wall.Breps, AssertWatertight);
+        Assert.True(wall.Breps[0].GetBoundingBox(true).Max.X < 9.4 + 1e-3);
+        Assert.True(wall.Breps[1].GetBoundingBox(true).Min.X > 10.6 - 1e-3);
+        Assert.DoesNotContain(plan.Report, entry => entry.Reason == RetainingWallPlannerCore.ReportReason.SolidFailed);
+    }
+
+    [RhinoNativeFact]
+    public void Plan_KerbDrawnToPoint_BuildsSolidToTheTip()
+    {
+        var toe = Enumerable.Range(0, 81).Select(i => new Point3d(i * 0.1, 0, 0)).ToArray();
+        var top = toe.Select(p => new Point3d(p.X, p.X < 7.5 ? 0.05 : 0.05 * (8.0 - p.X) / 0.5, 0.15)).ToArray();
+
+        var plan = RetainingWallPlannerCore.Plan(new Curve[] { new PolylineCurve(toe), new PolylineCurve(top) }, 0.2);
+
+        Brep brep = Assert.Single(Assert.Single(plan.Walls).Breps);
+        AssertWatertight(brep);
+        Assert.Equal(7.5 * 0.05 * 0.15 + 0.5 * 0.05 * 0.15 / 2.0, brep.GetVolume(), 4);
+    }
+
+    [RhinoNativeFact]
+    public void Plan_KerbWithRoundNose_BuildsSolid()
+    {
+        const double gap = 0.15, r = gap * 0.5;
+        var toe = Enumerable.Range(0, 61).Select(i => new Point3d(i * 0.1, 0, 0)).ToList();
+        var top = Enumerable.Range(0, 61).Select(i => new Point3d(i * 0.1, gap, 0.15)).ToList();
+        for (int k = 1; k <= 8; k++)
+        {
+            double a = k / 8.0 * Math.PI / 2.0;
+            toe.Add(new Point3d(6.0 + r * Math.Sin(a), r - r * Math.Cos(a), 0));
+            top.Add(new Point3d(6.0 + r * Math.Sin(a), r + r * Math.Cos(a), 0.15));
+        }
+
+        var plan = RetainingWallPlannerCore.Plan(new Curve[] { new PolylineCurve(toe.ToArray()), new PolylineCurve(top.ToArray()) }, 0.5);
+
+        Brep brep = Assert.Single(Assert.Single(plan.Walls).Breps);
+        AssertWatertight(brep);
+        Assert.True(brep.GetBoundingBox(true).Max.X > 6.0 + r * 0.95);
+    }
+
+    private static double KerbCutHeight(double x)
+    {
+        double d = Math.Abs(x - 10.0);
+        if (d <= 0.6)
+            return 0.0;
+        return d >= 1.2 ? 0.15 : 0.15 * (d - 0.6) / 0.6;
+    }
+
+    private static void AssertWatertight(Brep brep)
+    {
+        Assert.True(brep.IsValid);
+        Assert.True(brep.IsSolid);
+        Assert.All(brep.Edges, edge => Assert.NotEqual(EdgeAdjacency.Naked, edge.Valence));
     }
 
     [RhinoNativeFact]

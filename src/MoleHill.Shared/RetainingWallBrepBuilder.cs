@@ -33,14 +33,144 @@ internal static class RetainingWallBrepBuilder
     // leaving a fragmented, invalid Brep (see the copied Terrain 1 retaining-wall case).
     public static Brep? Build(Point3d[] toePts, Point3d[] topPts, double tolerance, bool isClosed = false)
     {
+        IReadOnlyList<Brep> pieces = BuildPieces(toePts, topPts, tolerance, isClosed);
+        return pieces.Count == 1 ? pieces[0] : null;
+    }
+
+    /// <summary>
+    /// The wall as one solid per stretch where it has both plan width and height. A kerb dropped to zero
+    /// height for a crossing, or rails drawn to a point or round nose, leave stations with no section at
+    /// all, and a loft through them collapses; so the wall is cut there, each piece ending in a tiny cap at
+    /// the interpolated point where its section vanishes. Empty when no piece could be made watertight.
+    /// </summary>
+    public static IReadOnlyList<Brep> BuildPieces(Point3d[] toePts, Point3d[] topPts, double tolerance, bool isClosed = false)
+    {
         int minimum = isClosed ? 3 : 2;
         if (toePts.Length < minimum || topPts.Length < minimum)
-            return null;
+            return Array.Empty<Brep>();
 
-        RailSet? rails = BuildRails(toePts, topPts, isClosed, tolerance);
-        if (rails == null || rails.Count < minimum)
-            return null;
+        WallRailStationing.Result stations = WallRailStationing.Synchronize(
+            Flatten(toePts), Flatten(topPts), isClosed, tolerance);
+        Point3d[] toe = Unflatten(stations.First);
+        Point3d[] top = Unflatten(stations.Second);
+        if (toe.Length < 2 || toe.Length != top.Length)
+            return Array.Empty<Brep>();
 
+        var result = new List<Brep>();
+        foreach ((Point3d[] pieceToe, Point3d[] pieceTop, bool pieceClosed) in SplitAtVanishingSections(toe, top, isClosed, SectionEpsilon(tolerance)))
+        {
+            RailSet rails = ToRailSet(pieceToe, pieceTop);
+            if (rails.Count < (pieceClosed ? 3 : 2))
+                continue;
+            Brep? piece = BuildFromRails(rails, pieceClosed, tolerance);
+            if (piece != null)
+                result.Add(piece);
+        }
+
+        return result;
+    }
+
+    /// <summary>The smallest section side a piece keeps: below it the cap would be shorter than the join tolerance.</summary>
+    internal static double SectionEpsilon(double tolerance) => Math.Max(2.0 * Math.Abs(tolerance), 1e-9);
+
+    /// <summary>
+    /// Splits synchronized stations into runs whose section (plan width or height, whichever is smaller)
+    /// is at least <paramref name="epsilon"/>. Each run is extended by a station interpolated to where its
+    /// section is back down to <paramref name="epsilon"/>, so a wall tapering into a kerb cut or a point keeps
+    /// its shape almost all the way. A wall with no vanishing section is returned whole.
+    /// </summary>
+    internal static List<(Point3d[] Toe, Point3d[] Top, bool IsClosed)> SplitAtVanishingSections(
+        Point3d[] toe, Point3d[] top, bool isClosed, double epsilon)
+    {
+        int n = toe.Length;
+        var slack = new double[n];
+        bool anyVanishing = false;
+        for (int i = 0; i < n; i++)
+        {
+            slack[i] = Section(toe[i], top[i]) - epsilon;
+            anyVanishing |= slack[i] < 0.0;
+        }
+
+        var pieces = new List<(Point3d[] Toe, Point3d[] Top, bool IsClosed)>();
+        if (!anyVanishing)
+        {
+            pieces.Add((toe, top, isClosed));
+            return pieces;
+        }
+
+        // A closed ring with a cut opens at it: start the walk on a vanishing station and come back to it.
+        if (isClosed)
+        {
+            int start = Array.FindIndex(slack, value => value < 0.0);
+            toe = Rotate(toe, start);
+            top = Rotate(top, start);
+            slack = Rotate(slack, start);
+            n = toe.Length;
+        }
+
+        int index = 0;
+        while (index < n)
+        {
+            while (index < n && slack[index] < 0.0)
+                index++;
+            if (index >= n)
+                break;
+
+            int runStart = index;
+            while (index < n && slack[index] >= 0.0)
+                index++;
+            int runEnd = index - 1;
+
+            var pieceToe = new List<Point3d>();
+            var pieceTop = new List<Point3d>();
+            if (runStart > 0)
+                AddInterpolated(pieceToe, pieceTop, toe, top, slack, runStart, runStart - 1);
+            for (int i = runStart; i <= runEnd; i++)
+            {
+                pieceToe.Add(toe[i]);
+                pieceTop.Add(top[i]);
+            }
+            if (runEnd < n - 1)
+                AddInterpolated(pieceToe, pieceTop, toe, top, slack, runEnd, runEnd + 1);
+
+            if (pieceToe.Count >= 2)
+                pieces.Add((pieceToe.ToArray(), pieceTop.ToArray(), false));
+        }
+
+        return pieces;
+    }
+
+    private static double Section(Point3d toe, Point3d top)
+    {
+        double width = Math.Sqrt((toe.X - top.X) * (toe.X - top.X) + (toe.Y - top.Y) * (toe.Y - top.Y));
+        return Math.Min(width, Math.Abs(top.Z - toe.Z));
+    }
+
+    // The station between a kept station and a vanishing one where the section is back down to epsilon.
+    private static void AddInterpolated(
+        List<Point3d> pieceToe, List<Point3d> pieceTop, Point3d[] toe, Point3d[] top, double[] slack, int kept, int vanishing)
+    {
+        double denominator = slack[kept] - slack[vanishing];
+        double s = denominator > 0.0 ? Math.Clamp(slack[kept] / denominator, 0.0, 1.0) : 0.0;
+        if (s <= 1e-9)
+            return;
+
+        pieceToe.Add(toe[kept] + (toe[vanishing] - toe[kept]) * s);
+        pieceTop.Add(top[kept] + (top[vanishing] - top[kept]) * s);
+    }
+
+    // Starts the ring at index start and repeats that station at the end, so the walk comes back to it.
+    private static T[] Rotate<T>(T[] values, int start)
+    {
+        var result = new T[values.Length + 1];
+        for (int i = 0; i < values.Length; i++)
+            result[i] = values[(start + i) % values.Length];
+        result[^1] = values[start];
+        return result;
+    }
+
+    private static Brep? BuildFromRails(RailSet rails, bool isClosed, double tolerance)
+    {
         var faces = new List<Brep>();
         AddLoft(faces, rails.FrontBottom, rails.FrontTop, isClosed);   // front face (along toe rail)
         AddLoft(faces, rails.BackBottom, rails.BackTop, isClosed);     // back face (along top rail)
@@ -73,16 +203,12 @@ internal static class RetainingWallBrepBuilder
         return BuildMeshFallback(rails, isClosed);
     }
 
-    // Synchronize corresponding plan bends before sampling between them, then split into the four
-    // longitudinal rails: front/back are the toe/top XY columns, bottom/top are the low/high Z of that
-    // station (so the wall face height is the elevation difference between the two rails, as before).
-    private static RailSet? BuildRails(Point3d[] toePts, Point3d[] topPts, bool isClosed, double tolerance)
+    // Split synchronized stations into the four longitudinal rails: front/back are the toe/top XY columns,
+    // bottom/top are the low/high Z of that station (so the wall face height is the elevation difference
+    // between the two rails, as before).
+    private static RailSet ToRailSet(Point3d[] toePts, Point3d[] topPts)
     {
-        WallRailStationing.Result stations = WallRailStationing.Synchronize(
-            Flatten(toePts), Flatten(topPts), isClosed, tolerance);
-        int count = stations.First.Length / 3;
-        if (count < 2)
-            return null;
+        int count = toePts.Length;
         var frontBottom = new Point3d[count];
         var frontTop = new Point3d[count];
         var backBottom = new Point3d[count];
@@ -90,8 +216,8 @@ internal static class RetainingWallBrepBuilder
 
         for (int i = 0; i < count; i++)
         {
-            Point3d toe = new(stations.First[i * 3], stations.First[i * 3 + 1], stations.First[i * 3 + 2]);
-            Point3d top = new(stations.Second[i * 3], stations.Second[i * 3 + 1], stations.Second[i * 3 + 2]);
+            Point3d toe = toePts[i];
+            Point3d top = topPts[i];
             double low = Math.Min(toe.Z, top.Z);
             double high = Math.Max(toe.Z, top.Z);
             frontBottom[i] = new Point3d(toe.X, toe.Y, low);
@@ -101,6 +227,14 @@ internal static class RetainingWallBrepBuilder
         }
 
         return new RailSet(frontBottom, frontTop, backBottom, backTop);
+    }
+
+    private static Point3d[] Unflatten(double[] flat)
+    {
+        var result = new Point3d[flat.Length / 3];
+        for (int i = 0; i < result.Length; i++)
+            result[i] = new Point3d(flat[i * 3], flat[i * 3 + 1], flat[i * 3 + 2]);
+        return result;
     }
 
     private static double[] Flatten(Point3d[] points)

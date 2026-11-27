@@ -24,7 +24,7 @@ Key files:
   work in the panel and fail in Grasshopper. It compiles with unsafe blocks, so every importing project
   sets `AllowUnsafeBlocks`.
 - `ModelUnitContext.cs` - the single model-unit boundary for both hosts.
-- `RetainingWallPlannerCore.cs`, `RetainingWallGradePlanner.cs`, `RetainingWallBrepBuilder.cs` -
+- `RetainingWallPlannerCore.cs`, `RetainingWallGradePlanner.cs`, `RetainingWallBrepBuilder.cs` (one solid per stretch with a section, so kerb cuts and pointed ends build) -
   retaining-wall planning and solids. The solid builder calls Core's `WallRailStationing` to match
   plan bends (sharp, chamfered or filleted) before lofting, keeping joined rails usable even with
   different longitudinal grades.
