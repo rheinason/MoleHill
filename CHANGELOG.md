@@ -31,6 +31,9 @@ beta prereleases. Earlier versions are recorded only in the git history.
   anywhere. With a height set, both curves are laid on the terrain as breaklines and the ground is left as
   it is; the wall solid stands that high above the higher of the two. Mode and grading do not apply and
   are hidden. 0 keeps the curves' own heights, as before.
+- **Graded curved walls** left the terrain up to 9 cm off the wall's top and toe in places: the grade
+  routed the rails through nearby terrain points instead of along the drawn curves. The rails are now
+  moved onto the drawn curves, and the terrain follows the wall within a few millimetres.
 - **Graded walls with rails closer than the grade's snap distance** (a narrow kerb, or the rails meeting at
   a pointed end) could lift stretches of the toe onto the wall top. The rails are now inserted instead
   when the graded terrain cannot hold them apart.

@@ -419,6 +419,14 @@ wider than the gap between a wall's rails (a narrow kerb, a converged tip). Ther
 the toe's vertices and pinned them to its own height, so `FindSharedRailVertex` refuses an adoption in
 which two rails pass through one vertex at different heights, and the rails are inserted instead.
 
+The conform also routes a rail through nearby terrain corners rather than cutting a sliver past them, so a
+traced chain zig-zags up to the snap radius off the drawn rail. Pinned to the drawn heights where it lay,
+that left the terrain beside a curved wall up to 9 cm off the wall's top and toe: across a wall face every
+millimetre sideways is several in height. `TrySnapTracedRailsOntoDrawn` therefore moves each chain vertex
+onto the drawn rail at its drawn height before adopting. The thin triangle a zig-zag vertex makes with its
+two chain neighbours flattens under that move, so its long edge is flipped; any other fold refuses the
+adoption, and the rails are inserted instead.
+
 Graded retaining-wall insertion tries a quality patch first. `MeshConstraintTopologyInserter.WallQuality.cs`
 expands a patch ring by ring until the stitched result clears a 5-degree floor, verifying achieved
 quality, plan-area conservation, a single closed perimeter and no discarded input vertex before it

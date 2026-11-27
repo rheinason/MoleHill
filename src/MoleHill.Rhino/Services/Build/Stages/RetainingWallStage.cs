@@ -937,6 +937,20 @@ internal static partial class RetainingWallStage
             return false;
         }
 
+        // The conform routes a rail through nearby terrain corners rather than cutting a sliver past them, so
+        // a traced chain zig-zags up to the snap radius off the drawn rail. Pinned to the drawn heights where
+        // it lies, that put the terrain beside a curved wall up to 9 cm off the wall's top and toe (found
+        // live): across a wall face every millimetre sideways is several in height. So the chain is moved
+        // onto the drawn rail; a move that would fold a triangle means the rails are inserted instead.
+        if (!TrySnapTracedRailsOntoDrawn(vertices, faces, faceCount, traced, wallConstraints, out List<ConstraintPolyline> snapped))
+        {
+            tracedRails.Clear();
+            build.Diagnostics.Add("Retaining Wall rails in the graded terrain could not be moved onto the drawn rails without folding it; inserting them instead.");
+            return false;
+        }
+
+        tracedRails.Clear();
+        tracedRails.AddRange(snapped);
         var before = MeshTopologyValidator.AnalyzeBoundaryGraph(faces, faceCount);
         TerrainBuildService.ApplyPreservedConstraintElevations(vertices, tracedRails, tolerance);
         adoptedMesh = TerrainBuildService.BuildMeshFromArrays(vertices, faces);
@@ -981,29 +995,197 @@ internal static partial class RetainingWallStage
         ConstraintPolyline drawn)
     {
         double[] points = (double[])traced.Points.Clone();
-        int segments = drawn.IsClosed ? drawn.PointCount : drawn.PointCount - 1;
         for (int i = 0; i < traced.PointCount; i++)
+            points[i * 3 + 2] = ClosestOnDrawn(points[i * 3], points[i * 3 + 1], drawn).Z;
+
+        return new ConstraintPolyline(points, traced.PointCount, traced.IsClosed, traced.PreserveInputElevation);
+    }
+
+    /// <summary>
+    /// Moves every vertex of each traced rail chain onto its drawn rail: to the closest plan point, at the
+    /// drawn elevation there. A thin triangle between a zig-zag vertex and its chain neighbours, flattened by
+    /// the move, is repaired by flipping its long edge. <paramref name="vertices"/> and <paramref name="faces"/>
+    /// change only when it succeeds; it fails, leaving them as they were, when a vertex would belong to two
+    /// rails at different places or a move would fold or flatten a triangle that no flip repairs.
+    /// <paramref name="snapped"/> are the chains as moved.
+    /// </summary>
+    internal static bool TrySnapTracedRailsOntoDrawn(
+        double[] vertices,
+        int[] faces,
+        int faceCount,
+        IReadOnlyList<ConstraintPolyline> traced,
+        IReadOnlyList<ConstraintPolyline> drawn,
+        out List<ConstraintPolyline> snapped)
+    {
+        snapped = new List<ConstraintPolyline>(traced.Count);
+        int vertexCount = vertices.Length / 3;
+        var byPlan = new Dictionary<(double X, double Y), List<int>>();
+        for (int v = 0; v < vertexCount; v++)
         {
-            double x = points[i * 3], y = points[i * 3 + 1];
-            double best = double.MaxValue;
-            for (int s = 0; s < segments; s++)
+            var key = (vertices[v * 3], vertices[v * 3 + 1]);
+            if (!byPlan.TryGetValue(key, out List<int>? list))
+                byPlan[key] = list = new List<int>(1);
+            list.Add(v);
+        }
+
+        var moves = new Dictionary<int, (double X, double Y, double Z)>();
+        for (int c = 0; c < traced.Count; c++)
+        {
+            ConstraintPolyline chain = traced[c];
+            double[] points = (double[])chain.Points.Clone();
+            for (int i = 0; i < chain.PointCount; i++)
             {
-                int a = s, b = (s + 1) % drawn.PointCount;
-                double ax = drawn.Points[a * 3], ay = drawn.Points[a * 3 + 1];
-                double dx = drawn.Points[b * 3] - ax, dy = drawn.Points[b * 3 + 1] - ay;
-                double lengthSquared = (dx * dx) + (dy * dy);
-                double t = lengthSquared > 0 ? Math.Clamp((((x - ax) * dx) + ((y - ay) * dy)) / lengthSquared, 0.0, 1.0) : 0.0;
-                double ox = ax + (t * dx) - x, oy = ay + (t * dy) - y;
-                double distanceSquared = (ox * ox) + (oy * oy);
-                if (distanceSquared < best)
+                double x = chain.Points[i * 3], y = chain.Points[i * 3 + 1];
+                var target = ClosestOnDrawn(x, y, drawn[c]);
+                points[i * 3] = target.X;
+                points[i * 3 + 1] = target.Y;
+                points[i * 3 + 2] = target.Z;
+                if (!byPlan.TryGetValue((x, y), out List<int>? owners))
+                    continue;
+                foreach (int v in owners)
                 {
-                    best = distanceSquared;
-                    points[i * 3 + 2] = drawn.Points[a * 3 + 2] + (t * (drawn.Points[b * 3 + 2] - drawn.Points[a * 3 + 2]));
+                    if (moves.TryGetValue(v, out var claimed) &&
+                        (Math.Abs(claimed.X - target.X) > 1e-9 || Math.Abs(claimed.Y - target.Y) > 1e-9))
+                        return false;
+                    moves[v] = target;
                 }
+            }
+
+            snapped.Add(new ConstraintPolyline(points, chain.PointCount, chain.IsClosed, chain.PreserveInputElevation));
+        }
+
+        if (moves.Count == 0)
+            return true;
+
+        const double Flat = 1e-10;
+        (double X, double Y) Before(int v) => (vertices[v * 3], vertices[v * 3 + 1]);
+        (double X, double Y) After(int v) => moves.TryGetValue(v, out var m) ? (m.X, m.Y) : Before(v);
+        static double Area((double X, double Y) a, (double X, double Y) b, (double X, double Y) c) =>
+            ((b.X - a.X) * (c.Y - a.Y)) - ((c.X - a.X) * (b.Y - a.Y));
+        double FaceArea(int[] fs, int f, Func<int, (double X, double Y)> at) =>
+            Area(at(fs[f * 3]), at(fs[f * 3 + 1]), at(fs[f * 3 + 2]));
+        bool Touches(int f) =>
+            moves.ContainsKey(faces[f * 3]) || moves.ContainsKey(faces[f * 3 + 1]) || moves.ContainsKey(faces[f * 3 + 2]);
+
+        double orientation = 0.0;
+        for (int f = 0; f < faceCount; f++)
+            orientation += FaceArea(faces, f, Before);
+        int sign = orientation >= 0.0 ? 1 : -1;
+
+        // Where the chain zig-zagged out to a vertex, that vertex and its two chain neighbours made a thin
+        // triangle on the rail side. Moving the vertex onto the rail flattens it, so flip the long edge: the
+        // flat triangle and its neighbour across that edge become two triangles fanning from the vertex.
+        int[] result = (int[])faces.Clone();
+        var changed = new HashSet<int>();
+        for (int f = 0; f < faceCount; f++)
+        {
+            if (!Touches(f) || Math.Abs(FaceArea(faces, f, Before)) <= Flat)
+                continue;
+            double after = FaceArea(faces, f, After);
+            if (Math.Sign(after) == sign && Math.Abs(after) > Flat)
+                continue;
+
+            int[] corner = { faces[f * 3], faces[f * 3 + 1], faces[f * 3 + 2] };
+            if (!corner.All(moves.ContainsKey) || changed.Contains(f))
+                return false;
+
+            int middle = -1;
+            double nearest = double.MaxValue;
+            for (int k = 0; k < 3; k++)
+            {
+                var p = After(corner[k]);
+                var a = After(corner[(k + 1) % 3]);
+                var b = After(corner[(k + 2) % 3]);
+                double dx = b.X - a.X, dy = b.Y - a.Y, lengthSquared = (dx * dx) + (dy * dy);
+                if (lengthSquared <= 0.0)
+                    return false;
+                double t = (((p.X - a.X) * dx) + ((p.Y - a.Y) * dy)) / lengthSquared;
+                double distance = Math.Abs(Area(a, b, p)) / Math.Sqrt(lengthSquared);
+                if (t > 0.0 && t < 1.0 && distance < nearest)
+                {
+                    nearest = distance;
+                    middle = k;
+                }
+            }
+            if (middle < 0)
+                return false;
+
+            int m = corner[middle], ea = corner[(middle + 1) % 3], eb = corner[(middle + 2) % 3];
+            int g = -1;
+            for (int h = 0; h < faceCount && g < 0; h++)
+            {
+                if (h == f)
+                    continue;
+                int h0 = faces[h * 3], h1 = faces[h * 3 + 1], h2 = faces[h * 3 + 2];
+                bool hasA = h0 == ea || h1 == ea || h2 == ea;
+                bool hasB = h0 == eb || h1 == eb || h2 == eb;
+                if (hasA && hasB)
+                    g = h;
+            }
+            if (g < 0 || changed.Contains(g))
+                return false;
+
+            int x = faces[g * 3] != ea && faces[g * 3] != eb ? faces[g * 3]
+                : faces[g * 3 + 1] != ea && faces[g * 3 + 1] != eb ? faces[g * 3 + 1]
+                : faces[g * 3 + 2];
+            SetOriented(result, f, ea, m, x);
+            SetOriented(result, g, m, eb, x);
+            changed.Add(f);
+            changed.Add(g);
+        }
+
+        void SetOriented(int[] fs, int f, int a, int b, int c)
+        {
+            if (Math.Sign(Area(After(a), After(b), After(c))) != sign)
+                (b, c) = (c, b);
+            fs[f * 3] = a;
+            fs[f * 3 + 1] = b;
+            fs[f * 3 + 2] = c;
+        }
+
+        for (int f = 0; f < faceCount; f++)
+        {
+            if (!changed.Contains(f) && (!Touches(f) || Math.Abs(FaceArea(faces, f, Before)) <= Flat))
+                continue;
+            double after = FaceArea(result, f, After);
+            if (Math.Sign(after) != sign || Math.Abs(after) <= Flat)
+                return false;
+        }
+
+        foreach (var (v, target) in moves)
+        {
+            vertices[v * 3] = target.X;
+            vertices[v * 3 + 1] = target.Y;
+            vertices[v * 3 + 2] = target.Z;
+        }
+
+        Array.Copy(result, faces, result.Length);
+        return true;
+    }
+
+    /// <summary>The closest plan point to (<paramref name="x"/>, <paramref name="y"/>) on <paramref name="drawn"/>, at its elevation there.</summary>
+    private static (double X, double Y, double Z) ClosestOnDrawn(double x, double y, ConstraintPolyline drawn)
+    {
+        int segments = drawn.IsClosed ? drawn.PointCount : drawn.PointCount - 1;
+        double best = double.MaxValue;
+        (double X, double Y, double Z) result = (x, y, drawn.PointCount > 0 ? drawn.Points[2] : 0.0);
+        for (int s = 0; s < segments; s++)
+        {
+            int a = s, b = (s + 1) % drawn.PointCount;
+            double ax = drawn.Points[a * 3], ay = drawn.Points[a * 3 + 1];
+            double dx = drawn.Points[b * 3] - ax, dy = drawn.Points[b * 3 + 1] - ay;
+            double lengthSquared = (dx * dx) + (dy * dy);
+            double t = lengthSquared > 0 ? Math.Clamp((((x - ax) * dx) + ((y - ay) * dy)) / lengthSquared, 0.0, 1.0) : 0.0;
+            double px = ax + (t * dx), py = ay + (t * dy);
+            double distanceSquared = ((px - x) * (px - x)) + ((py - y) * (py - y));
+            if (distanceSquared < best)
+            {
+                best = distanceSquared;
+                result = (px, py, drawn.Points[a * 3 + 2] + (t * (drawn.Points[b * 3 + 2] - drawn.Points[a * 3 + 2])));
             }
         }
 
-        return new ConstraintPolyline(points, traced.PointCount, traced.IsClosed, traced.PreserveInputElevation);
+        return result;
     }
 
     private static bool TryInsertWallConstraintsIntoExistingMesh(

@@ -35,7 +35,51 @@ public static class HostedKerbWallTests
         {
             KerbShapes(doc, mode);
             WallHeight(doc, mode);
+            CurvedRetainingWall(doc, mode);
         }
+    }
+
+    // A 20 m curved 0.8 m retaining wall drawn at its real heights on sloping ground. In grade mode the
+    // graded rails zig-zagged up to 38 mm off the drawn line, leaving the terrain up to 9 cm off the wall's
+    // top and toe; the terrain must follow both rails.
+    private static void CurvedRetainingWall(RhinoDoc doc, string mode)
+    {
+        Point3d At(int k, double offset, double lift)
+        {
+            double x = 10 + k * 0.25, y = 20 + offset + 2 * Math.Sin(k * 0.25 / 20.0 * Math.PI);
+            return new Point3d(x, y, Ground(x, y) + lift);
+        }
+
+        var curves = new List<Curve>
+        {
+            Polyline(Enumerable.Range(0, 81).Select(k => At(k, 0, 0))),
+            Polyline(Enumerable.Range(0, 81).Select(k => At(k, 0.3, 0.8))),
+        };
+        var (terrain, doc2) = BuildWallTerrain(doc, $"Curved wall {mode}", curves, mode, maxWallWidth: 1.0, wallHeight: 0.0);
+        Brep wall = Single(WallSolids(doc2, terrain), $"{mode}: expected one curved wall solid. {BuildMessage(terrain)}");
+        Require(wall.IsSolid, $"{mode}: curved wall is not solid");
+        Mesh mesh = TerrainMesh(doc2, terrain);
+        AssertHoleFree(mesh, mode + " curved");
+        // On the surface within 2 mm. Vertically within 3 mm: where the graded rail's chain steps over one of
+        // the drawn vertices, its chord sits under a millimetre off the curve in plan, and across the wall face
+        // (0.8 m over 0.3 m) that reads as about 2 mm in height.
+        double worstVertical = 0;
+        foreach ((Curve rail, string name) in new[] { (curves[0], "toe"), (curves[1], "top") })
+        {
+            AssertRailOnMesh(mesh, rail, 0.002, $"{mode} curved {name}");
+            rail.TryGetPolyline(out Polyline points);
+            for (int i = 1; i + 1 < points.Count; i++)
+            {
+                foreach (Point3d p in new[] { points[i], 0.5 * (points[i] + points[i + 1]) })
+                {
+                    Point3d[] hits = global::Rhino.Geometry.Intersect.Intersection.MeshLine(mesh, new Line(p.X, p.Y, p.Z + 100, p.X, p.Y, p.Z - 100));
+                    if (hits.Length > 0)
+                        worstVertical = Math.Max(worstVertical, hits.Min(h => Math.Abs(h.Z - p.Z)));
+                }
+            }
+            Require(worstVertical <= 0.003, $"{mode}: the terrain is {worstVertical * 1000:0.0} mm above or below the curved wall's {name}");
+        }
+        Console.WriteLine($"PASS curved/{mode}: one solid, terrain hole-free and on both rails (worst {worstVertical * 1000:0.0} mm vertically)");
     }
 
     // Kerb cut (two solids), pointed end and round nose (one solid each), drawn on the ground.
