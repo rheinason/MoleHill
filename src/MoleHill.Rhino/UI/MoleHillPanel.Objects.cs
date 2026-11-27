@@ -15,25 +15,23 @@ public sealed partial class MoleHillPanel
     private Control BuildObjectAddButtons(TerrainDefinition terrain)
     {
         var addButton = MakeToolbarButton("Add Object", (_, _) => { }, "Add a terrain object definition.");
-        var menu = new ContextMenu();
-
-        foreach (var descriptor in ObjectTypeRegistry.Objects)
-        {
-            string kind = descriptor.Kind;
-            var item = new ButtonMenuItem { Text = descriptor.DisplayName, ToolTip = descriptor.Subtitle };
-            item.Click += (_, _) =>
+        var entries = ObjectTypeRegistry.Objects
+            .Select(descriptor =>
             {
-                var doc = RhinoDoc.ActiveDoc;
-                if (doc == null)
-                    return;
+                string kind = descriptor.Kind;
+                return new AddMenuEntry(descriptor.DisplayName, descriptor.Subtitle, null, null, () =>
+                {
+                    var doc = RhinoDoc.ActiveDoc;
+                    if (doc == null)
+                        return;
 
-                _controller.AddObjectDefinition(doc, terrain.TerrainId, kind);
-                RebuildObjectsLayout(_controller.GetSelectedTerrain(doc));
-            };
-            menu.Items.Add(item);
-        }
+                    _controller.AddObjectDefinition(doc, terrain.TerrainId, kind);
+                    RebuildObjectsLayout(_controller.GetSelectedTerrain(doc));
+                });
+            })
+            .ToList();
 
-        addButton.Click += (_, _) => menu.Show(addButton);
+        addButton.Click += (_, _) => SearchableAddMenu.Show(addButton, entries);
 
         return CreateSectionToolbar(
             "TERRAIN OBJECTS",

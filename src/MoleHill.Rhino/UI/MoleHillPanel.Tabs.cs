@@ -611,31 +611,26 @@ public sealed partial class MoleHillPanel : Panel
         var addButton = MakeToolbarButton("Add Modifier", (_, _) => { }, "Add a modifier above the base geometry");
         if (terrain != null)
         {
-            var menu = new ContextMenu();
-            foreach (var descriptor in TerrainTypeRegistry.Modifiers
-                         .Where(d => d.CanCreateFromMenu)
-                         .OrderBy(d => d.SortOrder))
-            {
-                var item = new ButtonMenuItem
+            var capturedTerrainId = terrain.TerrainId;
+            var entries = TerrainTypeRegistry.Modifiers
+                .Where(d => d.CanCreateFromMenu)
+                .OrderBy(d => d.SortOrder)
+                .Select(descriptor =>
                 {
-                    Text = descriptor.DisplayName,
-                    Image = PanelIcons.Load(descriptor.IconName)
-                };
-                var capturedKind = descriptor.Kind;
-                var capturedTerrainId = terrain.TerrainId;
-                item.Click += (_, _) =>
-                {
-                    var doc = RhinoDoc.ActiveDoc;
-                    if (doc == null)
-                        return;
+                    var capturedKind = descriptor.Kind;
+                    return new AddMenuEntry(descriptor.DisplayName, descriptor.Subtitle, descriptor.SearchKeywords, descriptor.IconName, () =>
+                    {
+                        var doc = RhinoDoc.ActiveDoc;
+                        if (doc == null)
+                            return;
 
-                    _controller.AddModifier(doc, capturedTerrainId, capturedKind);
-                    RebuildModifierLayout(_controller.GetSelectedTerrain(doc));
-                };
-                menu.Items.Add(item);
-            }
+                        _controller.AddModifier(doc, capturedTerrainId, capturedKind);
+                        RebuildModifierLayout(_controller.GetSelectedTerrain(doc));
+                    });
+                })
+                .ToList();
 
-            addButton.Click += (_, _) => menu.Show(addButton);
+            addButton.Click += (_, _) => SearchableAddMenu.Show(addButton, entries);
         }
         else
         {
@@ -650,31 +645,32 @@ public sealed partial class MoleHillPanel : Panel
     private Control BuildAnalysisToolbar(TerrainDefinition terrain)
     {
         var addButton = MakeToolbarButton("Add Analysis", (_, _) => { }, "Add an analysis card");
-        var menu = new ContextMenu();
-        foreach (var descriptor in AnalysisTypeRegistry.Analyses.OrderBy(item => item.SortOrder))
-        {
-            var item = new ButtonMenuItem { Text = descriptor.MenuLabel };
-            var capturedKind = descriptor.Kind;
-            item.Click += (_, _) => AddAnalysis(capturedKind);
-            menu.Items.Add(item);
-        }
+        var entries = AnalysisTypeRegistry.Analyses
+            .OrderBy(item => item.SortOrder)
+            .Select(descriptor =>
+            {
+                var capturedKind = descriptor.Kind;
+                return new AddMenuEntry(descriptor.MenuLabel, descriptor.Subtitle, null, null, () => AddAnalysis(capturedKind));
+            })
+            .ToList();
 
-        addButton.Click += (_, _) => menu.Show(addButton);
+        addButton.Click += (_, _) => SearchableAddMenu.Show(addButton, entries);
         return CreateSectionToolbar("ANALYSIS", addButton);
     }
 
     private Control BuildAnnotationToolbar(TerrainDefinition terrain)
     {
         var addButton = MakeToolbarButton("Add Annotation", (_, _) => { }, "Add an annotation card");
-        var menu = new ContextMenu();
-        foreach (var descriptor in AnnotationTypeRegistry.Annotations.OrderBy(item => item.SortOrder))
-        {
-            var item = new ButtonMenuItem { Text = descriptor.MenuLabel };
-            var capturedKind = descriptor.Kind;
-            item.Click += (_, _) => AddAnnotation(capturedKind);
-            menu.Items.Add(item);
-        }
-        addButton.Click += (_, _) => menu.Show(addButton);
+        var entries = AnnotationTypeRegistry.Annotations
+            .OrderBy(item => item.SortOrder)
+            .Select(descriptor =>
+            {
+                var capturedKind = descriptor.Kind;
+                return new AddMenuEntry(descriptor.MenuLabel, descriptor.Subtitle, null, null, () => AddAnnotation(capturedKind));
+            })
+            .ToList();
+
+        addButton.Click += (_, _) => SearchableAddMenu.Show(addButton, entries);
         return CreateSectionToolbar("ANNOTATION", addButton);
     }
 

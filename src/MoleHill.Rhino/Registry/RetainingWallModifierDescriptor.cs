@@ -15,6 +15,7 @@ internal sealed class RetainingWallModifierDescriptor : ModifierTypeDescriptor
     public override string IconName => "ModRetainingWall";
     public override int SortOrder => 4;
     public override string Subtitle => "Wall breaklines, optional batter";
+    public override string SearchKeywords => "kerb curb";
     public override ModifierDefinition Create(UnitSystem unitSystem) =>
         new RetainingWallModifierDefinition { MaxWallWidth = ModelUnits.FromMeters(1.0, unitSystem) };
     public override void RunBuildStage(ModifierBuildContext context) => RetainingWallStage.Run(context);

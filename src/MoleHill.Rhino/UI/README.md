@@ -167,6 +167,10 @@ margin on the scrollable, not the content: the pinning stopped the scan dialog's
   and creation/build controls stay disabled while non-destructive inspection remains available.
 - Expanded zone cards show last-final-build quantities for the resolved zone output: plan/surface area,
   elevation, slope, mesh counts, and Earthworks cut/fill when a reference is configured.
+- `SearchableAddMenu.cs` - the Add Modifier / Analysis / Annotation / Object drop-down: a borderless
+  popup with a search box, because an Eto `ContextMenu` cannot host one. Filtering is
+  `Registry/AddMenuSearch` (pure, tested): every typed word must match the label, its initials, the
+  descriptor subtitle or a modifier's `SearchKeywords`; an empty query keeps menu order.
 - `BlockSelectorDialog.cs` / `BlockThumbnailRenderer.cs` - the Insert-style block picker for Scatter (multi) and annotation cards (single).
   Scatter ratios use editable numeric text beside the slider (Enter/blur commits; Esc cancels).
   The Scatter schema exposes whole-block region filtering and capped Enscape/native-block preview.

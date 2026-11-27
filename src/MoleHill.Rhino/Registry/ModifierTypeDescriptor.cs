@@ -34,6 +34,9 @@ internal abstract class ModifierTypeDescriptor
     /// <summary>Short card subtitle. Defaults to the display name.</summary>
     public virtual string Subtitle => DisplayName;
 
+    /// <summary>Extra words the Add-Modifier search matches (synonyms a user might type), space separated.</summary>
+    public virtual string SearchKeywords => string.Empty;
+
     /// <summary>Creates a new definition with unit-aware defaults.</summary>
     public abstract ModifierDefinition Create(UnitSystem unitSystem);
 
