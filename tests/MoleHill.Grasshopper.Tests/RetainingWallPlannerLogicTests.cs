@@ -598,9 +598,28 @@ public class RetainingWallPlannerLogicTests
         Assert.Same(toe, piece.Toe);
     }
 
-    // Wall Height: rails draped onto level ground sit at one height; the lift is what makes them a wall.
+    // Wall Height (freestanding): rails draped onto level ground sit at one height; the height is what
+    // makes them a wall, and the terrain's rails stay on the ground.
     [Fact]
-    public void Plan_TopLift_LevelRailsBecomeAWallOfThatHeight()
+    public void Plan_WallHeight_LevelRailsBecomeAWallAndStayOnTheGround()
+    {
+        var plan = RetainingWallPlannerCore.PlanPolylines(
+            new RetainingWallPlannerCore.RailPolyline?[]
+            {
+                Open(new Point3d(0, 0, 5), new Point3d(10, 0, 5)),
+                Open(new Point3d(0, 0.3, 5), new Point3d(10, 0.3, 5)),
+            },
+            1.0,
+            buildSolids: false,
+            wallHeight: 0.15);
+
+        var wall = Assert.Single(plan.Walls);
+        Assert.All(wall.Rails.ToePoints, p => Assert.Equal(5.0, p.Z, 9));
+        Assert.All(wall.Rails.TopPoints, p => Assert.Equal(5.0, p.Z, 9));
+    }
+
+    [Fact]
+    public void Plan_WallHeight_SlopingRailsKeepTheirGroundHeights()
     {
         var plan = RetainingWallPlannerCore.PlanPolylines(
             new RetainingWallPlannerCore.RailPolyline?[]
@@ -610,38 +629,15 @@ public class RetainingWallPlannerLogicTests
             },
             1.0,
             buildSolids: false,
-            topLift: 0.5);
+            wallHeight: 0.5);
 
         var wall = Assert.Single(plan.Walls);
         Assert.All(wall.Rails.ToePoints, p => Assert.Equal(2.0, p.Z, 9));
-        Assert.All(wall.Rails.TopPoints, p => Assert.Equal(2.9, p.Z, 9));
-        Assert.All(wall.Rails.TopPoints, p => Assert.Equal(0.3, p.Y, 9)); // the rail on the higher ground is lifted
-    }
-
-    [Theory]
-    [InlineData(0.0, 1.0, 1)]
-    [InlineData(1.0, 0.0, 0)]
-    public void Plan_TopLift_OnLevelGroundTheCurveDrawnHigherIsTheTop(double drawnZ0, double drawnZ1, int expectedTop)
-    {
-        var plan = RetainingWallPlannerCore.PlanPolylines(
-            new RetainingWallPlannerCore.RailPolyline?[]
-            {
-                Open(new Point3d(0, 0, 5), new Point3d(10, 0, 5)),
-                Open(new Point3d(0, 0.3, 5), new Point3d(10, 0.3, 5)),
-            },
-            1.0,
-            buildSolids: false,
-            topLift: 0.15,
-            tieBreakZ: new[] { drawnZ0, drawnZ1 });
-
-        var wall = Assert.Single(plan.Walls);
-        double expectedY = expectedTop == 0 ? 0.0 : 0.3;
-        Assert.All(wall.Rails.TopPoints, p => Assert.Equal(expectedY, p.Y, 9));
-        Assert.All(wall.Rails.TopPoints, p => Assert.Equal(5.15, p.Z, 9));
+        Assert.All(wall.Rails.TopPoints, p => Assert.Equal(2.4, p.Z, 9));
     }
 
     [Fact]
-    public void Plan_NoLift_LevelRailsStillHaveNoHeight()
+    public void Plan_NoWallHeight_LevelRailsStillHaveNoHeight()
     {
         var plan = RetainingWallPlannerCore.PlanPolylines(
             new RetainingWallPlannerCore.RailPolyline?[]
@@ -650,8 +646,7 @@ public class RetainingWallPlannerLogicTests
                 Open(new Point3d(0, 0.3, 5), new Point3d(10, 0.3, 5)),
             },
             1.0,
-            buildSolids: false,
-            tieBreakZ: new[] { 0.0, 1.0 });
+            buildSolids: false);
 
         Assert.Empty(plan.Walls);
     }

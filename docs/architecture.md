@@ -404,11 +404,15 @@ height for a crossing leaves stations with no section, and one loft through them
 the interpolated point where its section vanishes (`SplitAtVanishingSections`). `PlannedWall.Breps` is
 therefore a list: one solid, or one per stretch between cuts.
 
-**Wall Height.** A wall stays two curves; the card's Wall Height is only a quicker way to give them
-heights. With it set, the stage drapes both curves onto the incoming terrain (stationed every detail size
-and at corners, `DrapeWallCurves`) before planning, and the planner lifts the rail on the higher ground by
-the height (`topLift`); on level ground the curve drawn higher is the top (`tieBreakZ`). Because the plan
-then reads the terrain, the plan cache key adds the incoming mesh fingerprint in that mode only.
+**Wall Height (freestanding walls).** A wall stays two curves; the card's Wall Height makes it a
+freestanding wall that only adds to the solid. With it set, the stage drapes both curves onto the incoming
+terrain (stationed every detail size and at corners, `DrapeWallCurves`) before planning. The draped rails
+go into the terrain as plain breaklines, so the ground keeps its shape, and the card never grades
+(`GradesTerrain` is false; Mode and the grading rows hide). Only the solid stands up:
+`RetainingWallBrepBuilder.BuildPieces(..., freestandingHeight)` runs each synchronized station from the
+lower rail to the higher one plus the height, so the wall is that tall above its higher side however the
+ground falls across it. Because the plan then reads the terrain, the plan cache key adds the incoming mesh
+fingerprint in that mode only.
 
 Graded rails are adopted from the graded mesh by tracing them at the conform's snap reach, which can be
 wider than the gap between a wall's rails (a narrow kerb, a converged tip). There the top rail traced along

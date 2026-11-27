@@ -50,9 +50,10 @@ public sealed class RetainingWallModifierDefinition : ModifierDefinition
     public double MaxDistance { get; set; }
 
     /// <summary>
-    /// Wall height above the ground. 0 (the default, and every document saved before it existed) uses the
-    /// curves' own elevations. A height drapes both curves onto the incoming terrain and lifts the one on
-    /// the higher ground by this much, so two curves sketched anywhere make a wall.
+    /// Freestanding wall height above the ground. 0 (the default, and every document saved before it existed)
+    /// uses the curves' own elevations. A height drapes both curves onto the incoming terrain, where they stay
+    /// as breaklines without changing the ground, and stands the solid this high above the higher of the two,
+    /// so two curves sketched anywhere make a wall.
     /// </summary>
     [ModelLength]
     public double WallHeight { get; set; }
@@ -61,10 +62,14 @@ public sealed class RetainingWallModifierDefinition : ModifierDefinition
     [JsonIgnore]
     public bool UsesWallHeight => WallHeight > 0.0;
 
-    /// <summary>Derived from <see cref="Mode"/>, so it is never written to the document.</summary>
+    /// <summary>
+    /// Derived from <see cref="Mode"/>, so it is never written to the document. A freestanding wall
+    /// (<see cref="UsesWallHeight"/>) never grades: its rails lie on the ground, so grading from them could
+    /// only nudge the ground it is meant to leave alone.
+    /// </summary>
     [JsonIgnore]
     public bool GradesTerrain =>
-        string.Equals(Mode, GradeMode, StringComparison.OrdinalIgnoreCase);
+        !UsesWallHeight && string.Equals(Mode, GradeMode, StringComparison.OrdinalIgnoreCase);
 
     [ModelLength]
     public double MaxWallWidth

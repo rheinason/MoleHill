@@ -132,6 +132,27 @@ public class RetainingWallPlannerGeometryTests
         Assert.DoesNotContain(plan.Report, entry => entry.Reason == RetainingWallPlannerCore.ReportReason.SolidFailed);
     }
 
+    // Wall Height: a freestanding wall stands from the lower rail to the higher one plus the height, while
+    // the rails the terrain receives stay on the ground.
+    [RhinoNativeFact]
+    public void Plan_WallHeight_StandsFreestandingSolidFromTheGround()
+    {
+        var toe = new[] { new Point3d(0, 0, 1.0), new Point3d(10, 0, 1.0) };
+        var top = new[] { new Point3d(0, 0.3, 1.1), new Point3d(10, 0.3, 1.1) };
+
+        var plan = RetainingWallPlannerCore.Plan(new Curve[] { new PolylineCurve(toe), new PolylineCurve(top) }, 1.0, wallHeight: 0.8);
+
+        var wall = Assert.Single(plan.Walls);
+        Brep brep = Assert.Single(wall.Breps);
+        AssertWatertight(brep);
+        BoundingBox box = brep.GetBoundingBox(true);
+        Assert.Equal(1.0, box.Min.Z, 6);
+        Assert.Equal(1.9, box.Max.Z, 6);
+        Assert.Equal(10 * 0.3 * 0.9, brep.GetVolume(), 4);
+        Assert.All(wall.Rails.ToePoints, p => Assert.Equal(1.0, p.Z, 9));
+        Assert.All(wall.Rails.TopPoints, p => Assert.Equal(1.1, p.Z, 9));
+    }
+
     [RhinoNativeFact]
     public void Plan_KerbDrawnToPoint_BuildsSolidToTheTip()
     {

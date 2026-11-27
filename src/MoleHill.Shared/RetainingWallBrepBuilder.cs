@@ -42,8 +42,12 @@ internal static class RetainingWallBrepBuilder
     /// height for a crossing, or rails drawn to a point or round nose, leave stations with no section at
     /// all, and a loft through them collapses; so the wall is cut there, each piece ending in a tiny cap at
     /// the interpolated point where its section vanishes. Empty when no piece could be made watertight.
+    /// A <paramref name="freestandingHeight"/> stands the wall up from two rails lying on the ground: at each
+    /// station it runs from the lower rail up to the higher one plus that height, so the wall is that tall
+    /// above the ground on its higher side however the ground falls across it.
     /// </summary>
-    public static IReadOnlyList<Brep> BuildPieces(Point3d[] toePts, Point3d[] topPts, double tolerance, bool isClosed = false)
+    public static IReadOnlyList<Brep> BuildPieces(
+        Point3d[] toePts, Point3d[] topPts, double tolerance, bool isClosed = false, double freestandingHeight = 0.0)
     {
         int minimum = isClosed ? 3 : 2;
         if (toePts.Length < minimum || topPts.Length < minimum)
@@ -55,6 +59,8 @@ internal static class RetainingWallBrepBuilder
         Point3d[] top = Unflatten(stations.Second);
         if (toe.Length < 2 || toe.Length != top.Length)
             return Array.Empty<Brep>();
+        if (freestandingHeight > 0.0)
+            StandUp(toe, top, freestandingHeight);
 
         var result = new List<Brep>();
         foreach ((Point3d[] pieceToe, Point3d[] pieceTop, bool pieceClosed) in SplitAtVanishingSections(toe, top, isClosed, SectionEpsilon(tolerance)))
@@ -138,6 +144,17 @@ internal static class RetainingWallBrepBuilder
         }
 
         return pieces;
+    }
+
+    private static void StandUp(Point3d[] toe, Point3d[] top, double height)
+    {
+        for (int i = 0; i < toe.Length; i++)
+        {
+            double low = Math.Min(toe[i].Z, top[i].Z);
+            double high = Math.Max(toe[i].Z, top[i].Z) + height;
+            toe[i] = new Point3d(toe[i].X, toe[i].Y, low);
+            top[i] = new Point3d(top[i].X, top[i].Y, high);
+        }
     }
 
     private static double Section(Point3d toe, Point3d top)

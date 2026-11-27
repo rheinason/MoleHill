@@ -325,8 +325,7 @@ internal static class RetainingWallPlannerCore
         double? curveParsingTolerance = null,
         double? curveCleanupTolerance = null,
         bool buildSolids = true,
-        double topLift = 0.0,
-        IReadOnlyList<double>? tieBreakZ = null)
+        double wallHeight = 0.0)
     {
         double resolvedMaxWallWidth = PositiveLength(maxWallWidth, maxWallWidth);
         double geometryTolerance = ResolveGeometryTolerance(resolvedMaxWallWidth, curveParsingTolerance);
@@ -365,8 +364,7 @@ internal static class RetainingWallPlannerCore
             curveCleanupTolerance,
             buildSolids,
             seedReport: report,
-            topLift: topLift,
-            tieBreakZ: tieBreakZ);
+            wallHeight: wallHeight);
     }
 
     /// <summary>
@@ -382,8 +380,7 @@ internal static class RetainingWallPlannerCore
         double? curveCleanupTolerance = null,
         bool buildSolids = true,
         List<ReportEntry>? seedReport = null,
-        double topLift = 0.0,
-        IReadOnlyList<double>? tieBreakZ = null)
+        double wallHeight = 0.0)
     {
         var report = seedReport ?? new List<ReportEntry>();
         var totalTimer = Stopwatch.StartNew();
@@ -414,7 +411,7 @@ internal static class RetainingWallPlannerCore
         interactionTimer.Stop();
 
         var wallTimer = Stopwatch.StartNew();
-        List<PlannedWall> walls = BuildWalls(pairs, resolvedMaxWallWidth, geometryTolerance, buildSolids, report, topLift, tieBreakZ);
+        List<PlannedWall> walls = BuildWalls(pairs, resolvedMaxWallWidth, geometryTolerance, buildSolids, report, wallHeight);
         wallTimer.Stop();
         totalTimer.Stop();
 
@@ -734,11 +731,12 @@ internal static class RetainingWallPlannerCore
         double tolerance,
         bool buildSolids,
         List<ReportEntry> report,
-        double topLift = 0.0,
-        IReadOnlyList<double>? tieBreakZ = null)
+        double wallHeight = 0.0)
     {
         var walls = new List<PlannedWall>();
-        bool lifted = topLift > 0.0;
+        // A Wall Height makes a freestanding wall: both rails lie on the ground and stay there as the
+        // terrain's breaklines; only the solid stands up from them.
+        bool freestanding = wallHeight > 0.0;
         int pairIndex = 0;
         foreach (Pair pair in pairs)
         {
@@ -765,13 +763,13 @@ internal static class RetainingWallPlannerCore
                 continue;
             }
 
-            bool aIsToe = DetermineToe(pair.A, pair.B, tolerance, tieBreakZ);
+            bool aIsToe = DetermineToe(pair.A, pair.B);
             PreparedCurve toeCurve = aIsToe ? pair.A : pair.B;
             PreparedCurve topCurve = aIsToe ? pair.B : pair.A;
 
-            // A lifted wall has its height by construction: the rails were draped onto the ground and
-            // may well sit level with each other, which is exactly what the height is for.
-            double maxHeight = lifted ? topLift : EstimateMaxHeight(toeCurve, topCurve);
+            // A freestanding wall has its height by construction: its rails lie on the ground and may well
+            // be level with each other, which is exactly what the height is for.
+            double maxHeight = freestanding ? wallHeight : EstimateMaxHeight(toeCurve, topCurve);
             double minAllowedHeight = MinAllowedHeight(tolerance);
             if (maxHeight < minAllowedHeight)
             {
@@ -787,11 +785,6 @@ internal static class RetainingWallPlannerCore
 
             Point3d[] toePts = (Point3d[])toeCurve.Points.Clone();
             Point3d[] topPts = (Point3d[])topCurve.Points.Clone();
-            if (lifted)
-            {
-                for (int i = 0; i < topPts.Length; i++)
-                    topPts[i] = new Point3d(topPts[i].X, topPts[i].Y, topPts[i].Z + topLift);
-            }
 
             // A pointed or rounded end brings the rails onto one plan point at two heights, which a 2.5D
             // terrain cannot hold. The solid keeps the drawn end; the terrain's top rail stops where the rails
@@ -804,7 +797,7 @@ internal static class RetainingWallPlannerCore
             IReadOnlyList<Brep>? breps = null;
             if (buildSolids)
             {
-                breps = RetainingWallBrepBuilder.BuildPieces(toePts, topPts, tolerance, pair.IsClosed);
+                breps = RetainingWallBrepBuilder.BuildPieces(toePts, topPts, tolerance, pair.IsClosed, wallHeight);
                 if (breps.Count == 0)
                 {
                     report.Add(new ReportEntry(
@@ -862,26 +855,8 @@ internal static class RetainingWallPlannerCore
         return Math.Sqrt(best);
     }
 
-    /// <summary>
-    /// Whether <paramref name="a"/> is the toe: the rail lower on average. When the two are level within
-    /// tolerance (rails draped onto flat ground for a Wall Height), <paramref name="tieBreakZ"/> — the
-    /// rails' own heights as drawn, by source index — decides, so the curve drawn higher is the top.
-    /// </summary>
-    private static bool DetermineToe(PreparedCurve a, PreparedCurve b, double tolerance, IReadOnlyList<double>? tieBreakZ)
-    {
-        double meanA = MeanZ(a.Points);
-        double meanB = MeanZ(b.Points);
-        if (Math.Abs(meanA - meanB) <= tolerance &&
-            tieBreakZ != null &&
-            a.SourceIndex >= 0 && a.SourceIndex < tieBreakZ.Count &&
-            b.SourceIndex >= 0 && b.SourceIndex < tieBreakZ.Count &&
-            Math.Abs(tieBreakZ[a.SourceIndex] - tieBreakZ[b.SourceIndex]) > tolerance)
-        {
-            return tieBreakZ[a.SourceIndex] < tieBreakZ[b.SourceIndex];
-        }
-
-        return meanA <= meanB;
-    }
+    /// <summary>Whether <paramref name="a"/> is the toe: the rail lower on average.</summary>
+    private static bool DetermineToe(PreparedCurve a, PreparedCurve b) => MeanZ(a.Points) <= MeanZ(b.Points);
 
     private static double MeanZ(Point3d[] points)
     {

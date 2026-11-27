@@ -24,10 +24,12 @@ internal sealed class RetainingWallModifierDescriptor : ModifierTypeDescriptor
     {
         var w = (RetainingWallModifierDefinition)modifier;
         int curves = CountSources(w.WallCurves);
-        string height = w.UsesWallHeight ? $" | Height {w.WallHeight:G4}" : string.Empty;
-        return (w.GradesTerrain
-            ? $"{Count(curves, "wall curve", "wall curves")} | grade terrain, {(w.UseAsymmetricSides ? "asymmetric sides" : $"Fill {AnalysisFormatting.FormatSlopeDegreesBrief(w.SlopeAngle)}")}"
-            : $"{Count(curves, "wall curve", "wall curves")} | breaklines only") + height;
+        string count = Count(curves, "wall curve", "wall curves");
+        if (w.UsesWallHeight)
+            return $"{count} | freestanding, Wall Height {w.WallHeight:G4}";
+        return w.GradesTerrain
+            ? $"{count} | grade terrain, {(w.UseAsymmetricSides ? "asymmetric sides" : $"Fill {AnalysisFormatting.FormatSlopeDegreesBrief(w.SlopeAngle)}")}"
+            : $"{count} | breaklines only";
     }
 
     public override string? InertReason(ModifierDefinition modifier, TerrainBuildSnapshot snapshot) =>
@@ -66,7 +68,7 @@ internal sealed class RetainingWallModifierDescriptor : ModifierTypeDescriptor
             "WallHeight", "Wall Height",
             m => ((RetainingWallModifierDefinition)m).WallHeight,
             (m, v) => ((RetainingWallModifierDefinition)m).WallHeight = v,
-            "0 uses the curves' own heights. A height lays both curves on the terrain and raises the one on the higher ground by this much: two curves sketched anywhere make a wall. On level ground the curve drawn higher is the top.",
+            "For freestanding walls. 0 uses the curves' own heights. A height lays both curves on the terrain as breaklines, leaving the ground as it is, and stands the wall solid this high above the higher of the two: two curves sketched anywhere make a wall. Mode and grading do not apply.",
             unit: ParameterUnit.ModelLength,
             rebuildAfterCommit: true),
         ModifierParam.Choice(
@@ -74,7 +76,8 @@ internal sealed class RetainingWallModifierDescriptor : ModifierTypeDescriptor
             m => ((RetainingWallModifierDefinition)m).Mode,
             (m, v) => ((RetainingWallModifierDefinition)m).Mode = v ?? RetainingWallModifierDefinition.BreaklineOnlyMode,
             "Breaklines only: the wall rails are forced into the terrain and nothing else changes. Grade terrain: the terrain also batters away from each rail out to daylight. Rail elevations are authoritative in both.",
-            rebuildAfterCommit: true),
+            rebuildAfterCommit: true,
+            visibleWhen: m => !((RetainingWallModifierDefinition)m).UsesWallHeight),
         ModifierParam.Slope(
             "SlopeAngle", "Fill Slope",
             m => ((RetainingWallModifierDefinition)m).SlopeAngle,

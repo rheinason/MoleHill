@@ -27,10 +27,10 @@ beta prereleases. Earlier versions are recorded only in the git history.
 - **Kerb cuts.** A wall whose top curve drops to the toe's height for a crossing no longer loses its
   solid: it is built as one solid each side, tapering into the cut. A wall tapering to zero height at an
   end is now a closed solid too.
-- **Wall Height** on the Retaining Wall card: a fast way to make walls from two curves sketched anywhere.
-  With a height set, both curves are laid on the terrain and the one on the higher ground is raised by
-  the height; both stay breaklines, and the solid follows. On level ground the curve drawn higher is the
-  top. 0 keeps the curves' own heights, as before.
+- **Wall Height** on the Retaining Wall card, for freestanding walls made from two curves sketched
+  anywhere. With a height set, both curves are laid on the terrain as breaklines and the ground is left as
+  it is; the wall solid stands that high above the higher of the two. Mode and grading do not apply and
+  are hidden. 0 keeps the curves' own heights, as before.
 - **Graded walls with rails closer than the grade's snap distance** (a narrow kerb, or the rails meeting at
   a pointed end) could lift stretches of the toe onto the wall top. The rails are now inserted instead
   when the graded terrain cannot hold them apart.

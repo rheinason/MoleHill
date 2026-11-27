@@ -95,12 +95,8 @@ internal static partial class RetainingWallStage
         else
         {
             IReadOnlyList<Curve> plannedCurves = wallCurves;
-            IReadOnlyList<double>? drawnHeights = null;
             if (modifier.UsesWallHeight)
-            {
-                drawnHeights = wallCurves.Select(MeanDrawnZ).ToList();
                 plannedCurves = DrapeWallCurves(wallCurves, mesh, toleranceProfile.DetailSize, wallTolerance, build);
-            }
 
             plan = RetainingWallPlannerCore.Plan(
                 plannedCurves,
@@ -108,8 +104,7 @@ internal static partial class RetainingWallStage
                 curveParsingTolerance: wallTolerance,
                 curveCleanupTolerance: railCleanupTolerance,
                 buildSolids: buildWallSolids,
-                topLift: modifier.UsesWallHeight ? modifier.WallHeight : 0.0,
-                tieBreakZ: drawnHeights);
+                wallHeight: modifier.UsesWallHeight ? modifier.WallHeight : 0.0);
 
             runtimeCache.RetainingWallPlanEntries[stageKey] = new RetainingWallPlanCacheEntry
             {
@@ -531,11 +526,6 @@ internal static partial class RetainingWallStage
         return draped;
     }
 
-    private static double MeanDrawnZ(Curve curve)
-    {
-        BoundingBox box = curve.GetBoundingBox(true);
-        return box.IsValid ? (box.Min.Z + box.Max.Z) * 0.5 : 0.0;
-    }
 
     private static void AddRetainingWallReportOverlay(
         TerrainBuildResult build,

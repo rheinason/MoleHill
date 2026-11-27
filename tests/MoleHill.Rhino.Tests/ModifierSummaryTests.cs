@@ -135,6 +135,21 @@ public sealed class ModifierSummaryTests
             Summary(new RetainingWallModifierDefinition { WallCurves = Refs(2), Mode = RetainingWallModifierDefinition.BreaklineOnlyMode }));
     }
 
+    // A Wall Height makes the card freestanding: it never grades, whatever Mode was left at.
+    [Fact]
+    public void RetainingWall_WallHeight_IsFreestandingAndNeverGrades()
+    {
+        var wall = new RetainingWallModifierDefinition
+        {
+            WallCurves = Refs(2),
+            Mode = RetainingWallModifierDefinition.GradeMode,
+            WallHeight = 0.8,
+        };
+
+        Assert.False(wall.GradesTerrain);
+        Assert.Equal("2 wall curves | freestanding, Wall Height 0.8", Summary(wall));
+    }
+
     [Fact]
     public void InSituStair_Summary_ComputedAndReference()
     {

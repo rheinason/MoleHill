@@ -86,42 +86,34 @@ public static class HostedKerbWallTests
         Console.WriteLine($"PASS kerbs/{mode}: {solids.Count} solids, terrain hole-free, rails on the terrain");
     }
 
-    // Two straight curves sketched flat at z = 0 over ground rising across them: a 0.8 m garden wall.
+    // Two curves sketched flat at z = 0 over ground rising across them, one straight and one curved: 0.8 m
+    // freestanding garden walls. The terrain must not change; only the solids stand up.
     private static void WallHeight(RhinoDoc doc, string mode)
     {
+        var curved = Enumerable.Range(0, 81).Select(k => (X: 10 + k * 0.25, Y: 20 + 2 * Math.Sin(k * 0.25 / 20.0 * Math.PI))).ToList();
         var curves = new List<Curve>
         {
             Polyline(new[] { new Point3d(5, 10, 0), new Point3d(15, 10, 0) }),
             Polyline(new[] { new Point3d(5, 10.2, 0), new Point3d(15, 10.2, 0) }),
+            Polyline(curved.Select(p => new Point3d(p.X, p.Y, 0))),
+            Polyline(curved.Select(p => new Point3d(p.X, p.Y + 0.3, 0))),
         };
         var (terrain, doc2) = BuildWallTerrain(doc, $"Wall height {mode}", curves, mode, maxWallWidth: 0.4, wallHeight: 0.8);
         List<Brep> solids = WallSolids(doc2, terrain);
-        Brep wall = Single(solids, $"{mode}: expected one wall solid from two flat curves. {BuildMessage(terrain)}");
-        Require(wall.IsSolid, $"{mode}: height wall is not solid");
+        Require(solids.Count == 2 && solids.All(b => b.IsSolid), $"{mode}: expected two closed wall solids, got {solids.Count}. {BuildMessage(terrain)}");
 
         Mesh mesh = TerrainMesh(doc2, terrain);
         AssertHoleFree(mesh, mode + " height");
-        // The rail over the higher ground (y = 10.2, ground rises with y) is the top, 0.8 above it.
-        int toeOnGround = 0, topLifted = 0;
-        foreach (Point3d v in mesh.Vertices.Select(p => (Point3d)p))
-        {
-            if (v.X < 5.5 || v.X > 14.5)
-                continue;
-            if (Math.Abs(v.Y - 10.0) < 1e-3)
-            {
-                Require(Math.Abs(v.Z - Ground(v.X, v.Y)) < 0.003, $"{mode}: toe vertex at x={v.X:0.###} is at {v.Z:0.####}, ground {Ground(v.X, v.Y):0.####}");
-                toeOnGround++;
-            }
-            else if (Math.Abs(v.Y - 10.2) < 1e-3 && v.Z > Ground(v.X, v.Y) + 0.4)
-            {
-                Require(Math.Abs(v.Z - (Ground(v.X, v.Y) + 0.8)) < 0.003, $"{mode}: top vertex at x={v.X:0.###} is at {v.Z:0.####}, expected {Ground(v.X, v.Y) + 0.8:0.####}");
-                topLifted++;
-            }
-        }
-        Require(toeOnGround >= 10 && topLifted >= 10, $"{mode}: too few rail vertices found (toe {toeOnGround}, top {topLifted})");
-        BoundingBox box = wall.GetBoundingBox(true);
-        Require(Math.Abs(box.Max.Z - (Ground(15, 10.2) + 0.8)) < 0.01, $"{mode}: solid top {box.Max.Z:0.###}, expected {Ground(15, 10.2) + 0.8:0.###}");
-        Console.WriteLine($"PASS height/{mode}: one solid, toe on ground ({toeOnGround} vertices), top 0.8 above ({topLifted} vertices)");
+        double worst = mesh.Vertices.Select(p => Math.Abs(p.Z - Ground(p.X, p.Y))).Max();
+        Require(worst < 0.001, $"{mode}: a freestanding wall moved the ground by {worst * 1000:0.0} mm");
+        int railVertices = mesh.Vertices.Count(p => Math.Abs(p.Y - 10.0) < 1e-3 || Math.Abs(p.Y - 10.2) < 1e-3);
+        Require(railVertices >= 4, $"{mode}: the wall curves were not inserted as breaklines ({railVertices} rail vertices)");
+
+        Brep straight = solids.Single(b => b.GetBoundingBox(true).Max.Y < 11);
+        BoundingBox box = straight.GetBoundingBox(true);
+        Require(Math.Abs(box.Min.Z - Ground(5, 10)) < 0.005, $"{mode}: solid foot {box.Min.Z:0.###}, ground {Ground(5, 10):0.###}");
+        Require(Math.Abs(box.Max.Z - (Ground(15, 10.2) + 0.8)) < 0.005, $"{mode}: solid top {box.Max.Z:0.###}, expected {Ground(15, 10.2) + 0.8:0.###}");
+        Console.WriteLine($"PASS height/{mode}: two freestanding solids, ground unchanged (worst {worst * 1000:0.00} mm), top 0.8 above the higher rail");
     }
 
     private static (object Terrain, RhinoDoc Doc) BuildWallTerrain(
