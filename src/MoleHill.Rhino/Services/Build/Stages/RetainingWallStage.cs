@@ -862,6 +862,19 @@ internal static partial class RetainingWallStage
         for (int c = 0; c < traced.Count; c++)
             tracedRails.Add(WithElevationsAlong(traced[c], wallConstraints[c]));
 
+        // The trace radius is the conform's reach, which can exceed the gap between a wall's two rails: a
+        // narrow kerb, or rails coming together at a pointed end. There the top rail traces along the toe's
+        // own vertices, and pinning those to the top's elevation lifted the toe onto the wall top (found
+        // live: 15 cm at a kerb tip). Two rails sharing a vertex at different heights is not a walled
+        // terrain, so insert them instead.
+        if (FindSharedRailVertex(tracedRails, tolerance) is { } shared)
+        {
+            tracedRails.Clear();
+            build.Diagnostics.Add(
+                $"Retaining Wall rails traced through one vertex at two heights near ({shared.X:0.###}, {shared.Y:0.###}); inserting them instead.");
+            return false;
+        }
+
         var before = MeshTopologyValidator.AnalyzeBoundaryGraph(faces, faceCount);
         TerrainBuildService.ApplyPreservedConstraintElevations(vertices, tracedRails, tolerance);
         adoptedMesh = TerrainBuildService.BuildMeshFromArrays(vertices, faces);
@@ -869,6 +882,35 @@ internal static partial class RetainingWallStage
             $"Retaining Wall rails were conformed by the grade itself ({tracedRails.Count} traced within {traceRadius * 1000.0:0.#} mm); " +
             $"kept without re-insertion ({before.BoundaryComponentCount} boundary loop(s)).");
         return true;
+    }
+
+    /// <summary>
+    /// A plan point that two traced rails both pass through at elevations further apart than
+    /// <paramref name="tolerance"/>, or null. Traced points are mesh vertices, so a shared vertex has
+    /// exactly the same coordinates in both chains.
+    /// </summary>
+    internal static (double X, double Y)? FindSharedRailVertex(IReadOnlyList<ConstraintPolyline> rails, double tolerance)
+    {
+        var seen = new Dictionary<(double X, double Y), (int Rail, double Z)>();
+        for (int r = 0; r < rails.Count; r++)
+        {
+            ConstraintPolyline rail = rails[r];
+            for (int i = 0; i < rail.PointCount; i++)
+            {
+                var key = (rail.Points[i * 3], rail.Points[i * 3 + 1]);
+                double z = rail.Points[i * 3 + 2];
+                if (seen.TryGetValue(key, out var first))
+                {
+                    if (first.Rail != r && Math.Abs(first.Z - z) > tolerance)
+                        return key;
+                    continue;
+                }
+
+                seen[key] = (r, z);
+            }
+        }
+
+        return null;
     }
 
     /// <summary><paramref name="traced"/>'s plan points with elevations interpolated along <paramref name="drawn"/>.</summary>
