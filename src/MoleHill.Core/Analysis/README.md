@@ -119,11 +119,17 @@ Terrain analysis math. Pure, unit-tested.
   the order the first-match rule depends on. `TryGetHeightExtremes` returns the lowest and highest
   surface over a point instead of refusing stacked faces, for callers that choose top or bottom
   (`mhDrapeCurve`'s `Hit` option, the long-section ground line).
-- `LongSectionProfile.cs` — the long-section round trip behind `mhExtractProfile` / `mhApplyProfile`:
-  a `LongSectionFrame` (origin, datum, vertical exaggeration) maps station/elevation to drawing XY and
-  back; `TryRead` reads a drawn profile as strictly increasing stations, refusing one that doubles back
-  or steps vertically; `Apply` re-elevates a plan path by station, keeping its XY and adding the
-  profile's own breaks.
+- `LongSectionProfile.cs` — long-section helpers: `LongSectionFrame` (origin, datum, vertical
+  exaggeration) maps station/elevation to drawing XY and back; `PlanStations`, `ElevationAt`, `SuggestDatum`.
+- `ProfileEditor.cs` (+ `ProfileBend.cs`) — the editable long section behind `mhEditProfile`: the curve's
+  profile simplified (vertical Douglas-Peucker, loosened to a bend limit) into bends that are moved,
+  inserted, deleted and given typed grades/elevations, with gesture-grouped undo/redo. `ApplyToPath`
+  re-elevates the plan path keeping XY, and **only in touched spans** (`TouchedRanges`: a span is untouched
+  when both ends are unmoved original bends that were neighbours), so the simplification never costs the
+  curve its own detail. Ends keep their stations; interior bends stay strictly between neighbours.
+- `ProfileSnap.cs` (+ `ProfileSnapKind.cs`) — the drag snaps: ground, a neighbour's level, a round grade
+  in the user's slope unit (`RoundGrade`) from either neighbour, a round elevation; reach is pixels
+  converted by the caller. `ProfileGroundLine.cs` — the ground under a section as station runs.
 - `MeshRegularityAnalyzer.cs` — sampled density and minimum-angle checks used to identify coarse or
   skinny triangulations before vertex-based Smooth/Sculpt operations.
 - `WaterflowTracer.cs` — deterministic downhill path tracing from XY starts through adjacent 2.5D

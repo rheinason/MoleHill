@@ -296,9 +296,9 @@ $designs = @{
         $pa = AccentPen $s 0.12; $g.DrawLine($pa, ($s * 0.10), ($s * 0.52), ($s * 0.90), ($s * 0.52)); $pa.Dispose()
         $bf = Brush $ink; $g.FillPolygon($bf, @((PtF ($s * 0.50) ($s * 0.60)), (PtF ($s * 0.40) ($s * 0.94)), (PtF ($s * 0.60) ($s * 0.94)))); $bf.Dispose()
     }
-    # A long section: axes with station ticks, the ground in ink and the editable design line in green.
-    # Its right-click partner, Apply Profile, maps the edited line back; Rhino shows only this face.
-    'mhExtractProfile' = {
+    # A long section: axes with station ticks, the ground in ink and the edited design line in green,
+    # its bend grabbed (the dot).
+    'mhEditProfile' = {
         param($g, $s)
         $p = InkPen $s 0.07
         $g.DrawLines($p, @((PtF ($s * 0.08) ($s * 0.08)), (PtF ($s * 0.08) ($s * 0.86)), (PtF ($s * 0.94) ($s * 0.86))))

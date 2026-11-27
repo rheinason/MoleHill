@@ -360,20 +360,17 @@ internal static class TerrainInputCommandAlgorithms
 
     /// <summary>
     /// Applies a long-section profile to a smooth curve without turning it into a polyline: each edit
-    /// (Greville) point takes the profile's elevation at its plan station, and the curve keeps its type,
-    /// degree and point count. It then only interpolates the profile, so <paramref name="deviation"/> is
-    /// the worst vertical stray measured along it, for the command to report. An edit point beyond the
-    /// profile's ends keeps its elevation and is counted in <paramref name="uncovered"/>.
+    /// (Greville) point takes the elevation <paramref name="targetAt"/> gives for its plan station, and the
+    /// curve keeps its type, degree and point count. A station for which it gives null (a stretch the edit did
+    /// not touch) keeps its point where it is. The curve then only interpolates the profile, so
+    /// <paramref name="deviation"/> is the worst vertical stray measured where a target exists, for the
+    /// command to report.
     /// </summary>
     public static Curve? ApplyProfileToEditPoints(
         Curve source,
-        double[] stations,
-        double[] elevations,
-        double tolerance,
-        out int uncovered,
+        Func<double, double?> targetAt,
         out double deviation)
     {
-        uncovered = 0;
         deviation = 0.0;
         NurbsCurve nurbs = source.ToNurbsCurve();
         using Curve? plan = GeometryCommandAlgorithms.CreatePlanCurve(nurbs);
@@ -390,14 +387,7 @@ internal static class TerrainInputCommandAlgorithms
             Point3d point = nurbs.PointAt(greville[i]);
             double t = Math.Clamp(greville[i], plan.Domain.T0, plan.Domain.T1);
             double station = t <= plan.Domain.T0 ? 0.0 : plan.GetLength(new Interval(plan.Domain.T0, t));
-            double z = LongSectionProfile.ElevationAt(stations, elevations, station, tolerance);
-            if (double.IsNaN(z))
-            {
-                z = point.Z;
-                uncovered++;
-            }
-
-            moved[i] = new Point3d(point.X, point.Y, z);
+            moved[i] = new Point3d(point.X, point.Y, targetAt(station) ?? point.Z);
         }
 
         if (!nurbs.SetGrevillePoints(moved))
@@ -414,11 +404,9 @@ internal static class TerrainInputCommandAlgorithms
             for (int k = 0; k <= samples; k++)
             {
                 double station = length * k / samples;
-                if (!newPlan.LengthParameter(station, out double t))
+                if (!newPlan.LengthParameter(station, out double t) || targetAt(station) is not { } target)
                     continue;
-                double target = LongSectionProfile.ElevationAt(stations, elevations, station, tolerance);
-                if (!double.IsNaN(target))
-                    deviation = Math.Max(deviation, Math.Abs(nurbs.PointAt(t).Z - target));
+                deviation = Math.Max(deviation, Math.Abs(nurbs.PointAt(t).Z - target));
             }
         }
 

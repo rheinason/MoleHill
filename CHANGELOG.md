@@ -3,6 +3,24 @@
 Released through Rhino's Package Manager (Yak) as `MoleHill`. Versions before 1.0.0 were
 beta prereleases. Earlier versions are recorded only in the git history.
 
+## Unreleased
+
+- **Edit Profile** (`mhEditProfile`) replaces Extract Profile / Apply Profile. Pick a curve and its long
+  section appears beside it as a live preview, with an elevation grid, the ground under it, and every
+  segment's grade in your slope unit.
+  - Drag a bend up or down (Shift to slide it along too); press on the line to add a bend. Bends snap to
+    the ground, to a neighbour's level, to round grades and to round elevations; hold Ctrl to place freely.
+  - `Grade` types a segment's grade in any unit (`2%`, `1:50`, `1.2deg`); `Elevation` types a bend's
+    height; `Delete` removes a bend. Ctrl+Z steps back an edit.
+  - Enter applies the edit as one undo step, Esc leaves the curve untouched. Only the stretches you edit
+    change: the rest of the curve keeps its own points exactly.
+  - When the curve feeds a terrain card (a Grade Path, say), the ground shown is the terrain that card
+    grades, and the command says which cards the edit will update. Grades over the Inspect Curve limit
+    show in red.
+  - A smooth curve stays smooth (`Fit=EditPoints`), or becomes an exact polyline with `Fit=Exact`.
+  - Removed: `mhExtractProfile` and `mhApplyProfile`. Their drawn section lost its link to the curve when
+    moved or edited; for a drawing of a long section use the Section Along Curve annotation.
+
 ## 1.6.0 — 2026-11-20
 
 The first stable release since 1.4.0. It contains everything from the 1.4.1–1.5.5 betas below; their

@@ -755,6 +755,12 @@ in the curve, so the drawn input still says what the pad will do (auto-balance a
 
 ### B24 — Long-section round trip (prototype) — **shipped as a prototype**
 
+**Redesigned 2026-11-22 as `mhEditProfile`**: the drawn round trip was fragile (the frame lived in user
+text, so moving the drawing shifted every elevation; Rhino edits that made new objects broke the link) and
+not very useful (no elevation scale, no grade readout, slopes read wrong at exaggeration). It is now a live
+preview session beside the curve with dragged bends, typed grades, snaps and a session undo; see
+`docs/architecture.md`. Vertical curves at bends are the next step (not started).
+
 **Shipped 2026-10-16** (unreleased) as `mhExtractProfile` / `mhApplyProfile` (one button, Apply on the
 right-click). The design line carries its frame as `MoleHill.Profile.*` user strings. Live-tested in a
 disposable Rhino 2026-10-16. The three open items were closed the same day and live-tested: Enter at the

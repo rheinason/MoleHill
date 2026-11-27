@@ -467,11 +467,19 @@ the expected source revision; failed fits/conflicts leave geometry/history intac
   incoming breaklines as locks and hard constraints, its tolerance profile, its other pads held. Without a
   card it balances against the final terrain with `CutSlope`/`FillSlope` options. Esc stops it; each curve
   is translated to its balancing elevation in one undo record.
-- `Commands/LongSectionCommandService.cs` - `mhExtractProfile` / `mhApplyProfile` (prototype): the drawing,
-  its `MoleHill.Profile.*` frame user strings and the mapping back, through Core's `LongSectionProfile`. Enter
-  at placement redraws an existing drawing in place (its group is deleted); `Ground` reads the active terrain
-  or picked targets (`DrapeCommandService.TrySelectTargets`); a smooth curve applies through
-  `TerrainInputCommandAlgorithms.ApplyProfileToEditPoints` unless `Fit=Exact`.
+- `Commands/ProfileEditCommandService.cs` / `ProfileEditSession.cs` / `ProfileCurveUsers.cs` +
+  `Display/ProfileEditConduit.cs` / `ProfileEditView.cs` - `mhEditProfile`: a curve's long section edited
+  live as a preview beside it (nothing is added to the document), over Core's `ProfileEditor`. A get loop
+  (`Get(true)`, one Get per gesture): press a bend to drag it (vertical by default, Shift flips `Move`,
+  Ctrl suspends snaps), press the line to add a bend; `Elevation`/`Grade`/`Delete` pick a bend or segment
+  (typed points resolve too, so it can be scripted); Ctrl+Z / `Undo` / `Redo` are the session's own undo,
+  which is the only Undo in play because Rhino blocks its accelerator inside a get. Enter replaces the
+  curve as one `Edit Profile` undo record; Esc changes nothing. `Ground=ActiveTerrain` is the mesh the
+  first card reading the curve received (`DuplicateIncomingModifierMesh`: the terrain before the road), else
+  the active terrain; segments over mhInspectCurve's maximum grade and bends over its vertical-break
+  threshold draw red. A smooth curve keeps its type through `TerrainInputCommandAlgorithms.ApplyProfileToEditPoints`
+  (only edit points in touched spans move) unless `Fit=Exact`. Replaced `mhExtractProfile`/`mhApplyProfile`,
+  whose drawn section carried its frame as user text and so read back wrong once the drawing was moved.
 - `Commands/ScanToTerrainCommandService.cs` + `.Surfaces.cs` + `.Buildings.cs` — `mhScanToTerrain`
   opens `UI/TerrainCurveExtractionPanel` at once while the mesh and texture are read in the background, runs cancellable
   pure stages asynchronously on Run,

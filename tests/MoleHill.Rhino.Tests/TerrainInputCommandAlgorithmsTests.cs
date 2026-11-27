@@ -361,19 +361,35 @@ public sealed class TerrainInputCommandAlgorithmsTests
             new Point3d(0, 0, 0), new Point3d(10, 2, 0), new Point3d(20, -2, 0), new Point3d(30, 1, 0), new Point3d(40, 0, 0)
         });
         double length = GeometryCommandAlgorithms.CreatePlanCurve(source)!.GetLength();
-        double[] stations = { 0.0, length };
-        double[] elevations = { 0.0, length * 0.1 };
-
         using Curve? result = TerrainInputCommandAlgorithms.ApplyProfileToEditPoints(
-            source, stations, elevations, 0.001, out int uncovered, out double deviation);
+            source, station => station * 0.1, out double deviation);
 
         var nurbs = Assert.IsType<NurbsCurve>(result);
         Assert.Equal(3, nurbs.Degree);
         Assert.Equal(5, nurbs.Points.Count);
-        Assert.Equal(0, uncovered);
         Assert.Equal(0.0, nurbs.PointAtStart.Z, 6);
         Assert.Equal(length * 0.1, nurbs.PointAtEnd.Z, 6);
         Assert.True(deviation < 0.05, $"{deviation}");
+    }
+
+    [RhinoNativeFact]
+    public void ApplyProfileToEditPoints_LeavesPointsWithoutATargetWhereTheyAre()
+    {
+        using var source = NurbsCurve.Create(false, 3, new[]
+        {
+            new Point3d(0, 0, 1), new Point3d(10, 2, 2), new Point3d(20, -2, 3), new Point3d(30, 1, 4), new Point3d(40, 0, 5)
+        });
+        using var original = (NurbsCurve)source.Duplicate();
+
+        using Curve? result = TerrainInputCommandAlgorithms.ApplyProfileToEditPoints(
+            source, station => station > 25.0 ? 9.0 : null, out _);
+
+        var nurbs = Assert.IsType<NurbsCurve>(result);
+        Point3d[] before = original.GrevillePoints().ToArray();
+        Point3d[] after = nurbs.GrevillePoints().ToArray();
+        Assert.Equal(before[0].Z, after[0].Z, 9);
+        Assert.Equal(before[1].Z, after[1].Z, 9);
+        Assert.Equal(9.0, after[^1].Z, 6);
     }
 
     private static Mesh SlopedPlane()

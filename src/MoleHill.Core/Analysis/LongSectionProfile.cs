@@ -1,4 +1,4 @@
-// Maps between a curve's stations and elevations and a flat long-section drawing of them.
+// Station and elevation helpers shared by the long-section tools: plan stations, interpolation, datum.
 namespace MoleHill.Core.Analysis;
 
 /// <summary>
@@ -16,90 +16,11 @@ public readonly record struct LongSectionFrame(double OriginX, double OriginY, d
 }
 
 /// <summary>
-/// The round trip behind mhExtractProfile and mhApplyProfile. A profile drawn (or edited) in the frame is
-/// read back into stations and elevations; a profile that doubles back on itself names two elevations for
-/// one station, so it is refused rather than guessed at.
+/// Station and elevation helpers for long sections: plan stations along a path, linear elevation at a
+/// station, and a round datum. <see cref="ProfileEditor"/> (mhEditProfile) and the curve commands build on them.
 /// </summary>
 public static class LongSectionProfile
 {
-    /// <summary>
-    /// Reads a drawn profile (flat XY points in drawing coordinates) as strictly increasing stations with
-    /// an elevation at each. A profile drawn right to left is read in reverse. Points closer in station than
-    /// <paramref name="tolerance"/> are merged when their elevations also agree; otherwise that is a vertical
-    /// step and, like any backwards step, makes the profile unreadable.
-    /// </summary>
-    public static bool TryRead(
-        double[] drawingXy,
-        LongSectionFrame frame,
-        double tolerance,
-        out double[] stations,
-        out double[] elevations,
-        out string? error)
-    {
-        stations = Array.Empty<double>();
-        elevations = Array.Empty<double>();
-        error = null;
-        int count = drawingXy.Length / 2;
-        if (count < 2)
-        {
-            error = "A profile needs at least two points.";
-            return false;
-        }
-
-        if (!double.IsFinite(frame.Exaggeration) || Math.Abs(frame.Exaggeration) < 1e-12)
-        {
-            error = "The profile's vertical exaggeration is not usable.";
-            return false;
-        }
-
-        var s = new double[count];
-        var z = new double[count];
-        for (int i = 0; i < count; i++)
-            (s[i], z[i]) = frame.FromDrawing(drawingXy[i * 2], drawingXy[i * 2 + 1]);
-        if (s[^1] < s[0])
-        {
-            Array.Reverse(s);
-            Array.Reverse(z);
-        }
-
-        double eps = Math.Max(Math.Abs(tolerance), 1e-12);
-        var outStations = new List<double>(count) { s[0] };
-        var outElevations = new List<double>(count) { z[0] };
-        for (int i = 1; i < count; i++)
-        {
-            double step = s[i] - outStations[^1];
-            if (step < -eps)
-            {
-                error = FormattableString.Invariant($"The profile doubles back at station {s[i]:F3}; each station can have only one elevation.");
-                return false;
-            }
-
-            if (step <= eps)
-            {
-                if (Math.Abs(z[i] - outElevations[^1]) > eps)
-                {
-                    error = FormattableString.Invariant($"The profile steps vertically at station {s[i]:F3}; give the step a run.");
-                    return false;
-                }
-
-                continue;
-            }
-
-            outStations.Add(s[i]);
-            outElevations.Add(z[i]);
-        }
-
-        if (outStations.Count < 2)
-        {
-            error = "The profile has no length along the station axis.";
-            return false;
-        }
-
-        stations = outStations.ToArray();
-        elevations = outElevations.ToArray();
-        return true;
-    }
-
     /// <summary>Linear elevation at a station; NaN outside the profile's station range.</summary>
     public static double ElevationAt(double[] stations, double[] elevations, double station, double tolerance = 0.0)
     {
@@ -134,77 +55,6 @@ public static class LongSectionProfile
         }
 
         return stations;
-    }
-
-    /// <summary>
-    /// Re-elevates a plan path from a profile, keeping its XY. Every path point keeps its plan position and
-    /// takes the profile's elevation at its station, and every profile point inside the path's length adds a
-    /// path point at its station, so the profile's own breaks survive. A station the profile does not reach
-    /// keeps the path's elevation and is counted in <paramref name="uncovered"/>.
-    /// </summary>
-    public static double[] Apply(
-        double[] pathXyz,
-        double[] stations,
-        double[] elevations,
-        double tolerance,
-        out int uncovered)
-    {
-        uncovered = 0;
-        int count = pathXyz.Length / 3;
-        double[] pathStations = PlanStations(pathXyz);
-        double eps = Math.Max(Math.Abs(tolerance), 1e-12);
-        var merged = new List<(double Station, int Segment, bool FromPath)>(count + stations.Length);
-        for (int i = 0; i < count; i++)
-            merged.Add((pathStations[i], i, true));
-        double length = count > 0 ? pathStations[^1] : 0.0;
-        foreach (double station in stations)
-        {
-            if (station <= eps || station >= length - eps)
-                continue;
-            int index = Array.BinarySearch(pathStations, station);
-            int segment = index >= 0 ? index : ~index - 1;
-            merged.Add((station, Math.Clamp(segment, 0, Math.Max(0, count - 2)), false));
-        }
-
-        merged.Sort((a, b) => a.Station.CompareTo(b.Station));
-        var output = new List<double>(merged.Count * 3);
-        double lastStation = double.NegativeInfinity;
-        foreach ((double station, int segment, bool fromPath) in merged)
-        {
-            // A point at the station just written adds nothing: the profile gives both one elevation, so a
-            // profile point on a path point, or a vertical step in the source, would only repeat a point.
-            if (station - lastStation <= eps)
-                continue;
-            double x, y, pathZ;
-            if (fromPath)
-            {
-                x = pathXyz[segment * 3];
-                y = pathXyz[segment * 3 + 1];
-                pathZ = pathXyz[segment * 3 + 2];
-            }
-            else
-            {
-                double span = pathStations[segment + 1] - pathStations[segment];
-                double t = span > 0.0 ? (station - pathStations[segment]) / span : 0.0;
-                x = pathXyz[segment * 3] + (pathXyz[(segment + 1) * 3] - pathXyz[segment * 3]) * t;
-                y = pathXyz[segment * 3 + 1] + (pathXyz[(segment + 1) * 3 + 1] - pathXyz[segment * 3 + 1]) * t;
-                pathZ = pathXyz[segment * 3 + 2] + (pathXyz[(segment + 1) * 3 + 2] - pathXyz[segment * 3 + 2]) * t;
-            }
-
-            double z = ElevationAt(stations, elevations, station, eps);
-            if (double.IsNaN(z))
-            {
-                z = pathZ;
-                uncovered++;
-            }
-
-            output.Add(x);
-            output.Add(y);
-            output.Add(z);
-            lastStation = station;
-        }
-
-        return output.ToArray();
     }
 
     /// <summary>

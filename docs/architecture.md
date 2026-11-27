@@ -146,14 +146,15 @@ TriangleNet (vendored)  ←  MoleHill.Core  ←  MoleHill.Grasshopper (GH host)
   place. A balance measured on any other grade misses once built (found: a contour locked beside a pad
   stopped its batter in the build but not in the search). Curves split between cards are refused. Otherwise the slopes are options. Auto-balance as a modifier
   stays declined: the drawn boundary still says what the pad does.
-- **The long section is drawn geometry with its frame attached (prototype).** `mhExtractProfile` draws a
-  plan curve's elevations (design line), the active terrain under it (ground line), a datum and station
-  ticks at a chosen vertical exaggeration, grouped; the design line carries `MoleHill.Profile.*` user
-  strings (source id, origin, datum, exaggeration, plan length). After editing it with any Rhino tool,
-  `mhApplyProfile` reads it back through `Core/Analysis/LongSectionProfile` and replaces the plan curve
-  with the same XY; a profile that doubles back is refused, and points beyond its ends keep their elevation.
-  A polyline (or `Fit=Exact`) takes the profile exactly as a polyline; a smooth curve by default moves only its
-  edit points and reports its stray. Re-extracting redraws in place; `Ground` may be any picked targets.
+- **A long section is edited live, never drawn into the document.** `mhEditProfile` opens a curve's
+  profile as a preview beside it (`ProfileEditConduit`): bends to drag, typed grades (any slope unit) and
+  elevations, snaps to ground/level/round grade, a session undo, and the plan curve marked at the cursor's
+  station. Enter writes it back as one undo step; Esc changes nothing. Core's `ProfileEditor` re-elevates
+  only the spans the user touched, so simplifying a draped curve into a few bends never loses its detail.
+  The ground is the mesh the curve's own card received, not the finished terrain that already carries
+  the road. It replaced `mhExtractProfile`/`mhApplyProfile` (B24's prototype), whose drawn section kept
+  its frame in user text: moving the drawing silently shifted every elevation, and any Rhino edit that
+  made a new object broke the link. For a printed long section use the Section Along Curve annotation.
 - **`mhTerrainToCurves` turns a terrain back into input.** It runs interval recovery like the scan command:
   contours every Contour interval (0.25 m), redundant ones removed, then spot heights only where the rebuild
   misses its vertical tolerance (vertex-sampled). The terrain's own folds of 20° or more (batter crests and

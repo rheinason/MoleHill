@@ -88,7 +88,6 @@
       </tool_bar_item>
       <tool_bar_item guid="7f2f95fe-d8ed-423e-b2a6-bc0916dd52a1">
         <left_macro_id>44b2b701-1c81-4d1e-9e33-23ed237b371e</left_macro_id>
-        <right_macro_id>287cb9e1-b33a-4eb6-8ba8-8cabbdec22b4</right_macro_id>
       </tool_bar_item>
       <tool_bar_item guid="7ec85d0c-1d7a-424e-87a4-0cd3834ca2f2">
         <left_macro_id>fc5e6304-e73f-498d-a256-dc26872decf6</left_macro_id>
@@ -458,21 +457,12 @@ _CurveType=_Interpolated</script>
     </macro_item>
     <macro_item guid="44b2b701-1c81-4d1e-9e33-23ed237b371e" bitmap_id="4d14315d-42d5-42b8-a979-7304479fcf42">
       <text>
-        <locale_1033>mhExtractProfile</locale_1033>
+        <locale_1033>mhEditProfile</locale_1033>
       </text>
       <tooltip>
-        <locale_1033>Extract Profile</locale_1033>
+        <locale_1033>Edit Profile</locale_1033>
       </tooltip>
-      <script>mhExtractProfile</script>
-    </macro_item>
-    <macro_item guid="287cb9e1-b33a-4eb6-8ba8-8cabbdec22b4" bitmap_id="4d14315d-42d5-42b8-a979-7304479fcf42">
-      <text>
-        <locale_1033>mhApplyProfile</locale_1033>
-      </text>
-      <tooltip>
-        <locale_1033>Apply Profile</locale_1033>
-      </tooltip>
-      <script>mhApplyProfile</script>
+      <script>mhEditProfile</script>
     </macro_item>
     <macro_item guid="fc5e6304-e73f-498d-a256-dc26872decf6" bitmap_id="4f3fc43a-4c5b-4414-8682-24f473aab013">
       <text>
