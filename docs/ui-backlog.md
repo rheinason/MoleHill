@@ -59,11 +59,12 @@ choices; schema sections; Results, source counts and tab fitting; then a per-car
 
 Manual checks still to run before merging are in [ui-pass-manual-tests.md](ui-pass-manual-tests.md).
 
-- **UI-09 — earthy single-hue tab icons, three-region Zones glyph** (Steps 06–07). Not implemented; the
-  tab icons are unchanged. **UI-10** (Annotation's text-label-with-leader glyph, Step 08) needs checking
+- **UI-09 — earthy single-hue tab icons, three-region Zones glyph** (Steps 06–07). **Deferred
+  2026-11-28:** the owner dislikes the earthy candidates; the tab icons are unchanged until a new direction. **UI-10** (Annotation's text-label-with-leader glyph, Step 08) needs checking
   against the existing `TabAnnotation` icon, which already draws a leader.
-- **Tab view toggles** (Zones: terrain/zone meshes; Analysis: show colours) are drawn icon buttons, but
-  both reuse the Terrain Mesh icon, so neither says what it toggles. Needs its own glyph pair.
+- **Tab view toggles** — resolved 2026-11-28: the Zones and Analysis toggles use the panel's visibility eye
+  ("show this tab's results in the viewport"). Compared against a bar chart, a colour-ramp eye or swatch
+  and parcel glyphs; the eye won because it is the one visibility symbol already in the panel.
 - **Floating windows** (Sculpt toolbar, Relax Route, Curve Review, Terrain to Curves / Scan to Terrain)
   were outside the review.
 - **Design tooling follow-up**, at the end of this file.

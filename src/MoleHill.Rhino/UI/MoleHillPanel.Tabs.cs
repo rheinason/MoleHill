@@ -46,10 +46,10 @@ public sealed partial class MoleHillPanel : Panel
                 label.TextColor = tabIndex == _selectedTabIndex ? UiTheme.PrimaryText : UiTheme.MutedText;
         }
 
-        // The tab's view toggle: a drawn icon (the panel's own set) rather than a text glyph, so it reads at
-        // 16 px in both themes and has the hover, pressed and focus states every icon button has.
+        // The tab's view toggle: the panel's visibility eye, meaning "show this tab's results in the
+        // viewport" — the same eye as the terrain's own visibility button. The refresh sets its state.
         IconButton MakeTabToggleLabel(string toolTip, Action onClick) =>
-            MakeIconButton(PanelButtonIcon.TerrainMesh, (_, _) => onClick(), toolTip);
+            MakeIconButton(PanelButtonIcon.HideOff, (_, _) => onClick(), toolTip);
 
         // What each tab needs with its label showing, so the strip can tell whether all five fit.
         var tabLabelWidths = new List<float>();
@@ -609,10 +609,10 @@ public sealed partial class MoleHillPanel : Panel
             return;
 
         bool showZonesOnly = terrain?.ShowZoneMeshes == true && terrain.ShowTerrainMesh != true;
-        SetButtonIcon(button, showZonesOnly ? PanelButtonIcon.ZoneMeshes : PanelButtonIcon.TerrainMesh, muted: terrain == null);
+        SetButtonIcon(button, showZonesOnly ? PanelButtonIcon.HideOff : PanelButtonIcon.HideOn, muted: !showZonesOnly);
         button.ToolTip = showZonesOnly
-            ? "Showing zone meshes. Click to show the terrain mesh."
-            : "Showing the terrain mesh. Click to show zone meshes.";
+            ? "Zone meshes shown. Click to hide them and show the whole terrain mesh."
+            : "Zone meshes hidden; the whole terrain mesh is shown. Click to show zone meshes.";
     }
 
     private static void UpdateAnalysisTabButton(IconButton? button, TerrainDefinition? terrain)
@@ -621,9 +621,9 @@ public sealed partial class MoleHillPanel : Panel
             return;
 
         bool isVisible = terrain?.ShowAnalysisOutputs != false;
-        SetButtonIcon(button, isVisible ? PanelButtonIcon.AnalysisVisible : PanelButtonIcon.AnalysisHidden, muted: !isVisible);
+        SetButtonIcon(button, isVisible ? PanelButtonIcon.HideOff : PanelButtonIcon.HideOn, muted: !isVisible);
         button.ToolTip = isVisible
-            ? "Analysis preview is visible. Click to hide analysis colors and outputs."
-            : "Analysis preview is hidden. Click to show analysis colors and outputs.";
+            ? "Analysis colours and outputs shown. Click to hide them."
+            : "Analysis colours and outputs hidden. Click to show them.";
     }
 }

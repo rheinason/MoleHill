@@ -17,10 +17,6 @@ internal enum PanelButtonIcon
     ChevronDown,
     ChevronUp,
     ChevronRight,
-    TerrainMesh,
-    ZoneMeshes,
-    AnalysisVisible,
-    AnalysisHidden,
     Rebuild,
     ResetBuild,
     Bake,
@@ -35,8 +31,11 @@ internal enum PanelButtonIcon
 /// <remarks>
 /// Bold filled silhouettes rather than thin outlines — a Blender-style choice, since a hairline reads
 /// as a smudge at 16px on a high-DPI panel and a filled shape holds its identity where a thin one
-/// dissolves into noise (this bit hardest for <see cref="PanelButtonIcon.Duplicate"/>, <see cref="PanelButtonIcon.ZoneMeshes"/> and the
-/// analysis-visibility pair, which used to be two same-weight outlined squares / a bare circle).
+/// dissolves into noise (this bit hardest for <see cref="PanelButtonIcon.Duplicate"/>, which used to be two
+/// same-weight outlined squares).
+/// Every visibility toggle uses the one eye pair (<see cref="PanelButtonIcon.HideOff"/> / <see cref="PanelButtonIcon.HideOn"/>):
+/// the Zones and Analysis tab toggles once drew their own glyphs (a mountain, parcels, a bar chart that
+/// repeated the Analysis tab's icon beside it), and none of them said "show this in the viewport".
 /// </remarks>
 internal static class PanelButtonIcons
 {
@@ -75,11 +74,6 @@ internal static class PanelButtonIcons
         float scale = size / 16f;
 
         var pen = new Pen(color, 2.2f * scale)
-        {
-            LineJoin = PenLineJoin.Round,
-            LineCap = PenLineCap.Round
-        };
-        var thickPen = new Pen(color, 2.6f * scale)
         {
             LineJoin = PenLineJoin.Round,
             LineCap = PenLineCap.Round
@@ -220,28 +214,6 @@ internal static class PanelButtonIcons
                 Stroke(P(6.25f, 4.25f), P(10, 8), P(6.25f, 11.75f));
                 break;
 
-            case PanelButtonIcon.TerrainMesh:
-                // A ridge silhouette reads as "terrain" faster than a literal grid rectangle at this size.
-                g.FillPolygon(Faded(0.55f), new[] { P(3.2f, 11.6f), P(7.4f, 4.5f), P(11.4f, 11.6f) });
-                FillPoly(P(6.6f, 11.6f), P(10.2f, 6f), P(13.2f, 11.6f));
-                break;
-
-            case PanelButtonIcon.ZoneMeshes:
-                // Distinct from Duplicate's near-equal stack: one large filled zone with a smaller
-                // zone offset to the opposite corner, reading as adjacent parcels rather than a copy.
-                g.FillRectangle(Faded(0.55f), P(2.6f, 2.6f).X, P(2.6f, 2.6f).Y, 8.2f * scale, 8.2f * scale);
-                FillRect(8.4f, 8.4f, 4.8f, 4.8f);
-                break;
-
-            case PanelButtonIcon.AnalysisVisible:
-                DrawAnalysisBars(g, color, scale);
-                break;
-
-            case PanelButtonIcon.AnalysisHidden:
-                DrawAnalysisBars(g, color, scale);
-                g.DrawLine(thickPen, P(2.5f, 13f), P(13.5f, 2.5f));
-                break;
-
             case PanelButtonIcon.Rebuild:
                 // A reload ring. Left unadorned; Reset Build is the one with a return path.
                 ArcArrow(8f, 8f, 5f, 110f, 290f);
@@ -267,17 +239,6 @@ internal static class PanelButtonIcons
 
         return bitmap;
     }
-
-    private static void DrawAnalysisBars(Graphics g, Color color, float scale)
-    {
-        void Bar(float x, float top, float width, float height) =>
-            g.FillRectangle(color, x * scale, top * scale, width * scale, height * scale);
-
-        Bar(3.4f, 9f, 2.4f, 4f);
-        Bar(6.8f, 6f, 2.4f, 7f);
-        Bar(10.2f, 3.4f, 2.4f, 9.6f);
-    }
-
 
     private readonly record struct IconCacheKey(PanelButtonIcon Icon, bool Muted, bool IsDark, int Size);
 }
