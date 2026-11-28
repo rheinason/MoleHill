@@ -3,7 +3,7 @@
 Released through Rhino's Package Manager (Yak) as `MoleHill`. Versions before 1.0.0 were
 beta prereleases. Earlier versions are recorded only in the git history.
 
-## Unreleased
+## 1.7.1-beta — 2026-11-28
 
 - **Edit Profile** (`mhEditProfile`) replaces Extract Profile / Apply Profile. Pick a curve and MoleHill draws
   its long section as an ordinary curve, behind it a grid with elevation and station scales, the ground
