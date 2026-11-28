@@ -518,6 +518,64 @@ public class RetainingWallPlannerLogicTests
         Assert.InRange(wall.Rails.MinWidth, gap * 0.5, gap + 1e-9);
         Assert.Equal(toe.Count, wall.Rails.ToePoints.Length);
         Assert.True(wall.Rails.TopPoints.Length < top.Count);
+
+        // The nose is a converged end: the tip is the toe's end, out of the end is +X, the top rail is on +Y.
+        var end = Assert.Single(wall.Rails.ConvergedEnds);
+        Assert.Equal(toe[^1], end.Tip);
+        Assert.Equal(wall.Rails.TopPoints[^1], end.TopEnd);
+        Assert.True(end.Outward.X > 0.99, $"outward {end.Outward}");
+        Assert.True(end.TopSide.Y > 0.99, $"top side {end.TopSide}");
+    }
+
+    [Fact]
+    public void Plan_SquareEnds_HaveNoConvergedEnds()
+    {
+        var toe = Enumerable.Range(0, 61).Select(i => new Point3d(i * 0.1, 0, 0)).ToArray();
+        var top = Enumerable.Range(0, 61).Select(i => new Point3d(i * 0.1, 0.15, 0.15)).ToArray();
+
+        var wall = Assert.Single(Plan(0.5, Open(toe), Open(top)).Walls);
+
+        Assert.Empty(wall.Rails.ConvergedEnds);
+        Assert.Equal(top.Length, wall.Rails.TopPoints.Length);
+    }
+
+    [Fact]
+    public void ConvergedEndRing_StartsBesideTopEnd_AndSweepsRoundTheTipToTheToeSide()
+    {
+        // A pointed end: the top rail stops 0.2 back from the tip, so the ring starts beside it.
+        var end = new RetainingWallPlannerCore.ConvergedEnd(
+            TopEnd: new Point3d(-0.2, 0.02, 0.15),
+            Tip: new Point3d(0, 0, 0),
+            Outward: Vector3d.XAxis,
+            TopSide: Vector3d.YAxis,
+            BodyGap: 0.05);
+
+        (Point3d[] points, double[] weights) = end.Ring(0.3);
+
+        Assert.Equal(new Point3d(-0.2, 0.32, 0), points[0]);
+        Assert.Equal(1.0, weights[0], 9);
+        for (int i = 1; i < points.Length; i++)
+        {
+            Assert.Equal(0.3, points[i].DistanceTo(end.Tip), 9);
+            Assert.True(points[i].X > 0.0, "the sweep never goes behind the end");
+            Assert.True(weights[i] <= weights[i - 1] + 1e-12, "the top rail's share falls from the top side to the toe side");
+        }
+
+        Assert.True(points[1].Y > 0.29 && points[^1].Y < -0.29);
+        Assert.Equal(1.0, weights[1], 9);
+        Assert.Equal(0.0, weights[^1], 9);
+    }
+
+    [Fact]
+    public void ConvergedEndRing_TopEndBesideTheSweep_IsNotRepeated()
+    {
+        // A round nose: the top rail ends right at the tip, so the sweep's first point is already beside it.
+        var end = new RetainingWallPlannerCore.ConvergedEnd(
+            new Point3d(-0.01, 0.03, 0.15), Point3d.Origin, Vector3d.XAxis, Vector3d.YAxis, 0.15);
+
+        (Point3d[] points, _) = end.Ring(0.3);
+
+        Assert.All(points, point => Assert.Equal(0.3, point.DistanceTo(Point3d.Origin), 9));
     }
 
     [Fact]

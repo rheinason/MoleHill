@@ -127,7 +127,14 @@ public static class HostedKerbWallTests
         AssertRailOnMesh(mesh, curves[1], 0.002, $"{mode} cut top");
         AssertRailOnMesh(mesh, curves[2], 0.002, $"{mode} pointed toe");
         AssertRailOnMesh(mesh, curves[4], 0.002, $"{mode} round toe");
-        Console.WriteLine($"PASS kerbs/{mode}: {solids.Count} solids, terrain hole-free, rails on the terrain");
+        // The raised top rail stops short of each tip. Nothing near the end once left the terrain there a
+        // cliff: one face from the raised end and the tip to a ground vertex, 81 degrees and 1.3 m long
+        // beyond the round nose. The ring round the end keeps every steep face at the nose short.
+        double pointed = LongestSteepFaceNear(mesh, new Point3d(15.0, 20.0, 0), 0.6);
+        double round = LongestSteepFaceNear(mesh, new Point3d(14.0 + r, 30.0 + r, 0), 0.6);
+        Require(pointed <= 0.35 && round <= 0.35,
+            $"{mode}: a steep face reaches {Math.Max(pointed, round):0.00} m out from a kerb end (pointed {pointed:0.00}, round {round:0.00})");
+        Console.WriteLine($"PASS kerbs/{mode}: {solids.Count} solids, terrain hole-free, rails on the terrain, ends without cliffs (longest steep face {Math.Max(pointed, round):0.00} m)");
     }
 
     // Two curves sketched flat at z = 0 over ground rising across them, one straight and one curved: 0.8 m
@@ -218,6 +225,25 @@ public static class HostedKerbWallTests
                 nonManifold++;
         int loops = (mesh.GetNakedEdges() ?? Array.Empty<Polyline>()).Length;
         Require(nonManifold == 0 && loops == 1, $"{label}: terrain has {nonManifold} non-manifold edges and {loops} border loops");
+    }
+
+    /// <summary>The longest edge of any face steeper than 45 degrees with a corner within <paramref name="radius"/> of <paramref name="at"/> in plan.</summary>
+    private static double LongestSteepFaceNear(Mesh mesh, Point3d at, double radius)
+    {
+        double longest = 0;
+        for (int f = 0; f < mesh.Faces.Count; f++)
+        {
+            MeshFace face = mesh.Faces[f];
+            Point3d a = mesh.Vertices[face.A], b = mesh.Vertices[face.B], c = mesh.Vertices[face.C];
+            if (new[] { a, b, c }.Min(p => Math.Sqrt(((p.X - at.X) * (p.X - at.X)) + ((p.Y - at.Y) * (p.Y - at.Y)))) > radius)
+                continue;
+            Vector3d normal = Vector3d.CrossProduct(b - a, c - a);
+            if (normal.Length < 1e-12 || Math.Abs(normal.Z) / normal.Length >= Math.Cos(Math.PI / 4))
+                continue;
+            longest = Math.Max(longest, Math.Max(a.DistanceTo(b), Math.Max(b.DistanceTo(c), c.DistanceTo(a))));
+        }
+
+        return longest;
     }
 
     private static void AssertRailOnMesh(Mesh mesh, Curve rail, double tolerance, string label)

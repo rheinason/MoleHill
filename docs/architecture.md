@@ -408,7 +408,14 @@ one apex) are a shaped end, so the planner's narrow-pair test reads the gap alon
 (`RetainingWallPlannerCore.BodyGap`: end runs narrower than half the median gap are left out; rails close
 along their whole length are still rejected). The terrain cannot hold the two rails at one plan point, so
 the top rail handed to the terrain is trimmed at each converged end to a sliver (`TrimConvergedEnds`), and
-the terrain closes the nose with a steep face; the solid keeps the drawn end. A kerb dropped to the toe's
+the terrain closes the nose with a steep face; the solid keeps the drawn end. Each such end is a
+`ConvergedEnd` on the rails, and the stage pins the terrain round it with one extra breakline
+(`RetainingWallStage.EndRings`): a ring beside the top rail's end and round the tip, its heights the
+incoming ground plus a smooth blend from the top rail's rise to the toe's (in grade mode the top side takes
+the batter's rise there when that is lower). Without it, a top rail raised over the ground left the terrain
+behind it a ramp that ended in a cliff: one sliver face from the raised end and the tip to the nearest
+ground vertex, 81 degrees and 1.3 m long beyond a round kerb nose. A ring that would cross any other line
+is left out. Only the Rhino stage does this; the Grasshopper component still inserts the two rails alone. A kerb dropped to the toe's
 height for a crossing leaves stations with no section, and one loft through them collapsed, so
 `RetainingWallBrepBuilder.BuildPieces` builds one solid per run of stations with a section, each extended to
 the interpolated point where its section vanishes (`SplitAtVanishingSections`). `PlannedWall.Breps` is

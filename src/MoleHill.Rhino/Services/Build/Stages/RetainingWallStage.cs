@@ -137,6 +137,7 @@ internal static partial class RetainingWallStage
         }
 
         List<ConstraintPolyline> wallConstraints = new(plan.Walls.Count * 2);
+        var convergedEnds = new List<RetainingWallPlannerCore.ConvergedEnd>();
         var wallOutputTimer = new Stopwatch();
         var constraintCurveTimer = new Stopwatch();
         int usableWallCount = 0;
@@ -198,6 +199,7 @@ internal static partial class RetainingWallStage
                 continue;
 
             wallConstraints.AddRange(wallSetConstraints);
+            convergedEnds.AddRange(wall.Rails.ConvergedEnds);
         }
         build.RecordTiming(
             "Retaining Wall Outputs",
@@ -218,6 +220,21 @@ internal static partial class RetainingWallStage
         mesh = ApplyRetainingWallGrading(
             snapshot, terrain, mesh, modifier, plan.Walls, wallTolerance, build, runtimeCache, mode);
         bool railsGraded = !ReferenceEquals(mesh, ungraded);
+
+        // A batter is graded along a rail, never round its end, so both modes need the ring.
+        if (convergedEnds.Count > 0)
+        {
+            List<ConstraintPolyline> rings = BuildConvergedEndRings(
+                ungraded,
+                railsGraded ? mesh : null,
+                convergedEnds,
+                wallConstraints,
+                TerrainBuildService.CombineConstraints(build.PersistentHardConstraints, build.PersistentElevationConstraints),
+                wallTolerance,
+                out string ringSummary);
+            wallConstraints.AddRange(rings);
+            build.Diagnostics.Add(ringSummary);
+        }
 
         TerrainBuildService.ThrowIfCancellationRequested(shouldCancel);
         int rawConstraintCount = wallConstraints.Count;

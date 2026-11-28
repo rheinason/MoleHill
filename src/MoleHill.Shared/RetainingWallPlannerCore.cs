@@ -85,12 +85,62 @@ internal static class RetainingWallPlannerCore
         public bool IsClosed { get; }
         public double MinWidth { get; }
 
-        public WallRails(Point3d[] toePoints, Point3d[] topPoints, bool isClosed, double minWidth)
+        /// <summary>The open ends where the rails come together and the terrain's top rail stops short.</summary>
+        public IReadOnlyList<ConvergedEnd> ConvergedEnds { get; }
+
+        public WallRails(Point3d[] toePoints, Point3d[] topPoints, bool isClosed, double minWidth, IReadOnlyList<ConvergedEnd>? convergedEnds = null)
         {
             ToePoints = toePoints;
             TopPoints = topPoints;
             IsClosed = isClosed;
             MinWidth = minWidth;
+            ConvergedEnds = convergedEnds ?? Array.Empty<ConvergedEnd>();
+        }
+    }
+
+    /// <summary>
+    /// A pointed or round wall end, where the terrain's top rail (<paramref name="TopEnd"/>) stops a sliver
+    /// short of the toe's tip (<paramref name="Tip"/>). When the top rail stands above the ground, the terrain
+    /// behind it is a ramp, and with nothing else near the end that ramp ends in a cliff: one sliver face from
+    /// the raised end and the tip out to the nearest ground vertex, 81 degrees steep and 1.3 m long beyond a
+    /// round kerb nose (found live). <see cref="Ring"/> is where the terrain is pinned around the end so the
+    /// ramp wraps round it instead, and the only steep faces left are the short ones at the nose.
+    /// </summary>
+    /// <param name="Outward">Unit plan direction out of the end, along the wall.</param>
+    /// <param name="TopSide">Unit plan direction across the wall toward the top rail.</param>
+    internal sealed record ConvergedEnd(Point3d TopEnd, Point3d Tip, Vector3d Outward, Vector3d TopSide, double BodyGap)
+    {
+        private const int RingPointCount = 9;
+        private const double RingHalfAngleDegrees = 80.0;
+
+        /// <summary>
+        /// The ring of plan points at <paramref name="radius"/> round the end: beside the top rail's end, then
+        /// round <see cref="Tip"/> from the top side to the toe side (never quite behind the end), and for each
+        /// point how much of the top rail's rise above the ground it takes: 1 on the top side, 0 on the toe
+        /// side. Starting beside the top rail's end matters on a pointed end, whose top rail stops well back
+        /// from the tip, so its cliff faces sideways rather than ahead.
+        /// </summary>
+        public (Point3d[] Points, double[] TopWeights) Ring(double radius)
+        {
+            var points = new List<Point3d>(RingPointCount + 1);
+            var weights = new List<double>(RingPointCount + 1);
+            double half = RingHalfAngleDegrees * Math.PI / 180.0;
+            for (int i = 0; i < RingPointCount; i++)
+            {
+                double angle = half - (2.0 * half * i / (RingPointCount - 1));
+                Vector3d direction = (Math.Cos(angle) * Outward) + (Math.Sin(angle) * TopSide);
+                points.Add(new Point3d(Tip.X + (radius * direction.X), Tip.Y + (radius * direction.Y), Tip.Z));
+                weights.Add(0.5 * (1.0 + (Math.Sin(angle) / Math.Sin(half))));
+            }
+
+            var beside = new Point3d(TopEnd.X + (radius * TopSide.X), TopEnd.Y + (radius * TopSide.Y), Tip.Z);
+            if (beside.DistanceTo(points[0]) > 0.25 * radius)
+            {
+                points.Insert(0, beside);
+                weights.Insert(0, 1.0);
+            }
+
+            return (points.ToArray(), weights.ToArray());
         }
     }
 
@@ -789,10 +839,18 @@ internal static class RetainingWallPlannerCore
             // A pointed or rounded end brings the rails onto one plan point at two heights, which a 2.5D
             // terrain cannot hold. The solid keeps the drawn end; the terrain's top rail stops where the rails
             // are a sliver apart, and the terrain closes the nose with a steep face down to the toe.
-            Point3d[] terrainTopPts = pair.IsClosed
-                ? topPts
-                : TrimConvergedEnds(topPts, toePts, Math.Max(4.0 * tolerance, 0.1 * minWidth));
-            var rails = new WallRails(toePts, terrainTopPts, pair.IsClosed, minWidth);
+            Point3d[] terrainTopPts = topPts;
+            var convergedEnds = new List<ConvergedEnd>(2);
+            if (!pair.IsClosed)
+            {
+                terrainTopPts = TrimConvergedEnds(topPts, toePts, Math.Max(4.0 * tolerance, 0.1 * minWidth), out bool trimmedStart, out bool trimmedEnd);
+                if (trimmedStart && DescribeConvergedEnd(toePts, terrainTopPts, topPts[0], atStart: true, minWidth) is { } start)
+                    convergedEnds.Add(start);
+                if (trimmedEnd && DescribeConvergedEnd(toePts, terrainTopPts, topPts[^1], atStart: false, minWidth) is { } end)
+                    convergedEnds.Add(end);
+            }
+
+            var rails = new WallRails(toePts, terrainTopPts, pair.IsClosed, minWidth, convergedEnds);
 
             IReadOnlyList<Brep>? breps = null;
             if (buildSolids)
@@ -821,8 +879,12 @@ internal static class RetainingWallPlannerCore
     /// <paramref name="partner"/> in plan, so converged wall ends leave the rails apart. Interior points are
     /// never touched, and at least two points always remain.
     /// </summary>
-    internal static Point3d[] TrimConvergedEnds(Point3d[] rail, Point3d[] partner, double width)
+    internal static Point3d[] TrimConvergedEnds(Point3d[] rail, Point3d[] partner, double width) =>
+        TrimConvergedEnds(rail, partner, width, out _, out _);
+
+    internal static Point3d[] TrimConvergedEnds(Point3d[] rail, Point3d[] partner, double width, out bool trimmedStart, out bool trimmedEnd)
     {
+        trimmedStart = trimmedEnd = false;
         if (rail.Length < 3 || partner.Length < 2 || !(width > 0.0))
             return rail;
 
@@ -833,10 +895,81 @@ internal static class RetainingWallPlannerCore
         while (last > first + 1 && PlanDistanceToPolyline(rail[last], partner) < width)
             last--;
 
-        if (first == 0 && last == rail.Length - 1)
+        trimmedStart = first > 0;
+        trimmedEnd = last < rail.Length - 1;
+        if (!trimmedStart && !trimmedEnd)
             return rail;
 
         return rail[first..(last + 1)];
+    }
+
+    /// <summary>
+    /// The converged end of the trimmed top rail <paramref name="terrainTop"/> nearest the drawn end
+    /// <paramref name="drawnTopEnd"/>: the tip is the toe's end there, and the wall's direction out of the
+    /// end is read from the middle of the wall two body gaps back from the tip. Null when it cannot be told.
+    /// </summary>
+    internal static ConvergedEnd? DescribeConvergedEnd(Point3d[] toe, Point3d[] terrainTop, Point3d drawnTopEnd, bool atStart, double bodyGap)
+    {
+        if (toe.Length < 2 || terrainTop.Length < 2 || !(bodyGap > 0.0))
+            return null;
+
+        bool tipAtToeStart = Distance2D(toe[0], drawnTopEnd) <= Distance2D(toe[^1], drawnTopEnd);
+        Point3d tip = tipAtToeStart ? toe[0] : toe[^1];
+        Point3d back = WalkPlan(toe, fromStart: tipAtToeStart, 2.0 * bodyGap);
+        Point3d across = ClosestPlanPoint(back, terrainTop);
+        var middle = new Point3d(0.5 * (back.X + across.X), 0.5 * (back.Y + across.Y), 0.0);
+        // By hand: Vector3d.Unitize is native, and the planner runs without Rhino too.
+        double length = Math.Sqrt(((tip.X - middle.X) * (tip.X - middle.X)) + ((tip.Y - middle.Y) * (tip.Y - middle.Y)));
+        if (!(length > 1e-12))
+            return null;
+
+        var outward = new Vector3d((tip.X - middle.X) / length, (tip.Y - middle.Y) / length, 0.0);
+
+        var topSide = new Vector3d(-outward.Y, outward.X, 0.0);
+        if (((across.X - back.X) * topSide.X) + ((across.Y - back.Y) * topSide.Y) < 0.0)
+            topSide = -topSide;
+
+        return new ConvergedEnd(atStart ? terrainTop[0] : terrainTop[^1], tip, outward, topSide, bodyGap);
+    }
+
+    /// <summary>The point <paramref name="distance"/> along <paramref name="polyline"/> in plan from one end.</summary>
+    private static Point3d WalkPlan(Point3d[] polyline, bool fromStart, double distance)
+    {
+        int count = polyline.Length;
+        double left = distance;
+        for (int k = 0; k + 1 < count; k++)
+        {
+            Point3d a = polyline[fromStart ? k : count - 1 - k];
+            Point3d b = polyline[fromStart ? k + 1 : count - 2 - k];
+            double length = Distance2D(a, b);
+            if (length >= left && length > 0.0)
+                return a + ((b - a) * (left / length));
+            left -= length;
+        }
+
+        return polyline[fromStart ? count - 1 : 0];
+    }
+
+    private static Point3d ClosestPlanPoint(Point3d point, Point3d[] polyline)
+    {
+        double best = double.MaxValue;
+        Point3d closest = polyline[0];
+        for (int i = 0; i + 1 < polyline.Length; i++)
+        {
+            double ax = polyline[i].X, ay = polyline[i].Y;
+            double dx = polyline[i + 1].X - ax, dy = polyline[i + 1].Y - ay;
+            double lengthSq = dx * dx + dy * dy;
+            double t = lengthSq > 0.0 ? Math.Clamp(((point.X - ax) * dx + (point.Y - ay) * dy) / lengthSq, 0.0, 1.0) : 0.0;
+            double ex = ax + t * dx - point.X, ey = ay + t * dy - point.Y;
+            double distanceSq = ex * ex + ey * ey;
+            if (distanceSq < best)
+            {
+                best = distanceSq;
+                closest = polyline[i] + ((polyline[i + 1] - polyline[i]) * t);
+            }
+        }
+
+        return closest;
     }
 
     private static double PlanDistanceToPolyline(Point3d point, Point3d[] polyline)

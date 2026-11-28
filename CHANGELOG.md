@@ -29,7 +29,9 @@ beta prereleases. Earlier versions are recorded only in the git history.
 - **Kerbs with shaped ends and crossings.** A Retaining Wall whose two curves come together at the end, in
   a point or a round nose, now builds; before, the pair was skipped as too narrow. The wall solid follows
   the drawn end. The terrain's top breakline stops a few millimetres short of the tip, because a terrain
-  cannot hold two heights at one point, and the terrain closes the nose with a steep face.
+  cannot hold two heights at one point, and the terrain closes the nose with a steep face. The ground
+  round the end now wraps it smoothly: a kerb drawn with its top above the ground used to leave a dark
+  wedge reaching a metre or more past the nose, in both modes.
 - **Kerb cuts.** A wall whose top curve drops to the toe's height for a crossing no longer loses its
   solid: it is built as one solid each side, tapering into the cut. A wall tapering to zero height at an
   end is now a closed solid too.
