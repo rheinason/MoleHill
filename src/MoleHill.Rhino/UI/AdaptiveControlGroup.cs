@@ -11,6 +11,7 @@ internal sealed class AdaptiveControlGroup : Panel
 {
     private readonly Control[] _controls;
     private readonly int _spacing;
+    private readonly List<(Control Control, Panel Gap)> _gaps = new();
     private bool? _wrapped;
 
     /// <summary>The controls this group is laying out, exposed so a containing row (e.g.
@@ -27,6 +28,7 @@ internal sealed class AdaptiveControlGroup : Panel
 
     private void Relayout()
     {
+        SyncGaps();
         if (Width <= 0)
             return;
 
@@ -61,26 +63,60 @@ internal sealed class AdaptiveControlGroup : Panel
     /// occupy no space once laid out — counting them toward the wrap width would wrap prematurely.</summary>
     private System.Collections.Generic.List<Control> VisibleControls() => _controls.Where(c => c.Visible).ToList();
 
+    /// <summary>
+    /// One line, with the gaps as fixed spacers rather than the layout's Spacing. When no item expands, an
+    /// Eto StackLayout appends an empty filler and puts its Spacing before it too, so the group reported one
+    /// gap more than its content: 6 px of dead space after the last control. Invisible on a left-aligned
+    /// group, but a right-aligned one (the toolbar's New/Copy/Delete/⋯) sat a gap left of the row below it.
+    /// Each spacer belongs to the control after it and follows its visibility, so a hidden control leaves
+    /// no double gap.
+    /// </summary>
     private Control BuildSingleRow()
     {
         var row = new StackLayout
         {
             Orientation = Orientation.Horizontal,
-            Spacing = _spacing,
+            Spacing = 0,
             VerticalContentAlignment = VerticalAlignment.Center,
             HorizontalContentAlignment = HorizontalAlignment.Stretch
         };
 
-        foreach (var control in _controls)
-            row.Items.Add(control);
+        _gaps.Clear();
+        for (int index = 0; index < _controls.Length; index++)
+        {
+            if (index > 0)
+            {
+                var gap = new Panel { Width = _spacing };
+                _gaps.Add((_controls[index], gap));
+                row.Items.Add(gap);
+            }
 
+            row.Items.Add(_controls[index]);
+        }
+
+        SyncGaps();
         return row;
+    }
+
+    /// <summary>
+    /// A gap shows only between two visible controls: it belongs to the control after it, and the first
+    /// visible control has none (its gap would sit where the line starts).
+    /// </summary>
+    private void SyncGaps()
+    {
+        bool seenVisible = _controls.Length > 0 && _gaps.Count > 0 && _controls[0].Visible;
+        foreach (var (control, gap) in _gaps)
+        {
+            gap.Visible = control.Visible && seenVisible;
+            seenVisible |= control.Visible;
+        }
     }
 
     /// <summary>Greedy line-fill: add controls left to right, starting a new line whenever the next one
     /// wouldn't fit in the remaining width of the current line.</summary>
     private Control BuildWrapped(int availableWidth)
     {
+        _gaps.Clear(); // wrapped lines are left-aligned, so their own Spacing's trailing gap never shows
         var lines = new StackLayout
         {
             Orientation = Orientation.Vertical,
@@ -131,10 +167,13 @@ internal static class AdaptiveWidth
 {
     public static int Estimate(Control control) => control switch
     {
-        // Take whichever is larger of an explicit Width and the text-length guess: a control that's been
-        // given a fixed Width (e.g. the layer-assignment button trio) should never be estimated smaller
-        // than that, and one that's merely reporting its default/unmeasured Width shouldn't be trusted
-        // below what its text needs.
+        // Once laid out, a control's own width is the truth. The caption guess below measures with the
+        // bold digit width, so it overestimated short captions: "Edit…" + "Apply" came to about 124 px
+        // against 90 px real, and the Output Layers buttons wrapped one above the other at any width.
+        Button or CheckBox when control.Loaded && control.Width > 0 => control.Width,
+        // Before layout, take whichever is larger of an explicit Width and the text-length guess: a
+        // control given a fixed Width should never be estimated smaller than that, and one reporting its
+        // default/unmeasured Width shouldn't be trusted below what its text needs.
         Button button => Math.Max(button.Width, UiMetrics.Chs((button.Text?.Length ?? 0) + 3)),
         CheckBox check => Math.Max(check.Width, UiMetrics.Chs((check.Text?.Length ?? 0) + 4)),
         _ when control.Width > 0 => control.Width,

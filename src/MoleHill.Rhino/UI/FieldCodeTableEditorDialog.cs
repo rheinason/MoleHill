@@ -36,20 +36,16 @@ internal sealed class FieldCodeTableEditorDialog : Dialog<bool>
     private readonly TextBox _closeTokens = new();
     private readonly TextBox _continuation = new() { Width = UiMetrics.Chs(8) };
     private readonly TextBox _unmatchedLayer = new();
-    private readonly Label _status = new() { TextColor = UiTheme.MutedText, Wrap = WrapMode.Word };
+    private readonly Label _status = UiDialogs.Note();
 
     private FieldCodeTableEditorDialog(FieldCodeTableStore store)
     {
         _store = store;
         _table = store.Load(out _loadWarning).Clone();
 
-        Title = "MoleHill Field Codes";
-        Resizable = true;
-        Padding = 12;
-        MinimumSize = new Size(720, 560);
-        this.UseRhinoStyle();
+        UiDialogs.Frame(this, "Field Codes", new Size(720, 560), resizable: true);
 
-        Content = BuildLayout();
+        UiDialogs.SetContent(this, BuildLayout());
         Refresh();
         if (_loadWarning != null)
             _status.Text = _loadWarning;
@@ -67,100 +63,42 @@ internal sealed class FieldCodeTableEditorDialog : Dialog<bool>
     {
         BuildGrid();
 
-        var addButton = new Button { Text = "Add" };
-        addButton.Click += (_, _) => AddRule();
+        var addButton = UiDialogs.Button("Add", (_, _) => AddRule());
+        var removeButton = UiDialogs.Button("Remove", (_, _) => RemoveSelectedRule());
+        var defaultsButton = UiDialogs.Button("Restore Defaults", (_, _) => RestoreDefaults());
+        var importButton = UiDialogs.Button("Import…", (_, _) => ImportTable());
+        var exportButton = UiDialogs.Button("Export…", (_, _) => ExportTable());
+        var saveButton = UiDialogs.Button("Save", (_, _) => Commit());
+        var cancelButton = UiDialogs.Button("Cancel", (_, _) => Close(false));
 
-        var removeButton = new Button { Text = "Remove" };
-        removeButton.Click += (_, _) => RemoveSelectedRule();
+        var layout = new DynamicLayout { Spacing = UiMetrics.DialogGap };
 
-        var defaultsButton = new Button { Text = "Restore Defaults" };
-        defaultsButton.Click += (_, _) => RestoreDefaults();
-
-        var importButton = new Button { Text = "Import…" };
-        importButton.Click += (_, _) => ImportTable();
-
-        var exportButton = new Button { Text = "Export…" };
-        exportButton.Click += (_, _) => ExportTable();
-
-        var saveButton = new Button { Text = "Save" };
-        saveButton.Click += (_, _) => Commit();
-
-        var cancelButton = new Button { Text = "Cancel" };
-        cancelButton.Click += (_, _) => Close(false);
-
-        DefaultButton = saveButton;
-        AbortButton = cancelButton;
-
-        var layout = new DynamicLayout { Spacing = new Size(8, 8) };
-
-        layout.AddRow(new Label
-        {
-            Text = "A rule says what a surveyed code means. Layer is relative to the survey's own "
-                + "layer tree, which is named after the imported file. Leave it blank to use the role's sublayer "
-                + "(Breaklines, Contours, Boundary, Spots), so one layer assignment picks up every code of that kind.",
-            Wrap = WrapMode.Word
-        });
+        layout.AddRow(UiDialogs.Intro(
+            "A rule says what a surveyed code means. Layer is relative to the survey's own "
+            + "layer tree, which is named after the imported file. Leave it blank to use the role's sublayer "
+            + "(Breaklines, Contours, Boundary, Spots), so one layer assignment picks up every code of that kind."));
 
         layout.Add(_grid, yscale: true);
 
-        layout.AddRow(new StackLayout
-        {
-            Orientation = Orientation.Horizontal,
-            Spacing = 6,
-            Items = { addButton, removeButton, null, defaultsButton, importButton, exportButton }
-        });
+        // Add and Remove act on the rows above; Restore, Import and Export replace the whole table, so they
+        // sit on the left of the dialog's own button row.
+        layout.AddRow(UiDialogs.ButtonRow(addButton, removeButton));
 
-        layout.AddRow(new Label { Text = "Markers", Font = SystemFonts.Bold() });
-        layout.AddRow(new Label
-        {
-            Text = "How this office marks a run. Several spellings per box, separated by commas.",
-            TextColor = UiTheme.MutedText,
-            Wrap = WrapMode.Word
-        });
+        layout.AddRow(UiDialogs.Heading("Markers"));
+        layout.AddRow(UiDialogs.Note("How this office marks a run. Several spellings per box, separated by commas."));
 
-        layout.AddRow(MarkerRow("Start", _startTokens, "End", _endTokens));
-        layout.AddRow(MarkerRow("Arc", _arcTokens, "Close", _closeTokens));
-
-        layout.AddRow(new StackLayout
-        {
-            Orientation = Orientation.Horizontal,
-            Spacing = 6,
-            VerticalContentAlignment = VerticalAlignment.Center,
-            Items =
-            {
-                new Label { Text = "Continues a run", Width = UiMetrics.LabelColumn },
-                _continuation,
-                new Label { Text = "Unmatched codes go to", Width = UiMetrics.Chs(20) },
-                new StackLayoutItem(_unmatchedLayer, expand: true)
-            }
-        });
+        layout.AddRow(UiDialogs.FieldPair("Start", _startTokens, null, "End", _endTokens, null));
+        layout.AddRow(UiDialogs.FieldPair("Arc", _arcTokens, null, "Close", _closeTokens, null));
+        layout.AddRow(UiDialogs.FieldPair(
+            "Continuation", _continuation, "The suffix that continues a run on a later point.",
+            "Unmatched Codes", _unmatchedLayer, "The layer for codes with no rule, relative to the survey's layer tree."));
 
         layout.AddRow(_status);
 
-        layout.AddRow(new StackLayout
-        {
-            Orientation = Orientation.Horizontal,
-            Spacing = 6,
-            Items = { null, saveButton, cancelButton }
-        });
+        layout.AddRow(UiDialogs.Actions(this, saveButton, cancelButton, defaultsButton, importButton, exportButton));
 
         return layout;
     }
-
-    private static Control MarkerRow(string firstLabel, TextBox first, string secondLabel, TextBox second) =>
-        new StackLayout
-        {
-            Orientation = Orientation.Horizontal,
-            Spacing = 6,
-            VerticalContentAlignment = VerticalAlignment.Center,
-            Items =
-            {
-                new Label { Text = firstLabel, Width = UiMetrics.LabelColumn },
-                new StackLayoutItem(first, expand: true),
-                new Label { Text = secondLabel, Width = UiMetrics.ShortLabel },
-                new StackLayoutItem(second, expand: true)
-            }
-        };
 
     private void BuildGrid()
     {
@@ -373,7 +311,7 @@ internal sealed class FieldCodeTableEditorDialog : Dialog<bool>
     }
 
     private bool Confirm(string question) =>
-        MessageBox.Show(this, question, "MoleHill Field Codes", MessageBoxButtons.YesNo, MessageBoxType.Question)
+        MessageBox.Show(this, question, "Field Codes", MessageBoxButtons.YesNo, MessageBoxType.Question)
             == DialogResult.Yes;
 
     private static List<string> SplitTokens(string? text) =>

@@ -29,19 +29,15 @@ internal sealed class ZoneLayerPickerDialog : Dialog<bool>
 
     private ZoneLayerPickerDialog(RhinoDoc doc, ISet<string> usedLayerPaths)
     {
-        Title = "Add Zones From Layers";
-        Resizable = true;
-        Padding = 12;
-        MinimumSize = new Size(360, 440);
-        this.UseRhinoStyle();
+        UiDialogs.Frame(this, "Add Zones From Layers", new Size(360, 440), resizable: true);
 
-        _search = new TextBox { PlaceholderText = "Find a layer..." };
+        _search = UiDialogs.Search("layers");
         _search.TextChanged += (_, _) => RebuildVisible();
 
         _list = new StackLayout
         {
             Orientation = Orientation.Vertical,
-            Spacing = 2,
+            Spacing = UiMetrics.SpaceXSmall,
             HorizontalContentAlignment = HorizontalAlignment.Stretch
         };
         var scroll = new Scrollable
@@ -75,9 +71,9 @@ internal sealed class ZoneLayerPickerDialog : Dialog<bool>
             var row = new StackLayout
             {
                 Orientation = Orientation.Horizontal,
-                Spacing = 6,
+                Spacing = UiMetrics.DialogRowSpacing,
                 VerticalContentAlignment = VerticalAlignment.Center,
-                Padding = new Padding(4, 2),
+                Padding = new Padding(UiMetrics.SpaceSmall, UiMetrics.SpaceXSmall),
                 Items = { dot, new StackLayoutItem(check, expand: true) }
             };
             _rows.Add(new LayerRow
@@ -90,8 +86,7 @@ internal sealed class ZoneLayerPickerDialog : Dialog<bool>
             });
         }
 
-        var okButton = new Button { Text = "Add Zones" };
-        okButton.Click += (_, _) =>
+        var okButton = UiDialogs.Button("Add Zones", (_, _) =>
         {
             SelectedLayerPaths = _rows
                 .Where(r => !r.AlreadyUsed && r.Check.Checked == true)
@@ -99,31 +94,19 @@ internal sealed class ZoneLayerPickerDialog : Dialog<bool>
                 .ToList();
             Result = true;
             Close();
-        };
-        var cancelButton = new Button { Text = "Cancel" };
-        cancelButton.Click += (_, _) =>
+        });
+        var cancelButton = UiDialogs.Button("Cancel", (_, _) =>
         {
             Result = false;
             Close();
-        };
-        DefaultButton = okButton;
-        AbortButton = cancelButton;
-
-        var layout = new DynamicLayout { Spacing = new Size(8, 8) };
-        layout.AddRow(new Label
-        {
-            Text = "Pick layers to turn into zones. Each checked layer becomes one zone.",
-            Wrap = WrapMode.Word
         });
+
+        var layout = new DynamicLayout { Spacing = UiMetrics.DialogGap };
+        layout.AddRow(UiDialogs.Intro("Pick layers to turn into zones. Each checked layer becomes one zone."));
         layout.AddRow(_search);
         layout.Add(scroll, yscale: true);
-        layout.AddRow(new StackLayout
-        {
-            Orientation = Orientation.Horizontal,
-            Spacing = 8,
-            Items = { null, okButton, cancelButton }
-        });
-        Content = layout;
+        layout.AddRow(UiDialogs.Actions(this, okButton, cancelButton));
+        UiDialogs.SetContent(this, layout);
 
         RebuildVisible();
     }
@@ -150,8 +133,8 @@ internal sealed class ZoneLayerPickerDialog : Dialog<bool>
         {
             _list.Items.Add(new StackLayoutItem(new Panel
             {
-                Padding = new Padding(6, 4),
-                Content = new Label { Text = "No matching layers.", TextColor = UiTheme.MutedText }
+                Padding = new Padding(UiMetrics.SpaceMedium, UiMetrics.SpaceSmall),
+                Content = UiDialogs.Note("No matching layers.")
             }, HorizontalAlignment.Stretch));
         }
     }

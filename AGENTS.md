@@ -133,8 +133,8 @@ Use C# with 4-space indentation, file-scoped namespaces, and one type per file. 
   so `1:3` is the flat batter — the same reading `OffsetVerticalMode.Ratio` has always used. Declare a
   slope row with the `Slope` / `OptionalSlope` / `SlopeSlider` parameter factories, never a plain
   `Number`; `ParameterSchemaGuardTests` fails the build otherwise — but it only sees *declared* rows, so
-  a card needing unusual layout should declare the row and position it via
-  `IsBespokePositionedModifierParameter` (as the "Peel Border" group does) rather than hand-write it. Every other numeric row still declares
+  a card needing unusual layout still declares the row and groups it with a `Section` entry - every card
+  body is built from declared rows, with no hand-placed or hand-written rows left in the panel. Every other numeric row still declares
   a `ParameterUnit` (`ModelLength`, `Degrees`, `Percent`, `None`) so no card shows a bare unlabelled
   number. `ParameterUnit.Degrees` means a **true angle** — a dihedral crease, a rotation — and is never
   converted; a fold between two faces has no rise over run. Slope-taking commands share one
@@ -145,7 +145,7 @@ Use C# with 4-space indentation, file-scoped namespaces, and one type per file. 
   that scopes a region is a **boundary**; the mesh's outer edge is its **border** (never "TIN boundary");
   a fold detected from the mesh is a **crease**; the stage input is the **incoming mesh** (never
   "upstream mesh"); **Protect** is a curve that shields terrain from an edit and adds no mesh edge — Sculpt's strokes, and
-  Smooth's smoothing (whose **Protect Hold** is how firmly those curves keep their height).
+  Smooth's smoothing (whose **Height Protection** is how firmly those curves keep their height).
   "Constraint", "feature", "pinned" and "fixity" are
   retired from user-facing text — storage keys (`Constraints`, `BreaklineFixity`, `ConstraintFeather`)
   keep their names because they are JSON on disk. `ModifierVocabularyGuardTests` fails on a retired

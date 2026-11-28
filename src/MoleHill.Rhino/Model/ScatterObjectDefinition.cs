@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using MoleHill.Core.Scattering;
 
 namespace MoleHill.Rhino.Model;
@@ -58,6 +59,18 @@ public sealed class ScatterObjectDefinition : TerrainObjectDefinition
 
     /// <summary>Curve mode, multi-block: whether blocks are picked weighted-random or cycled in order.</summary>
     public ScatterBlockOrder BlockOrder { get; set; } = ScatterBlockOrder.Random;
+
+    /// <summary>
+    /// Whether blocks are cycled in list order: a curve scatter set to Sequence. In a sequence the weight is
+    /// hidden and plays no part - every included block takes its turn - so the checkbox alone decides
+    /// whether a block is in the cycle. Weights stay stored for switching back to Random.
+    /// </summary>
+    [JsonIgnore]
+    public bool CyclesInSequence => SourceMode == ScatterSourceMode.Curve && BlockOrder == ScatterBlockOrder.Sequence;
+
+    /// <summary>The weight a block contributes to the build: its own in a random mix, one in a sequence.</summary>
+    public double EffectiveWeight(ScatterBlockEntry entry) =>
+        !entry.IsEnabled ? 0.0 : CyclesInSequence ? 1.0 : Math.Max(entry.Weight, 0.0);
 
     public ScatterDensityMode DensityMode { get; set; } = ScatterDensityMode.Count;
 

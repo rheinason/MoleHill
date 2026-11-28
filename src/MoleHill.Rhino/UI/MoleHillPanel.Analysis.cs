@@ -16,27 +16,7 @@ public sealed partial class MoleHillPanel
 {
     private Panel CreateAnalysisCard(TerrainDefinition terrain, AnalysisDefinition analysis, bool isActive)
     {
-        bool collapsed = _collapsedAnalyses.Contains(analysis.Id);
-        var collapseLabel = CreateCollapseChevron(collapsed);
-
-        var nameBox = new TextBox { Text = analysis.Label };
-        StyleTextBox(nameBox);
-        ApplyHelp(nameBox, "Friendly analysis name shown in the panel.");
-        BindCommittedText(nameBox, () => analysis.Label, text =>
-            MutateAnalysis(terrain.TerrainId, analysis.Id, item => item.Label = text, scheduleRebuild: false));
-
-        var enabledCheck = new CheckBox
-        {
-            Checked = analysis.IsEnabled
-        };
-        ApplyHelp(enabledCheck, "Enable or disable this analysis card without deleting it.");
-        enabledCheck.CheckedChanged += (_, _) =>
-        {
-            MutateAnalysis(terrain.TerrainId, analysis.Id, item => item.IsEnabled = enabledCheck.Checked == true, scheduleRebuild: false);
-            RefreshTerrainPreview(terrain.TerrainId);
-        };
-
-        string kind = GetAnalysisKind(analysis);
+        Guid terrainId = terrain.TerrainId, id = analysis.Id;
         bool supportsPreview = TerrainAnalysisPreviewBuilder.SupportsTerrainPreview(analysis);
         bool producesOutput = TerrainAnalysisPreviewBuilder.ProducesGeneratedOutput(analysis);
         string statusText = isActive
@@ -44,86 +24,41 @@ public sealed partial class MoleHillPanel
             : analysis.IsEnabled
                 ? supportsPreview ? "Enabled" : producesOutput ? "Output" : "Summary"
                 : "Disabled";
-        var badge = CreateCardStatusLabel(statusText, isActive ? UiTheme.ActiveBadge : UiTheme.MutedText);
 
-        var handle = CreateReorderHandle(analysis.Id, "analysis-drag", "Drag to reorder this analysis.");
-
-        var accent = AnalysisTypeColor(kind);
-        var iconPlate = CreateIconPlate(accent,
-            CreateCardIconControl(GetAnalysisIconName(analysis), GetAnalysisIconLabel(analysis)));
-
-        Control titleBlock = CreateCardTitleBlock(
-            collapsed,
-            analysis.Label,
-            AppendRuntimeDiagnosticSummary(
+        return CreateCard(new CardSpec
+        {
+            Stack = _analysisCards,
+            Id = id,
+            Name = analysis.Label,
+            NameHelp = "Friendly analysis name shown in the panel.",
+            Rename = text => MutateAnalysis(terrainId, id, item => item.Label = text, scheduleRebuild: false),
+            IsEnabled = analysis.IsEnabled,
+            EnableHelp = "Enable or disable this analysis card without deleting it.",
+            SetEnabled = value =>
+            {
+                MutateAnalysis(terrainId, id, item => item.IsEnabled = value, scheduleRebuild: false);
+                RefreshTerrainPreview(terrainId);
+            },
+            TypeName = GetAnalysisTypeLabel(analysis),
+            TypeIcon = CreateCardIconControl(GetAnalysisIconName(analysis), GetAnalysisIconLabel(analysis)),
+            Summary = () => AppendRuntimeDiagnosticSummary(
                 GetAnalysisCollapsedSummary(terrain, analysis),
                 terrain,
-                new RuntimeOverlayOwner(RuntimeOverlayOwnerKind.Analysis, analysis.Id)),
-            nameBox,
-            GetAnalysisSubtitle(analysis, isActive));
-
-        var duplicateButton = MakeDuplicateIconButton(() =>
-        {
-            DuplicateAnalysis(terrain.TerrainId, analysis.Id);
-            RefreshTerrainPreview(terrain.TerrainId);
-        }, "Duplicate this analysis card.");
-        var deleteButton = MakeDeleteIconButton(() =>
-        {
-            RemoveAnalysis(terrain.TerrainId, analysis.Id);
-            RefreshTerrainPreview(terrain.TerrainId);
-        }, "Delete this analysis card.");
-
-        void ToggleCollapsed(bool ctrlHeld)
-        {
-            bool nowCollapsed = !_collapsedAnalyses.Contains(analysis.Id);
-            if (ctrlHeld)
+                new RuntimeOverlayOwner(RuntimeOverlayOwnerKind.Analysis, id)),
+            Description = GetAnalysisSubtitle(analysis, isActive),
+            HandleHelp = "Drag to reorder this analysis.",
+            Status = CreateCardStatusLabel(statusText, isActive ? UiTheme.ActiveBadge : UiTheme.MutedText),
+            Duplicate = (() =>
             {
-                var doc2 = RhinoDoc.ActiveDoc;
-                var t = doc2 == null ? null : _controller.GetSelectedTerrain(doc2);
-                if (t != null)
-                {
-                    var visibleAnalyses = t.Analyses;
-
-                    if (nowCollapsed)
-                    {
-                        foreach (var item in visibleAnalyses)
-                            _collapsedAnalyses.Add(item.Id);
-                    }
-                    else
-                    {
-                        foreach (var item in visibleAnalyses)
-                            _collapsedAnalyses.Remove(item.Id);
-                    }
-                }
-            }
-            else
+                DuplicateAnalysis(terrainId, id);
+                RefreshTerrainPreview(terrainId);
+            }, "Duplicate this analysis card."),
+            Delete = (() =>
             {
-                if (nowCollapsed)
-                    _collapsedAnalyses.Add(analysis.Id);
-                else
-                    _collapsedAnalyses.Remove(analysis.Id);
-            }
-
-            var doc = RhinoDoc.ActiveDoc;
-            RebuildAnalysisLayout(doc == null ? null : _controller.GetSelectedTerrain(doc));
-        }
-
-        return CreateSharedCardShell(new SharedCardShellOptions
-        {
-            Handle = handle,
-            CollapseControl = collapseLabel,
-            IconPlate = iconPlate,
-            EnabledControl = enabledCheck,
-            TitleBlock = titleBlock,
-            StatusControls = new Control[] { badge },
-            ActionControls = new Control[]
-            {
-                duplicateButton,
-                deleteButton
-            },
-            ToggleCollapsed = ToggleCollapsed,
-            Collapsed = collapsed,
-            Body = collapsed ? null : CreateAnalysisBody(terrain, analysis)
+                RemoveAnalysis(terrainId, id);
+                RefreshTerrainPreview(terrainId);
+            }, "Delete this analysis card."),
+            Body = () => CreateAnalysisBody(terrain, analysis)
         });
     }
 
@@ -142,9 +77,13 @@ public sealed partial class MoleHillPanel
         else if (descriptor?.DescribeBasis(terrain, analysis) is { } basis)
             layout.AddRow(CreateNoteRow(basis));
 
-        AppendBespokeAnalysisRowsBefore(layout, terrain, analysis);
-        TryBuildSchemaAnalysisBody(layout, terrain, analysis);
-        AppendBespokeAnalysisRowsAfter(layout, terrain, analysis, summary);
+        BuildSchemaAnalysisBody(layout, terrain, analysis);
+        // What the last build measured is data on the descriptor, drawn by the shared result renderer.
+        AddResultRows(
+            layout,
+            GetAnalysisKind(analysis),
+            () => descriptor?.DescribeResult(analysis, summary, ResultFormats),
+            descriptor?.ResultsExpandedByDefault ?? true);
         Control? diagnosticsRow = CreateRuntimeDiagnosticsRow(
             terrain,
             new RuntimeOverlayOwner(RuntimeOverlayOwnerKind.Analysis, analysis.Id));
@@ -152,68 +91,6 @@ public sealed partial class MoleHillPanel
             layout.AddRow(diagnosticsRow);
 
         return layout;
-    }
-
-    /// <summary>
-    /// Rows that must run before the schema-generated rows to preserve the original card layout: the slope
-    /// unit selector (converts Range values when changed, so it can't be a plain schema row) and the shared
-    /// terrain-section block (sources + insertion origin + text height + output layer + color — the
-    /// insertion-origin picker needs an interactive GetPoint, so the whole block stays bespoke).
-    /// </summary>
-    private void AppendBespokeAnalysisRowsBefore(DynamicLayout layout, TerrainDefinition terrain, AnalysisDefinition analysis)
-    {
-        switch (analysis)
-        {
-            case SlopeAnalysisDefinition slope:
-                layout.AddRow(CreateSlopeUnitEditor(terrain.TerrainId, slope));
-                break;
-
-            case ReferenceComparisonAnalysisDefinition referenceComparison:
-                AddAnalysisCompareTerrainRows(layout, terrain, referenceComparison);
-                break;
-
-        }
-    }
-
-    /// <summary>
-    /// Lets Earthworks/Cut-Fill compare against another MoleHill terrain's finished mesh directly, without
-    /// requiring it to be baked to Rhino geometry first, and says when that terrain cannot be compared
-    /// against as it stands. Sits above the schema-generated "Compare To" row, which takes precedence when
-    /// it has objects or layers assigned.
-    /// </summary>
-    private void AddAnalysisCompareTerrainRows(
-        DynamicLayout layout,
-        TerrainDefinition owner,
-        ReferenceComparisonAnalysisDefinition analysis)
-    {
-        // The same rule heads the comparison rows on the section cards, so the block reads as one thing.
-        layout.AddRow(CreateSectionRule("Compare"));
-        layout.AddRow(CreateCompareTerrainEditor(
-            owner,
-            analysis.ReferenceTerrainId,
-            id => MutateAnalysis(owner.TerrainId, analysis.Id, item =>
-            {
-                if (item is ReferenceComparisonAnalysisDefinition compare)
-                    compare.ReferenceTerrainId = id;
-            }, scheduleRebuild: true),
-            CompareTerrainHelp + " Ignored when “Compare To” below has objects or layers assigned - those take precedence."));
-
-        if (analysis.ReferenceTerrainId is not { } referenceId)
-            return;
-
-        if (analysis.Reference.HasReferences)
-        {
-            layout.AddRow(CreateNoteRow("Not used: the “Compare To” objects below take precedence over a terrain."));
-            return;
-        }
-
-        if (CreateCompareTerrainStatusRow(
-                owner,
-                referenceId,
-                "cut and fill are measured against this terrain's own base triangulation instead") is { } status)
-        {
-            layout.AddRow(status);
-        }
     }
 
     /// <summary>An inline caution on a card: a setting is on but cannot take effect yet.</summary>
@@ -270,15 +147,6 @@ public sealed partial class MoleHillPanel
     /// Rows drawn after the schema-generated rows: the read-only stats from the last terrain build, which
     /// each descriptor supplies as data.
     /// </summary>
-    private void AppendBespokeAnalysisRowsAfter(DynamicLayout layout, TerrainDefinition terrain, AnalysisDefinition analysis, TerrainAnalysisSummary? summary)
-    {
-        // Nothing here needs a live control: what the last build measured is data on the descriptor
-        // (AnalysisTypeDescriptor.DescribeResult), drawn by the same generic renderer annotations use.
-        AddResultRows(
-            layout,
-            AnalysisTypeRegistry.ForType(analysis.GetType())?.DescribeResult(analysis, summary, ResultFormats));
-    }
-
     private static string FormatArea(double value)
     {
         ModelUnitContext unitContext = ModelUnitContext.FromDocument(RhinoDoc.ActiveDoc);
@@ -341,11 +209,8 @@ public sealed partial class MoleHillPanel
     private static string GetAnalysisKind(AnalysisDefinition analysis) =>
         AnalysisTypeRegistry.ForType(analysis.GetType())?.Kind ?? string.Empty;
 
-    private static Color AnalysisTypeColor(string kind)
-    {
-        int argb = AnalysisTypeRegistry.ForKind(kind)?.AccentArgb ?? unchecked((int)0xFF787878);
-        return Color.FromArgb((argb >> 16) & 0xFF, (argb >> 8) & 0xFF, argb & 0xFF);
-    }
+    private static Color AnalysisTypeColor(string kind) =>
+        UiTheme.TypeAccent(AnalysisTypeRegistry.ForKind(kind)?.AccentArgb);
 
     private static string GetAnalysisIconLabel(AnalysisDefinition analysis) =>
         AnalysisTypeRegistry.ForType(analysis.GetType())?.IconLabel ?? "A";
@@ -362,25 +227,9 @@ public sealed partial class MoleHillPanel
         return isActive && descriptor.ActiveSubtitle != null ? descriptor.ActiveSubtitle : descriptor.Subtitle;
     }
 
-    private static string GetAnalysisCollapsedSummary(TerrainDefinition terrain, AnalysisDefinition analysis)
-    {
-        TerrainAnalysisSummary? summary = GetAnalysisSummary(terrain, analysis.Id);
-        return analysis switch
-        {
-            EarthworkAnalysisDefinition earthwork => summary != null
-                ? $"Net {FormatVolume(summary.NetVolume)} | {(summary.EarthworkIsEstimated ? "Estimated" : "Exact")}"
-                : $"{CountReferences(earthwork.Reference)} refs | {CountReferences(earthwork.Boundary)} bounds",
-            SlopeAnalysisDefinition slope => $"{FormatSlopeValue(slope.RangeLow, slope.Unit)} to {(slope.RangeHigh > slope.RangeLow ? FormatSlopeValue(slope.RangeHigh, slope.Unit) : "Auto")}",
-            ElevationAnalysisDefinition elevation => $"{elevation.RangeLow:G4} to {(elevation.RangeHigh > elevation.RangeLow ? elevation.RangeHigh.ToString("G4") : "Auto")}",
-            CutFillAnalysisDefinition cutFill => summary != null
-                ? $"{summary.CutVolume:F2} / {summary.FillVolume:F2} / {summary.NetVolume:F2}"
-                : $"{CountReferences(cutFill.Reference)} refs | {CountReferences(cutFill.Boundary)} bounds",
-            WaterflowAnalysisDefinition waterflow => summary != null
-                ? $"{summary.GeneratedOutputCount} paths | {summary.WaterflowBoundaryCount} boundary"
-                : $"{CountReferences(waterflow.Sources)} refs | downhill paths",
-            _ => string.Empty
-        };
-    }
+    private static string GetAnalysisCollapsedSummary(TerrainDefinition terrain, AnalysisDefinition analysis) =>
+        AnalysisTypeRegistry.ForType(analysis.GetType())?.Summarize(terrain, analysis, GetAnalysisSummary(terrain, analysis.Id), ResultFormats)
+            ?? string.Empty;
 
     private void DuplicateAnalysis(Guid terrainId, Guid analysisId)
     {
@@ -390,43 +239,6 @@ public sealed partial class MoleHillPanel
             _controller.DuplicateAnalysis(doc, terrainId, analysisId);
             RefreshUi();
         }
-    }
-
-    private Control CreateSlopeUnitEditor(Guid terrainId, SlopeAnalysisDefinition slope)
-    {
-        var options = new[]
-        {
-            (AnalysisFormatting.GetSlopeUnitKey(SlopeAnalyzer.SlopeUnit.Percent), "Percent"),
-            (AnalysisFormatting.GetSlopeUnitKey(SlopeAnalyzer.SlopeUnit.Promille), "Promille"),
-            (AnalysisFormatting.GetSlopeUnitKey(SlopeAnalyzer.SlopeUnit.Ratio), "Ratio"),
-            (AnalysisFormatting.GetSlopeUnitKey(SlopeAnalyzer.SlopeUnit.Degrees), "Degrees")
-        };
-
-        return CreateDropDownEditor(
-            "Units",
-            options,
-            AnalysisFormatting.GetSlopeUnitKey(slope.Unit),
-            value =>
-            {
-                var nextUnit = AnalysisFormatting.ParseSlopeUnit(value);
-                if (nextUnit == slope.Unit)
-                    return;
-
-                double rangeLow = ConvertSlopeValue(slope.RangeLow, slope.Unit, nextUnit);
-                double rangeHigh = ConvertSlopeValue(slope.RangeHigh, slope.Unit, nextUnit);
-                double interval = ConvertSlopeValue(slope.ColorInterval, slope.Unit, nextUnit);
-                MutateAndRefreshAnalysis(terrainId, slope.Id, item =>
-                {
-                    if (item is not SlopeAnalysisDefinition target)
-                        return;
-
-                    target.Unit = nextUnit;
-                    target.RangeLow = rangeLow;
-                    target.RangeHigh = rangeHigh;
-                    target.ColorInterval = interval;
-                });
-            },
-            "Show slope values as percent, promille, rise/run ratio, or degrees.");
     }
 
     private static string FormatSlopeValue(double value, SlopeAnalyzer.SlopeUnit unit) =>

@@ -13,6 +13,9 @@ internal sealed class SimplifyModifierDescriptor : ModifierTypeDescriptor
     public override Type DefinitionType => typeof(SimplifyModifierDefinition);
     public override string DisplayName => "Simplify";
     public override string IconName => "ModSimplify";
+
+    public override int AccentArgb => unchecked((int)0xFF00897B);
+
     public override int SortOrder => 1;
     public override string Subtitle => "Fewer vertices, error verified";
     public override ModifierDefinition Create(UnitSystem unitSystem) => new SimplifyModifierDefinition
@@ -38,16 +41,24 @@ internal sealed class SimplifyModifierDescriptor : ModifierTypeDescriptor
             "Mode", "Mode",
             new[]
             {
-                (SimplifyModifierDefinition.MaximumDeviationMode, "Maximum deviation"),
-                (SimplifyModifierDefinition.TargetVertexCountMode, "Target vertex count"),
-                (SimplifyModifierDefinition.RetainPercentageMode, "Retain percentage")
+                (SimplifyModifierDefinition.MaximumDeviationMode, "Deviation"),
+                (SimplifyModifierDefinition.TargetVertexCountMode, "Vertices"),
+                (SimplifyModifierDefinition.RetainPercentageMode, "Keep %")
             },
             m => ((SimplifyModifierDefinition)m).Mode,
             (m, value) => ((SimplifyModifierDefinition)m).Mode = value ?? SimplifyModifierDefinition.MaximumDeviationMode,
             "Choose a certified vertical-error bound, an output vertex cap, or a percentage converted to a floor-rounded vertex cap. Count modes report achieved error but do not impose an error tolerance.",
-            rebuildAfterCommit: true),
+            rebuildAfterCommit: true,
+            optionHelp: new Dictionary<string, string>
+            {
+                // Design review Step 54.
+                [SimplifyModifierDefinition.MaximumDeviationMode] = "Limits the vertical difference from the incoming surface.",
+                [SimplifyModifierDefinition.TargetVertexCountMode] = "Caps the output vertex count. Reports the achieved error without imposing a deviation limit.",
+                [SimplifyModifierDefinition.RetainPercentageMode] = "Converts a percentage of the incoming vertex count to a cap, rounded down. Reports the achieved error without imposing a deviation limit.",
+            },
+            fullRow: true),
         ModifierParam.Number(
-            "MaximumDeviation", "Maximum Deviation",
+            "MaximumDeviation", "Max Deviation",
             m => ((SimplifyModifierDefinition)m).MaximumDeviation,
             (m, value) => ((SimplifyModifierDefinition)m).MaximumDeviation = value,
             "Largest permitted vertical difference from the terrain immediately before this modifier. The complete triangle overlay is verified; the mesh border and grading and wall breaklines are kept. If no smaller mesh can meet the bound, the incoming mesh is kept. Later modifiers may change the surface, and Earthworks can report a small volume difference because Simplify does not conserve volume.",

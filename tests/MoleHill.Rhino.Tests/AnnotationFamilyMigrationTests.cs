@@ -146,15 +146,28 @@ public class AnnotationFamilyMigrationTests
     [InlineData("terrain-section", typeof(TerrainSectionAnnotationDefinition))]
     [InlineData("cross-section-station", typeof(CrossSectionStationAnnotationDefinition))]
     [InlineData("longitudinal-section", typeof(LongitudinalSectionAnnotationDefinition))]
-    [InlineData("curve-elevation-label", typeof(CurveElevationLabelAnnotationDefinition))]
-    [InlineData("curve-slope-label", typeof(CurveSlopeLabelAnnotationDefinition))]
-    [InlineData("projected-elevation-label", typeof(ProjectedElevationLabelAnnotationDefinition))]
-    [InlineData("point-slope-label", typeof(PointSlopeLabelAnnotationDefinition))]
-    [InlineData("slope-arrows", typeof(SlopeArrowAnnotationDefinition))]
+    [InlineData("spot-heights", typeof(SpotHeightsAnnotationDefinition))]
+    [InlineData("spot-slope", typeof(SpotSlopeAnnotationDefinition))]
     [InlineData("grade-callout", typeof(GradeBetweenPointsAnnotationDefinition))]
     public void AnnotationKinds_AreUnchangedFromWhenTheyLivedInTheAnalysisFamily(string kind, System.Type expected)
     {
         Assert.IsType(expected, AnnotationTypeRegistry.Create(kind));
         Assert.Null(AnalysisTypeRegistry.Create(kind));
+    }
+
+    /// <summary>
+    /// The five label kinds schema 34 merged are gone from the registry: a saved one reaches a card only
+    /// through the migration, never by binding directly.
+    /// </summary>
+    [Theory]
+    [InlineData("curve-elevation-label")]
+    [InlineData("curve-slope-label")]
+    [InlineData("projected-elevation-label")]
+    [InlineData("point-slope-label")]
+    [InlineData("slope-arrows")]
+    public void RetiredSpotKinds_AreNotRegistered(string kind)
+    {
+        Assert.Null(AnnotationTypeRegistry.Create(kind));
+        Assert.True(TerrainSchemaMigrations.RetiredSpotKinds.ContainsKey(kind));
     }
 }

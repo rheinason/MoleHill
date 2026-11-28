@@ -13,6 +13,9 @@ internal sealed class RemeshModifierDescriptor : ModifierTypeDescriptor
     public override Type DefinitionType => typeof(RemeshModifierDefinition);
     public override string DisplayName => "Remesh";
     public override string IconName => "ModRemesh";
+
+    public override int AccentArgb => unchecked((int)0xFF388E3C);
+
     public override int SortOrder => 2;
     public override string Subtitle => "Even triangles, creases kept";
     public override ModifierDefinition Create(UnitSystem unitSystem) => new RemeshModifierDefinition
@@ -27,29 +30,39 @@ internal sealed class RemeshModifierDescriptor : ModifierTypeDescriptor
         var r = (RemeshModifierDefinition)modifier;
         string remeshEdge = r.EdgeLength > 0 ? $"Edge Length {r.EdgeLength:G4}" : "Edge Length auto";
         return r.CreaseAngle > 0
-            ? $"{remeshEdge} | Crease Angle {r.CreaseAngle:G4} deg"
+            ? $"{remeshEdge} · Crease Angle {r.CreaseAngle:G4} deg"
             : remeshEdge;
     }
 
     private static readonly IReadOnlyList<(string Key, string Label)> ModeOptions = new[]
     {
-        ("isotropic", "Isotropic (best quality)"),
-        ("rebuild", "Full Rebuild (classic, wall-safe)"),
-        ("local", "Local Refine (preserve topology)"),
+        ("isotropic", "Even Triangles"),
+        ("rebuild", "Full Rebuild"),
+        ("local", "Local Refine"),
+    };
+
+    // Design review Step 47: the trade-off of each mode, shown on its segment.
+    private static readonly IReadOnlyDictionary<string, string> ModeHelp = new Dictionary<string, string>
+    {
+        ["isotropic"] = "Makes triangles more even across the terrain. It can take longer on large meshes and may cross shallow retaining walls.",
+        ["rebuild"] = "Retriangulates the terrain while keeping wall edges and breaklines. The triangles may be less even.",
+        ["local"] = "Refines triangles in place and preserves the existing topology. It is faster on large meshes and can leave less even triangles.",
     };
 
     public override IReadOnlyList<ModifierParam> Parameters { get; } = new[]
     {
+        ModifierParam.Choice(
+            "Mode", "Mode", ModeOptions,
+            m => ((RemeshModifierDefinition)m).Mode,
+            (m, v) => ((RemeshModifierDefinition)m).Mode = v ?? "isotropic",
+            "Even Triangles regularizes the whole terrain to even triangles (best overall quality, can be slow on very large terrains and may occasionally cross retaining walls on shallow wall angles). Full Rebuild is the classic constrained-Delaunay re-triangulation — never crosses a wall or breakline, coarser triangle shapes. Local Refine only splits/flips triangles in place, preserving existing topology exactly — fastest and safest on huge terrains, coarsest quality.",
+            optionHelp: ModeHelp,
+            fullRow: true),
         ModifierParam.Sources(
             "Constraints", "Breaklines",
             m => ((RemeshModifierDefinition)m).Constraints,
             RhinoObjectType.Curve,
             "Curves whose edges the remesh keeps. Creases detected from the mesh are kept as well (see Crease Angle)."),
-        ModifierParam.Choice(
-            "Mode", "Mode", ModeOptions,
-            m => ((RemeshModifierDefinition)m).Mode,
-            (m, v) => ((RemeshModifierDefinition)m).Mode = v ?? "isotropic",
-            "Isotropic regularizes the whole terrain to even triangles (best overall quality, can be slow on very large terrains and may occasionally cross retaining walls on shallow wall angles). Full Rebuild is the classic constrained-Delaunay re-triangulation — never crosses a wall or breakline, coarser triangle shapes. Local Refine only splits/flips triangles in place, preserving existing topology exactly — fastest and safest on huge terrains, coarsest quality."),
         ModifierParam.Number(
             "EdgeLength", "Edge Length",
             m => ((RemeshModifierDefinition)m).EdgeLength,

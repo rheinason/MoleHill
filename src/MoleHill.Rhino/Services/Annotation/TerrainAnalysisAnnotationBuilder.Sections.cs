@@ -395,7 +395,11 @@ internal static partial class TerrainAnalysisAnnotationBuilder
         var objects = TerrainBuildSnapshotResolver.ResolveObjects(snapshot, analysis.Sources);
         var insertionPlane = ResolveInsertionPlane(analysis, mesh);
         double tolerance = snapshot.ModelAbsoluteTolerance;
-        double sampleInterval = Math.Max(analysis.SampleInterval, tolerance * 10.0);
+        double sampleInterval = Math.Max(
+            analysis.SampleInterval > 0.0
+                ? analysis.SampleInterval
+                : TerrainBuildService.GetToleranceProfile(snapshot, snapshot.Terrain).DetailSize,
+            tolerance * 10.0);
         double verticalScale = ResolveVerticalExaggeration(analysis);
         double textHeight = ResolveTextHeight(snapshot, analysis);
         int sourceCount = 0;

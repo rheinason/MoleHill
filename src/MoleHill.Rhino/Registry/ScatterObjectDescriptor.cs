@@ -77,6 +77,22 @@ internal sealed class ScatterObjectDescriptor : ObjectTypeDescriptor
                 definition => ((ScatterObjectDefinition)definition).BoundaryFeather,
                 (definition, value) => ((ScatterObjectDefinition)definition).BoundaryFeather = value,
                 "Width over which planting gradually increases from empty to full density after the setback.", unit: ParameterUnit.ModelLength, liveScrub: true, visibleWhen: IsRegion),
+            // Design review Step 61: along a curve, the mix itself is either weighted or a repeating sequence,
+            // so the choice heads the Block Mix rather than sitting among the distribution settings.
+            ObjectParam.Choice(
+                "blockOrder",
+                "Order",
+                new (string, string)[] { ("Random", "Random"), ("Sequence", "Sequence") },
+                definition => ((ScatterObjectDefinition)definition).BlockOrder.ToString(),
+                (definition, value) => ((ScatterObjectDefinition)definition).BlockOrder = Enum.Parse<ScatterBlockOrder>(value!),
+                "How each spot along the curve picks its block.",
+                visibleWhen: definition => IsCurve(definition) && definition is ScatterObjectDefinition scatter && scatter.Blocks.Count > 1,
+                optionHelp: new Dictionary<string, string>
+                {
+                    ["Random"] = "Each spot picks a block at random, in proportion to the weights.",
+                    ["Sequence"] = "Blocks take turns in the order listed, repeating. Drag a row to reorder; untick a block to leave it out.",
+                },
+                fullRow: true),
             ObjectParam.BlockMix(
                 "blocks",
                 "Block Mix",
@@ -99,14 +115,16 @@ internal sealed class ScatterObjectDescriptor : ObjectTypeDescriptor
             ObjectParam.Choice(
                 "densityMode",
                 "Density Mode",
-                new (string, string)[] { ("Count", "Total count"), ("PerArea", "Per area"), ("Spacing", "Min spacing"), ("EdgeToEdge", "Edge-to-edge") },
+                new (string, string)[] { ("Count", "Count"), ("PerArea", "Per Area"), ("Spacing", "Min Spacing"), ("EdgeToEdge", "Edge to Edge") },
                 definition => ((ScatterObjectDefinition)definition).DensityMode.ToString(),
                 (definition, value) => ((ScatterObjectDefinition)definition).DensityMode = Enum.Parse<ScatterDensityMode>(value!),
                 "Choose whether scatter is controlled by count, density, or spacing.",
                 rebuildAfterCommit: true,
+                // Design review Step 37: three choices per source, shown as segments.
                 optionsFor: definition => IsCurve(definition)
-                    ? new (string, string)[] { ("Count", "Total count"), ("Spacing", "Centre spacing"), ("EdgeToEdge", "Edge-to-edge") }
-                    : new (string, string)[] { ("Count", "Total count"), ("PerArea", "Per area"), ("Spacing", "Min spacing") }),
+                    ? new (string, string)[] { ("Count", "Count"), ("Spacing", "Centre Spacing"), ("EdgeToEdge", "Edge to Edge") }
+                    : new (string, string)[] { ("Count", "Count"), ("PerArea", "Per Area"), ("Spacing", "Min Spacing") },
+                segmented: true),
             ObjectParam.Choice("densityUnit", "Density unit",
                 new (string, string)[] { ("SquareMeter", "Plants / m²"), ("HundredSquareMeters", "Plants / 100 m²"), ("Hectare", "Plants / hectare"), ("ModelArea", "Plants / square model unit") },
                 definition => ((ScatterObjectDefinition)definition).DensityUnit.ToString(),
@@ -169,14 +187,6 @@ internal sealed class ScatterObjectDescriptor : ObjectTypeDescriptor
                 decimalPlaces: 2,
                 liveScrub: true,
                 visibleWhen: definition => IsCurve(definition) && !IsDensity(definition, ScatterDensityMode.EdgeToEdge)),
-            ObjectParam.Choice(
-                "blockOrder",
-                "Block order",
-                new (string, string)[] { ("Random", "Random (by weight)"), ("Sequence", "In sequence") },
-                definition => ((ScatterObjectDefinition)definition).BlockOrder.ToString(),
-                (definition, value) => ((ScatterObjectDefinition)definition).BlockOrder = Enum.Parse<ScatterBlockOrder>(value!),
-                "Random: choose by weight. Sequence: cycle the block list in order.",
-                visibleWhen: definition => IsCurve(definition) && definition is ScatterObjectDefinition scatter && scatter.Blocks.Count > 1),
             ObjectParam.Slider(
                 "jitterXy",
                 "XY Jitter",
@@ -271,6 +281,68 @@ internal sealed class ScatterObjectDescriptor : ObjectTypeDescriptor
             decimalPlaces: 0,
             liveEdit: true,
             liveScrub: true));
-        return parameters;
+        return Sectioned(parameters);
+    }
+
+    // The card reads where, what, then how (design review: Scatter follows where, what, then how).
+    private static readonly (string Key, string Title, bool Expanded)[] SectionOrder =
+    {
+        ("distribution", "Distribution", true),
+        ("blockMix", "Block Mix", true),
+        ("placement", "Placement", false),
+        ("filters", "Filters", false),
+        ("preview", "Preview", false),
+    };
+
+    private static string SectionOf(string key) => key switch
+    {
+        "blocks" or "blockOrder" => "blockMix",
+        "sourceMode" or "scatterSource" or "useTerrainZones" or "zoneSelection" or "pattern" or
+            "densityMode" or "densityUnit" or "perAreaDensity" or "spacing" or "edgeGap" or "count" or "alongJitter" => "distribution",
+        "exclusions" or "exclusionClearance" or "boundarySetback" or "boundaryFeather" or "keepWholeBlocksInside" or
+            "slopeFilterEnabled" or "slopeMinDegrees" or "slopeMaxDegrees" or "elevationFilterEnabled" or "elevationMin" or "elevationMax" => "filters",
+        "previewMode" or "previewCap" => "preview",
+        _ => "placement",
+    };
+
+    /// <summary>The rows in section order, each group opened by its declared section.</summary>
+    private static IReadOnlyList<ObjectParam> Sectioned(List<ObjectParam> parameters)
+    {
+        var result = new List<ObjectParam>(parameters.Count + SectionOrder.Length);
+        foreach (var (key, title, expanded) in SectionOrder)
+        {
+            Func<TerrainObjectDefinition, string?>? summary = key switch
+            {
+                "filters" => ActiveFilters,
+                "blockMix" => BlockCount,
+                _ => null,
+            };
+            result.Add(ObjectParam.Section(key, title, expanded, summary: summary));
+            result.AddRange(parameters.Where(parameter => SectionOf(parameter.Key) == key));
+        }
+
+        return result;
+    }
+
+    /// <summary>A closed Block Mix still says how many blocks it mixes (design review Step 60).</summary>
+    private static string? BlockCount(TerrainObjectDefinition definition) =>
+        definition is ScatterObjectDefinition scatter
+            ? $"{scatter.Blocks.Count} {(scatter.Blocks.Count == 1 ? "block" : "blocks")}"
+            : null;
+
+    /// <summary>Names the filters in force, so a closed Filters section still says what it removes.</summary>
+    private static string? ActiveFilters(TerrainObjectDefinition definition)
+    {
+        if (definition is not ScatterObjectDefinition scatter)
+            return null;
+
+        var active = new List<string>();
+        if (scatter.Exclusions.HasReferences) active.Add("Exclusions");
+        if (scatter.BoundarySetback > 0) active.Add("Setback");
+        if (scatter.BoundaryFeather > 0) active.Add("Feather");
+        if (scatter.KeepWholeBlocksInside) active.Add("Whole blocks");
+        if (scatter.SlopeFilterEnabled) active.Add("Slope");
+        if (scatter.ElevationFilterEnabled) active.Add("Elevation");
+        return active.Count == 0 ? "None" : string.Join(", ", active);
     }
 }

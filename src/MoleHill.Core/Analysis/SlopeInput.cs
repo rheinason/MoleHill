@@ -100,7 +100,7 @@ public static class SlopeInput
     /// written as the pair itself ("1:3") because that pair <em>is</em> how the unit is read.
     /// </summary>
     public static string FormatValue(double ratio, SlopeAnalyzer.SlopeUnit unit) =>
-        FormatValue(ratio, unit, "0.###", CultureInfo.CurrentCulture);
+        FormatValue(ratio, unit, "0.###", CultureInfo.InvariantCulture);
 
     /// <summary>
     /// The same value text for a report rather than a field: a fixed number of decimals so a column of
@@ -152,7 +152,7 @@ public static class SlopeInput
     /// <summary>Value text plus its unit at a chosen precision (a numeric format such as "0.#").</summary>
     public static string FormatWithUnit(double ratio, SlopeAnalyzer.SlopeUnit unit, string numericFormat)
     {
-        string value = FormatValue(ratio, unit, numericFormat, CultureInfo.CurrentCulture);
+        string value = FormatValue(ratio, unit, numericFormat, CultureInfo.InvariantCulture);
         return unit == SlopeAnalyzer.SlopeUnit.Ratio ? value : value + Suffix(unit);
     }
 
@@ -326,10 +326,5 @@ public static class SlopeInput
     /// so a '.' is always a decimal point even in locales where it is the group separator, and an
     /// invariant fallback catches text this code formatted itself.
     /// </summary>
-    private static bool TryParseNumber(string text, out double value)
-    {
-        const NumberStyles Styles = NumberStyles.Float;
-        return double.TryParse(text, Styles, CultureInfo.CurrentCulture, out value) ||
-               double.TryParse(text, Styles, CultureInfo.InvariantCulture, out value);
-    }
+    private static bool TryParseNumber(string text, out double value) => UserNumber.TryParse(text, out value);
 }

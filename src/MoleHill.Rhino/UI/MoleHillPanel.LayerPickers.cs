@@ -52,7 +52,7 @@ public sealed partial class MoleHillPanel
         var selectedStack = new StackLayout
         {
             Orientation = Orientation.Vertical,
-            Spacing = 2,
+            Spacing = UiMetrics.SpaceXSmall,
             HorizontalContentAlignment = HorizontalAlignment.Stretch
         };
         foreach (var path in currentLayerPaths)
@@ -68,7 +68,7 @@ public sealed partial class MoleHillPanel
             selectedStack.Items.Add(new StackLayoutItem(
                 CreateLayerPickerRow(
                     AnalysisFormatting.GetLeafLayerName(path),
-                    rhinoLayer != null ? ToEtoColor(rhinoLayer.Color) : Color.FromArgb(80, 80, 80),
+                    rhinoLayer != null ? ToEtoColor(rhinoLayer.Color) : UiTheme.SwatchPlaceholder,
                     highlighted: false,
                     trailingControl: removeButton),
                 HorizontalAlignment.Stretch));
@@ -139,7 +139,7 @@ public sealed partial class MoleHillPanel
             {
                 availableContent.Content = new Panel
                 {
-                    Padding = new Padding(8, 6),
+                    Padding = new Padding(UiMetrics.SpaceLarge, UiMetrics.SpaceMedium),
                     Content = new Label
                     {
                         Text = "No matching layers.",
@@ -231,8 +231,8 @@ public sealed partial class MoleHillPanel
         var toolbar = new StackLayout
         {
             Orientation = Orientation.Horizontal,
-            Spacing = 4,
-            Padding = new Padding(4),
+            Spacing = UiMetrics.SpaceSmall,
+            Padding = new Padding(UiMetrics.SpaceSmall),
             HorizontalContentAlignment = HorizontalAlignment.Stretch,
             Items = { new StackLayoutItem(searchBox, expand: true) }
         };
@@ -270,10 +270,10 @@ public sealed partial class MoleHillPanel
         var row = new StackLayout
         {
             Orientation = Orientation.Horizontal,
-            Spacing = 4,
+            Spacing = UiMetrics.SpaceSmall,
             VerticalContentAlignment = VerticalAlignment.Center,
             HorizontalContentAlignment = HorizontalAlignment.Stretch,
-            Padding = new Padding(6, 3),
+            Padding = new Padding(UiMetrics.SpaceMedium, UiMetrics.SpaceSmall),
             BackgroundColor = highlighted ? UiTheme.ListSelectionBackground : Colors.Transparent,
             Items =
             {

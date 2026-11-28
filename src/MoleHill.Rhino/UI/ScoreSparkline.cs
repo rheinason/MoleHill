@@ -58,11 +58,11 @@ internal sealed class ScoreSparkline : Drawable
         var area = new List<PointF> { new(points[0].X, zero) };
         area.AddRange(points);
         area.Add(new PointF(points[^1].X, zero));
-        g.FillPolygon(Color.FromArgb(25, 157, 73, 70), area.ToArray());
-        g.DrawLines(new Pen(Color.FromArgb(25, 157, 73), 1.5f), points);
+        g.FillPolygon(UiTheme.BrandAccentFill, area.ToArray());
+        g.DrawLines(new Pen(UiTheme.BrandAccent, 1.5f), points);
 
         // Held since the last sample: carried on to the edge, so a settled route reads as a level line.
         if (points[^1].X < Width - 1)
-            g.DrawLine(new Pen(Color.FromArgb(25, 157, 73, 140), 1f), points[^1].X, points[^1].Y, Width - 1, points[^1].Y);
+            g.DrawLine(new Pen(UiTheme.BrandAccentFaint, 1f), points[^1].X, points[^1].Y, Width - 1, points[^1].Y);
     }
 }

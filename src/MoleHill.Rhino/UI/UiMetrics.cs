@@ -34,6 +34,30 @@ internal static class UiMetrics
     public const int SpaceLarge = 8;
     public const int SpaceXLarge = 12;
 
+    // Every padding and spacing number in the UI comes from the scale above, through these names where
+    // the intent recurs (UiTokenGuardTests fails on a bare number). A one-off value is a scale step, not a
+    // new number: the point is that changing the panel's rhythm is an edit here, not a sweep.
+
+    /// <summary>Gap between cards in a stack; also the height of the drop target between them.</summary>
+    public const int StackGap = SpaceLarge;
+
+    /// <summary>Inset around a dialog window's content.</summary>
+    public const int DialogPadding = SpaceXLarge;
+
+    /// <summary>Gap between a dialog's groups, and between its buttons.</summary>
+    public const int DialogSpacing = SpaceLarge;
+
+    /// <summary>Gap between the controls inside one dialog row.</summary>
+    public const int DialogRowSpacing = SpaceMedium;
+
+    public static Size DialogGap => new(DialogSpacing, DialogSpacing);
+
+    /// <summary>Minimum width of a dialog button, so OK and Cancel sit as a matched pair.</summary>
+    public static int DialogButtonWidth => Chs(9);
+
+    /// <summary>A number field standing alone in a dialog row: the value, its unit and the arrows ("0.00100 m").</summary>
+    public static int DialogNumberField => Chs(12);
+
     public const int ControlHeight = 26;
     public const int CompactControlHeight = 22;
 
@@ -45,6 +69,27 @@ internal static class UiMetrics
     public const int IconSize = 14;
 
     public const int IconButtonWidth = 22;
+
+    /// <summary>The ▴▾ pair at the end of a number field: each arrow is this wide and half a row tall.</summary>
+    public const int SpinnerWidth = 14;
+    public const int SpinnerGlyph = 9;
+
+    /// <summary>Segment labels drop to this fraction of the UI font before they are ellipsized.</summary>
+    public const float SegmentCompactScale = 0.88f;
+
+    // ── Card header (design review Steps 13–20) ─────────────────────────────
+    // Two fixed lines at every width: grip, arrow, enable, type icon and actions centre on the first line
+    // (the name); the type/summary line sits under the name. No line ever hides, wraps or is added.
+
+    /// <summary>Width of the disclosure arrow's slot; the arrow itself is <see cref="DisclosureGlyph"/>.</summary>
+    public const int DisclosureSize = 12;
+    public const int DisclosureGlyph = 8;
+
+    /// <summary>The bare type glyph beside the card name (no plate behind it).</summary>
+    public const int CardTypeIconSize = 10;
+
+    /// <summary>Gap between the name line and the type/summary line.</summary>
+    public const int CardHeaderLineGap = SpaceXSmall;
     public const int CardAccentWidth = 5;
     public const int CardHorizontalPadding = 8;
     public const int CardVerticalPadding = 6;
@@ -66,13 +111,15 @@ internal static class UiMetrics
 
     public static int ShortLabel => Chs(8);
 
+    /// <summary>A fixed-width number box outside the card rows (card rows span the editor column).</summary>
     public static int NumericField => Chs(9);
 
     public static int DropDown => Chs(13);
 
     public static int SliderMin => Chs(10);
 
-    public static int SliderText => Chs(8);
+    /// <summary>The text box beside a slider; holds a value and its unit ("30.000 °").</summary>
+    public static int SliderText => Chs(10);
 
     // Keep ordinary label/editor rows side-by-side at Blender-like narrow panel widths. Only below
     // this point is a second line more usable than two compressed columns.

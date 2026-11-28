@@ -358,9 +358,7 @@ internal sealed partial class TerrainBuildService
         {
             foreach (var entry in definition.Blocks)
             {
-                if (!entry.IsEnabled)
-                    continue;
-                double weight = Math.Max(entry.Weight, 0.0);
+                double weight = definition.EffectiveWeight(entry);
                 if (weight <= 0.0)
                     continue;
 

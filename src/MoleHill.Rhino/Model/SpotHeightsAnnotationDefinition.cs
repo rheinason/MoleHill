@@ -2,11 +2,15 @@ using MoleHill.Shared;
 
 namespace MoleHill.Rhino.Model;
 
-public sealed class ProjectedElevationLabelAnnotationDefinition : BlockAttributeAnnotationDefinition
+/// <summary>
+/// Elevation labels at points, along curves or on a grid. Replaced the separate Spot Heights (Points)
+/// and Spot Heights (Curve) cards in schema 34.
+/// </summary>
+public sealed class SpotHeightsAnnotationDefinition : SpotLabelAnnotationDefinition
 {
-    public ProjectedElevationLabelAnnotationDefinition()
+    public SpotHeightsAnnotationDefinition()
     {
-        Label = "Spot Heights (Points)";
+        Label = "Spot Heights";
         ValueFormat = "F2";
     }
 

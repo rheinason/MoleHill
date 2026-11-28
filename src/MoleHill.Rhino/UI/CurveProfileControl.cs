@@ -21,7 +21,7 @@ internal sealed class CurveProfileControl : Drawable
     private const int Bottom = 46;
 
     private const int LegendHeight = 8;
-    private static readonly Color TerrainColor = Color.FromArgb(125, 132, 140);
+    private static Color TerrainColor => UiTheme.ChartTerrain;
 
     private CurveReviewAnalysis? _analysis;
     private CurveReviewMetricSeries? _series;
@@ -162,7 +162,7 @@ internal sealed class CurveProfileControl : Drawable
         IEnumerable<CurveReviewRun> radiusRuns = analysis.MinimumRadiusLimit.HasValue
             ? analysis.RadiusViolations
             : Array.Empty<CurveReviewRun>();
-        var band = new Color(0.86f, 0.32f, 0.25f, 0.16f);
+        var band = UiTheme.ChartViolationBand;
         foreach (CurveReviewRun run in gradeRuns.Concat(radiusRuns))
         {
             float x0 = XAt(run.StartStation, analysis.PlanLength);
@@ -216,8 +216,8 @@ internal sealed class CurveProfileControl : Drawable
             float y = YAt(item.Point.Z, minimumZ, maximumZ);
             Color color = item.Kind switch
             {
-                CurveReviewEventKind.VerticalBreak => Color.FromArgb(196, 96, 32),
-                CurveReviewEventKind.SharpRadius or CurveReviewEventKind.PlanCorner => Color.FromArgb(232, 84, 64),
+                CurveReviewEventKind.VerticalBreak => UiTheme.ChartVerticalBreak,
+                CurveReviewEventKind.SharpRadius or CurveReviewEventKind.PlanCorner => UiTheme.ChartSharpTurn,
                 CurveReviewEventKind.TerrainGap => TerrainColor,
                 _ => UiTheme.ActiveBadge
             };
@@ -254,9 +254,9 @@ internal sealed class CurveProfileControl : Drawable
         float width = size.Width + 10f;
         float x = Math.Clamp(cursorX - (width * 0.5f), Left + 1, Left + PlotWidth - width - 1);
         var box = new RectangleF(x, Top + 3, width, size.Height + 4f);
-        g.FillRectangle(new Color(0f, 0f, 0f, 0.55f), box);
+        g.FillRectangle(UiTheme.ChartReadoutBackground, box);
         g.DrawRectangle(UiTheme.RampDivider, box);
-        g.DrawText(font, Color.FromArgb(238, 238, 238), x + 5f, Top + 5f, text);
+        g.DrawText(font, UiTheme.ChartReadoutText, x + 5f, Top + 5f, text);
     }
 
     /// <summary>The ramp under the plot: what the profile's colours mean, in the metric's own units.</summary>

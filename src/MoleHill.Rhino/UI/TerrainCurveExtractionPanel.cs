@@ -31,7 +31,7 @@ internal sealed partial class TerrainCurveExtractionPanel : Form
     private readonly Label _summary;
     private readonly Label _status = new() { Text = "Preparing preview…", Wrap = WrapMode.Word, Width = 460 };
     private readonly Dictionary<string, CheckBox> _visibility = new();
-    private readonly Dictionary<string, NumericStepper> _numbers = new();
+    private readonly Dictionary<string, NumberField> _numbers = new();
     private readonly Dictionary<DynamicLayout, DynamicLayout> _noteHosts = new();
     private readonly Task<string>? _loading;
     private readonly string _prompt;
@@ -62,13 +62,13 @@ internal sealed partial class TerrainCurveExtractionPanel : Form
             : " — adjust the floating panel; Enter keeps a ready preview, Esc cancels");
         _preview = new TerrainCurveExtractionPreview(doc.RuntimeSerialNumber, sourceId);
         Title = title + " — " + sourceName;
-        Resizable = true; Padding = 12; Size = new Size(660, 790); MinimumSize = new Size(540, 520);
+        Resizable = true; Padding = UiMetrics.DialogPadding; Size = new Size(660, 790); MinimumSize = new Size(540, 520);
         ShowInTaskbar = false;
         Owner = RhinoEtoApp.MainWindowForDocument(doc);
         this.UseRhinoStyle();
         // The scrollable carries the margin, not the body: ExpandContentWidth stretches the body to the viewport
         // and then adds the body's own padding outside it, which scrolled sideways by that much (found live).
-        var body = new DynamicLayout { Spacing = new Size(8, 7) };
+        var body = new DynamicLayout { Spacing = new Size(UiMetrics.SpaceLarge, UiMetrics.SpaceLarge) };
         body.AddRow(_summary);
         body.AddRow(new Label { Text = manualRecompute
             ? "Adjust settings, then Run; Stop ends a run. The views stay free to pan, zoom and rotate. Keep writes the layers; Cancel discards them."
@@ -110,15 +110,15 @@ internal sealed partial class TerrainCurveExtractionPanel : Form
         body.AddRow(new Label { Text = scan ? "Tolerance describes the inferred ground, not surveyed ground beneath removed objects. Roof fallbacks remain marked for review." : "Tolerance is measured at the reference terrain vertices; walls are carried by their crease lines and not measured. A spent input cap reports the remaining error.", Wrap = WrapMode.Word, Width = 460 });
         body.AddRow(new Label { Text = "Kept output goes under 'MoleHill <name>::Input': Contours, Spots, Breaklines (every line the terrain must keep), Walls and Walls::Kerbs (top and toe rails for Retaining Wall cards), Boundary and Zones — the layers a MoleHill terrain of that name reads." + (scan ? " Buildings and drawing-only outlines go under '::Context'." : ""), Wrap = WrapMode.Word, Width = 460 });
         if (scan) body.AddRow(new Expander { Header = "Advanced", Content = _scanAdvanced, Expanded = false });
-        var shell = new DynamicLayout { Spacing = new Size(8, 8) };
-        var scroll = new Scrollable { Content = body, ExpandContentWidth = true, Padding = 4 };
+        var shell = new DynamicLayout { Spacing = UiMetrics.DialogGap };
+        var scroll = new Scrollable { Content = body, ExpandContentWidth = true, Padding = UiMetrics.SpaceSmall };
         UiControls.DisableHorizontalScrolling(scroll);
         shell.Add(scroll, yscale: true);
         shell.AddRow(_status);
         shell.AddRow(new StackLayout
         {
             Orientation = Orientation.Horizontal,
-            Spacing = 8,
+            Spacing = UiMetrics.DialogSpacing,
             Items = { _refresh, new StackLayoutItem(null, true), _cancel, _keep }
         });
         Content = shell;
@@ -222,8 +222,8 @@ internal sealed partial class TerrainCurveExtractionPanel : Form
     /// </summary>
     private DynamicLayout Section(DynamicLayout body, string title)
     {
-        var host = new DynamicLayout { Spacing = new Size(8, 5), Padding = 8 };
-        var grid = new DynamicLayout { Spacing = new Size(8, 5) };
+        var host = new DynamicLayout { Spacing = new Size(UiMetrics.SpaceLarge, UiMetrics.SpaceMedium), Padding = UiMetrics.SpaceLarge };
+        var grid = new DynamicLayout { Spacing = new Size(UiMetrics.SpaceLarge, UiMetrics.SpaceMedium) };
         host.AddRow(grid);
         _noteHosts[grid] = host;
         body.AddRow(new GroupBox { Text = title, Content = host }); return grid;
@@ -243,7 +243,7 @@ internal sealed partial class TerrainCurveExtractionPanel : Form
         var property = Settings.GetType().GetProperty(propertyName)!;
         double value = Convert.ToDouble(property.GetValue(Settings));
         double min = minimum ?? _doc.ModelAbsoluteTolerance;
-        var number = new NumericStepper
+        var number = new NumberField
         {
             DecimalPlaces = decimals,
             MinValue = min,

@@ -16,7 +16,7 @@ namespace MoleHill.Rhino.Services;
 ///
 /// The parts are what the cards read from a build: the terrain's analysis summaries, the computed fields
 /// a modifier stores on itself (In-situ Stair), the stage reports a modifier keeps on its cache entry (Displace), the zone summaries, the diagnostic counts each card badges,
-/// and the mesh quality warnings. Whether a final mesh exists is left out: it flips off for every mid-edit
+/// the mesh quality warnings, and each Scatter card's placed and rejected counts. Whether a final mesh exists is left out: it flips off for every mid-edit
 /// frame and back on with the next final build, so the caller instead refreshes in full on the first final
 /// build, which is when cards comparing against this terrain become available. Anything new a card reads
 /// from a build must be added here, or the card goes stale until the next full refresh.
@@ -34,7 +34,8 @@ internal static class TerrainCardResultSignature
         IReadOnlyList<ZoneAnalysisSummary> zoneResults,
         IEnumerable<(RuntimeOverlayOwner Owner, RuntimeOverlaySeverity Severity)> diagnostics,
         IEnumerable<(Guid ModifierId, string? Warning)> meshQualityWarnings,
-        IEnumerable<(Guid ModifierId, MoleHill.Rhino.Registry.ModifierStageReport? Report)>? stageReports = null)
+        IEnumerable<(Guid ModifierId, MoleHill.Rhino.Registry.ModifierStageReport? Report)>? stageReports = null,
+        IEnumerable<ScatterBuildSummary>? scatterSummaries = null)
     {
         var text = new StringBuilder();
         text.Append(JsonSerializer.Serialize(terrain.LastAnalysisResults, Options)).Append(';');
@@ -64,6 +65,16 @@ internal static class TerrainCardResultSignature
         {
             if (report != null)
                 text.Append(modifierId).Append(':').Append(report.Signature).Append(';');
+        }
+
+        // Scatter cards show placed counts per block and why the rest were rejected.
+        foreach (ScatterBuildSummary scatter in (scatterSummaries ?? Enumerable.Empty<ScatterBuildSummary>()).OrderBy(item => item.DefinitionId))
+        {
+            text.Append(scatter.DefinitionId).Append(':').Append(scatter.Sampled).Append('|').Append(scatter.Breakdown)
+                .Append('|').Append(scatter.Message).Append('|');
+            foreach (var (block, count) in scatter.BlockCounts.OrderBy(pair => pair.Key, StringComparer.Ordinal))
+                text.Append(block).Append('=').Append(count).Append(',');
+            text.Append(';');
         }
 
         return text.ToString();

@@ -31,14 +31,14 @@ public sealed class ModifierSummaryTests
 
     [Fact]
     public void Triangulate_Summary_CountsEachSourceSet() =>
-        Assert.Equal("1 DEM | 5 points | 2 breaklines | 0 contours", Summary(new TriangulateModifierDefinition
+        Assert.Equal("1 DEM · 5 points · 2 breaklines · 0 contours", Summary(new TriangulateModifierDefinition
         {
             DemSurface = Refs(1), Points = Refs(3, 2), Breaklines = Refs(1, 1), Contours = Refs(0)
         }));
 
     [Fact]
     public void AddGeometry_Summary_CountsEachSourceSet() =>
-        Assert.Equal("2 points | 1 breakline | 3 contours", Summary(new AddGeometryModifierDefinition
+        Assert.Equal("2 points · 1 breakline · 3 contours", Summary(new AddGeometryModifierDefinition
         {
             Points = Refs(2), Breaklines = Refs(0, 1), Contours = Refs(3)
         }));
@@ -49,14 +49,14 @@ public sealed class ModifierSummaryTests
 
     [Fact]
     public void Remesh_Summary_EdgeAndCrease() =>
-        Assert.Equal("Edge Length 2.5 | Crease Angle 30 deg",
+        Assert.Equal("Edge Length 2.5 · Crease Angle 30 deg",
             Summary(new RemeshModifierDefinition { EdgeLength = 2.5, CreaseAngle = 30 }));
 
     [Fact]
     public void Retopo_Summary_EdgeAndQuads()
     {
-        Assert.Equal("Edge Length 1.5 | Quads on", Summary(new RetopoModifierDefinition { TargetEdgeLength = 1.5, Quads = true }));
-        Assert.Equal("Edge Length auto | field preview", Summary(new RetopoModifierDefinition { TargetEdgeLength = 0, Quads = false }));
+        Assert.Equal("Edge Length 1.5 · Quads on", Summary(new RetopoModifierDefinition { TargetEdgeLength = 1.5, Quads = true }));
+        Assert.Equal("Edge Length auto · field preview", Summary(new RetopoModifierDefinition { TargetEdgeLength = 0, Quads = false }));
     }
 
     [Fact]
@@ -72,12 +72,12 @@ public sealed class ModifierSummaryTests
 
     [Fact]
     public void Smooth_Summary_IterationsStrengthAndProtect() =>
-        Assert.Equal("5 iterations | Strength 0.5 | 2 protect curves", Summary(new SmoothModifierDefinition
+        Assert.Equal("5 iterations · Strength 0.5 · 2 protect curves", Summary(new SmoothModifierDefinition
         { Iterations = 5, Strength = 0.5, Breaklines = Refs(2) }));
 
     [Fact]
     public void Smooth_Summary_RoundModeShowsLengthAndAngle() =>
-        Assert.Equal("Round Creases | Rounding Length 2 | Crease Angle 10 deg | 1 protect curve", Summary(new SmoothModifierDefinition
+        Assert.Equal("Round Creases · Rounding Length 2 · Crease Angle 10 deg · 1 protect curve", Summary(new SmoothModifierDefinition
         { Mode = SmoothModes.Round, RoundingLength = 2.0, CreaseAngle = 10.0, Breaklines = Refs(1) }));
 
     [Fact]
@@ -87,51 +87,51 @@ public sealed class ModifierSummaryTests
         var sculpt = new SculptModifierDefinition { Constraints = Refs(1) };
         sculpt.Tiles.Add(new SculptTile());
         sculpt.Tiles.Add(new SculptTile { I = 1 });
-        Assert.Equal("2 tiles | 1 protect curve", Summary(sculpt));
+        Assert.Equal("2 tiles · 1 protect curve", Summary(sculpt));
     }
 
     [Fact]
     public void ProjectTo_Summary_TargetKinds()
     {
-        Assert.Equal("no target | 1 boundary | Strength 1",
+        Assert.Equal("no target · 1 boundary · Strength 1",
             Summary(new ProjectToModifierDefinition { Boundaries = Refs(1), Strength = 1 }));
-        Assert.Equal("target terrain | 0 boundaries | Strength 0.5",
+        Assert.Equal("target terrain · 0 boundaries · Strength 0.5",
             Summary(new ProjectToModifierDefinition { TargetTerrainId = Guid.NewGuid(), Strength = 0.5 }));
-        Assert.Equal("target mesh | 0 boundaries | Strength 0.5",
+        Assert.Equal("target mesh · 0 boundaries · Strength 0.5",
             Summary(new ProjectToModifierDefinition { TargetMesh = Refs(1), TargetTerrainId = Guid.NewGuid(), Strength = 0.5 }));
     }
 
     [Fact]
     public void GradePad_Summary_UsesSlopeUnit() =>
-        Assert.Equal("2 boundaries | Fill 100%", Summary(new GradePadModifierDefinition
+        Assert.Equal("2 boundaries · Fill 100%", Summary(new GradePadModifierDefinition
         { Boundaries = Refs(2), SlopeAngle = 45 }));
 
     [Fact]
     public void GradePath_Summary_FixedAndVariableWidth()
     {
-        Assert.Equal("2 centerlines | Width 3",
+        Assert.Equal("2 centerlines · Width 3",
             Summary(new GradePathModifierDefinition { Paths = Refs(2), Width = 3 }));
-        Assert.Equal("1 centerlines | variable width, 3 width edges | Width 3 fallback",
+        Assert.Equal("1 centerlines · variable width, 3 width edges · Width 3 fallback",
             Summary(new GradePathModifierDefinition { Paths = Refs(1), UseVariableWidth = true, WidthEdges = Refs(3), Width = 3 }));
     }
 
     [Fact]
     public void GradeLine_Summary_SymmetricAndAsymmetric()
     {
-        Assert.Equal("2 design lines | Fill 100%",
+        Assert.Equal("2 design lines · Fill 100%",
             Summary(new GradeLineModifierDefinition { Lines = Refs(2), SlopeAngle = 45 }));
-        Assert.Equal("2 design lines | asymmetric sides",
+        Assert.Equal("2 design lines · asymmetric sides",
             Summary(new GradeLineModifierDefinition { Lines = Refs(2), UseAsymmetricSides = true }));
     }
 
     [Fact]
     public void RetainingWall_Summary_Modes()
     {
-        Assert.Equal("2 wall curves | grade terrain, Fill 100%",
+        Assert.Equal("2 wall curves · grade terrain, Fill 100%",
             Summary(new RetainingWallModifierDefinition { WallCurves = Refs(2), Mode = RetainingWallModifierDefinition.GradeMode, SlopeAngle = 45 }));
-        Assert.Equal("2 wall curves | grade terrain, asymmetric sides",
+        Assert.Equal("2 wall curves · grade terrain, asymmetric sides",
             Summary(new RetainingWallModifierDefinition { WallCurves = Refs(2), Mode = RetainingWallModifierDefinition.GradeMode, UseAsymmetricSides = true }));
-        Assert.Equal("2 wall curves | breaklines only",
+        Assert.Equal("2 wall curves · breaklines only",
             Summary(new RetainingWallModifierDefinition { WallCurves = Refs(2), Mode = RetainingWallModifierDefinition.BreaklineOnlyMode }));
     }
 
@@ -147,27 +147,27 @@ public sealed class ModifierSummaryTests
         };
 
         Assert.False(wall.GradesTerrain);
-        Assert.Equal("2 wall curves | freestanding, Wall Height 0.8", Summary(wall));
+        Assert.Equal("2 wall curves · freestanding, Wall Height 0.8", Summary(wall));
     }
 
     [Fact]
     public void InSituStair_Summary_ComputedAndReference()
     {
-        Assert.Equal("1 reference surfaces | Riser Height 0.17",
+        Assert.Equal("1 reference surfaces · Riser Height 0.17",
             Summary(new InSituStairModifierDefinition { ReferenceSurface = Refs(1), RiserHeight = 0.17 }));
-        Assert.Equal("4 surfaces | Tread Depth 0.3",
+        Assert.Equal("4 surfaces · Tread Depth 0.3",
             Summary(new InSituStairModifierDefinition
             { ReferenceSurface = Refs(1), ComputedSurfaceCount = 4, ComputedTreadDepthSummary = "0.3" }));
-        Assert.Equal("1 surfaces | Tread Depth 0.3",
+        Assert.Equal("1 surfaces · Tread Depth 0.3",
             Summary(new InSituStairModifierDefinition { ReferenceSurface = Refs(1), ComputedTreadDepthSummary = "0.3" }));
     }
 
     [Fact]
     public void Displace_Summary_NoiseAndImage()
     {
-        Assert.Equal("Noise | Size 10 | Height 0.5 | Seed 3 | whole terrain", Summary(new DisplaceModifierDefinition
+        Assert.Equal("Noise · Size 10 · Height 0.5 · Seed 3 · whole terrain", Summary(new DisplaceModifierDefinition
         { NoiseSize = 10.0, Height = 0.5, Seed = 3 }));
-        Assert.Equal("Image dunes.png | Tile 20 x 15 | Height 1 | 2 boundaries", Summary(new DisplaceModifierDefinition
+        Assert.Equal("Image dunes.png · Tile 20 x 15 · Height 1 · 2 boundaries", Summary(new DisplaceModifierDefinition
         {
             Source = DisplaceSources.Image, ImagePath = @"C:\maps\dunes.png", TileSizeX = 20.0, TileSizeY = 15.0, Height = 1.0, Boundaries = Refs(2)
         }));

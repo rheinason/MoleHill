@@ -11,67 +11,29 @@ namespace MoleHill.Rhino.UI;
 // Scatter's section layout, zone selection, density display and completed-result quantities.
 public sealed partial class MoleHillPanel
 {
-    private readonly Dictionary<(Guid Card, string Section), bool> _scatterSectionExpansion = new();
 
     private void BuildScatterSections(DynamicLayout layout, TerrainDefinition terrain, ScatterObjectDefinition scatter,
         IReadOnlyList<ParameterDescriptor<TerrainObjectDefinition>> parameters)
     {
-        string Section(string key) => key switch
-        {
-            "blocks" => "Block Mix",
-            "sourceMode" or "scatterSource" or "useTerrainZones" or "zoneSelection" or "pattern" or
-                "densityMode" or "densityUnit" or "perAreaDensity" or "spacing" or "edgeGap" or "count" or "alongJitter" or "blockOrder" => "Distribution",
-            "exclusions" or "exclusionClearance" or "boundarySetback" or "boundaryFeather" or "keepWholeBlocksInside" or
-                "slopeFilterEnabled" or "slopeMinDegrees" or "slopeMaxDegrees" or "elevationFilterEnabled" or "elevationMin" or "elevationMax" => "Filters",
-            "previewMode" or "previewCap" => "Preview",
-            _ => "Placement"
-        };
-        foreach (string section in new[] { "Distribution", "Block Mix", "Placement", "Filters", "Preview" })
-        {
-            var content = UiLayouts.CardBody();
-            foreach (var parameter in parameters.Where(parameter => Section(parameter.Key) == section))
-                if (parameter.VisibleWhen == null || parameter.VisibleWhen(scatter))
-                    content.AddRow(BuildObjectSchemaRow(terrain, scatter, parameter));
-            var key = (scatter.Id, section);
-            bool expanded = _scatterSectionExpansion.TryGetValue(key, out bool saved) ? saved : section is "Distribution" or "Block Mix";
-            string header = section;
-            string? filterSummary = null;
-            if (section == "Filters")
-            {
-                var active = new List<string>();
-                if (scatter.Exclusions.HasReferences) active.Add("Exclusions");
-                if (scatter.BoundarySetback > 0) active.Add("Setback");
-                if (scatter.BoundaryFeather > 0) active.Add("Feather");
-                if (scatter.KeepWholeBlocksInside) active.Add("Whole blocks");
-                if (scatter.SlopeFilterEnabled) active.Add("Slope");
-                if (scatter.ElevationFilterEnabled) active.Add("Elevation");
-                header += active.Count > 0 ? $" · {active.Count} active" : " · None";
-                if (active.Count > 0) filterSummary = string.Join(", ", active);
-            }
-            var expander = new Expander { Header = header, Content = content, Expanded = expanded };
-            expander.ExpandedChanged += (_, _) =>
-            {
-                _scatterSectionExpansion[key] = expander.Expanded;
-            };
-            layout.AddRow(expander);
-            if (filterSummary != null)
-                layout.AddRow(new Label { Text = filterSummary, Wrap = WrapMode.Word, TextColor = UiTheme.MutedText });
-        }
+        // Sections are declared by the Scatter descriptor (Distribution, Block Mix, Placement, Filters, Preview).
+        string kind = ObjectTypeRegistry.ForType(scatter.GetType())?.Kind ?? "scatter";
+        AddSchemaRows(layout, kind, (TerrainObjectDefinition)scatter, parameters,
+            parameter => BuildObjectSchemaRow(terrain, scatter, parameter));
 
         var doc = RhinoDoc.ActiveDoc;
-        ScatterBuildSummary? summary = doc == null ? null : _controller.GetScatterSummaries(doc, terrain.TerrainId)
+        ScatterBuildSummary? summary = doc == null ? null : _controller.GetScatterSummaries(doc, terrain.TerrainId, shownOnCard: true)
             .FirstOrDefault(item => item.DefinitionId == scatter.Id);
         string requested = scatter.DensityMode == ScatterDensityMode.Count ? $"Requested {scatter.Count:N0} · " : string.Empty;
-        layout.AddRow(CreateReadOnlyValueRow("Result", summary == null ? "Build to update quantities" :
-            summary.Message ?? $"{requested}{summary.Sampled:N0} samples → {summary.Placed:N0} placed",
-            "Counts come from the current completed build. Filters remove samples; they do not refill the requested count."));
-        if (summary != null && summary.Message == null)
-            layout.AddRow(new Expander
-            {
-                Header = "Why samples were removed",
-                Content = new Label { Text = summary.Breakdown, Wrap = WrapMode.Word },
-                Expanded = summary.Placed == 0
-            });
+        // What the build placed, and why samples were dropped, in the card's shared Results section.
+        var results = new List<ResultRow>
+        {
+            ResultRow.Of("Placed", summary == null ? "Build to update quantities" :
+                summary.Message ?? $"{requested}{summary.Sampled:N0} samples → {summary.Placed:N0} placed",
+                "Counts come from the current completed build. Filters remove samples; they do not refill the requested count."),
+        };
+        if (summary != null && summary.Message == null && !string.IsNullOrWhiteSpace(summary.Breakdown))
+            results.Add(ResultRow.Summary("Removed", summary.Breakdown, "Why samples were removed before placement.", minHeight: 42));
+        AddResultRows(layout, kind, () => results);
         layout.AddRow(MakeInlineButton("Bake this scatter", (_, _) =>
         {
             if (RhinoDoc.ActiveDoc is { } activeDoc)
@@ -128,10 +90,10 @@ public sealed partial class MoleHillPanel
                 item => ((ScatterObjectDefinition)item).PerAreaDensity = value / area,
                 deferDocumentSave: true, suppressImmediateUiRefresh: true),
             decimalPlaces: 4, help: parameter.Help, minValue: 0, liveEdit: true, unitSuffix: suffix);
-        ScatterBuildSummary? summary = doc == null ? null : _controller.GetScatterSummaries(doc, terrain.TerrainId).FirstOrDefault(item => item.DefinitionId == scatter.Id);
+        ScatterBuildSummary? summary = doc == null ? null : _controller.GetScatterSummaries(doc, terrain.TerrainId, shownOnCard: true).FirstOrDefault(item => item.DefinitionId == scatter.Id);
         return new StackLayout
         {
-            Orientation = Orientation.Vertical, HorizontalContentAlignment = HorizontalAlignment.Stretch, Spacing = 3,
+            Orientation = Orientation.Vertical, HorizontalContentAlignment = HorizontalAlignment.Stretch, Spacing = UiMetrics.SpaceSmall,
             Items = { numeric, new Label { Text = summary?.RegionArea is double regionArea
                 ? $"Gross-area estimate: {Math.Round(scatter.PerAreaDensity * regionArea):N0} before filters"
                 : "Build to estimate the planting area.", Wrap = WrapMode.Word, TextColor = UiTheme.MutedText } }

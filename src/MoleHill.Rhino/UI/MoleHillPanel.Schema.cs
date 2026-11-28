@@ -42,17 +42,31 @@ public sealed partial class MoleHillPanel
         where TDef : class
     {
         string label = parameter.LabelFor?.Invoke(definition) ?? parameter.Label;
+        // Declared, or taken from the definition property the row edits (a [ModelLength] field shows "m").
+        ParameterUnit unit = ParameterUnits.Effective(parameter, definition.GetType());
 
         switch (parameter.Kind)
         {
             case ParameterKind.Sources:
+            {
+                void Apply(Action<SourceReferenceSet> apply) => commit(item =>
+                {
+                    apply(parameter.GetSources!(item));
+                    parameter.AfterSourcesChanged?.Invoke(item);
+                });
+
+                if (parameter.SingleObject)
+                    return CreateSingleObjectEditor(label, parameter.GetSources!(definition), Apply, parameter.ObjectFilter, parameter.Help);
+
                 return CreateSourceEditor(
                     label,
                     parameter.GetSources!(definition),
-                    apply => commit(item => apply(parameter.GetSources!(item))),
+                    Apply,
                     parameter.ObjectFilter,
                     doc => _controller.GetSelectedLayerPaths(doc),
-                    parameter.Help);
+                    parameter.Help,
+                    parameter.Action is { } action ? CreateRowActionButton(action, terrain, definition) : null);
+            }
 
             case ParameterKind.Number:
                 // A slope is stored in degrees but neither shown nor typed that way, so it gets the
@@ -77,7 +91,7 @@ public sealed partial class MoleHillPanel
                     parameter.Max,
                     liveEdit: parameter.LiveEdit,
                     step: parameter.Step,
-                    unitSuffix: ResolveUnitSuffix(parameter.Unit));
+                    unitSuffix: ResolveUnitSuffix(unit));
 
             case ParameterKind.OptionalNumber:
                 if (parameter.Unit == ParameterUnit.Slope)
@@ -97,7 +111,8 @@ public sealed partial class MoleHillPanel
                     value => commit(item => parameter.SetNumber!(item, value)),
                     parameter.DecimalPlaces,
                     parameter.Help,
-                    unitSuffix: ResolveUnitSuffix(parameter.Unit));
+                    unitSuffix: ResolveUnitSuffix(unit),
+                    blankText: parameter.BlankText);
 
             case ParameterKind.Slider:
                 // The slider track stays in the stored unit (degrees for a slope — the only bounded
@@ -113,7 +128,7 @@ public sealed partial class MoleHillPanel
                     parameter.Min,
                     parameter.Max,
                     parameter.Help,
-                    unitSuffix: ResolveUnitSuffix(parameter.Unit),
+                    unitSuffix: ResolveUnitSuffix(unit),
                     formatValue: slopeSlider
                         ? degrees => SlopeInput.FormatDegreesAsUnit(degrees, SlopeUnitPreference.Current)
                         : null,
@@ -135,16 +150,25 @@ public sealed partial class MoleHillPanel
             case ParameterKind.ReadOnly:
                 return CreateReadOnlyValueRow(
                     label,
-                    parameter.GetReadOnly!(definition),
+                    parameter.GetReadOnlyFromTerrain?.Invoke(terrain, definition) ?? parameter.GetReadOnly!(definition),
                     parameter.Help ?? string.Empty);
 
             case ParameterKind.Choice:
-                return CreateDropDownEditor(
-                    label,
-                    parameter.ChoiceOptionsFor?.Invoke(definition) ?? parameter.ChoiceOptions!,
-                    parameter.GetText!(definition) ?? string.Empty,
-                    value => commit(item => parameter.SetText!(item, value)),
-                    parameter.Help ?? string.Empty);
+            {
+                var options = parameter.ChoiceOptionsFor?.Invoke(definition) ?? parameter.ChoiceOptions!;
+                string selected = parameter.GetText!(definition) ?? string.Empty;
+                Action<string> choose = value => commit(item => parameter.SetText!(item, value));
+                string help = parameter.Help ?? string.Empty;
+
+                // Two or three fixed modes are segments; a list that depends on the document, or a longer
+                // one, stays a drop-down (design review: segmented controls for 2-3 meaningful modes).
+                bool modes = (parameter.ChoiceOptionsFor == null || parameter.PreferSegments)
+                    && options.Count is 2 or 3
+                    && !parameter.PreferDropDown;
+                return modes
+                    ? CreateSegmentedEditor(label, options, selected, choose, help, parameter.ChoiceOptionHelp, parameter.FullRow)
+                    : CreateDropDownEditor(label, options, selected, choose, help);
+            }
 
             case ParameterKind.Color:
                 return CreateOptionalColorEditor(
@@ -155,13 +179,97 @@ public sealed partial class MoleHillPanel
                     parameter.FallbackColor?.Invoke(terrain, definition),
                     parameter.ColorDefaultTextFor?.Invoke(terrain, definition) ?? "(by layer)");
 
+            case ParameterKind.InsertionPoint:
+            {
+                (bool picked, double x, double y, double z) = parameter.GetInsertion!(definition);
+                return CreatePointPickRow(
+                    label,
+                    picked,
+                    $"({UserNumber.Format(x, "F2")}, {UserNumber.Format(y, "F2")}, {UserNumber.Format(z, "F2")})",
+                    parameter.Help ?? string.Empty,
+                    "Pick insertion point",
+                    point => commit(item => parameter.SetInsertion!(item, point)),
+                    () => commit(item => parameter.SetInsertion!(item, null)),
+                    "Place it automatically again.");
+            }
+
+            case ParameterKind.TerrainReference:
+            {
+                var rows = new DynamicLayout { DefaultSpacing = new Eto.Drawing.Size(UiMetrics.SpaceMedium, UiMetrics.SpaceMedium) };
+                Guid? selected = parameter.GetTerrainReference!(definition);
+                rows.AddRow(CreateCompareTerrainEditor(
+                    terrain,
+                    selected,
+                    id => commit(item => parameter.SetTerrainReference!(item, id)),
+                    parameter.Help ?? CompareTerrainHelp,
+                    label,
+                    parameter.NoTerrainLabel,
+                    parameter.OffersTerrain));
+                if (selected is { } referenceId &&
+                    CreateCompareTerrainStatusRow(terrain, referenceId, parameter.TerrainReferenceMeanwhile ?? string.Empty) is { } status)
+                {
+                    rows.AddRow(status);
+                }
+
+                return rows;
+            }
+
+            case ParameterKind.Key:
+            {
+                var items = new StackLayout
+                {
+                    Orientation = Orientation.Horizontal,
+                    Spacing = UiMetrics.SpaceLarge,
+                    VerticalContentAlignment = VerticalAlignment.Center,
+                };
+                foreach ((int argb, string name) in parameter.GetKey!(definition))
+                {
+                    items.Items.Add(new StackLayout
+                    {
+                        Orientation = Orientation.Horizontal,
+                        Spacing = UiMetrics.SpaceSmall,
+                        VerticalContentAlignment = VerticalAlignment.Center,
+                        Items =
+                        {
+                            new Panel
+                            {
+                                Size = new Eto.Drawing.Size(UiMetrics.CardTypeIconSize, UiMetrics.CardTypeIconSize),
+                                BackgroundColor = Eto.Drawing.Color.FromArgb(argb),
+                            },
+                            UiControls.Label(name),
+                        },
+                    });
+                }
+
+                return new PropertyRow(CreateHelpLabel(label, parameter.Help ?? string.Empty, 0), items, expandWidget: true);
+            }
+
+            case ParameterKind.Placeholder:
+                return bespoke?.Invoke(parameter, definition) ?? new Panel();
+
+            case ParameterKind.PlanPoint:
+            {
+                (double x, double y) = parameter.GetPlanPoint!(definition);
+                bool picked = x != 0.0 || y != 0.0;
+                return CreatePointPickRow(
+                    label,
+                    picked,
+                    $"({UserNumber.Format(x, "F2")}, {UserNumber.Format(y, "F2")})",
+                    parameter.Help ?? string.Empty,
+                    $"Pick {label.ToLowerInvariant()}",
+                    point => commit(item => parameter.SetPlanPoint!(item, point.X, point.Y)),
+                    () => commit(item => parameter.SetPlanPoint!(item, 0.0, 0.0)),
+                    "Back to world 0,0.");
+            }
+
             case ParameterKind.Text:
                 return CreateCommittedTextEditor(
                     label,
                     parameter.GetText!(definition) ?? string.Empty,
                     value => commit(item => parameter.SetText!(item, value)),
                     parameter.Help ?? string.Empty,
-                    parameter.TrimText);
+                    parameter.TrimText,
+                    parameter.PlaceholderFor?.Invoke(terrain, definition));
 
             case ParameterKind.FilePath:
                 return CreateFilePathEditor(
@@ -210,54 +318,98 @@ public sealed partial class MoleHillPanel
         _ => null
     };
 
+    /// <summary>
+    /// Appends <paramref name="definition"/>'s declared rows to <paramref name="layout"/>, in order: every
+    /// family's card body goes through here. A <see cref="ParameterKind.Section"/> entry collects the rows
+    /// after it, up to the next section, into a <see cref="CardSection"/>; a section none of whose rows is
+    /// visible is not drawn, and a section hidden by its own <c>VisibleWhen</c> hides its rows.
+    /// <paramref name="buildRow"/> returns null for a row the card places elsewhere.
+    /// </summary>
+    private static void AddSchemaRows<TDef>(
+        DynamicLayout layout,
+        string cardKind,
+        TDef definition,
+        IEnumerable<ParameterDescriptor<TDef>> parameters,
+        Func<ParameterDescriptor<TDef>, Control?> buildRow,
+        TerrainDefinition? terrain = null)
+        where TDef : class
+    {
+        ParameterDescriptor<TDef>? section = null;
+        DynamicLayout? sectionBody = null;
+        int sectionRows = 0;
+        bool skippingSection = false;
+
+        void CloseSection()
+        {
+            if (section != null && sectionBody != null && sectionRows > 0)
+            {
+                layout.AddRow(new CardSection(
+                    cardKind,
+                    section.Key,
+                    section.LabelFor?.Invoke(definition) ?? section.Label,
+                    section.ExpandedByDefault,
+                    section.SummaryFor == null ? null : SummaryText.Invariant(() => section.SummaryFor(definition)),
+                    sectionBody));
+            }
+
+            section = null;
+            sectionBody = null;
+            sectionRows = 0;
+        }
+
+        foreach (var parameter in parameters)
+        {
+            bool visible = (parameter.VisibleWhen == null || parameter.VisibleWhen(definition)) &&
+                (terrain == null || parameter.AppliesTo == null || parameter.AppliesTo(terrain));
+            if (parameter.Kind == ParameterKind.Section)
+            {
+                CloseSection();
+                skippingSection = !visible;
+                if (visible)
+                {
+                    section = parameter;
+                    sectionBody = UiLayouts.CardBody();
+                    sectionBody.Padding = new Eto.Drawing.Padding(0);
+                }
+
+                continue;
+            }
+
+            if (!visible || skippingSection)
+                continue;
+
+            Control? row = buildRow(parameter);
+            if (row == null)
+                continue;
+
+            if (sectionBody != null)
+            {
+                sectionBody.AddRow(row);
+                sectionRows++;
+            }
+            else
+            {
+                layout.AddRow(row);
+            }
+        }
+
+        CloseSection();
+    }
+
     // ---- Modifiers ----
 
     /// <summary>
-    /// Appends a row per declared parameter for <paramref name="modifier"/>'s type. Returns false when the
-    /// type has no schema yet, so the caller can fall back to its hand-written card body.
+    /// Appends a row per declared parameter for <paramref name="modifier"/>'s type.
+    /// Every registered type declares rows (<c>EveryCardType_DeclaresItsRows</c>), so there is no fallback.
     /// </summary>
-    private bool TryBuildSchemaModifierBody(DynamicLayout layout, TerrainDefinition terrain, ModifierDefinition modifier)
+    private void BuildSchemaModifierBody(DynamicLayout layout, TerrainDefinition terrain, ModifierDefinition modifier)
     {
         var descriptor = TerrainTypeRegistry.ForModifierType(modifier.GetType());
         if (descriptor == null || descriptor.Parameters.Count == 0)
-            return false;
+            return; // unreachable: EveryCardType_DeclaresItsRows
 
-        foreach (var parameter in descriptor.Parameters)
-        {
-            if (parameter.VisibleWhen != null && !parameter.VisibleWhen(modifier))
-                continue;
-            if (IsBespokePositionedModifierParameter(modifier, parameter))
-                continue;
-
-            layout.AddRow(BuildModifierSchemaRow(terrain, modifier, parameter));
-        }
-
-        return true;
-    }
-
-    private static bool IsBespokePositionedModifierParameter(
-        ModifierDefinition modifier,
-        ParameterDescriptor<ModifierDefinition> parameter) =>
-        (modifier is TriangulateModifierDefinition &&
-         parameter.Key is "DemSurface" or "ContourMode" or "OuterBoundaries" or "HideBoundaries" or "ShowBoundaries" or "DataClipBoundaries") ||
-        (modifier is GradePathModifierDefinition &&
-         parameter.Key is "Paths" or "Width" or "UseVariableWidth" or "WidthEdges" or "MaxEdgeDistance") ||
-        (modifier is ProjectToModifierDefinition && parameter.Key == "TargetMesh") ||
-        // Declared by every geometry-input modifier, but drawn inside the panel's "Peel Border" group.
-        (modifier is GeometryInputModifierDefinition &&
-         GeometryInputParameterCatalog.BoundaryPeelKeys.Contains(parameter.Key, StringComparer.Ordinal));
-
-    private Control? BuildBespokePositionedModifierRow(
-        TerrainDefinition terrain,
-        ModifierDefinition modifier,
-        string parameterKey)
-    {
-        ModifierTypeDescriptor? descriptor = TerrainTypeRegistry.ForModifierType(modifier.GetType());
-        ParameterDescriptor<ModifierDefinition>? parameter = descriptor?.Parameters.FirstOrDefault(
-            item => string.Equals(item.Key, parameterKey, StringComparison.Ordinal));
-        if (parameter == null || (parameter.VisibleWhen != null && !parameter.VisibleWhen(modifier)))
-            return null;
-        return BuildModifierSchemaRow(terrain, modifier, parameter);
+        AddSchemaRows(layout, descriptor.Kind, modifier, descriptor.Parameters, parameter =>
+            BuildModifierSchemaRow(terrain, modifier, parameter));
     }
 
     /// <summary>
@@ -287,24 +439,17 @@ public sealed partial class MoleHillPanel
     // ---- Analyses ----
 
     /// <summary>
-    /// Appends a row per declared parameter for <paramref name="analysis"/>'s type. Returns false when the
-    /// type has no schema yet, so the caller can fall back to its bespoke rows for that type.
+    /// Appends a row per declared parameter for <paramref name="analysis"/>'s type.
+    /// Every registered type declares rows (<c>EveryCardType_DeclaresItsRows</c>), so there is no fallback.
     /// </summary>
-    private bool TryBuildSchemaAnalysisBody(DynamicLayout layout, TerrainDefinition terrain, AnalysisDefinition analysis)
+    private void BuildSchemaAnalysisBody(DynamicLayout layout, TerrainDefinition terrain, AnalysisDefinition analysis)
     {
         var descriptor = AnalysisTypeRegistry.ForType(analysis.GetType());
         if (descriptor == null || descriptor.Parameters.Count == 0)
-            return false;
+            return; // unreachable: EveryCardType_DeclaresItsRows
 
-        foreach (var parameter in descriptor.Parameters)
-        {
-            if (parameter.VisibleWhen != null && !parameter.VisibleWhen(analysis))
-                continue;
-
-            layout.AddRow(BuildAnalysisSchemaRow(terrain, analysis, parameter));
-        }
-
-        return true;
+        AddSchemaRows(layout, descriptor.Kind, analysis, descriptor.Parameters,
+            parameter => BuildAnalysisSchemaRow(terrain, analysis, parameter));
     }
 
     private Control BuildAnalysisSchemaRow(
@@ -369,24 +514,17 @@ public sealed partial class MoleHillPanel
     // ---- Annotations ----
 
     /// <summary>
-    /// Appends a row per declared parameter for <paramref name="annotation"/>'s type. Returns false when
-    /// the type has no schema yet, so the caller can fall back to its bespoke rows for that type.
+    /// Appends a row per declared parameter for <paramref name="annotation"/>'s type.
+    /// Every registered type declares rows (<c>EveryCardType_DeclaresItsRows</c>), so there is no fallback.
     /// </summary>
-    private bool TryBuildSchemaAnnotationBody(DynamicLayout layout, TerrainDefinition terrain, AnnotationDefinition annotation)
+    private void BuildSchemaAnnotationBody(DynamicLayout layout, TerrainDefinition terrain, AnnotationDefinition annotation)
     {
         var descriptor = AnnotationTypeRegistry.ForType(annotation.GetType());
         if (descriptor == null || descriptor.Parameters.Count == 0)
-            return false;
+            return; // unreachable: EveryCardType_DeclaresItsRows
 
-        foreach (var parameter in descriptor.Parameters)
-        {
-            if (parameter.VisibleWhen != null && !parameter.VisibleWhen(annotation))
-                continue;
-
-            layout.AddRow(BuildAnnotationSchemaRow(terrain, annotation, parameter));
-        }
-
-        return true;
+        AddSchemaRows(layout, descriptor.Kind, annotation, descriptor.Parameters,
+            parameter => BuildAnnotationSchemaRow(terrain, annotation, parameter), terrain);
     }
 
     private Control BuildAnnotationSchemaRow(
@@ -396,6 +534,20 @@ public sealed partial class MoleHillPanel
     {
         Guid terrainId = terrain.TerrainId;
         Guid annotationId = annotation.Id;
+
+        if (parameter.Key == ComparisonParameters.SectionProfilesKey && annotation is TerrainSectionAnnotationDefinitionBase section)
+        {
+            var profiles = new DynamicLayout { DefaultSpacing = new Eto.Drawing.Size(UiMetrics.SpaceMedium, UiMetrics.SpaceMedium) };
+            AddSectionProfileRows(profiles, terrain, section);
+            return profiles;
+        }
+
+        if (parameter.Key == AnnotationParameterCatalog.TextSizeKey)
+        {
+            var textSize = new DynamicLayout { DefaultSpacing = new Eto.Drawing.Size(UiMetrics.SpaceMedium, UiMetrics.SpaceMedium) };
+            AppendAnnotationTextSizeRows(textSize, terrain, annotation);
+            return textSize;
+        }
 
         return BuildSchemaRow(
             terrain,
@@ -446,41 +598,25 @@ public sealed partial class MoleHillPanel
 
     // ---- Terrain objects ----
 
-    private bool TryBuildSchemaObjectBody(DynamicLayout layout, TerrainDefinition terrain, TerrainObjectDefinition definition)
+    private void BuildSchemaObjectBody(DynamicLayout layout, TerrainDefinition terrain, TerrainObjectDefinition definition)
     {
         var descriptor = ObjectTypeRegistry.ForType(definition.GetType());
         if (descriptor == null || descriptor.Parameters.Count == 0)
-            return false;
+            return; // unreachable: EveryCardType_DeclaresItsRows
 
         if (definition is ScatterObjectDefinition scatter)
         {
             BuildScatterSections(layout, terrain, scatter, descriptor.Parameters);
-            return true;
+            return;
         }
 
-        var variation = UiLayouts.CardBody();
-        bool isPlacement = definition is not ScatterObjectDefinition;
-        foreach (var parameter in descriptor.Parameters)
-        {
-            if (parameter.VisibleWhen != null && !parameter.VisibleWhen(definition))
-                continue;
+        AddSchemaRows(layout, descriptor.Kind, definition, descriptor.Parameters,
+            parameter => BuildObjectSchemaRow(terrain, definition, parameter));
+        layout.AddRow(CreateObjectPlacementActions(terrain, definition, descriptor.Kind));
+        layout.AddRow(CreateReadOnlyValueRow("Placement",
+            $"{definition.LastPlacedObjectCount} placed · {definition.LastSkippedObjectCount} skipped",
+            $"{definition.ReleasedObjectIds.Count} released objects are excluded from this card. Bake keeps objects live. Release leaves them placed and stops this card controlling them. Failed placements leave the object unchanged; see diagnostics below."));
 
-            if (isPlacement && parameter.Key.StartsWith("random", StringComparison.Ordinal))
-                variation.AddRow(BuildObjectSchemaRow(terrain, definition, parameter));
-            else
-                layout.AddRow(BuildObjectSchemaRow(terrain, definition, parameter));
-        }
-
-        if (isPlacement)
-        {
-            layout.AddRow(new Expander { Header = "Variation", Content = variation, Expanded = false });
-            layout.AddRow(CreateObjectPlacementActions(terrain, definition));
-            layout.AddRow(CreateReadOnlyValueRow("Placement",
-                $"{definition.LastPlacedObjectCount} placed · {definition.LastSkippedObjectCount} skipped",
-                $"{definition.ReleasedObjectIds.Count} released objects are excluded from this card. Bake keeps objects live. Release leaves them placed and stops this card controlling them. Failed placements leave the object unchanged; see diagnostics below."));
-        }
-
-        return true;
     }
 
     private Control BuildObjectSchemaRow(

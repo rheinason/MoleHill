@@ -26,10 +26,13 @@ internal sealed record TerrainBuildProgress(
     public string Format()
     {
         string elapsed = StageElapsed > TimeSpan.Zero
-            ? $"; stage {StageElapsed.TotalSeconds:0.###} s"
+            ? FormattableString.Invariant($"; stage {StageElapsed.TotalSeconds:0.###} s")
             : string.Empty;
         string detail = string.IsNullOrWhiteSpace(Detail) ? string.Empty : $"; {Detail}";
-        return $"{Stage}: {State}{elapsed}; total {TotalElapsed.TotalSeconds:0.###} s; managed {ManagedBytes / (1024.0 * 1024.0):0.0} MB{detail}";
+        // Shown in the Status row as it runs: written with a point like every other number in the panel,
+        // not in the Windows locale ("0,003 s" was seen live on a comma-decimal machine).
+        return FormattableString.Invariant(
+            $"{Stage}: {State}{elapsed}; total {TotalElapsed.TotalSeconds:0.###} s; managed {ManagedBytes / (1024.0 * 1024.0):0.0} MB{detail}");
     }
 }
 

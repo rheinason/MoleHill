@@ -7,7 +7,7 @@ namespace MoleHill.Rhino.UI;
 // Shared Plant/Orient base inspection, correction and explicit release controls.
 public sealed partial class MoleHillPanel
 {
-    private Control CreateObjectPlacementActions(TerrainDefinition terrain, TerrainObjectDefinition definition)
+    private Control CreateObjectPlacementActions(TerrainDefinition terrain, TerrainObjectDefinition definition, string cardKind)
     {
         void WithDocument(Action<RhinoDoc> action)
         {
@@ -22,12 +22,20 @@ public sealed partial class MoleHillPanel
             _controller.ReleaseObjects(doc, terrain.TerrainId, definition.Id, selectedOnly: true)), "Keep selected objects placed and stop following this card, including watched-layer matches.");
         var releaseAll = MakeInlineButton("Release All", (_, _) => WithDocument(doc =>
             _controller.ReleaseObjects(doc, terrain.TerrainId, definition.Id, selectedOnly: false)), "Keep all matched objects placed and release them from this card.");
+        // Design review Step 62: the base tools are occasional, so they sit in a closed Base section;
+        // Release is the everyday action and stays on the card.
+        var baseSection = new CardSection(
+            cardKind,
+            "base",
+            "Base",
+            expandedByDefault: false,
+            summary: null,
+            content: new AdaptiveControlGroup(UiMetrics.SpaceSmall, show, change));
         return new StackLayout
         {
             Spacing = UiMetrics.SpaceSmall,
             HorizontalContentAlignment = HorizontalAlignment.Stretch,
-            Items = { new AdaptiveControlGroup(UiMetrics.SpaceSmall, show, change),
-                new AdaptiveControlGroup(UiMetrics.SpaceSmall, releaseSelected, releaseAll) }
+            Items = { new AdaptiveControlGroup(UiMetrics.SpaceSmall, releaseSelected, releaseAll), baseSection }
         };
     }
 }

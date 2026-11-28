@@ -159,7 +159,7 @@ internal sealed partial class TerrainController
         using TerrainUndoTransaction? undo = BeginTerrainUndoTransaction(doc, "Duplicate MoleHill Terrain");
         var json = System.Text.Json.JsonSerializer.Serialize(terrain, TerrainSerializer.SharedOptions);
         var clone = System.Text.Json.JsonSerializer.Deserialize<TerrainDefinition>(json, TerrainSerializer.SharedOptions)!;
-        clone.TerrainId = Guid.NewGuid();
+        TerrainTransfer.RenewIdentity(clone);
         clone.Name = UniqueTerrainName(state, clone, terrain.Name + " Copy");
         clone.OutputObjectIds.Clear();
         clone.ZoneObjectIds.Clear();
@@ -169,29 +169,6 @@ internal sealed partial class TerrainController
         clone.LastBuildMessage = null;
         clone.LastStructuredDiagnostics.Clear();
         clone.LastBuildUtc = null;
-
-        foreach (var modifier in clone.Modifiers)
-            modifier.Id = Guid.NewGuid();
-        foreach (var marker in clone.Markers)
-            marker.Id = Guid.NewGuid();
-        foreach (var obj in clone.Objects)
-        {
-            obj.Id = Guid.NewGuid();
-            obj.PlacementStates.Clear();
-        }
-        var zoneIdMap = new Dictionary<Guid, Guid>();
-        foreach (var zone in clone.Zones)
-        {
-            Guid oldId = zone.ZoneId;
-            zone.ZoneId = Guid.NewGuid();
-            zoneIdMap[oldId] = zone.ZoneId;
-        }
-        foreach (var scatter in clone.Objects.OfType<ScatterObjectDefinition>())
-            scatter.ZoneIds = scatter.ZoneIds.Select(id => zoneIdMap.TryGetValue(id, out Guid mapped) ? mapped : id).ToList();
-        foreach (var analysis in clone.Analyses)
-            analysis.Id = Guid.NewGuid();
-        foreach (var annotation in clone.Annotations)
-            annotation.Id = Guid.NewGuid();
 
         string templateName = terrain.LayerTemplateName ?? string.Empty;
         LayerRoleTable oldTable = LayerRoleService.GetTable(doc, templateName, terrain.Name);
@@ -208,6 +185,49 @@ internal sealed partial class TerrainController
             ScheduleRebuild(doc, clone.TerrainId);
 
         return clone;
+    }
+
+    /// <summary>The terrain's definition as a transfer file (layer paths only), or null if it is gone.</summary>
+    public string? ExportTerrainDefinition(RhinoDoc doc, Guid terrainId)
+    {
+        TerrainDefinition? terrain = GetState(doc).Terrains.FirstOrDefault(item => item.TerrainId == terrainId);
+        return terrain == null ? null : TerrainTransfer.Export(terrain, doc.ModelUnitSystem);
+    }
+
+    /// <summary>Reads a transfer file for this document, without adding anything (the import preview).</summary>
+    public TerrainImportPreview? PreviewTerrainImport(RhinoDoc doc, string json)
+    {
+        if (!ModelUnitGuard.TryGet(doc, out var unitContext))
+            return null;
+
+        return TerrainTransfer.Read(
+            json,
+            unitContext,
+            path => doc.Layers.FindByFullPath(path, RhinoMath.UnsetIntIndex) >= 0);
+    }
+
+    /// <summary>Adds a previewed import as a new terrain, selected and built like a new one.</summary>
+    public TerrainDefinition? ImportTerrain(RhinoDoc doc, TerrainImportPreview preview)
+    {
+        if (!ModelUnitGuard.TryGet(doc, out _))
+            return null;
+
+        using TerrainUndoTransaction? undo = BeginTerrainUndoTransaction(doc, "Import MoleHill Terrain");
+        var state = GetState(doc);
+        TerrainDefinition terrain = preview.Terrain;
+        terrain.Name = UniqueTerrainName(state, terrain, string.IsNullOrWhiteSpace(terrain.Name) ? NextTerrainName(state.Terrains) : terrain.Name);
+        LayerRoleService.EnsureTemplateLayers(doc, terrain);
+
+        state.Terrains.Add(terrain);
+        state.SelectedTerrainId = terrain.TerrainId;
+        Save(doc, state);
+
+        if (terrain.LiveUpdateEnabled)
+            ScheduleRebuild(doc, terrain.TerrainId);
+        else
+            RaiseStateChanged();
+
+        return terrain;
     }
 
     private static string UniqueTerrainName(DocumentState state, TerrainDefinition terrain, string desired) =>

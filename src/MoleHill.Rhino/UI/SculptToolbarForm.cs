@@ -49,7 +49,7 @@ internal sealed class SculptToolbarForm : Form
         var brushRow = new StackLayout
         {
             Orientation = Orientation.Horizontal,
-            Spacing = 2,
+            Spacing = UiMetrics.SpaceXSmall,
             VerticalContentAlignment = VerticalAlignment.Center,
         };
         AddBrushButton(brushRow, SculptBrushKind.Draw, "Raise", "Raise terrain (Ctrl lowers). Shortcut: hold Shift for temporary Smooth.");
@@ -109,8 +109,8 @@ internal sealed class SculptToolbarForm : Form
         Content = new StackLayout
         {
             Orientation = Orientation.Horizontal,
-            Padding = new Padding(8, 5),
-            Spacing = 8,
+            Padding = new Padding(UiMetrics.SpaceLarge, UiMetrics.SpaceMedium),
+            Spacing = UiMetrics.DialogSpacing,
             VerticalContentAlignment = VerticalAlignment.Center,
             Items =
             {

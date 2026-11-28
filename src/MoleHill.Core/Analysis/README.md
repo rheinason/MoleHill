@@ -225,3 +225,8 @@ Terrain analysis math. Pure, unit-tested.
 
   Membership is even-odd across all loops, so a nested loop is a hole (Project To reads boundaries the
   same way). A limit hit exactly passes: a landing graded at 1:48 must not fail on floating point.
+
+- `UserNumber` - the one reading and writing of user-facing numbers: written with a point (as Rhino does,
+  whatever the Windows locale), read point-first with the locale comma still understood, no thousands
+  separators, and `TryParseLeading` so a field showing its unit ("2.5 m") reads back. `SlopeInput` and
+  every panel field go through it.

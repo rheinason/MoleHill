@@ -115,7 +115,7 @@ internal sealed class RouteRelaxForm : Form
 
         _figures = MakeMuted(string.Empty, 32);
         _curve = MakeMuted(string.Empty, 32);
-        _issues = new StackLayout { Orientation = Orientation.Vertical, Spacing = 4, Width = ContentWidth - 18 };
+        _issues = new StackLayout { Orientation = Orientation.Vertical, Spacing = UiMetrics.SpaceSmall, Width = ContentWidth - 18 };
         var issueArea = new Scrollable
         {
             Content = _issues,
@@ -155,8 +155,8 @@ internal sealed class RouteRelaxForm : Form
         Content = new StackLayout
         {
             Orientation = Orientation.Vertical,
-            Padding = new Padding(10, 8),
-            Spacing = 6,
+            Padding = new Padding(UiMetrics.SpaceXLarge, UiMetrics.SpaceLarge),
+            Spacing = UiMetrics.DialogRowSpacing,
             Items =
             {
                 title,
@@ -319,7 +319,7 @@ internal sealed class RouteRelaxForm : Form
 
     private static StackLayout Row(params Control[] controls)
     {
-        var row = new StackLayout { Orientation = Orientation.Horizontal, Spacing = 6, VerticalContentAlignment = VerticalAlignment.Center, Height = 26 };
+        var row = new StackLayout { Orientation = Orientation.Horizontal, Spacing = UiMetrics.DialogRowSpacing, VerticalContentAlignment = VerticalAlignment.Center, Height = 26 };
         foreach (Control control in controls)
             row.Items.Add(control);
         return row;

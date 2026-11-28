@@ -592,7 +592,7 @@ The modifier cards share one set of words, because the same idea used to carry t
 | **Crease** | A fold detected from the mesh (Remesh/Retopo Crease Angle keep them; Smooth's Round Creases rounds them); never saved as a breakline | "feature edge" |
 | **Incoming mesh** | The stage's input — what Simplify measures against and what a failed stage keeps | "upstream mesh", "original mesh" |
 | **Protect** | Sculpt, Smooth and Displace: curves that shield terrain from the edit and add no mesh edge (Sculpt: closed = interior, open = the line; Smooth and Displace: the line's own vertices, and in Round Creases the creases along it stay sharp) | breakline |
-| **Protect Hold** | Smooth only: how firmly protected curves keep their height (`BreaklineFixity` on disk) | "fixity" |
+| **Height Protection** | Smooth only: how firmly protected curves keep their height (`BreaklineFixity` on disk) | "fixity" |
 | **Batter** | The graded slope surface between a rail/edge and daylight; a *slope* is the angle that shapes it | "shoulder" |
 
 Rules: storage keys and JSON discriminators never change for wording (documents are on disk), so a
@@ -652,10 +652,15 @@ rotation) and is never converted, because the fold between two faces has no rise
 That guard only sees *declared* rows, which is the argument for declaring them: the boundary-peel block
 was hand-written panel code, so its "Slope Limit" row was invisible to the guard and shipped as an
 unlabelled degrees field. It now lives in `GeometryInputParameterCatalog` and is shared by Triangulate
-and Add Geometry, with the panel keeping only its **placement** inside the "Peel Border" rule — the same
-custom-placement deal Triangulate's DEM Surface and Contour Mode rows already had
-(`IsBespokePositionedModifierParameter` + `BuildBespokePositionedModifierRow`). Prefer that pattern over
-a hand-written row whenever a card needs unusual layout: custom placement, standard row.
+and Add Geometry, as a closed "Peel Border" section the catalog declares itself.
+
+Every card body is now built from declared rows (`ParameterSchemaGuardTests.EveryCardType_DeclaresItsRows`),
+in declared order: grouping is a `Section` entry, and what used to be hand-placed or hand-written panel
+code is a row kind - `InsertionPoint` (where a drawing goes), `TerrainReference` (another terrain, with
+its "not built yet / Rebuild" status), `PlanPoint`, a single-object `Sources` row, a `RowAction` button on
+a Sources row (Data Clip's Rectangle, the DEM's GeoTIFF import, run by key in the panel) and `Placeholder`
+for content the panel draws in a declared position (a section's profile list, Text Size). The comparison
+rows of Earthworks, Cut / Fill and the section cards are declared once in `ComparisonParameters`.
 
 ## Flat-array data format (Core)
 
@@ -1167,8 +1172,20 @@ which family a type belongs to:
   onto the mesh. Only these carry the colour-ramp apparatus (`PalettePreset`, `PaletteStops`, `ColorMode`,
   `ResolveRamp()`) — though carrying it is not the same as using it, see catchments below.
 - **Annotation** (`Model/AnnotationDefinition`, `Registry/AnnotationTypeRegistry`) — contours, spot heights,
-  spot slopes, flow arrows, grade callouts, the three section types, and the report table. The result is drawing, and it
+  spot slopes, grade callouts, the three section types, the legend and the report table. The result is drawing, and it
   says what is already there. Only these carry `FollowsAnnotationStyle`.
+
+**Spot labels.** Spot Heights and Spot Slope are one card each with a **Points / Curves / Grid** placement
+(`Model/SpotLabelAnnotationDefinition`). Each placement keeps its own sources (`Sources` for points,
+`CurveSources`, `Boundaries`), so switching placement and back finds them again; only the active set is
+built, but all three are the card's data and `EnumerateSourceSets` yields them all, so layer renames and
+export reach every one. The builder separates *where* (`VisitPointSamples`, `VisitCurveStations` /
+`VisitCurveSpans`, `VisitGridNodes`) from *what is measured* (elevation; or slope and a downhill arrow from
+the hit face's normal), which is how Spot Heights on a grid came for free. Until schema 34 these were five
+cards: Spot Heights (Points), Spot Heights (Curve), Spot Slope (Points), Spot Slope (Curve) and Flow Arrows
+(now Spot Slope on a grid). The schema-34 JSON step rewrites their discriminators in place and moves
+their sources to the placement's set (`TerrainSchemaMigrations.RetiredSpotKinds`); the schema-31 split
+still recognises the retired kinds, because a pre-31 document holds them in the shared analyses array.
 
 **Sections.** All three section types slice through `TerrainSectionSlicer`, which cuts with Core's
 `MeshSectionIndex` (one plan grid per mesh, cached weakly by mesh instance), never with Rhino's
@@ -1673,6 +1690,18 @@ its rules can paint; Catchments colour basins apart and have no scale, so the ca
 Swatches are vertex-coloured meshes — the mechanism that colours the terrain — so a swatch prints as the
 ground it keys; outlines and text follow the layer. Sizes are multiples of the style's text height and
 all text is drawn at exactly that height, for the reason the report table gives.
+
+## Rhino: terrain definition transfer
+
+A terrain's definition - its cards and settings - moves between documents as a `.mhterrain` file
+(`Services/Persistence/TerrainTransfer`, panel menu in `MoleHillPanel.Transfer.cs`). Only what another
+document can resolve travels: **assigned layer paths**. Picked object ids, geometry, build results and
+links to other terrains are left out on export and cleared again on import, since a hand-edited file is
+not trusted to have done it. The file records its model units and lengths are converted with
+`TerrainUnitScaler`; the import is a new terrain with fresh ids (`TerrainTransfer.RenewIdentity`, which
+Duplicate shares). Before anything is added, the import preview sorts the layer paths into those the
+document has and those to reassign. `TerrainTransfer.SourceSets` finds every source set by walking the
+model, so a new card's sources are covered without being listed.
 
 ## Rhino: survey field codes
 

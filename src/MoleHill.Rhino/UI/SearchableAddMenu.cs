@@ -72,19 +72,19 @@ internal sealed class SearchableAddMenu : Form
         };
 
         _detail = UiControls.Label(string.Empty, UiLabelRole.Meta, WrapMode.Word);
-        _detail.Width = MenuWidth - 8;
+        _detail.Width = MenuWidth - 2 * UiMetrics.SpaceSmall;
         _detail.Height = 30;
 
         // A borderless dark window over a dark panel has no visible edge, so frame it with a 1 px rule.
         Content = new Panel
         {
-            Padding = 1,
+            Padding = UiMetrics.SpaceHairline,
             BackgroundColor = UiTheme.RampControl,
             Content = new StackLayout
             {
                 Orientation = Orientation.Vertical,
-                Padding = 4,
-                Spacing = 4,
+                Padding = UiMetrics.SpaceSmall,
+                Spacing = UiMetrics.SpaceSmall,
                 BackgroundColor = UiTheme.RampPopup,
                 Items = { _search, _list, _detail },
             },

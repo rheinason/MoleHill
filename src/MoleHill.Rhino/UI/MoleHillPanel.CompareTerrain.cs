@@ -23,22 +23,25 @@ public sealed partial class MoleHillPanel
         TerrainDefinition owner,
         Guid? selectedId,
         Action<Guid?> onChanged,
-        string help = CompareTerrainHelp)
+        string help = CompareTerrainHelp,
+        string label = "Terrain",
+        string? noTerrainLabel = null,
+        Func<TerrainDefinition, IReadOnlyList<TerrainDefinition>, TerrainDefinition, bool>? offers = null)
     {
         RhinoDoc? doc = RhinoDoc.ActiveDoc;
         IReadOnlyList<TerrainDefinition> terrains = doc == null
             ? Array.Empty<TerrainDefinition>()
             : _controller.GetTerrains(doc);
 
-        var options = new List<(string Key, string Label)> { ("", "None — this terrain's base triangulation") };
+        var options = new List<(string Key, string Label)> { ("", noTerrainLabel ?? "None — this terrain's base triangulation") };
         options.AddRange(terrains
-            .Where(item => item.TerrainId != owner.TerrainId)
+            .Where(item => item.TerrainId != owner.TerrainId && (offers == null || offers(owner, terrains, item)))
             .Select(item => (item.TerrainId.ToString(), item.Name)));
         if (selectedId is { } missing && options.All(option => option.Key != missing.ToString()))
             options.Add((missing.ToString(), "(missing terrain)"));
 
         return CreateDropDownEditor(
-            "Compare To Terrain",
+            label,
             options,
             selectedId?.ToString() ?? "",
             value => onChanged(string.IsNullOrEmpty(value) ? null : Guid.Parse(value)),

@@ -22,6 +22,13 @@ internal enum ParameterKind
     BlockMix,
 
     /// <summary>
+    /// Not an input: the heading of a collapsible group of rows (Settings, Boundaries, Variation). The rows
+    /// declared after it, up to the next section, belong to it. Whether it is open is a per-user preference
+    /// per card type, so a section changes nothing a build reads.
+    /// </summary>
+    Section,
+
+    /// <summary>
     /// A gradient compliance card's ramp going table: one row per gradient, edited in place, rows added
     /// and removed on the card. Analyses only — gradient compliance is the sole declarer.
     /// </summary>
@@ -34,6 +41,34 @@ internal enum ParameterKind
     /// built-in block to copy comes from <see cref="ParameterDescriptor{TDefinition}.BlockTemplate"/>.
     /// </summary>
     BlockPicker,
+
+    /// <summary>
+    /// A point in plan (world X and Y), picked in the viewport: a Pick Point pill, a Picked pill (click to
+    /// pick again, coordinates in its tooltip) and an x that returns it to world 0,0. The Rhino prompt
+    /// also takes typed coordinates. Design review Step 53.
+    /// </summary>
+    PlanPoint,
+
+    /// <summary>
+    /// Where a drawing is placed: Pick Point while the builder places it, Picked (coordinates in the
+    /// tooltip) with an x that hands placement back (design review Step 26).
+    /// </summary>
+    InsertionPoint,
+
+    /// <summary>
+    /// Another terrain in the document, or none, with a line saying when that terrain cannot be compared
+    /// against as it stands (not built, building, missing) and the rebuild that fixes it.
+    /// </summary>
+    TerrainReference,
+
+    /// <summary>
+    /// Content the panel builds itself (a section's profile list), declared so it sits in the card's
+    /// order and inside its section. The key names which content.
+    /// </summary>
+    Placeholder,
+
+    /// <summary>A categorical colour key: a swatch and a name per category (a curvature card's landforms).</summary>
+    Key,
 
     /// <summary>
     /// A file on disk: its full path in a text box beside a Browse button. The path lives in the text
@@ -107,6 +142,63 @@ internal sealed class ParameterDescriptor<TDefinition>
     /// placeholder (nothing resolved yet).</summary>
     public Func<TerrainDefinition, TDefinition, double>? InheritedValueFromTerrain { get; init; }
 
+    /// <summary>
+    /// Whether the row means anything on this terrain (design review Step 38: a report section with nothing
+    /// to report). A row that does not is hidden, and returns as soon as it applies; use it only for a row
+    /// whose value has no effect while it does not apply, so hiding it never hides a working setting.
+    /// </summary>
+    public Func<TerrainDefinition, bool>? AppliesTo { get; init; }
+
+    /// <summary>
+    /// A Sources row's extra button (Data Clip's Rectangle, the DEM's Import GeoTIFF): a document action the
+    /// panel runs by <see cref="RowAction.Key"/>, so the descriptor names it without depending on the UI.
+    /// </summary>
+    public RowAction? Action { get; init; }
+
+    /// <summary>A Sources row that takes exactly one object and no layers (Project To's target mesh).</summary>
+    public bool SingleObject { get; init; }
+
+    /// <summary>Runs after a Sources row changes, inside the same edit (a target mesh clears the target terrain).</summary>
+    public Action<TDefinition>? AfterSourcesChanged { get; init; }
+
+    /// <summary>What a <see cref="ParameterKind.TerrainReference"/> calls choosing no terrain.</summary>
+    public string? NoTerrainLabel { get; init; }
+
+    /// <summary>Which of the document's terrains a <see cref="ParameterKind.TerrainReference"/> offers (all others but this one by default).</summary>
+    public Func<TerrainDefinition, IReadOnlyList<TerrainDefinition>, TerrainDefinition, bool>? OffersTerrain { get; init; }
+
+    /// <summary>An <see cref="ParameterKind.InsertionPoint"/>: whether one is picked, and where.</summary>
+    public Func<TDefinition, (bool Picked, double X, double Y, double Z)>? GetInsertion { get; init; }
+
+    /// <summary>Stores a picked insertion point, or null to hand placement back to the builder.</summary>
+    public Action<TDefinition, global::Rhino.Geometry.Point3d?>? SetInsertion { get; init; }
+
+    /// <summary>A <see cref="ParameterKind.TerrainReference"/>'s chosen terrain.</summary>
+    public Func<TDefinition, Guid?>? GetTerrainReference { get; init; }
+
+    public Action<TDefinition, Guid?>? SetTerrainReference { get; init; }
+
+    /// <summary>What the card shows while the chosen terrain cannot be compared against ("Until then, ...").</summary>
+    public string? TerrainReferenceMeanwhile { get; init; }
+
+    /// <summary>A <see cref="ParameterKind.Key"/>'s categories: colour (ARGB) and name, in legend order.</summary>
+    public Func<TDefinition, IReadOnlyList<(int Argb, string Label)>>? GetKey { get; init; }
+
+    /// <summary>A read-only row's text when it needs the terrain (the analysis a legend keys).</summary>
+    public Func<TerrainDefinition, TDefinition, string>? GetReadOnlyFromTerrain { get; init; }
+
+    /// <summary>A <see cref="ParameterKind.PlanPoint"/> row's world X and Y.</summary>
+    public Func<TDefinition, (double X, double Y)>? GetPlanPoint { get; init; }
+
+    /// <summary>Stores a picked (or cleared, 0,0) <see cref="ParameterKind.PlanPoint"/>.</summary>
+    public Action<TDefinition, double, double>? SetPlanPoint { get; init; }
+
+    /// <summary>Greyed text an empty Text field shows: what leaving it empty does (a legend's automatic title).</summary>
+    public Func<TerrainDefinition, TDefinition, string?>? PlaceholderFor { get; init; }
+
+    /// <summary>What an optional number's blank field says when nothing is inherited ("Auto", "No limit").</summary>
+    public string BlankText { get; init; } = "Auto";
+
     // ---- Commit hints ----
     // Inert here by design: the family's commit closure reads whichever of these it honours. Leaving one
     // unset is how a family opts out, so no family has to carry another's semantics.
@@ -138,6 +230,40 @@ internal sealed class ParameterDescriptor<TDefinition>
     /// <summary>Overrides <see cref="ChoiceOptions"/> when the option list depends on live state (e.g. the
     /// value-format dropdown appends a "Custom" entry for a format string outside the standard presets).</summary>
     public Func<TDefinition, IReadOnlyList<(string Key, string Label)>>? ChoiceOptionsFor { get; init; }
+
+    /// <summary>
+    /// Keeps a fixed 2–3 option choice as a drop-down instead of segments, for options whose labels are too
+    /// long to sit side by side. Every other fixed choice of two or three modes is shown segmented.
+    /// </summary>
+    public bool PreferDropDown { get; init; }
+
+    /// <summary>
+    /// Shows a choice whose options depend on the card (<see cref="ChoiceOptionsFor"/>) as segments when it
+    /// has two or three. Such lists are drop-downs by default, because most of them follow the document
+    /// (terrains, presets); a mode whose options merely vary with the card opts in.
+    /// </summary>
+    public bool PreferSegments { get; init; }
+
+    /// <summary>
+    /// What each option does, by option key: shown as the tooltip of its segment, so a mode's trade-off is
+    /// explained where it is picked (the row's <see cref="Help"/> still describes the choice as a whole).
+    /// </summary>
+    public IReadOnlyDictionary<string, string>? ChoiceOptionHelp { get; init; }
+
+    /// <summary>
+    /// A card's primary mode: the choice takes the whole row with no field label beside it (design review
+    /// Step 37), so its segments get the full card width.
+    /// </summary>
+    public bool FullRow { get; init; }
+
+    // ---- Section ----
+
+    /// <summary>Whether a section starts open before the user has opened or closed it.</summary>
+    public bool ExpandedByDefault { get; init; }
+
+    /// <summary>Short state shown after the section title ("2 active"), so a closed section still says
+    /// whether anything inside it is set.</summary>
+    public Func<TDefinition, string?>? SummaryFor { get; init; }
 
     // ---- Color ----
     // Fallback and default text take the owning terrain as well as the definition: a colour row resolves
@@ -188,10 +314,16 @@ internal sealed class ParameterDescriptor<TDefinition>
         RhinoObjectType objectFilter,
         string? help = null,
         Func<TDefinition, bool>? visibleWhen = null,
-        Func<TDefinition, string>? labelFor = null) =>
+        Func<TDefinition, string>? labelFor = null,
+        RowAction? action = null,
+        bool singleObject = false,
+        Action<TDefinition>? afterChanged = null) =>
         new()
         {
             Kind = ParameterKind.Sources,
+            Action = action,
+            SingleObject = singleObject,
+            AfterSourcesChanged = afterChanged,
             Key = key,
             Label = label,
             GetSources = get,
@@ -251,10 +383,12 @@ internal sealed class ParameterDescriptor<TDefinition>
         int decimalPlaces = 3,
         ParameterUnit unit = ParameterUnit.None,
         Func<TDefinition, bool>? visibleWhen = null,
-        Func<TerrainDefinition, TDefinition, double>? inheritedValueFromTerrain = null) =>
+        Func<TerrainDefinition, TDefinition, double>? inheritedValueFromTerrain = null,
+        string blankText = "Auto") =>
         new()
         {
             Kind = ParameterKind.OptionalNumber,
+            BlankText = blankText,
             Key = key,
             Label = label,
             GetNumber = get,
@@ -264,6 +398,81 @@ internal sealed class ParameterDescriptor<TDefinition>
             Help = help,
             Unit = unit,
             DecimalPlaces = decimalPlaces,
+            VisibleWhen = visibleWhen,
+        };
+
+    /// <summary>Where the card's drawing goes: picked, or placed by the builder (design review Step 26).</summary>
+    public static ParameterDescriptor<TDefinition> InsertionPoint(
+        string key,
+        Func<TDefinition, (bool Picked, double X, double Y, double Z)> get,
+        Action<TDefinition, global::Rhino.Geometry.Point3d?> set,
+        string help,
+        bool refreshOnly = false) =>
+        new()
+        {
+            Kind = ParameterKind.InsertionPoint,
+            Key = key,
+            Label = "Insertion Point",
+            GetInsertion = get,
+            SetInsertion = set,
+            Help = help,
+            RefreshOnly = refreshOnly,
+        };
+
+    /// <summary>Another terrain in the document, or none; <paramref name="meanwhile"/> finishes "Until then, ...".</summary>
+    public static ParameterDescriptor<TDefinition> TerrainReference(
+        string key,
+        string label,
+        Func<TDefinition, Guid?> get,
+        Action<TDefinition, Guid?> set,
+        string help,
+        string meanwhile,
+        Func<TDefinition, bool>? visibleWhen = null,
+        string? noTerrainLabel = null,
+        Func<TerrainDefinition, IReadOnlyList<TerrainDefinition>, TerrainDefinition, bool>? offers = null) =>
+        new()
+        {
+            Kind = ParameterKind.TerrainReference,
+            NoTerrainLabel = noTerrainLabel,
+            OffersTerrain = offers,
+            Key = key,
+            Label = label,
+            GetTerrainReference = get,
+            SetTerrainReference = set,
+            TerrainReferenceMeanwhile = meanwhile,
+            Help = help,
+            VisibleWhen = visibleWhen,
+        };
+
+    /// <summary>A categorical colour key (design review Step 73: the landforms' three swatches).</summary>
+    public static ParameterDescriptor<TDefinition> ColorKey(
+        string key,
+        string label,
+        Func<TDefinition, IReadOnlyList<(int Argb, string Label)>> get,
+        string? help = null,
+        Func<TDefinition, bool>? visibleWhen = null) =>
+        new() { Kind = ParameterKind.Key, Key = key, Label = label, GetKey = get, Help = help, VisibleWhen = visibleWhen };
+
+    /// <summary>Content the panel builds itself, in this position; <paramref name="key"/> names which.</summary>
+    public static ParameterDescriptor<TDefinition> Placeholder(string key, string label) =>
+        new() { Kind = ParameterKind.Placeholder, Key = key, Label = label };
+
+    /// <summary>A plan point picked in the viewport; 0,0 reads as not picked (design review Step 53).</summary>
+    public static ParameterDescriptor<TDefinition> PlanPoint(
+        string key,
+        string label,
+        Func<TDefinition, (double X, double Y)> get,
+        Action<TDefinition, double, double> set,
+        string? help = null,
+        Func<TDefinition, bool>? visibleWhen = null) =>
+        new()
+        {
+            Kind = ParameterKind.PlanPoint,
+            Key = key,
+            Label = label,
+            GetPlanPoint = get,
+            SetPlanPoint = set,
+            Help = help,
             VisibleWhen = visibleWhen,
         };
 
@@ -388,10 +597,14 @@ internal sealed class ParameterDescriptor<TDefinition>
         bool incrementalCommit = false,
         bool rebuildAfterCommit = false,
         Func<TDefinition, bool>? visibleWhen = null,
-        bool refreshOnly = false) =>
+        bool refreshOnly = false,
+        Func<TDefinition, string>? labelFor = null,
+        Func<TerrainDefinition, bool>? appliesTo = null) =>
         new()
         {
             Kind = ParameterKind.Bool,
+            LabelFor = labelFor,
+            AppliesTo = appliesTo,
             Key = key,
             Label = label,
             GetBool = get,
@@ -414,10 +627,18 @@ internal sealed class ParameterDescriptor<TDefinition>
         bool incrementalCommit = false,
         bool rebuildAfterCommit = false,
         Func<TDefinition, bool>? visibleWhen = null,
-        Func<TDefinition, IReadOnlyList<(string Key, string Label)>>? optionsFor = null) =>
+        Func<TDefinition, IReadOnlyList<(string Key, string Label)>>? optionsFor = null,
+        bool preferDropDown = false,
+        IReadOnlyDictionary<string, string>? optionHelp = null,
+        bool fullRow = false,
+        bool segmented = false) =>
         new()
         {
             Kind = ParameterKind.Choice,
+            PreferDropDown = preferDropDown,
+            PreferSegments = segmented,
+            FullRow = fullRow,
+            ChoiceOptionHelp = optionHelp,
             Key = key,
             Label = label,
             ChoiceOptions = options,
@@ -428,6 +649,28 @@ internal sealed class ParameterDescriptor<TDefinition>
             RefreshOnly = refreshOnly,
             IncrementalCommit = incrementalCommit,
             RebuildAfterCommit = rebuildAfterCommit,
+            VisibleWhen = visibleWhen,
+        };
+
+    /// <summary>
+    /// Opens a collapsible section titled <paramref name="title"/>; the rows declared after it, up to the
+    /// next section, belong to it. <paramref name="key"/> names it in the per-user open/closed preference.
+    /// </summary>
+    public static ParameterDescriptor<TDefinition> Section(
+        string key,
+        string title,
+        bool expanded = false,
+        Func<TDefinition, string?>? summary = null,
+        Func<TDefinition, bool>? visibleWhen = null,
+        Func<TDefinition, string>? titleFor = null) =>
+        new()
+        {
+            Kind = ParameterKind.Section,
+            Key = key,
+            Label = title,
+            LabelFor = titleFor,
+            ExpandedByDefault = expanded,
+            SummaryFor = summary,
             VisibleWhen = visibleWhen,
         };
 
@@ -484,10 +727,12 @@ internal sealed class ParameterDescriptor<TDefinition>
         string? help = null,
         bool trim = true,
         Func<TDefinition, bool>? visibleWhen = null,
-        bool refreshOnly = false) =>
+        bool refreshOnly = false,
+        Func<TerrainDefinition, TDefinition, string?>? placeholder = null) =>
         new()
         {
             Kind = ParameterKind.Text,
+            PlaceholderFor = placeholder,
             Key = key,
             Label = label,
             GetText = get,
@@ -524,15 +769,17 @@ internal sealed class ParameterDescriptor<TDefinition>
     public static ParameterDescriptor<TDefinition> ReadOnly(
         string key,
         string label,
-        Func<TDefinition, string> get,
+        Func<TDefinition, string>? get,
         string? help = null,
-        Func<TDefinition, bool>? visibleWhen = null) =>
+        Func<TDefinition, bool>? visibleWhen = null,
+        Func<TerrainDefinition, TDefinition, string>? getFromTerrain = null) =>
         new()
         {
             Kind = ParameterKind.ReadOnly,
             Key = key,
             Label = label,
             GetReadOnly = get,
+            GetReadOnlyFromTerrain = getFromTerrain,
             Help = help,
             VisibleWhen = visibleWhen,
         };
@@ -598,3 +845,4 @@ internal sealed class ParameterDescriptor<TDefinition>
             VisibleWhen = visibleWhen,
         };
 }
+

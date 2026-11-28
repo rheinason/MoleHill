@@ -25,6 +25,9 @@ internal abstract class ModifierTypeDescriptor
     /// <summary>Panel icon resource name (loaded via <c>PanelIcons.Load</c>).</summary>
     public abstract string IconName { get; }
 
+    /// <summary>Card strip and type accent, as analyses, annotations and objects declare theirs.</summary>
+    public virtual int AccentArgb => TypeAccent.NeutralArgb;
+
     /// <summary>Ordering within the Add-Modifier menu.</summary>
     public virtual int SortOrder => 0;
 

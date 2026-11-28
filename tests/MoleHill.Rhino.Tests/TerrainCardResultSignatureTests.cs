@@ -94,4 +94,44 @@ public sealed class TerrainCardResultSignatureTests
             Compute(terrain, warnings: new[] { (smooth, (string?)null) }),
             Compute(terrain, warnings: new[] { (smooth, (string?)"Incoming mesh is very sparse") }));
     }
+
+    private static ScatterBuildSummary Scatter(Guid id, params (string Block, int Count)[] counts) => new()
+    {
+        DefinitionId = id,
+        Sampled = 20,
+        BlockCounts = counts.ToDictionary(c => c.Block, c => c.Count),
+    };
+
+    private static string WithScatter(TerrainDefinition terrain, params ScatterBuildSummary[] summaries) =>
+        TerrainCardResultSignature.Compute(
+            terrain,
+            Array.Empty<ZoneAnalysisSummary>(),
+            Array.Empty<(RuntimeOverlayOwner, RuntimeOverlaySeverity)>(),
+            Array.Empty<(Guid, string?)>(),
+            scatterSummaries: summaries);
+
+    /// <summary>
+    /// Scatter cards show placed counts per block. They were missing from the signature, so a build that
+    /// changed them refreshed only the status line and the card kept its old counts or "count pending".
+    /// </summary>
+    [Fact]
+    public void Compute_ScatterPlacedADifferentMix_Changes()
+    {
+        var terrain = new TerrainDefinition();
+        Guid id = Guid.NewGuid();
+
+        Assert.NotEqual(
+            WithScatter(terrain, Scatter(id, ("A", 6), ("B", 5))),
+            WithScatter(terrain, Scatter(id, ("A", 5), ("B", 6))));
+    }
+
+    [Fact]
+    public void Compute_SameScatterResultsInAnotherOrder_IsUnchanged()
+    {
+        var terrain = new TerrainDefinition();
+        var first = Scatter(Guid.NewGuid(), ("A", 6), ("B", 5));
+        var second = Scatter(Guid.NewGuid(), ("C", 3));
+
+        Assert.Equal(WithScatter(terrain, first, second), WithScatter(terrain, second, first));
+    }
 }

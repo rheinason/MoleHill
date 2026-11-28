@@ -8,22 +8,23 @@ namespace MoleHill.Rhino.Tests;
 public class GeometryInputModifierDefinitionTests
 {
     [Fact]
-    public void TriangulateParameters_PlaceContourModeAfterSourceRows()
+    public void TriangulateParameters_AreTheCardsOrder()
     {
         string[] keys = new TriangulateModifierDescriptor()
             .Parameters
             .Select(static parameter => parameter.Key)
             .ToArray();
 
-        // The source rows, then Contour Mode, then the shared boundary-peel rows. The panel re-positions
-        // DemSurface, ContourMode and the peel rows into its own groups, but this order is the schema's
-        // contract for every other consumer.
+        // The declared order is the card: the everyday sources (Points, Contours, Breaklines - design review
+        // UI-01), then closed sections for the rarer sources, the boundary roles, the settings and Peel Border.
         Assert.Equal(
             new[]
             {
-                "TinMesh", "DemSurface", "Points", "Breaklines", "Contours",
-                "OuterBoundaries", "HideBoundaries", "ShowBoundaries", "DataClipBoundaries", "ContourMode",
-                "PeelBoundaryTriangles", "MaxBoundaryEdgeLength", "MaxBoundaryAngleDegrees",
+                "Points", "Contours", "Breaklines",
+                "additionalSources", "TinMesh", "DemSurface",
+                "boundaries", "OuterBoundaries", "HideBoundaries", "ShowBoundaries", "DataClipBoundaries",
+                "settings", "ContourMode",
+                "peelBorder", "PeelBoundaryTriangles", "MaxBoundaryEdgeLength", "MaxBoundaryAngleDegrees",
                 "MaxBoundarySlopeDegrees",
             },
             keys);

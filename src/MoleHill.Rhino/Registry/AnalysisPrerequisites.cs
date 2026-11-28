@@ -21,8 +21,19 @@ internal static class AnalysisPrerequisites
     public const string BaseTriangulationBasis =
         "Comparing this terrain's initial triangulation against the finished modifier stack.";
 
-    public const string ReferenceBasis =
-        "Comparing against the reference surface set below.";
+    /// <summary>
+    /// What a comparing card still needs when its chosen mode has no reference yet (Terrain or Geometry
+    /// picked, nothing chosen in its picker), or null. The card measures against the original surface
+    /// until then, so it says so rather than showing results that look like the chosen comparison.
+    /// </summary>
+    public static string? DescribeMissingReference(ComparisonMode mode, bool hasGeometry, bool hasTerrain) => mode switch
+    {
+        ComparisonMode.Geometry when !hasGeometry =>
+            "Pick the survey mesh or surface to compare against. Until then this measures against the original terrain.",
+        ComparisonMode.Terrain when !hasTerrain =>
+            "Choose the terrain to compare against. Until then this measures against the original terrain.",
+        _ => null,
+    };
 
     public const string NothingToCompareMessage =
         "Nothing has moved the ground yet, so cut and fill are zero everywhere. Add a grading modifier, " +
@@ -40,8 +51,9 @@ internal static class AnalysisPrerequisites
         terrain.Modifiers.Any(modifier => modifier.IsEnabled && ChangesElevations(modifier));
 
     /// <summary>The basis line for a comparative analysis: which two surfaces are being differenced.</summary>
-    public static string DescribeBasis(bool hasExplicitReference) =>
-        hasExplicitReference ? ReferenceBasis : BaseTriangulationBasis;
+    /// <remarks>An explicit reference needs no line: the card's Compare To row names it.</remarks>
+    public static string? DescribeBasis(bool hasExplicitReference) =>
+        hasExplicitReference ? null : BaseTriangulationBasis;
 
     /// <summary>
     /// Whether this modifier type moves the surface vertically.

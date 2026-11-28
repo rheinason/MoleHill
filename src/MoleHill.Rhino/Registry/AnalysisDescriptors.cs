@@ -1,4 +1,4 @@
-using MoleHill.Core.Analysis;
+﻿using MoleHill.Core.Analysis;
 using MoleHill.Rhino.Model;
 using MoleHill.Rhino.Services;
 using AnalysisParam = MoleHill.Rhino.Registry.ParameterDescriptor<MoleHill.Rhino.Model.AnalysisDefinition>;
@@ -15,6 +15,15 @@ namespace MoleHill.Rhino.Registry;
 internal sealed class EarthworkAnalysisDescriptor : AnalysisTypeDescriptor
 {
     public override string Kind => "earthwork";
+
+    public override string Summarize(TerrainDefinition terrain, AnalysisDefinition definition, TerrainAnalysisSummary? summary, ResultFormatter format)
+    {
+        var earthwork = (EarthworkAnalysisDefinition)definition;
+        static int Refs(SourceReferenceSet set) => set.ObjectIds.Count + set.LayerPaths.Count;
+        return summary != null
+            ? $"Net {format.Volume(summary.NetVolume)} · {(summary.EarthworkIsEstimated ? "Estimated" : "Exact")}"
+            : $"{SummaryText.Sources(earthwork.Reference)} · {Refs(earthwork.Boundary)} bounds";
+    }
     public override Type DefinitionType => typeof(EarthworkAnalysisDefinition);
     public override string TypeLabel => "Earthworks";
     public override string MenuLabel => "Earthworks";
@@ -47,21 +56,19 @@ internal sealed class EarthworkAnalysisDescriptor : AnalysisTypeDescriptor
         };
     }
 
-    public override IReadOnlyList<AnalysisParam> Parameters { get; } = new[]
+    public override IReadOnlyList<AnalysisParam> Parameters { get; } = ComparisonParameters.Analysis().Concat(new[]
     {
-        AnalysisParam.Sources(
-            "Reference", "Compare To",
-            a => ((EarthworkAnalysisDefinition)a).Reference,
-            RhinoObjectType.Mesh | RhinoObjectType.Brep | RhinoObjectType.Extrusion),
         AnalysisParam.Sources(
             "Boundary", "Boundary",
             a => ((EarthworkAnalysisDefinition)a).Boundary,
             RhinoObjectType.Curve),
-    };
+    }).ToArray();
 
     public override string? DescribeBlocker(TerrainDefinition terrain, AnalysisDefinition analysis)
     {
         var earthwork = (EarthworkAnalysisDefinition)analysis;
+        if (AnalysisPrerequisites.DescribeMissingReference(ComparisonModes.Of(earthwork), earthwork.Reference.HasReferences, earthwork.ReferenceTerrainId.HasValue) is { } missing)
+            return missing;
         return earthwork.Reference.HasReferences || earthwork.ReferenceTerrainId.HasValue ||
                AnalysisPrerequisites.HasElevationChangingModifier(terrain)
             ? null
@@ -78,6 +85,13 @@ internal sealed class EarthworkAnalysisDescriptor : AnalysisTypeDescriptor
 internal sealed class SlopeAnalysisDescriptor : AnalysisTypeDescriptor
 {
     public override string Kind => "slope";
+
+    public override string Summarize(TerrainDefinition terrain, AnalysisDefinition definition, TerrainAnalysisSummary? summary, ResultFormatter format)
+    {
+        var slope = (SlopeAnalysisDefinition)definition;
+        return $"{AnalysisFormatting.FormatSlopeValue(slope.RangeLow, slope.Unit)} to " +
+            (slope.RangeHigh > slope.RangeLow ? AnalysisFormatting.FormatSlopeValue(slope.RangeHigh, slope.Unit) : "Auto");
+    }
     public override Type DefinitionType => typeof(SlopeAnalysisDefinition);
     public override string TypeLabel => "Slope";
     public override string MenuLabel => "Slope";
@@ -111,6 +125,31 @@ internal sealed class SlopeAnalysisDescriptor : AnalysisTypeDescriptor
 
     public override IReadOnlyList<AnalysisParam> Parameters { get; } = new[]
     {
+        AnalysisParam.Choice(
+            "Unit", "Units",
+            new[]
+            {
+                (AnalysisFormatting.GetSlopeUnitKey(SlopeAnalyzer.SlopeUnit.Percent), "Percent"),
+                (AnalysisFormatting.GetSlopeUnitKey(SlopeAnalyzer.SlopeUnit.Promille), "Promille"),
+                (AnalysisFormatting.GetSlopeUnitKey(SlopeAnalyzer.SlopeUnit.Ratio), "Ratio"),
+                (AnalysisFormatting.GetSlopeUnitKey(SlopeAnalyzer.SlopeUnit.Degrees), "Degrees"),
+            },
+            a => AnalysisFormatting.GetSlopeUnitKey(((SlopeAnalysisDefinition)a).Unit),
+            (a, v) =>
+            {
+                // The ramp's range and interval are stored in the shown unit, so they convert with it.
+                var slope = (SlopeAnalysisDefinition)a;
+                var next = AnalysisFormatting.ParseSlopeUnit(v ?? string.Empty);
+                if (next == slope.Unit)
+                    return;
+
+                slope.RangeLow = AnalysisFormatting.ConvertSlopeValue(slope.RangeLow, slope.Unit, next);
+                slope.RangeHigh = AnalysisFormatting.ConvertSlopeValue(slope.RangeHigh, slope.Unit, next);
+                slope.ColorInterval = AnalysisFormatting.ConvertSlopeValue(slope.ColorInterval, slope.Unit, next);
+                slope.Unit = next;
+            },
+            "Show slope values as percent, promille, rise/run ratio, or degrees.",
+            refreshOnly: true),
         AnalysisParam.ColorRamp(
             "Colours the terrain preview by slope. Drag the ramp's stops, the band interval, or the mapped range."),
     };
@@ -174,6 +213,12 @@ internal sealed class AspectAnalysisDescriptor : AnalysisTypeDescriptor
 internal sealed class ElevationAnalysisDescriptor : AnalysisTypeDescriptor
 {
     public override string Kind => "elevation";
+
+    public override string Summarize(TerrainDefinition terrain, AnalysisDefinition definition, TerrainAnalysisSummary? summary, ResultFormatter format)
+    {
+        var elevation = (ElevationAnalysisDefinition)definition;
+        return $"{elevation.RangeLow:G4} to {(elevation.RangeHigh > elevation.RangeLow ? elevation.RangeHigh.ToString("G4") : "Auto")}";
+    }
     public override Type DefinitionType => typeof(ElevationAnalysisDefinition);
     public override string TypeLabel => "Elevation";
     public override string MenuLabel => "Elevation";
@@ -209,6 +254,15 @@ internal sealed class ElevationAnalysisDescriptor : AnalysisTypeDescriptor
 internal sealed class CutFillAnalysisDescriptor : AnalysisTypeDescriptor
 {
     public override string Kind => "cut-fill";
+
+    public override string Summarize(TerrainDefinition terrain, AnalysisDefinition definition, TerrainAnalysisSummary? summary, ResultFormatter format)
+    {
+        var cutFill = (CutFillAnalysisDefinition)definition;
+        static int Refs(SourceReferenceSet set) => set.ObjectIds.Count + set.LayerPaths.Count;
+        return summary != null
+            ? $"{summary.CutVolume:F2} / {summary.FillVolume:F2} / {summary.NetVolume:F2}"
+            : $"{SummaryText.Sources(cutFill.Reference)} · {Refs(cutFill.Boundary)} bounds";
+    }
     public override Type DefinitionType => typeof(CutFillAnalysisDefinition);
     public override string TypeLabel => "Cut / Fill";
     public override string MenuLabel => "Cut / Fill";
@@ -243,7 +297,7 @@ internal sealed class CutFillAnalysisDescriptor : AnalysisTypeDescriptor
                 : cutFill.ShowBalanceLine ? "None — no sign change" : "Off";
             rows.Add(ResultRow.Of(
                 "Drawn",
-                $"{summary.CutFillDeltaContourCount:N0} delta contour(s) | balance: {balance}",
+                $"{summary.CutFillDeltaContourCount:N0} delta contour(s) · balance: {balance}",
                 "Delta lines drawn on the last build. A balance line only exists where the " +
                 "delta changes sign — a site that is all fill has none."));
         }
@@ -251,12 +305,8 @@ internal sealed class CutFillAnalysisDescriptor : AnalysisTypeDescriptor
         return rows;
     }
 
-    public override IReadOnlyList<AnalysisParam> Parameters { get; } = new[]
+    public override IReadOnlyList<AnalysisParam> Parameters { get; } = ComparisonParameters.Analysis().Concat(new[]
     {
-        AnalysisParam.Sources(
-            "Reference", "Compare To",
-            a => ((CutFillAnalysisDefinition)a).Reference,
-            RhinoObjectType.Mesh | RhinoObjectType.Brep | RhinoObjectType.Extrusion),
         AnalysisParam.Sources(
             "Boundary", "Boundary",
             a => ((CutFillAnalysisDefinition)a).Boundary,
@@ -302,7 +352,7 @@ internal sealed class CutFillAnalysisDescriptor : AnalysisTypeDescriptor
                 AnalysisFormatting.GetRoleLayerPath(terrain, LayerRole.CutFillContours)),
             defaultText: (terrain, _) => AnalysisFormatting.GetRoleColorText(terrain, LayerRole.CutFillContours),
             visibleWhen: a => ((CutFillAnalysisDefinition)a).ShowDeltaContours),
-    };
+    }).ToArray();
 
     public override string? DescribeBlocker(TerrainDefinition terrain, AnalysisDefinition analysis)
     {
@@ -310,6 +360,8 @@ internal sealed class CutFillAnalysisDescriptor : AnalysisTypeDescriptor
         // triangulation against the finished modifier stack, which is what "how much did my grading move"
         // means. It only has nothing to say when nothing has moved the ground.
         var cutFill = (CutFillAnalysisDefinition)analysis;
+        if (AnalysisPrerequisites.DescribeMissingReference(ComparisonModes.Of(cutFill), cutFill.Reference.HasReferences, cutFill.ReferenceTerrainId.HasValue) is { } missing)
+            return missing;
         return cutFill.Reference.HasReferences || cutFill.ReferenceTerrainId.HasValue ||
                AnalysisPrerequisites.HasElevationChangingModifier(terrain)
             ? null
@@ -327,6 +379,14 @@ internal sealed class CutFillAnalysisDescriptor : AnalysisTypeDescriptor
 internal sealed class WaterflowAnalysisDescriptor : AnalysisTypeDescriptor
 {
     public override string Kind => "waterflow";
+
+    public override string Summarize(TerrainDefinition terrain, AnalysisDefinition definition, TerrainAnalysisSummary? summary, ResultFormatter format)
+    {
+        var waterflow = (WaterflowAnalysisDefinition)definition;
+        return summary != null
+            ? $"{summary.GeneratedOutputCount} paths · {summary.WaterflowBoundaryCount} boundary"
+            : $"{SummaryText.Sources(waterflow.Sources)} · downhill paths";
+    }
     public override Type DefinitionType => typeof(WaterflowAnalysisDefinition);
     public override string TypeLabel => "Waterflow from Points";
     public override string MenuLabel => "Waterflow from Points";
@@ -352,7 +412,7 @@ internal sealed class WaterflowAnalysisDescriptor : AnalysisTypeDescriptor
                 "Waterflow paths traced from the point sources across the final terrain."),
             ResultRow.Of(
                 "Ends",
-                $"{summary.WaterflowBoundaryCount} boundary | {summary.WaterflowSinkCount} sink | {summary.WaterflowRejectedCount} outside",
+                $"{summary.WaterflowBoundaryCount} boundary · {summary.WaterflowSinkCount} sink · {summary.WaterflowRejectedCount} outside",
                 "How the point paths ended during the last terrain build.")
         };
     }
@@ -364,12 +424,14 @@ internal sealed class WaterflowAnalysisDescriptor : AnalysisTypeDescriptor
             a => ((WaterflowAnalysisDefinition)a).Sources,
             RhinoObjectType.Point,
             "Point objects or layers used as waterflow starts."),
-        AnalysisParam.Number(
+        // Design review Step 70: blank (the saved 0) reads No limit.
+        AnalysisParam.OptionalNumber(
             "MaxLength", "Max Length",
             a => ((WaterflowAnalysisDefinition)a).MaxLength,
             (a, v) => ((WaterflowAnalysisDefinition)a).MaxLength = Math.Max(0.0, v),
-            "Maximum plan length of each path. Set to 0 to continue to the terrain edge or a local sink.",
-            min: 0.0),
+            _ => 0.0,
+            "Maximum plan length of each path. Blank (No limit) continues each path to the terrain edge or a local sink.",
+            blankText: "No limit"),
         AnalysisParam.Color(
             "ColorArgb", "Color",
             a => ((WaterflowAnalysisDefinition)a).ColorArgb,
@@ -427,7 +489,7 @@ internal sealed class CatchmentAnalysisDescriptor : AnalysisTypeDescriptor
             ResultRow.Of(
                 "Catchments",
                 summary.CatchmentLargestArea is { } largest
-                    ? $"{summary.CatchmentBasinCount:N0} | largest {format.Area(largest)}"
+                    ? $"{summary.CatchmentBasinCount:N0} · largest {format.Area(largest)}"
                     : $"{summary.CatchmentBasinCount:N0}",
                 "Catchments resolved on the last build, after any small ones were merged. " +
                 "Raise “Merge Below” if there are too many to read."),
@@ -523,6 +585,9 @@ internal sealed class CatchmentAnalysisDescriptor : AnalysisTypeDescriptor
 internal sealed class PondingAnalysisDescriptor : AnalysisTypeDescriptor
 {
     public override string Kind => "ponding";
+
+    // Design review Step 69: the ponding figures are looked up now and then, so Results starts closed.
+    public override bool ResultsExpandedByDefault => false;
     public override Type DefinitionType => typeof(PondingAnalysisDefinition);
     public override string TypeLabel => "Ponding";
     public override string MenuLabel => "Ponding";
@@ -736,7 +801,7 @@ internal sealed class GradientComplianceAnalysisDescriptor : AnalysisTypeDescrip
     private static readonly IReadOnlyList<(string Key, string Label)> RuleModeOptions = new[]
     {
         (nameof(GradientRuleMode.Off), "Off"),
-        (nameof(GradientRuleMode.Report), "Report"),
+        (nameof(GradientRuleMode.Report), "Show"),
         (nameof(GradientRuleMode.Warn), "Warn"),
     };
 
@@ -752,8 +817,32 @@ internal sealed class GradientComplianceAnalysisDescriptor : AnalysisTypeDescrip
             "editable; an edited standard is marked as modified.",
             rebuildAfterCommit: true,
             optionsFor: a => StandardOptions(Rules(a))),
+        AnalysisParam.Number(
+            "MeasurementLength", "Measure Over",
+            a => ((GradientComplianceAnalysisDefinition)a).MeasurementLength,
+            (a, v) => ((GradientComplianceAnalysisDefinition)a).MeasurementLength = Math.Max(0.0, v),
+            "The length the gradient is averaged over, like a level laid on the ground. Zero measures " +
+            "each triangle alone, which fails survey-derived landings a level would pass. Not part of the " +
+            "standard: none states one.",
+            min: 0.0,
+            unit: ParameterUnit.ModelLength),
+        AnalysisParam.Slope(
+            "LevelAreaMaxSlope", "Level Limit",
+            a => Rules(a).LevelAreaMaxSlopeDegrees,
+            (a, v) =>
+            {
+                Rules(a).LevelAreaMaxSlopeDegrees = v;
+                GradientRulePresets.RefreshModified(Rules(a));
+            },
+            "The steepest a level area may be in any direction, and the slope below which a stretch of " +
+            "route counts as a landing. Typed in any slope unit: 1:48, 2.08% and 1.19deg are the same limit.",
+            rebuildAfterCommit: true,
+            // Shown while either rule is on: with level areas off it still decides which stretches of a
+            // route are landings, and a limit that steers the result must never be hidden.
+            visibleWhen: a => Rules(a).LevelAreaMode != GradientRuleMode.Off || Rules(a).RouteMode != GradientRuleMode.Off),
+        AnalysisParam.Section("levelAreas", "Level Areas", expanded: true),
         AnalysisParam.Sources(
-            "LevelAreas", "Level Areas",
+            "LevelAreas", "Areas",
             a => ((GradientComplianceAnalysisDefinition)a).LevelAreas,
             RhinoObjectType.Curve,
             "Closed curves around landings, turning spaces and other areas that must be level in every " +
@@ -770,25 +859,12 @@ internal sealed class GradientComplianceAnalysisDescriptor : AnalysisTypeDescrip
                     GradientRulePresets.RefreshModified(Rules(a));
                 }
             },
-            "Off ignores level areas. Report shows ground over the limit in amber, as information. Warn " +
+            "Off ignores level areas. Show marks ground over the limit in amber, as information. Warn " +
             "shows it in red, as a failure.",
             rebuildAfterCommit: true),
-        AnalysisParam.Slope(
-            "LevelAreaMaxSlope", "Level Limit",
-            a => Rules(a).LevelAreaMaxSlopeDegrees,
-            (a, v) =>
-            {
-                Rules(a).LevelAreaMaxSlopeDegrees = v;
-                GradientRulePresets.RefreshModified(Rules(a));
-            },
-            "The steepest a level area may be in any direction, and the slope below which a stretch of " +
-            "route counts as a landing. Typed in any slope unit: 1:48, 2.08% and 1.19deg are the same limit.",
-            rebuildAfterCommit: true,
-            // Shown while either rule is on: with level areas off it still decides which stretches of a
-            // route are landings, and a limit that steers the result must never be hidden.
-            visibleWhen: a => Rules(a).LevelAreaMode != GradientRuleMode.Off || Rules(a).RouteMode != GradientRuleMode.Off),
+        AnalysisParam.Section("routes", "Routes", expanded: true),
         AnalysisParam.Sources(
-            "Routes", "Routes",
+            "Routes", "Curves",
             a => ((GradientComplianceAnalysisDefinition)a).Routes,
             RhinoObjectType.Curve,
             "Curves along the centre of accessible routes. Slope along a route is its running slope and " +
@@ -814,9 +890,11 @@ internal sealed class GradientComplianceAnalysisDescriptor : AnalysisTypeDescrip
                     GradientRulePresets.RefreshModified(Rules(a));
                 }
             },
-            "Off ignores routes. Report shows running or cross slope over the limit in amber; Warn shows " +
+            "Off ignores routes. Show marks running or cross slope over the limit in amber; Warn marks " +
             "it in red. Ramps within the limit show blue either way: allowed, but not a walk.",
             rebuildAfterCommit: true),
+        // Design review Step 72: the route thresholds are set once from the standard, so they sit closed.
+        AnalysisParam.Section("routeLimits", "Route Limits", visibleWhen: a => Rules(a).RouteMode != GradientRuleMode.Off),
         RouteSlope("WalkMaxSlope", "Walk Limit",
             r => r.WalkMaxSlopeDegrees, (r, v) => r.WalkMaxSlopeDegrees = v,
             "The steepest running slope that is still a walk. Steeper, up to the ramp limit, is a ramp."),
@@ -843,15 +921,6 @@ internal sealed class GradientComplianceAnalysisDescriptor : AnalysisTypeDescrip
             "to this far between landings. Leave the table empty for no going limit. With Interpolate on, " +
             "gradients between two rows get a going between theirs, as Approved Document M allows.",
             visibleWhen: a => Rules(a).RouteMode != GradientRuleMode.Off),
-        AnalysisParam.Number(
-            "MeasurementLength", "Measure Over",
-            a => ((GradientComplianceAnalysisDefinition)a).MeasurementLength,
-            (a, v) => ((GradientComplianceAnalysisDefinition)a).MeasurementLength = Math.Max(0.0, v),
-            "The length the gradient is averaged over, like a level laid on the ground. Zero measures " +
-            "each triangle alone, which fails survey-derived landings a level would pass. Not part of the " +
-            "standard: none states one.",
-            min: 0.0,
-            unit: ParameterUnit.ModelLength),
     };
 
     public override string? DescribeBlocker(TerrainDefinition terrain, AnalysisDefinition analysis)
@@ -1020,14 +1089,14 @@ internal sealed class CurvatureAnalysisDescriptor : AnalysisTypeDescriptor
     private static readonly IReadOnlyList<(string Key, string Label)> DisplayOptions = new[]
     {
         (nameof(CurvatureDisplay.Landforms), "Landforms"),
-        (nameof(CurvatureDisplay.Curvature), "Curvature value"),
+        (nameof(CurvatureDisplay.Curvature), "Curvature"),
     };
 
     private static readonly IReadOnlyList<(string Key, string Label)> MeasureOptions = new[]
     {
         (nameof(CurvatureMeasure.Mean), "Mean"),
-        (nameof(CurvatureMeasure.Profile), "Profile (down the slope)"),
-        (nameof(CurvatureMeasure.Plan), "Plan (across the slope)"),
+        (nameof(CurvatureMeasure.Profile), "Along"),
+        (nameof(CurvatureMeasure.Plan), "Across"),
     };
 
     public override IReadOnlyList<AnalysisParam> Parameters { get; } = new[]
@@ -1041,10 +1110,22 @@ internal sealed class CurvatureAnalysisDescriptor : AnalysisTypeDescriptor
                 if (Enum.TryParse(key, out CurvatureDisplay display))
                     Curvature(a).Display = display;
             },
-            "Landforms colours each face convex, planar or concave. Curvature value colours it by how " +
+            "Landforms colours each face convex, planar or concave. Curvature colours it by how " +
             "sharply it bends, convex warm and concave cool. Both read the same measurement, so switching " +
             "recolours without measuring again.",
-            refreshOnly: true),
+            refreshOnly: true,
+            fullRow: true),
+        AnalysisParam.ColorKey(
+            "LandformKey", "Key",
+            _ => LandformClassifier.All
+                .Select(landform =>
+                {
+                    var (r, g, b) = LandformClassifier.ColorOf(landform);
+                    return (unchecked((int)0xFF000000) | (r << 16) | (g << 8) | b, LandformClassifier.NameOf(landform));
+                })
+                .ToList(),
+            "The colour each landform is drawn in on the terrain.",
+            visibleWhen: a => Curvature(a).Display == CurvatureDisplay.Landforms),
         AnalysisParam.Choice(
             "Measure", "Measure",
             MeasureOptions,
@@ -1054,10 +1135,17 @@ internal sealed class CurvatureAnalysisDescriptor : AnalysisTypeDescriptor
                 if (Enum.TryParse(key, out CurvatureMeasure measure))
                     Curvature(a).Measure = measure;
             },
-            "Mean is how the ground bends overall. Profile is the bend along the fall line: positive where a " +
-            "slope steepens over an edge, negative where it eases out at the foot. Plan is the bend across " +
+            "Mean is how the ground bends overall. Along is the bend down the fall line: positive where a " +
+            "slope steepens over an edge, negative where it eases out at the foot. Across is the bend across " +
             "the fall line: positive on ridges and spurs that shed water, negative in valleys that gather it.",
             refreshOnly: true,
+            optionHelp: new Dictionary<string, string>
+            {
+                // Design review Step 73: tooltips explain the direction of each measure.
+                [nameof(CurvatureMeasure.Mean)] = "How the ground bends overall.",
+                [nameof(CurvatureMeasure.Profile)] = "The bend down the fall line: positive where a slope steepens over an edge, negative where it eases out at the foot.",
+                [nameof(CurvatureMeasure.Plan)] = "The bend across the fall line: positive on ridges and spurs that shed water, negative in valleys that gather it.",
+            },
             visibleWhen: a => Curvature(a).Display == CurvatureDisplay.Curvature),
         AnalysisParam.ColorRamp(
             "Colours the terrain by curvature in 1/model-unit, convex positive. The range is symmetric about " +

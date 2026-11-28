@@ -201,7 +201,7 @@ internal static class TerrainUnitScaler
         // The sample statistics and the mapped range are lengths for these owners; for slope they are
         // unitless and must not scale.
         bool ownerMeasuresLengths = owner is ElevationAnalysisDefinition or CutFillAnalysisDefinition or
-            ProjectedElevationLabelAnnotationDefinition or CurveElevationLabelAnnotationDefinition;
+            SpotHeightsAnnotationDefinition;
 
         // A curvature card's mapped range is in 1/model-unit: it shrinks as lengths grow.
         if (owner is CurvatureAnalysisDefinition)

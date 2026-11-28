@@ -83,7 +83,7 @@ public sealed partial class MoleHillPanel
 
         // ── Layers pill ───────────────────────────────────────────
         int lc = sourceSet.LayerPaths.Count;
-        string layText = lc == 0 ? "Layers" : $"{lc} Layers";
+        string layText = lc == 0 ? "Layers" : Count(lc, "Layer", "Layers");
         var layersPill = MakePillButton(layText, lc == 0 ? "Manage input layers." : $"Manage input layers. {lc} assigned.");
         layersPill.Click += (_, _) => ShowLayerSourcePopover(
             layersPill,
@@ -117,8 +117,14 @@ public sealed partial class MoleHillPanel
             layersRow.Items.Add(layersClear);
 
         // ── Layout ────────────────────────────────────────────────
-        var titleLabel = UiControls.Label(label);
-        ApplyHelp(titleLabel, help ?? $"{label} accepts Rhino object picks and layers.");
+        // The total sits on the heading ("Sources — 3"), never on a row of its own (design review UI-13,
+        // UI-19); the tooltip says what it is made of.
+        int total = liveObjectIds.Count + lc;
+        var titleLabel = UiControls.Label(total > 0 ? $"{label} — {total}" : label);
+        string breakdown = total > 0
+            ? $"{Count(liveObjectIds.Count, "object", "objects")}, {Count(lc, "watched layer", "watched layers")}. "
+            : string.Empty;
+        ApplyHelp(titleLabel, breakdown + (help ?? $"{label} accepts Rhino object picks and layers."));
 
         var pillsLayout = new AdaptiveColumns(
             UiMetrics.SpaceSmall,
@@ -142,20 +148,19 @@ public sealed partial class MoleHillPanel
         string? unitSuffix = null)
     {
         help ??= GetNumericHelp(label);
-        var stepper = new NumericStepper
+        // The unit inside the field and one reading of typed text for every number row (NumberField).
+        var field = new NumberField
         {
-            Value = value,
             DecimalPlaces = decimalPlaces,
+            Unit = unitSuffix,
+            MinValue = minValue ?? double.MinValue,
+            MaxValue = maxValue ?? double.MaxValue,
             Increment = step ?? (decimalPlaces == 0 ? 1 : 0.1),
-            Width = UiMetrics.NumericField
+            Value = value
         };
-        if (minValue.HasValue)
-            stepper.MinValue = minValue.Value;
-        if (maxValue.HasValue)
-            stepper.MaxValue = maxValue.Value;
-        ApplyHelp(stepper, help);
+        ApplyHelp(field.TextBox, help);
         var timer = new UITimer { Interval = UiTiming.NumericCommitSeconds };
-        double committedValue = value;
+        double committedValue = field.Value;
         void Commit(double numericValue)
         {
             timer.Stop();
@@ -187,47 +192,39 @@ public sealed partial class MoleHillPanel
             EndControllerRefreshDeferral();
         }
         if (liveEdit)
-            stepper.GotFocus += (_, _) => BeginEdit();
-        timer.Elapsed += (_, _) => Commit(stepper.Value);
-        stepper.ValueChanged += (_, _) =>
+            field.TextBox.GotFocus += (_, _) => BeginEdit();
+
+        // Only liveEdit rows commit while typing, debounced, and only text that already reads as a number;
+        // other rows wait for Enter, leaving the field or an arrow, so "1" is never committed on the way
+        // to "125".
+        timer.Elapsed += (_, _) =>
         {
-            if (_isRefreshing)
+            if (field.TryReadTyped(out double typed))
+                Commit(typed);
+        };
+        field.Edited += (_, _) =>
+        {
+            if (_isRefreshing || !liveEdit)
                 return;
 
             BeginEdit();
-            // Only liveEdit fields debounce-commit while typing; plain fields commit on Enter/blur only
-            // (NumericStepper.ValueChanged fires per keystroke, so debouncing here would commit garbage
-            // intermediate values, e.g. "1" while the user is still typing "125").
-            if (liveEdit)
-            {
-                timer.Stop();
-                timer.Start();
-            }
-        };
-        stepper.KeyDown += (_, e) =>
-        {
-            if (e.Key != Keys.Enter)
-                return;
-
             timer.Stop();
-            Commit(stepper.Value);
-            e.Handled = true;
+            timer.Start();
         };
-        stepper.LostFocus += (_, _) =>
+        field.ValueChanged += (_, _) =>
         {
             if (_isRefreshing)
                 return;
 
-            timer.Stop();
-            Commit(stepper.Value);
-            EndEdit();
+            Commit(field.Value);
         };
-        stepper.UnLoad += (_, _) =>
+        field.TextBox.LostFocus += (_, _) => EndEdit();
+        field.UnLoad += (_, _) =>
         {
             timer.Stop();
             EndEdit();
         };
-        return new PropertyRow(CreateHelpLabel(label, help, 0), WithUnitSuffix(stepper, unitSuffix));
+        return new PropertyRow(CreateHelpLabel(label, help, 0), field, expandWidget: true);
     }
 
     /// <summary>
@@ -243,15 +240,16 @@ public sealed partial class MoleHillPanel
         Action<double> onChanged,
         int decimalPlaces = 3,
         string? help = null,
-        string? unitSuffix = null)
+        string? unitSuffix = null,
+        string blankText = "Auto")
     {
         help ??= GetNumericHelp(label);
+        string Show(double number) => UserNumber.WithUnit(UserNumber.Format(number, decimalPlaces), unitSuffix);
         var textBox = new TextBox
         {
-            Width = UiMetrics.NumericField,
-            Text = value > 0.0 ? FormatUserNumber(value, decimalPlaces) : string.Empty,
+            Text = value > 0.0 ? Show(value) : string.Empty,
             // Greyed: what a blank box stands for. Nothing resolved yet (0) reads as Auto.
-            PlaceholderText = inheritedValue > 0.0 ? FormatUserNumber(inheritedValue, decimalPlaces) : "Auto"
+            PlaceholderText = inheritedValue > 0.0 ? Show(inheritedValue) : blankText
         };
         ApplyHelp(textBox, help);
 
@@ -260,10 +258,13 @@ public sealed partial class MoleHillPanel
         {
             double parsed = 0.0;
             string text = textBox.Text?.Trim() ?? string.Empty;
-            if (text.Length > 0 && TryParseUserNumber(text, out double v) && v > 0.0)
+            if (text.Length > 0 && UserNumber.TryParseLeading(text, out double v) && v > 0.0)
             {
                 parsed = v;
             }
+
+            // Echo the reading back with its unit, so "3" becomes "3 m" and a rejected entry clears.
+            textBox.Text = parsed > 0.0 ? Show(parsed) : string.Empty;
 
             if (!TerrainCommitGuard.HasMeaningfulNumericChange(committedValue, parsed))
                 return;
@@ -289,31 +290,7 @@ public sealed partial class MoleHillPanel
             Commit();
         };
 
-        return new PropertyRow(CreateHelpLabel(label, help, 0), WithUnitSuffix(textBox, unitSuffix));
-    }
-
-    /// <summary>
-    /// Pairs an input widget with the dim trailing label that says what its number is in. Without one a
-    /// card row is a bare number: "Fill Slope 3" reads as degrees, percent or 1:3 with nothing on screen
-    /// to settle it. Passing no suffix returns the widget untouched, so unitless rows cost nothing.
-    /// </summary>
-    private static Control WithUnitSuffix(Control widget, string? unitSuffix, bool expandWidget = false)
-    {
-        if (string.IsNullOrEmpty(unitSuffix))
-            return widget;
-
-        return new StackLayout
-        {
-            Orientation = Orientation.Horizontal,
-            Spacing = UiMetrics.SpaceSmall,
-            VerticalContentAlignment = VerticalAlignment.Center,
-            HorizontalContentAlignment = HorizontalAlignment.Stretch,
-            Items =
-            {
-                new StackLayoutItem(widget, expand: expandWidget),
-                UiControls.Label(unitSuffix, UiLabelRole.Meta)
-            }
-        };
+        return new PropertyRow(CreateHelpLabel(label, help, 0), textBox, expandWidget: true);
     }
 
     /// <summary>
@@ -343,13 +320,16 @@ public sealed partial class MoleHillPanel
 
         help = ComposeSlopeHelp(help ?? GetNumericHelp(label), optional);
 
+        // The unit is part of the text ("25%", "1:3"), which SlopeInput reads back as written.
+        string Show(double slopeDegrees) => UserNumber.WithUnit(
+            SlopeInput.FormatDegreesAsUnit(slopeDegrees, unit),
+            unit == SlopeAnalyzer.SlopeUnit.Ratio ? null : SlopeInput.Suffix(unit));
         var textBox = new TextBox
         {
-            Width = UiMetrics.NumericField,
-            Text = optional && degrees <= 0.0 ? string.Empty : SlopeInput.FormatDegreesAsUnit(degrees, unit)
+            Text = optional && degrees <= 0.0 ? string.Empty : Show(degrees)
         };
         if (optional)
-            textBox.PlaceholderText = SlopeInput.FormatDegreesAsUnit(inheritedDegrees!.Value, unit);
+            textBox.PlaceholderText = Show(inheritedDegrees!.Value);
         StyleTextBox(textBox);
         ApplyHelp(textBox, help);
 
@@ -363,7 +343,7 @@ public sealed partial class MoleHillPanel
                 // should be read as a slope of zero the user asked for.
                 if (!optional)
                 {
-                    textBox.Text = SlopeInput.FormatDegreesAsUnit(committedValue, unit);
+                    textBox.Text = Show(committedValue);
                     return;
                 }
 
@@ -381,14 +361,14 @@ public sealed partial class MoleHillPanel
                 // a silently wrong batter.
                 textBox.Text = optional && committedValue <= 0.0
                     ? string.Empty
-                    : SlopeInput.FormatDegreesAsUnit(committedValue, unit);
+                    : Show(committedValue);
                 return;
             }
 
             parsedDegrees = Math.Clamp(Math.Abs(parsedDegrees), 0.0, SlopeInput.MaxSlopeDegrees);
 
             // Echo the canonical text back so "1:3" resolves visibly into the display unit.
-            textBox.Text = SlopeInput.FormatDegreesAsUnit(parsedDegrees, unit);
+            textBox.Text = Show(parsedDegrees);
             if (!TerrainCommitGuard.HasMeaningfulNumericChange(committedValue, parsedDegrees))
                 return;
 
@@ -414,9 +394,7 @@ public sealed partial class MoleHillPanel
             Commit();
         };
 
-        return new PropertyRow(
-            CreateHelpLabel(label, help, 0),
-            WithUnitSuffix(textBox, SlopeInput.Suffix(unit)));
+        return new PropertyRow(CreateHelpLabel(label, help, 0), textBox, expandWidget: true);
     }
 
     /// <summary>Appends the typed-unit cheat sheet to a slope field's own help text.</summary>
@@ -526,7 +504,9 @@ public sealed partial class MoleHillPanel
             ExpandSliderRange(numericValue, ref currentMin, ref currentMax);
             ClampSliderRangeToHardBounds(ref currentMin, ref currentMax, hardMin, hardMax);
             if (updateTextBox)
-                textBox.Text = formatValue?.Invoke(numericValue) ?? FormatSliderValue(numericValue, decimalPlaces);
+                textBox.Text = UserNumber.WithUnit(
+                    formatValue?.Invoke(numericValue) ?? FormatSliderValue(numericValue, decimalPlaces),
+                    unitSuffix);
             slider.Value = ToSliderValue(numericValue, currentMin, currentMax, slider.MaxValue);
             syncing = false;
         }
@@ -569,7 +549,7 @@ public sealed partial class MoleHillPanel
                 return;
             }
 
-            if (!TryParseUserNumber(text, out double numericValue))
+            if (!UserNumber.TryParseLeading(text, out double numericValue))
             {
                 SyncControls(committedValue);
                 return;
@@ -658,10 +638,7 @@ public sealed partial class MoleHillPanel
                 textBox
             }
         };
-        return new PropertyRow(
-            CreateHelpLabel(label, help, 0),
-            WithUnitSuffix(editor, unitSuffix, expandWidget: true),
-            expandWidget: true);
+        return new PropertyRow(CreateHelpLabel(label, help, 0), editor, expandWidget: true);
     }
 
     private static void ExpandSliderRange(double value, ref double min, ref double max)
@@ -708,29 +685,8 @@ public sealed partial class MoleHillPanel
     private static string FormatSliderValue(double value, int decimalPlaces)
     {
         return decimalPlaces == 0
-            ? ((int)Math.Round(value)).ToString(CultureInfo.InvariantCulture)
-            : value.ToString($"F{decimalPlaces}", CultureInfo.InvariantCulture);
-    }
-
-    /// <summary>
-    /// Shared numeric parse for free-typed text fields (slider text box, optional numeric editor, …).
-    /// No AllowThousands: text may have been formatted with InvariantCulture (e.g. "1.000"), and in locales
-    /// where '.' is the group separator (de-DE, nb-NO, …) AllowThousands would re-read that as 1000. Without
-    /// it, a '.' is only ever a decimal point — CurrentCulture parse fails for "1.000" in those locales
-    /// and the InvariantCulture fallback yields 1.0, while locale decimals (e.g. "1,5") still parse.
-    /// </summary>
-    private static bool TryParseUserNumber(string text, out double value)
-    {
-        const NumberStyles Styles = NumberStyles.Float;
-        return double.TryParse(text, Styles, CultureInfo.CurrentCulture, out value) ||
-               double.TryParse(text, Styles, CultureInfo.InvariantCulture, out value);
-    }
-
-    /// <summary>Shared numeric format for free-typed text fields — pairs with <see cref="TryParseUserNumber"/>.</summary>
-    private static string FormatUserNumber(double value, int decimalPlaces)
-    {
-        string format = decimalPlaces <= 0 ? "0" : "0." + new string('#', decimalPlaces);
-        return value.ToString(format, CultureInfo.CurrentCulture);
+            ? UserNumber.Format(Math.Round(value), "0")
+            : UserNumber.Format(value, $"F{decimalPlaces}");
     }
 
     private static double ClampSliderValue(double value, double? hardMin, double? hardMax)
@@ -833,14 +789,54 @@ public sealed partial class MoleHillPanel
         return new PropertyRow(CreateHelpLabel(label, help, 0), dropDown, expandWidget: true);
     }
 
+    /// <summary>A choice between two or three modes as side-by-side segments; see <see cref="SegmentedControl"/>.</summary>
+    private Control CreateSegmentedEditor(
+        string label,
+        IReadOnlyList<(string Key, string Label)> options,
+        string selectedKey,
+        Action<string> onChanged,
+        string help,
+        IReadOnlyDictionary<string, string>? optionHelp = null,
+        bool fullRow = false)
+    {
+        // -1 when the stored key matches no option: nothing shows selected, so any segment can be picked.
+        int selectedIndex = Math.Max(-1, options
+            .Select((option, index) => (option, index))
+            .Where(item => string.Equals(item.option.Key, selectedKey, StringComparison.OrdinalIgnoreCase))
+            .Select(item => item.index)
+            .DefaultIfEmpty(-1)
+            .First());
+        var segments = new SegmentedControl(
+            options.Select(option => option.Label).ToList(),
+            selectedIndex,
+            options.Select(option => optionHelp != null && optionHelp.TryGetValue(option.Key, out var text) ? text : null).ToList())
+        {
+            ToolTip = string.IsNullOrWhiteSpace(help)
+                ? string.Join(" · ", options.Select(option => option.Label))
+                : help
+        };
+        segments.SelectedIndexChanged += (_, _) =>
+        {
+            if (!_isRefreshing)
+                onChanged(options[segments.SelectedIndex].Key);
+        };
+
+        // A card's primary mode spans the whole row, unlabelled: its segments are the heading of the card.
+        if (fullRow)
+            return new Panel { Padding = new Eto.Drawing.Padding(0, UiMetrics.PropertyRowVerticalPadding), Content = segments };
+
+        return new PropertyRow(CreateHelpLabel(label, help, 0), segments, expandWidget: true);
+    }
+
     private Control CreateCommittedTextEditor(
         string label,
         string value,
         Action<string> onCommit,
         string help,
-        bool trim = true)
+        bool trim = true,
+        string? placeholder = null)
     {
-        var textBox = new TextBox { Text = value };
+        var textBox = new TextBox { Text = value, PlaceholderText = placeholder ?? string.Empty };
         StyleTextBox(textBox);
         ApplyHelp(textBox, help);
         BindCommittedText(textBox, () => value, onCommit, trim: trim);
@@ -878,7 +874,7 @@ public sealed partial class MoleHillPanel
         var widget = new StackLayout
         {
             Orientation = Orientation.Horizontal,
-            Spacing = 4,
+            Spacing = UiMetrics.SpaceSmall,
             VerticalContentAlignment = VerticalAlignment.Center,
             Items = { new StackLayoutItem(textBox, expand: true), browse }
         };
@@ -923,7 +919,7 @@ public sealed partial class MoleHillPanel
             "Min Angle" => "Changes are applied after a short pause. Around 20-30 is moderate; very high values can overconstrain the triangulation.",
             "Iterations" => "Changes are applied after a short pause. 1 is light smoothing; 2-4 is moderate; higher values flatten more detail.",
             "Strength" => "Changes are applied after a short pause. Around 0.2 is gentle, 0.5 is strong, and 1.0 is extreme.",
-            "Protect Hold" => "Changes are applied after a short pause. 1.0 keeps protected curves exactly as they are, 0.5 lets them soften, 0.0 smooths them like any other vertex.",
+            "Height Protection" => "How much protected curves keep their original height. At 1 their heights stay fixed, at 0.5 they soften, at 0 they smooth like the surrounding terrain. Changes are applied after a short pause.",
             "Max Distance" => "Changes are applied after a short pause. 0 means unlimited; smaller values stop the batter sooner.",
             "Width" => "Changes are applied after a short pause. This is the controlled path width before side grading starts.",
             "Symbol Scale" => "Changes are applied after a short pause. 1.0 is default size; below 1.0 is smaller; above 1.0 is larger.",

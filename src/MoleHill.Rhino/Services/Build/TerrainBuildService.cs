@@ -46,7 +46,20 @@ internal sealed partial class TerrainBuildService
         Func<bool>? shouldCancel = null,
         Action<TerrainBuildProgress>? reportProgress = null,
         TerrainLatencyScope? latency = null,
-        Action<RhinoMesh, RhinoMesh?>? publishInterimGeometry = null)
+        Action<RhinoMesh, RhinoMesh?>? publishInterimGeometry = null) =>
+        // Everything a build writes - drawn labels, results, Status messages - uses point decimals, as Rhino
+        // does, whatever the Windows locale; formatting sites need not each remember to say so.
+        MoleHill.Rhino.Registry.SummaryText.Invariant(() =>
+            BuildCore(snapshot, runtimeCache, mode, shouldCancel, reportProgress, latency, publishInterimGeometry));
+
+    private TerrainBuildResult BuildCore(
+        TerrainBuildSnapshot snapshot,
+        TerrainRuntimeCache runtimeCache,
+        TerrainBuildMode mode,
+        Func<bool>? shouldCancel,
+        Action<TerrainBuildProgress>? reportProgress,
+        TerrainLatencyScope? latency,
+        Action<RhinoMesh, RhinoMesh?>? publishInterimGeometry)
     {
         var totalTimer = Stopwatch.StartNew();
         TerrainDefinition terrain = snapshot.Terrain;

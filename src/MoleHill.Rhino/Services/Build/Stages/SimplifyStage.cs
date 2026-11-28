@@ -139,7 +139,7 @@ internal static class SimplifyStage
         }
         if (!double.IsFinite(retainPercentage) || retainPercentage < 0.0 || retainPercentage > 100.0)
         {
-            failure = "Retain percentage must be between 0 and 100.";
+            failure = "Keep % must be between 0 and 100.";
             return false;
         }
 

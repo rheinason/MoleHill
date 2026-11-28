@@ -265,7 +265,7 @@ internal static class TriangulateStage
             }
 
             string reason = string.Equals(modifier.ContourMode, TriangulateModifierDefinition.VerticesOnlyContourMode, StringComparison.OrdinalIgnoreCase)
-                ? "Contour Mode is Vertices only"
+                ? "Contour Mode is Vertices"
                 : $"Auto switches at {TriangulateModifierDefinition.AutoUnconstrainedContourVertexThreshold:N0} vertices";
             build.Diagnostics.Add(
                 $"Triangulate treated {contourSourceVertexCount:N0} contour vertices as unconstrained TIN samples ({reason}). " +

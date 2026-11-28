@@ -8,6 +8,24 @@ namespace MoleHill.Rhino.UI;
 // records, saving and rebuild scheduling are decided in one place.
 public sealed partial class MoleHillPanel : Panel
 {
+    /// <summary>
+    /// Applies a stack drag-and-drop reorder. Modifier and zone order changes the terrain, so it rebuilds;
+    /// analysis and annotation order only changes what is drawn, so it redraws the preview instead.
+    /// </summary>
+    private TerrainDefinition? SelectedTerrainOrNull() =>
+        RhinoDoc.ActiveDoc is { } doc ? _controller.GetSelectedTerrain(doc) : null;
+
+    private void ReorderFromDrop(Guid terrainId, Action<TerrainDefinition> reorder, bool rebuild)
+    {
+        var doc = RhinoDoc.ActiveDoc;
+        if (doc == null)
+            return;
+
+        _controller.MutateTerrain(doc, terrainId, reorder, scheduleRebuild: rebuild);
+        if (!rebuild)
+            RefreshTerrainPreview(terrainId);
+    }
+
     private void MutateSelectedTerrain(
         Action<TerrainDefinition> mutator,
         bool scheduleRebuild = true,

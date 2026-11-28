@@ -50,6 +50,74 @@ beta prereleases. Earlier versions are recorded only in the git history.
   type to filter (names, initials such as `rw`, descriptions, and synonyms such as `kerb`), Up/Down and
   Enter to add, Esc to close.
 
+## 1.7.0-beta — 2026-11-23
+
+A redesign of the MoleHill panel and its dialogs, from a full design review of every card.
+
+**Compatibility**
+- Documents saved with this version use terrain schema 34, which 1.6.0 and earlier refuse to open. Older
+  documents open and are upgraded on load.
+
+**Fixes**
+- The panel follows a switch between Rhino's light and dark themes, including after it has been hidden in
+  the dock. Before, its surfaces could stay dark and its icons fade on a light Rhino.
+- After a bake, Untrack Selected / Untrack All become available straight away.
+- Scatter cards show the new placed counts after every rebuild, never a leftover "count pending".
+- Slope arrows point downhill unless Flip Arrow is ticked, as the card says; they pointed uphill. Cards
+  saved by earlier versions are converted with Flip Arrow switched, so existing drawings do not change.
+- At narrow panel widths the Zones and Analysis tabs keep their icons beside their view buttons, and the
+  Zones heading wraps instead of running under the scrollbar.
+
+**Spot labels**
+- **Spot Heights** and **Spot Slope** are one card each, placed at **Points**, along **Curves** or on a
+  **Grid**. They replace Spot Heights (Points), Spot Heights (Curve), Spot Slope (Points), Spot Slope
+  (Curve) and Flow Arrows, which is now Spot Slope on a grid. Spot heights on a grid are new.
+- Each placement keeps its own sources, so switching placement and back finds them again.
+- Existing cards are converted on load and keep their name, place in the stack, sources, block and
+  formatting.
+
+**Scatter**
+- Along a curve, Block Mix chooses **Random** or **Sequence** at its top. In Sequence the blocks are an
+  ordered list: drag a row to reorder the repeating pattern, and untick a block to leave it out. Weights
+  are hidden there and kept for Random.
+- A saved sequence that left a block out with weight 0 has that block unticked on load, so its pattern is
+  unchanged.
+
+**Panel settings**
+- The Terrain Settings card fits a narrow panel: Opacity has its own row, the display and bake options span
+  the card, and nothing is cut off. It no longer carries a coloured strip, which marks cards in the stacks.
+- The toolbar's two rows of icons line up.
+- Cards and sections open and close from the keyboard (Enter or Space on the arrow), and the number field
+  arrows no longer take a Tab stop each.
+- Every icon and arrow has a tooltip, and a greyed-out control says why it is unavailable.
+- The build progress in Status is written with a decimal point on every machine.
+
+**Cards**
+- Every card header has two fixed lines: the card's name, then its type and a summary (for example
+  "Contours · 2 objects · 1 layer"). Long text ends in an ellipsis, with the full text in the tooltip.
+- Two- and three-way choices are buttons rather than drop-downs, and a card's main mode comes first.
+- Units sit inside number fields. Numbers are written with a point; a comma typed as the decimal is read
+  as one.
+- Secondary settings are in sections that start closed and stay as you leave them. Measured values are
+  under one **Results** section, and a source picker shows its count in its heading.
+- Earthworks and Cut / Fill choose what they compare against: **Off**, **Original**, **Terrain** or
+  **Geometry**.
+- Report Table lists only the sections this terrain can fill. Legend shows which analysis it keys.
+- Section Along Curve samples at the terrain's Detail Size unless you set an interval, which finds sharp
+  crests a fixed 1 m spacing missed.
+- Displace's origin is picked as a point.
+- The colour ramp's controls were reworked, and Landforms has a key.
+
+**Panel**
+- The tab strip fits narrow panels: labels show only when all five fit, and every tab names itself in a
+  tooltip.
+- The Status line shows the outcome of the last build, coloured by severity.
+- **Import / Export Terrain Definition** in the terrain menu moves a whole terrain between files as a
+  `.mhterrain` file. Assigned layers come with it, picked objects do not, lengths are converted to the
+  document's units, and a preview lists layers to reassign.
+- Dialogs share one layout: the main action then Cancel on the right, units inside fields, and no clipped
+  labels or buttons.
+
 ## 1.6.0 — 2026-11-20
 
 The first stable release since 1.4.0. It contains everything from the 1.4.1–1.5.5 betas below; their

@@ -161,7 +161,7 @@ public class ResultRowTests
         var rows = Analysis(drawn, summary);
         Assert.Equal(2, rows.Count);
         Assert.Equal("Drawn", rows[1].Label);
-        Assert.Equal("1,200 delta contour(s) | balance: None — no sign change", rows[1].Value);
+        Assert.Equal("1,200 delta contour(s) · balance: None — no sign change", rows[1].Value);
     }
 
     [Fact]
@@ -178,7 +178,7 @@ public class ResultRowTests
         var rows = Analysis(new CatchmentAnalysisDefinition { ShowBoundaries = true, ShowFlowPaths = false }, summary);
 
         Assert.Equal(new[] { "Catchments", "Closed depressions", "Drawn" }, rows.Select(r => r.Label).ToArray());
-        Assert.Equal("7 | largest 40 m2", rows[0].Value);
+        Assert.Equal("7 · largest 40 m2", rows[0].Value);
         Assert.Equal("2 — water has nowhere to go", rows[1].Value);
         Assert.Equal("9 curve(s)", rows[2].Value);
 
@@ -230,7 +230,7 @@ public class ResultRowTests
         });
 
         Assert.Equal("4 point(s) -> 4 path(s)", rows[0].Value);
-        Assert.Equal("2 boundary | 1 sink | 1 outside", rows[1].Value);
+        Assert.Equal("2 boundary · 1 sink · 1 outside", rows[1].Value);
     }
 
     [Fact]
@@ -298,9 +298,9 @@ public class ResultRowTests
     }
 
     [Fact]
-    public void CurveElevation_UsesTheCardsValueFormat_AndSaysNoSamplesWhenEmpty()
+    public void SpotHeights_UsesTheCardsValueFormat_AndSaysNoSamplesWhenEmpty()
     {
-        var definition = new CurveElevationLabelAnnotationDefinition { ValueFormat = "F1" };
+        var definition = new SpotHeightsAnnotationDefinition { Placement = SpotPlacement.Curves, ValueFormat = "F1" };
         var rows = Annotation(definition, new TerrainAnalysisSummary
         {
             SampleSourceCount = 2,
@@ -312,11 +312,11 @@ public class ResultRowTests
         Assert.Equal(new ResultRow(
             "Curves / Labels",
             "2 curve(s) -> 5 label(s)",
-            "Curve sources resolved and elevation annotation blocks emitted by the last build."), rows[0]);
+            "Curves resolved and labels placed by the last build."), rows[0]);
         Assert.Equal(new ResultRow(
             "Min / Max",
             "10.0 / 13.0",
-            "Terrain elevations sampled along the source curves during the last build."), rows[1]);
+            "Terrain elevations at the labels from the last build."), rows[1]);
 
         rows = Annotation(definition, new TerrainAnalysisSummary { GeneratedOutputCount = 0 });
         Assert.Equal("No samples", rows[1].Value);
@@ -333,12 +333,12 @@ public class ResultRowTests
             SampleMaxValue = 3
         };
 
-        var arrows = Annotation(new SlopeArrowAnnotationDefinition { Unit = SlopeAnalyzer.SlopeUnit.Percent }, summary);
-        Assert.Equal("Arrows", arrows[0].Label);
-        Assert.Equal("3 arrow(s)", arrows[0].Value);
-        Assert.Equal("1.0% / 2.0% / 3.0%", arrows[1].Value);
+        var grid = Annotation(new SpotSlopeAnnotationDefinition { Placement = SpotPlacement.Grid, Unit = SlopeAnalyzer.SlopeUnit.Percent }, summary);
+        Assert.Equal("Grid / Labels", grid[0].Label);
+        Assert.Equal("Whole terrain -> 3 label(s)", grid[0].Value);
+        Assert.Equal("1.0% / 2.0% / 3.0%", grid[1].Value);
 
-        var points = Annotation(new PointSlopeLabelAnnotationDefinition { Unit = SlopeAnalyzer.SlopeUnit.Degrees }, summary);
+        var points = Annotation(new SpotSlopeAnnotationDefinition { Unit = SlopeAnalyzer.SlopeUnit.Degrees }, summary);
         Assert.Equal("Points / Labels", points[0].Label);
         Assert.Equal("1.0 deg / 2.0 deg / 3.0 deg", points[1].Value);
     }
@@ -409,7 +409,7 @@ public class ResultRowTests
             ReportRowCount = 14
         }));
         Assert.Equal("Drawn", drawn.Label);
-        Assert.Equal("2 table(s) | 14 row(s)", drawn.Value);
+        Assert.Equal("2 table(s) · 14 row(s)", drawn.Value);
 
         ResultRow empty = Assert.Single(Annotation(new ReportTableAnnotationDefinition(), new TerrainAnalysisSummary()));
         Assert.Equal("Nothing measured yet", empty.Value);

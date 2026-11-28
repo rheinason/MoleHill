@@ -23,9 +23,10 @@ public sealed partial class MoleHillPanel : Panel
     private readonly Label _layerTemplateLabel = new() { VerticalAlignment = VerticalAlignment.Center, Wrap = WrapMode.Word };
     private readonly Panel _terrainColorSwatch = new() { Width = 18, Height = 18 };
     private readonly Label _terrainColorLabel = new() { VerticalAlignment = VerticalAlignment.Center };
-    private readonly Label _statusHintLabel   = new() { VerticalAlignment = VerticalAlignment.Center };
-    private readonly NumericStepper _toleranceStepper = new();
-    private readonly NumericStepper _terrainOpacityStepper = new();
+    // Ellipsizes on the Status header rather than wrapping it onto a second line at narrow widths.
+    private readonly TextLine _statusHintLabel = new(string.Empty, SystemFonts.Default(), UiTheme.MutedText);
+    private readonly NumberField _toleranceStepper = new();
+    private readonly NumberField _terrainOpacityStepper = new();
     private readonly Slider _terrainOpacitySlider = new() { MinValue = 0, MaxValue = 100, Width = UiMetrics.SliderMin };
     private readonly CheckBox _showWiresCheck = new() { Text = "Show Wires" };
 
@@ -42,70 +43,25 @@ public sealed partial class MoleHillPanel : Panel
     private bool _isUpdatingOpacityControls;
     private Panel? _settingsContent;
     private Panel? _statusContent;
-    private readonly Button _visibilityButton = new();
-    private readonly Button _lockButton = new();
-    private Button _dupButton = new();
-    private Button _newButton = new();
-    private Button _deleteButton = new();
-    private Button _rebuildButton = new();
-    private Button _resetBuildButton = new();
-    private Button _bakeButton = new();
+    private readonly IconButton _visibilityButton = new();
+    private readonly IconButton _lockButton = new();
+    private IconButton _dupButton = new();
+    private IconButton _newButton = new();
+    private IconButton _deleteButton = new();
+    private IconButton _rebuildButton = new();
+    private IconButton _resetBuildButton = new();
+    private IconButton _bakeButton = new();
     private Button _resetTerrainDataButton = new();
     private bool _isUpdatingTerrainSelector;
-    private readonly HashSet<Guid> _collapsedModifiers = new();
-    private readonly HashSet<Guid> _collapsedObjects = new();
-    private readonly HashSet<Guid> _collapsedZones = new();
-    private readonly StackLayout _modifierStack = new()
-    {
-        Orientation = Orientation.Vertical,
-        Spacing = 0,
-        HorizontalContentAlignment = HorizontalAlignment.Stretch
-    };
-    private readonly StackLayout _objectsStack = new()
-    {
-        Orientation = Orientation.Vertical,
-        Spacing = 0,
-        HorizontalContentAlignment = HorizontalAlignment.Stretch
-    };
-    private readonly StackLayout _zonesStack = new()
-    {
-        Orientation = Orientation.Vertical,
-        Spacing = 0,
-        HorizontalContentAlignment = HorizontalAlignment.Stretch
-    };
-    private readonly StackLayout _analysisStack = new()
-    {
-        Orientation = Orientation.Vertical,
-        Spacing = 0,
-        HorizontalContentAlignment = HorizontalAlignment.Stretch
-    };
-    private readonly StackLayout _annotationStack = new()
-    {
-        Orientation = Orientation.Vertical,
-        Spacing = 0,
-        HorizontalContentAlignment = HorizontalAlignment.Stretch
-    };
-    private readonly HashSet<Guid> _collapsedAnalyses = new();
+    // The five tab stacks. Drops reorder the terrain's own list; analyses and annotations only redraw,
+    // because their order changes output, not the terrain.
+    private readonly CardStack _modifierCards;
+    private readonly CardStack _objectCards;
+    private readonly CardStack _zoneCards;
+    private readonly CardStack _analysisCards;
+    private readonly CardStack _annotationCards;
     private readonly HashSet<Guid> _expandedColorRamps = new();
     private readonly Dictionary<Guid, int> _selectedColorRampStops = new();
-    private readonly Dictionary<Guid, Panel>    _modifierCardMap      = new();
-    private readonly Dictionary<Guid, Panel>    _modifierSepMap       = new();
-    private readonly Dictionary<Guid, Panel>    _modifierStripMap     = new();
-    private readonly Dictionary<Guid, Color>    _modifierStripColors  = new();
-    private readonly Dictionary<Guid, Panel>    _analysisCardMap      = new();
-    private readonly Dictionary<Guid, Panel>    _analysisSepMap       = new();
-    private readonly Dictionary<Guid, Panel>    _analysisStripMap     = new();
-    private readonly Dictionary<Guid, Color>    _analysisStripColors  = new();
-    private readonly Dictionary<Guid, Panel>    _annotationCardMap    = new();
-    private readonly Dictionary<Guid, Panel>    _annotationSepMap     = new();
-    private readonly Dictionary<Guid, Panel>    _annotationStripMap   = new();
-    private readonly Dictionary<Guid, Color>    _annotationStripColors = new();
-    private readonly Dictionary<Guid, Panel>    _zoneCardMap          = new();
-    private readonly Dictionary<Guid, Panel>    _zoneSepMap           = new();
-    private Guid? _dragOverModifierId;
-    private Guid? _dragOverAnalysisId;
-    private Guid? _dragOverAnnotationId;
-    private Guid? _dragOverZoneId;
     private readonly EventHandler _stateChangedHandler;
     private readonly EventHandler _statusChangedHandler;
     private bool _statusRefreshPosted;
@@ -131,8 +87,8 @@ public sealed partial class MoleHillPanel : Panel
     /// <summary>The terrain the layouts were last built for, so a tab shown later builds the right thing.</summary>
     private TerrainDefinition? _lastRefreshedTerrain;
     private Panel? _tabContentPanel;
-    private Label? _zonesEyeButton;
-    private Label? _analysisEyeButton;
+    private IconButton? _zonesEyeButton;
+    private IconButton? _analysisEyeButton;
     private readonly Dictionary<int, Panel> _tabChipMap = new();
     private readonly Dictionary<int, Label> _tabChipLabelMap = new();
 
@@ -140,6 +96,25 @@ public sealed partial class MoleHillPanel : Panel
     {
         _stateChangedHandler = HandleControllerStateChanged;
         _statusChangedHandler = HandleControllerStatusChanged;
+        // Comparison summaries name the compared terrain; only the controller can see the document's terrains.
+        MoleHill.Rhino.Registry.ComparisonParameters.TerrainName = id => RhinoDoc.ActiveDoc is { } doc
+            ? _controller.GetTerrains(doc).FirstOrDefault(item => item.TerrainId == id)?.Name
+            : null;
+
+        _modifierCards = CardStack.Reorderable("modifier-drag", "Drop here to reorder modifiers.", (terrainId, source, anchor) =>
+            ReorderFromDrop(terrainId, t => StackReorder.Move(t.Modifiers, m => m.Id, source, anchor, displayReversed: true,
+                minimumIndex: t.Modifiers.Count > 0 && t.Modifiers[0] is TriangulateModifierDefinition ? 1 : 0), rebuild: true),
+            () => RebuildModifierLayout(SelectedTerrainOrNull()));
+        _objectCards = CardStack.Fixed(() => RebuildObjectsLayout(SelectedTerrainOrNull()));
+        _zoneCards = CardStack.Reorderable("zone-drag", "Drop here to reorder zones.", (terrainId, source, anchor) =>
+            ReorderFromDrop(terrainId, t => StackReorder.Move(t.Zones, z => z.ZoneId, source, anchor), rebuild: true),
+            () => RebuildZonesLayout(SelectedTerrainOrNull()));
+        _analysisCards = CardStack.Reorderable("analysis-drag", "Drop here to reorder analyses.", (terrainId, source, anchor) =>
+            ReorderFromDrop(terrainId, t => StackReorder.Move(t.Analyses, a => a.Id, source, anchor), rebuild: false),
+            () => RebuildAnalysisLayout(SelectedTerrainOrNull()));
+        _annotationCards = CardStack.Reorderable("annotation-drag", "Drop here to reorder annotations.", (terrainId, source, anchor) =>
+            ReorderFromDrop(terrainId, t => StackReorder.Move(t.Annotations, a => a.Id, source, anchor), rebuild: false),
+            () => RebuildAnnotationLayout(SelectedTerrainOrNull()));
 
         WireToolbarControls();
         WireSettingsControls();
@@ -150,8 +125,19 @@ public sealed partial class MoleHillPanel : Panel
         RhinoApp.AppSettingsChanged += OnAppSettingsChanged;
 
         Content = BuildContent();
+        _builtDark = UiTheme.IsDark;
         RefreshUi();
     }
+
+    /// <summary>The theme the content was last built in; a mismatch with Rhino's means rebuild.</summary>
+    private bool _builtDark;
+
+    /// <summary>
+    /// Re-checks Rhino's theme while the panel is open. A theme switch is not reliably announced to
+    /// plug-ins (the panel kept its dark surfaces after Rhino went light), so the panel also compares on a
+    /// slow timer and when it loads; the check is one colour read.
+    /// </summary>
+    private UITimer? _themeWatchTimer;
 
     private Control BuildContent()
     {
@@ -171,6 +157,9 @@ public sealed partial class MoleHillPanel : Panel
                 new StackLayoutItem(statusCard, HorizontalAlignment.Stretch)
             }
         };
+        // The fixed top (toolbar, Terrain Settings, Status) gets the one input look here; stack cards get it
+        // as they enter their stack (CardStack.AddCard).
+        UiControls.StyleInputs(top);
 
         var tabsContainer = BuildTabs();
 
@@ -264,6 +253,14 @@ public sealed partial class MoleHillPanel : Panel
         _isPanelLoaded = true;
         SubscribeControllerStateChanged();
 
+        // UnLoad unsubscribes, and a docked panel unloads every time its dock tab is hidden, so subscribe
+        // again here. Before this, a panel that had been hidden once never heard a settings change again -
+        // including a theme switch, which left it dark on a light Rhino.
+        RhinoApp.AppSettingsChanged -= OnAppSettingsChanged;
+        RhinoApp.AppSettingsChanged += OnAppSettingsChanged;
+        _themeWatchTimer ??= CreateThemeWatchTimer();
+        _themeWatchTimer.Start();
+
         if (!IsDisposed)
         {
             Application.Instance?.AsyncInvoke(() =>
@@ -272,9 +269,17 @@ public sealed partial class MoleHillPanel : Panel
                     return;
 
                 Content = BuildContent();
+                _builtDark = UiTheme.IsDark;
                 RefreshUi();
             });
         }
+    }
+
+    private UITimer CreateThemeWatchTimer()
+    {
+        var timer = new UITimer { Interval = UiTiming.ThemeWatchSeconds };
+        timer.Elapsed += (_, _) => RebuildForThemeIfChanged();
+        return timer;
     }
 
     private void OnAppSettingsChanged(object? sender, EventArgs e)
@@ -284,24 +289,36 @@ public sealed partial class MoleHillPanel : Panel
 
         Application.Instance?.AsyncInvoke(() =>
         {
-            if (IsDisposed)
-                return;
-
-            // Rebuild the full content tree so static surfaces (toolbar, settings
-            // card) pick up the new theme colors alongside the dynamic card stacks.
-            UiMetrics.Invalidate();
-            _terrainColorLabel.TextColor = UiTheme.MutedText;
-            _statusHintLabel.TextColor   = UiTheme.MutedText;
-            CaptureSelectedTabIndex();
-            Content = BuildContent();
-            RefreshUi();
+            if (!IsDisposed)
+                RebuildForTheme();
         });
+    }
+
+    private void RebuildForThemeIfChanged()
+    {
+        if (!IsDisposed && _isPanelLoaded && UiTheme.IsDark != _builtDark)
+            RebuildForTheme();
+    }
+
+    private void RebuildForTheme()
+    {
+        // Rebuild the full content tree so static surfaces (toolbar, settings
+        // card) pick up the new theme colors alongside the dynamic card stacks.
+        UiMetrics.Invalidate();
+        _terrainColorLabel.TextColor = UiTheme.MutedText;
+        _statusHintLabel.TextColor   = UiTheme.MutedText;
+        _previewLineWeightValue.TextColor = UiTheme.MutedText;
+        CaptureSelectedTabIndex();
+        Content = BuildContent();
+        _builtDark = UiTheme.IsDark;
+        RefreshUi();
     }
 
     private void OnPanelUnLoad(object? sender, EventArgs e)
     {
         _isPanelLoaded = false;
         _buildActivityTimer?.Stop();
+        _themeWatchTimer?.Stop();
         UnsubscribeControllerStateChanged();
         RhinoApp.AppSettingsChanged -= OnAppSettingsChanged;
     }
@@ -389,7 +406,7 @@ public sealed partial class MoleHillPanel : Panel
                 _liveUpdate.Checked = false;
                 SetStatusText("No active Rhino document.");
                 _layerTemplateLabel.Text = "-";
-                _terrainColorSwatch.BackgroundColor = Color.FromArgb(80, 80, 80);
+                _terrainColorSwatch.BackgroundColor = UiTheme.SwatchPlaceholder;
                 _terrainColorLabel.Text = "-";
                 _statusHintLabel.Text = string.Empty;
                 SetTerrainOpacityControls(100);
@@ -405,16 +422,16 @@ public sealed partial class MoleHillPanel : Panel
                 _terrainSelector.SelectedIndex = -1;
                 _isUpdatingTerrainSelector = false;
                 SetButtonIcon(_visibilityButton, PanelButtonIcon.HideOff, muted: true);
-                _visibilityButton.ToolTip = "Terrain visible. Click to hide.";
+                _visibilityButton.ToolTip = "Terrain and all its outputs shown. Click to hide them.";
                 SetButtonIcon(_lockButton, PanelButtonIcon.Unlock, muted: true);
                 _lockButton.ToolTip = "Terrain unlocked. Click to lock.";
                 SetActionButtonsEnabled(false);
                 _terrainSelector.Enabled = false;
-                _modifierStack.Items.Clear();
-                _objectsStack.Items.Clear();
-                _zonesStack.Items.Clear();
-                _analysisStack.Items.Clear();
-                _annotationStack.Items.Clear();
+                _modifierCards.Clear();
+                _objectCards.Clear();
+                _zoneCards.Clear();
+                _analysisCards.Clear();
+                _annotationCards.Clear();
                 _resetTerrainDataButton.Visible = false;
                 return;
             }
@@ -474,9 +491,11 @@ public sealed partial class MoleHillPanel : Panel
             }
             bool terrainVisible = selectedTerrain?.IsVisible != false;
             SetButtonIcon(_visibilityButton, terrainVisible ? PanelButtonIcon.HideOff : PanelButtonIcon.HideOn, muted: false);
+            // Hiding the terrain hides everything it draws - mesh, analysis colours and annotations - not
+            // only the mesh, so the state says so (checked live).
             _visibilityButton.ToolTip = terrainVisible
-                ? "Terrain visible. Click to hide."
-                : "Terrain hidden. Click to show.";
+                ? "Terrain and all its outputs shown. Click to hide them."
+                : "Terrain and all its outputs hidden. Click to show them.";
             bool terrainLocked = selectedTerrain?.IsLocked == true;
             SetButtonIcon(_lockButton, terrainLocked ? PanelButtonIcon.Lock : PanelButtonIcon.Unlock, muted: !terrainLocked);
             _lockButton.ToolTip = terrainLocked
@@ -487,6 +506,10 @@ public sealed partial class MoleHillPanel : Panel
             bool hasTrackedBakes = selectedTerrain != null && selectedTerrain.BakedObjectIds.Count > 0;
             _untrackSelectedBakesButton.Enabled = hasTerrain && hasTrackedBakes;
             _untrackAllBakesButton.Enabled = hasTerrain && hasTrackedBakes;
+            // A disabled control says why it is disabled, not only what it would do.
+            const string nothingTracked = " Unavailable: nothing from this terrain is baked and tracked yet.";
+            _untrackSelectedBakesButton.ToolTip = UntrackSelectedHelp + (hasTrackedBakes ? string.Empty : nothingTracked);
+            _untrackAllBakesButton.ToolTip = UntrackAllHelp + (hasTrackedBakes ? string.Empty : nothingTracked);
             _terrainSelector.Enabled = hasTerrain;
 
             UpdateZonesTabButton(_zonesEyeButton, selectedTerrain);

@@ -63,11 +63,22 @@ internal abstract class AnnotationTypeDescriptor
     /// </summary>
     public virtual string? DescribeBlocker(TerrainDefinition terrain, AnnotationDefinition annotation) => null;
 
+    /// <summary>Whether this card currently draws text, so its Text Size row has anything to describe
+    /// (Contours draw text only while their labels are on).</summary>
+    public virtual bool DrawsText(AnnotationDefinition annotation) => true;
+
     /// <summary>
     /// A quiet statement of how this annotation is currently set up, or null when there is nothing worth
     /// saying. Rendered as muted text, not as a warning.
     /// </summary>
     public virtual string? DescribeBasis(TerrainDefinition terrain, AnnotationDefinition annotation) => null;
+
+    /// <summary>
+    /// The card's collapsed summary line after its type name: what the last build measured when there is a
+    /// result, otherwise what the card is set to. Evaluated with point decimals (<see cref="SummaryText.Invariant{T}"/>).
+    /// </summary>
+    public virtual string Summarize(TerrainDefinition terrain, AnnotationDefinition definition, TerrainAnalysisSummary? summary, ResultFormatter format) =>
+        string.Empty;
 
     /// <summary>
     /// Runs this annotation's build during the analysis pass: emits its generated objects onto

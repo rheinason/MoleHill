@@ -14,6 +14,12 @@ namespace MoleHill.Rhino.UI;
 // size, slope units, bake tracking and the output layer template.
 public sealed partial class MoleHillPanel : Panel
 {
+    private const string UntrackSelectedHelp =
+        "Remove the selected baked objects from this terrain's tracked bake set so future replace-bakes leave them alone.";
+
+    private const string UntrackAllHelp =
+        "Forget all baked objects currently tracked by this terrain without deleting them.";
+
     /// <summary>The Terrain Settings card's controls: tolerance, opacity and colour, preview line weight, and bake tracking.</summary>
     private void WireSettingsControls()
     {
@@ -21,7 +27,7 @@ public sealed partial class MoleHillPanel : Panel
         _toleranceStepper.Increment = 0.1;
         _toleranceStepper.MinValue = 0;
         ApplyHelp(_toleranceStepper, "Smallest terrain detail to preserve automatically. Smaller values keep more detail; larger values simplify and merge nearby geometry more aggressively.");
-        void CommitTolerance()
+        void CommitTolerance(double value)
         {
             if (_isRefreshing)
                 return;
@@ -31,7 +37,6 @@ public sealed partial class MoleHillPanel : Panel
             if (terrain == null)
                 return;
 
-            double value = _toleranceStepper.Value;
             if (!TerrainCommitGuard.HasMeaningfulNumericChange(terrain.GlobalTolerance, value))
                 return;
 
@@ -42,21 +47,24 @@ public sealed partial class MoleHillPanel : Panel
         toleranceTimer.Elapsed += (_, _) =>
         {
             toleranceTimer.Stop();
-            CommitTolerance();
+            if (_toleranceStepper.TryReadTyped(out double typed))
+                CommitTolerance(typed);
         };
-        _toleranceStepper.ValueChanged += (_, _) =>
+        _toleranceStepper.Edited += (_, _) =>
         {
             if (_isRefreshing) return;
             toleranceTimer.Stop();
             toleranceTimer.Start();
         };
-        _toleranceStepper.LostFocus += (_, _) =>
+        _toleranceStepper.ValueChanged += (_, _) =>
         {
             toleranceTimer.Stop();
-            CommitTolerance();
+            CommitTolerance(_toleranceStepper.Value);
         };
 
         _terrainOpacityStepper.DecimalPlaces = 0;
+        _terrainOpacityStepper.Unit = "%";
+        _terrainOpacityStepper.Width = UiMetrics.NumericField;
         _terrainOpacityStepper.Increment = 5;
         _terrainOpacityStepper.MinValue = 0;
         _terrainOpacityStepper.MaxValue = 100;
@@ -64,42 +72,46 @@ public sealed partial class MoleHillPanel : Panel
         ApplyHelp(_terrainOpacitySlider, "Drag to adjust terrain opacity for preview and bake.");
         ApplyHelp(_terrainColorSwatch, "Click to pick the terrain display color.");
         var (beginStepperDeferral, endStepperDeferral) = CreatePairedRefreshDeferral();
-        _terrainOpacityStepper.GotFocus += (_, _) => beginStepperDeferral();
+        _terrainOpacityStepper.TextBox.GotFocus += (_, _) => beginStepperDeferral();
         _terrainColorSwatch.MouseDown += (_, e) =>
         {
             if (e.Buttons == MouseButtons.Primary)
                 OnPickTerrainColor(_, EventArgs.Empty);
         };
-        _terrainOpacityStepper.ValueChanged += (_, _) =>
+        // Typing previews the opacity live; a commit (Enter, leaving, an arrow) settles it.
+        void ApplyOpacity(double value, bool typing = false)
         {
             if (_isRefreshing || _isUpdatingOpacityControls)
                 return;
 
-            int opacityPercent = (int)Math.Round(_terrainOpacityStepper.Value);
-            SetTerrainOpacityControls(opacityPercent);
-            ApplyTerrainOpacity(opacityPercent);
-        };
-        _terrainOpacityStepper.LostFocus += (_, _) =>
-        {
-            if (!_isRefreshing)
+            int opacityPercent = (int)Math.Round(value);
+            if (typing)
             {
-                int opacityPercent = (int)Math.Round(_terrainOpacityStepper.Value);
-                SetTerrainOpacityControls(opacityPercent);
-                ApplyTerrainOpacity(opacityPercent);
+                // Mid-typing: move the slider and the preview, never the text being typed.
+                _isUpdatingOpacityControls = true;
+                try
+                {
+                    _terrainOpacitySlider.Value = opacityPercent;
+                }
+                finally
+                {
+                    _isUpdatingOpacityControls = false;
+                }
             }
-            endStepperDeferral();
-        };
-        _terrainOpacityStepper.KeyDown += (_, e) =>
-        {
-            if (e.Key != Keys.Enter || _isRefreshing)
-                return;
+            else
+            {
+                SetTerrainOpacityControls(opacityPercent);
+            }
 
-            int opacityPercent = (int)Math.Round(_terrainOpacityStepper.Value);
-            SetTerrainOpacityControls(opacityPercent);
             ApplyTerrainOpacity(opacityPercent);
-            endStepperDeferral();
-            e.Handled = true;
+        }
+        _terrainOpacityStepper.Edited += (_, _) =>
+        {
+            if (_terrainOpacityStepper.TryReadTyped(out double typed))
+                ApplyOpacity(typed, typing: true);
         };
+        _terrainOpacityStepper.ValueChanged += (_, _) => ApplyOpacity(_terrainOpacityStepper.Value);
+        _terrainOpacityStepper.TextBox.LostFocus += (_, _) => endStepperDeferral();
         var (beginOpacitySliderDeferral, endOpacitySliderDeferral) = CreatePairedRefreshDeferral();
         _terrainOpacitySlider.MouseDown += (_, e) =>
         {
@@ -132,7 +144,7 @@ public sealed partial class MoleHillPanel : Panel
                 return;
 
             double weight = _previewLineWeightSlider.Value / 10.0;
-            _previewLineWeightValue.Text = weight.ToString("0.0", CultureInfo.CurrentCulture) + "x";
+            _previewLineWeightValue.Text = UserNumber.Format(weight, "0.0") + "x";
             MutateSelectedTerrainLive(terrain => terrain.PreviewLineWeight = weight);
         };
         var (beginLineWeightDeferral, endLineWeightDeferral) = CreatePairedRefreshDeferral();
@@ -175,9 +187,9 @@ public sealed partial class MoleHillPanel : Panel
 
             MutateSelectedTerrain(terrain => terrain.ReplacePreviouslyBaked = _replacePreviousBakesCheck.Checked == true, scheduleRebuild: false);
         };
-        ApplyHelp(_untrackSelectedBakesButton, "Remove the selected baked objects from this terrain's tracked bake set so future replace-bakes leave them alone.");
+        ApplyHelp(_untrackSelectedBakesButton, UntrackSelectedHelp);
         _untrackSelectedBakesButton.Click += OnUntrackSelectedBakes;
-        ApplyHelp(_untrackAllBakesButton, "Forget all baked objects currently tracked by this terrain without deleting them.");
+        ApplyHelp(_untrackAllBakesButton, UntrackAllHelp);
         _untrackAllBakesButton.Click += OnUntrackAllBakes;
     }
 
@@ -185,7 +197,7 @@ public sealed partial class MoleHillPanel : Panel
     private Control BuildSettingsCard()
     {
         // ── Settings card (collapsible, expanded by default) ─────────
-        var settingsDescription = UiControls.Label("Document defaults, layers, and terrain display", UiLabelRole.Meta);
+        var settingsDescription = new TextLine("Document defaults, layers, and terrain display", SystemFonts.Default(), UiTheme.MutedText);
         var settingsHeader = new SectionHeader(
             "Terrain Settings",
             settingsDescription,
@@ -195,7 +207,6 @@ public sealed partial class MoleHillPanel : Panel
                 _settingsExpanded = expanded;
                 _settingsContent!.Visible = expanded;
             });
-        settingsHeader.SizeChanged += (_, _) => settingsDescription.Visible = settingsHeader.Width <= 0 || settingsHeader.Width >= UiMetrics.HeaderStatusBreak;
 
         // Output routing and appearance both live in the layer template now, so the panel names the
         // template and opens the editor rather than carrying a layer picker per destination.
@@ -236,30 +247,33 @@ public sealed partial class MoleHillPanel : Panel
         var toleranceRow = new PropertyRow(
             CreateHelpLabel("Detail Size", "Smallest terrain detail to preserve automatically. Smaller values keep more detail; larger values simplify and merge nearby geometry more aggressively.", 0),
             _toleranceStepper);
-        var opacityLabel = CreateHelpLabel("Opacity", "Terrain opacity used for preview and bake.", UiMetrics.ShortLabel);
+        // Colour and opacity are two rows. Sharing one, the swatch, an "Opacity" caption, the slider, the
+        // number and Reset fought for a narrow panel's editor column: the slider shrank to a stub and the
+        // number and Reset wrapped under it (seen live at 240 px). Opacity now reads like Preview Line Weight.
         var resetTerrainColorButton = MakeInlineButton("Reset", (_, _) => ResetTerrainColor(), "Restore the default terrain display color.");
-        var terrainColorPrimary = new StackLayout
-        {
-            Orientation = Orientation.Horizontal,
-            Spacing = UiMetrics.SpaceSmall,
-            VerticalContentAlignment = VerticalAlignment.Center,
-            Items =
-            {
-                _terrainColorSwatch,
-                opacityLabel,
-                new StackLayoutItem(_terrainOpacitySlider, expand: true)
-            }
-        };
-        // The stepper + reset button drop to their own line before the slider gets squeezed to nothing.
-        var terrainColorControls = new AdaptivePrimaryActionRow(terrainColorPrimary, UiMetrics.SpaceSmall, _terrainOpacityStepper, resetTerrainColorButton);
         var terrainColorRow = new PropertyRow(
-            CreateHelpLabel("Terrain Color", "Base display color for the terrain preview and baked terrain. Click the swatch to change. Opacity affects this terrain mesh only.", 0),
-            terrainColorControls,
+            CreateHelpLabel("Terrain Color", "Base display color for the terrain preview and baked terrain. Click the swatch to change.", 0),
+            new StackLayout
+            {
+                Orientation = Orientation.Horizontal,
+                Spacing = UiMetrics.SpaceMedium,
+                VerticalContentAlignment = VerticalAlignment.Center,
+                Items = { _terrainColorSwatch, new StackLayoutItem(null, expand: true), resetTerrainColorButton }
+            },
             expandWidget: true);
-        var terrainDisplayRow = new PropertyRow(
-            new Panel(),
-            new AdaptiveControlGroup(UiMetrics.SpaceSmall, _showWiresCheck, _showSlowBuildWarningCheck),
+        var opacityRow = new PropertyRow(
+            CreateHelpLabel("Opacity", "Terrain opacity used for preview and bake. Affects this terrain mesh only.", 0),
+            new StackLayout
+            {
+                Orientation = Orientation.Horizontal,
+                Spacing = UiMetrics.SpaceMedium,
+                VerticalContentAlignment = VerticalAlignment.Center,
+                Items = { new StackLayoutItem(_terrainOpacitySlider, expand: true), _terrainOpacityStepper }
+            },
             expandWidget: true);
+        // Checkbox options span the card rather than sitting in the editor column beside an empty label:
+        // a checkbox's caption cannot wrap, so in that column "Warn Before Slow Builds" was cut off.
+        var terrainDisplayRow = new AdaptiveControlGroup(UiMetrics.SpaceLarge, _showWiresCheck, _showSlowBuildWarningCheck);
         var previewLineWeightRow = new PropertyRow(
             CreateHelpLabel(
                 "Preview Line Weight",
@@ -279,9 +293,9 @@ public sealed partial class MoleHillPanel : Panel
                 }
             },
             expandWidget: true);
-        var bakeTrackingControls = new AdaptiveControlGroup(UiMetrics.SpaceSmall, _replacePreviousBakesCheck, _untrackSelectedBakesButton, _untrackAllBakesButton);
+        var bakeTrackingControls = new AdaptiveControlGroup(UiMetrics.SpaceSmall, _untrackSelectedBakesButton, _untrackAllBakesButton);
         var bakeTrackingRow = new PropertyRow(
-            CreateHelpLabel("Tracking", "Replace previous bake sets automatically, or untrack baked objects you want to keep.", 0),
+            CreateHelpLabel("Tracking", "Untrack baked objects you want to keep, so the next bake leaves them alone.", 0),
             bakeTrackingControls,
             expandWidget: true);
         var settingsInner = new StackLayout
@@ -290,10 +304,12 @@ public sealed partial class MoleHillPanel : Panel
             Items =
             {
                 new StackLayoutItem(terrainColorRow, HorizontalAlignment.Stretch),
+                new StackLayoutItem(opacityRow, HorizontalAlignment.Stretch),
                 new StackLayoutItem(terrainDisplayRow, HorizontalAlignment.Stretch),
                 new StackLayoutItem(previewLineWeightRow, HorizontalAlignment.Stretch),
                 new StackLayoutItem(toleranceRow, HorizontalAlignment.Stretch),
                 new StackLayoutItem(slopeUnitRow, HorizontalAlignment.Stretch),
+                new StackLayoutItem(_replacePreviousBakesCheck, HorizontalAlignment.Left),
                 new StackLayoutItem(bakeTrackingRow, HorizontalAlignment.Stretch),
                 new StackLayoutItem(layerTemplateRow, HorizontalAlignment.Stretch)
             }
@@ -311,11 +327,15 @@ public sealed partial class MoleHillPanel : Panel
                 new StackLayoutItem(_settingsContent, HorizontalAlignment.Stretch)
             }
         };
-        // Same left accent strip + outer padding every stack card uses, so this reads as one more card
-        // in the stack rather than a plain toolbar block. Neutral gray (ZoneStripColor) since it isn't a
-        // typed card with its own accent color.
-        var settingsStrip = new Panel { Width = UiMetrics.CardAccentWidth, BackgroundColor = UiTheme.ZoneStripColor };
-        var settingsCard = WrapCardControl(settingsCardBody, settingsStrip, UiTheme.CardBackground);
+        // A card's background and outer padding, but no accent strip: the strip marks a card you can add,
+        // reorder or remove, and names its type. Terrain Settings is none of those - it belongs to the fixed
+        // top of the panel - and its grey strip, borrowed from zone cards, read as one more zone.
+        var settingsCard = new Panel
+        {
+            Padding = new Padding(UiMetrics.SpaceSmall, UiMetrics.SpaceXSmall),
+            BackgroundColor = UiTheme.CardBackground,
+            Content = settingsCardBody
+        };
 
         return settingsCard;
     }
@@ -397,6 +417,6 @@ public sealed partial class MoleHillPanel : Panel
     {
         double clamped = Math.Clamp(weight > 0.0 ? weight : 1.0, 0.3, 4.0);
         _previewLineWeightSlider.Value = (int)Math.Round(clamped * 10.0);
-        _previewLineWeightValue.Text = clamped.ToString("0.0", CultureInfo.CurrentCulture) + "x";
+        _previewLineWeightValue.Text = UserNumber.Format(clamped, "0.0") + "x";
     }
 }

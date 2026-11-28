@@ -15,6 +15,7 @@ internal enum PanelButtonIcon
     Unlock,
     More,
     ChevronDown,
+    ChevronUp,
     ChevronRight,
     TerrainMesh,
     ZoneMeshes,
@@ -22,7 +23,10 @@ internal enum PanelButtonIcon
     AnalysisHidden,
     Rebuild,
     ResetBuild,
-    Bake
+    Bake,
+    Remove,
+    Distribute,
+    Reverse
 }
 
 /// <summary>
@@ -53,11 +57,8 @@ internal static class PanelButtonIcons
         }
     }
 
-    internal static void Apply(Button button, PanelButtonIcon icon, bool muted = false)
-    {
-        button.Text = string.Empty;
-        button.Image = Get(icon, muted);
-    }
+    internal static void Apply(IconButton button, PanelButtonIcon icon, bool muted = false) =>
+        button.SetIcon(icon, muted);
 
     private static Bitmap Render(PanelButtonIcon icon, bool muted, int size)
     {
@@ -150,6 +151,26 @@ internal static class PanelButtonIcons
                 g.DrawLine(rib, P(9.2f, 7.4f), P(9f, 11.8f));
                 break;
 
+            case PanelButtonIcon.Remove:
+                Stroke(P(3f, 8f), P(13f, 8f));
+                break;
+
+            case PanelButtonIcon.Distribute:
+                // Three evenly spaced stops on a line: "space them evenly".
+                Stroke(P(2f, 11.5f), P(14f, 11.5f));
+                FillRect(2.6f, 4f, 2.4f, 5.4f);
+                FillRect(6.8f, 4f, 2.4f, 5.4f);
+                FillRect(11f, 4f, 2.4f, 5.4f);
+                break;
+
+            case PanelButtonIcon.Reverse:
+                // Two opposed arrows: swap the ends.
+                Stroke(P(3f, 5.5f), P(13f, 5.5f));
+                Stroke(P(10.5f, 3f), P(13f, 5.5f), P(10.5f, 8f));
+                Stroke(P(13f, 10.5f), P(3f, 10.5f));
+                Stroke(P(5.5f, 8f), P(3f, 10.5f), P(5.5f, 13f));
+                break;
+
             case PanelButtonIcon.Clear:
                 Stroke(P(4f, 4f), P(12f, 12f));
                 Stroke(P(12f, 4f), P(4f, 12f));
@@ -189,6 +210,10 @@ internal static class PanelButtonIcons
 
             case PanelButtonIcon.ChevronDown:
                 Stroke(P(4.25f, 6.25f), P(8, 10), P(11.75f, 6.25f));
+                break;
+
+            case PanelButtonIcon.ChevronUp:
+                Stroke(P(4.25f, 9.75f), P(8, 6), P(11.75f, 9.75f));
                 break;
 
             case PanelButtonIcon.ChevronRight:

@@ -12,25 +12,205 @@ namespace MoleHill.Rhino.Services;
 // TerrainAnalysisAnnotationBuilder.Emit.cs.
 internal static partial class TerrainAnalysisAnnotationBuilder
 {
-    public static TerrainAnalysisSummary BuildCurveSlopeSummary(
+    /// <summary>
+    /// Elevation labels for a Spot Heights card: at points (and curve edit points), at stations along
+    /// curves, or on a plan grid inside optional boundaries.
+    /// </summary>
+    public static TerrainAnalysisSummary BuildSpotHeightsSummary(
         TerrainBuildSnapshot snapshot,
         RhinoMesh mesh,
-        CurveSlopeLabelAnnotationDefinition analysis,
+        SpotHeightsAnnotationDefinition analysis,
+        TerrainBuildResult build,
+        Func<bool>? shouldCancel,
+        LayerRoleTable? layerRoles = null)
+    {
+        var stats = new ValueStats();
+        int outputCount = 0;
+
+        void Emit(Point3d worldPoint, double? distance)
+        {
+            stats.Add(worldPoint.Z);
+            outputCount++;
+            if (analysis.IsEnabled)
+            {
+                build.AuxiliaryObjects.Add(CreateAnnotationObject(
+                    snapshot,
+                    analysis,
+                    outputCount,
+                    worldPoint,
+                    worldPoint.Z,
+                    string.Empty,
+                    distance,
+                    analysis.BlockDefinitionName,
+                    MarkerBlockTemplate.AnnotationElevation,
+                    layerRoles));
+            }
+        }
+
+        int sourceCount = analysis.Placement switch
+        {
+            SpotPlacement.Curves => VisitCurveStations(snapshot, mesh, analysis, shouldCancel, station =>
+            {
+                if (TerrainMeshProjection.TryProjectPointAlongWorldZ(mesh, station.Point, snapshot.ModelAbsoluteTolerance, out Point3d worldPoint))
+                    Emit(worldPoint, station.Distance);
+            }),
+            SpotPlacement.Grid => VisitGridNodes(snapshot, mesh, analysis, shouldCancel, (worldPoint, _) => Emit(worldPoint, null)),
+            _ => VisitPointSamples(snapshot, mesh, analysis, shouldCancel, (worldPoint, _) => Emit(worldPoint, null)),
+        };
+
+        return CreateSummary(analysis.Id, sourceCount, outputCount, stats);
+    }
+
+    /// <summary>
+    /// Slope labels with a downhill arrow for a Spot Slope card. Along curves a label sits at the middle
+    /// of each span between stations; on a grid a flat node has no downhill direction and gets no arrow.
+    /// Slope and arrow always come from the terrain normal under the label, never from a curve's own Z.
+    /// </summary>
+    public static TerrainAnalysisSummary BuildSpotSlopeSummary(
+        TerrainBuildSnapshot snapshot,
+        RhinoMesh mesh,
+        SpotSlopeAnnotationDefinition analysis,
         TerrainBuildResult build,
         Func<bool>? shouldCancel,
         LayerRoleTable? layerRoles = null)
     {
         mesh.FaceNormals.ComputeFaceNormals();
-        var objects = TerrainBuildSnapshotResolver.ResolveObjects(snapshot, analysis.Sources);
-        int sourceCount = 0;
-        int outputCount = 0;
+        double tolerance = snapshot.ModelAbsoluteTolerance;
         var stats = new ValueStats();
+        int outputCount = 0;
         string unitSuffix = GetSlopeUnitSuffix(analysis.Unit);
 
-        for (int objectIndex = 0; objectIndex < objects.Count; objectIndex++)
+        void Emit(Point3d worldPoint, int faceIndex, double? distance, bool skipFlat)
+        {
+            if (!TryGetTerrainSlopeNormal(mesh, faceIndex, out Vector3d normal))
+                return;
+
+            Vector3d direction = GetTerrainSlopeDirection(normal, tolerance, analysis.FlipDirection);
+            if (skipFlat && !direction.IsValid)
+                return; // flat grid node: no meaningful downhill aspect, so no arrow
+
+            double slopeRadians = Math.Atan2(Math.Sqrt((normal.X * normal.X) + (normal.Y * normal.Y)), Math.Abs(normal.Z));
+            double slopeValue = SlopeAnalyzer.ConvertRatioToUnit(Math.Tan(slopeRadians), analysis.Unit);
+
+            stats.Add(slopeValue);
+            outputCount++;
+            if (analysis.IsEnabled)
+            {
+                build.AuxiliaryObjects.Add(CreateAnnotationObject(
+                    snapshot,
+                    analysis,
+                    outputCount,
+                    worldPoint,
+                    slopeValue,
+                    unitSuffix,
+                    distance,
+                    analysis.BlockDefinitionName,
+                    MarkerBlockTemplate.AnnotationSlope,
+                    layerRoles,
+                    direction));
+            }
+        }
+
+        int sourceCount = analysis.Placement switch
+        {
+            SpotPlacement.Curves => VisitCurveSpans(snapshot, mesh, analysis, shouldCancel, (midXy, distance) =>
+            {
+                if (TerrainMeshProjection.TryProjectPointAlongWorldZ(mesh, midXy, tolerance, out Point3d labelPoint, out int faceIndex))
+                    Emit(labelPoint, faceIndex, distance, skipFlat: false);
+            }),
+            SpotPlacement.Grid => VisitGridNodes(snapshot, mesh, analysis, shouldCancel,
+                (worldPoint, faceIndex) => Emit(worldPoint, faceIndex, null, skipFlat: true)),
+            _ => VisitPointSamples(snapshot, mesh, analysis, shouldCancel,
+                (worldPoint, faceIndex) => Emit(worldPoint, faceIndex, null, skipFlat: false)),
+        };
+
+        return CreateSummary(analysis.Id, sourceCount, outputCount, stats);
+    }
+
+    private readonly record struct CurveStation(Point3d Point, double Distance);
+
+    /// <summary>
+    /// Points placement: every picked point, and every edit point of a picked curve, projected onto the
+    /// terrain. Returns the number of point and curve sources.
+    /// </summary>
+    private static int VisitPointSamples(
+        TerrainBuildSnapshot snapshot,
+        RhinoMesh mesh,
+        SpotLabelAnnotationDefinition analysis,
+        Func<bool>? shouldCancel,
+        Action<Point3d, int> visit)
+    {
+        int sourceCount = 0;
+        foreach (var obj in TerrainBuildSnapshotResolver.ResolveObjects(snapshot, analysis.Sources))
         {
             ThrowIfCancellationRequested(shouldCancel);
-            if (objects[objectIndex].Geometry is not Curve curve)
+            if (obj.Geometry is not Point && obj.Geometry is not Curve)
+                continue;
+
+            sourceCount++;
+            foreach (var samplePoint in ExtractElevationSamples(obj.Geometry, snapshot.ModelAbsoluteTolerance))
+            {
+                if (TerrainMeshProjection.TryProjectPointAlongWorldZ(mesh, samplePoint, snapshot.ModelAbsoluteTolerance, out Point3d worldPoint, out int faceIndex))
+                    visit(worldPoint, faceIndex);
+            }
+        }
+
+        return sourceCount;
+    }
+
+    /// <summary>
+    /// Curves placement, at the stations themselves (elevation): each station with its distance along the
+    /// curve. Returns the number of curve sources.
+    /// </summary>
+    private static int VisitCurveStations(
+        TerrainBuildSnapshot snapshot,
+        RhinoMesh mesh,
+        SpotLabelAnnotationDefinition analysis,
+        Func<bool>? shouldCancel,
+        Action<CurveStation> visit)
+    {
+        int sourceCount = 0;
+        foreach (var obj in TerrainBuildSnapshotResolver.ResolveObjects(snapshot, analysis.CurveSources))
+        {
+            ThrowIfCancellationRequested(shouldCancel);
+            if (obj.Geometry is not Curve curve)
+                continue;
+
+            sourceCount++;
+            var divisions = GetCurveDivisionSamples(curve, Math.Max(analysis.Interval, MinimumLength(snapshot)));
+            double cumulativeDistance = 0.0;
+            for (int sampleIndex = 0; sampleIndex < divisions.Count; sampleIndex++)
+            {
+                if ((sampleIndex & 31) == 0)
+                    ThrowIfCancellationRequested(shouldCancel);
+
+                var current = divisions[sampleIndex];
+                visit(new CurveStation(current.Point, cumulativeDistance));
+
+                if (sampleIndex + 1 < divisions.Count)
+                    cumulativeDistance += Math.Max(0.0, curve.GetLength(new Interval(current.Parameter, divisions[sampleIndex + 1].Parameter)));
+            }
+        }
+
+        return sourceCount;
+    }
+
+    /// <summary>
+    /// Curves placement, between the stations (slope): the plan midpoint of each span with the distance
+    /// along the curve to it. Returns the number of curve sources.
+    /// </summary>
+    private static int VisitCurveSpans(
+        TerrainBuildSnapshot snapshot,
+        RhinoMesh mesh,
+        SpotLabelAnnotationDefinition analysis,
+        Func<bool>? shouldCancel,
+        Action<Point3d, double> visit)
+    {
+        int sourceCount = 0;
+        foreach (var obj in TerrainBuildSnapshotResolver.ResolveObjects(snapshot, analysis.CurveSources))
+        {
+            ThrowIfCancellationRequested(shouldCancel);
+            if (obj.Geometry is not Curve curve)
                 continue;
 
             sourceCount++;
@@ -47,237 +227,32 @@ internal static partial class TerrainAnalysisAnnotationBuilder
                 var previous = divisions[sampleIndex - 1];
                 var current = divisions[sampleIndex];
                 double segmentLength = Math.Max(0.0, curve.GetLength(new Interval(previous.Parameter, current.Parameter)));
-
-                // Label at the segment midpoint, draped onto the terrain. Both the slope magnitude and
-                // the arrow come from the terrain normal there (true steepest grade + uphill aspect),
-                // independent of the curve's own direction or Z.
-                Point3d midXy = Midpoint(previous.Point, current.Point);
-                if (!TerrainMeshProjection.TryProjectPointAlongWorldZ(mesh, midXy, snapshot.ModelAbsoluteTolerance, out Point3d labelPoint, out int faceIndex) ||
-                    !TryGetTerrainSlopeNormal(mesh, faceIndex, out Vector3d normal))
-                {
-                    cumulativeDistance += segmentLength;
-                    continue;
-                }
-
-                double slopeRadians = Math.Atan2(Math.Sqrt((normal.X * normal.X) + (normal.Y * normal.Y)), Math.Abs(normal.Z));
-                double slopeRatio = Math.Tan(slopeRadians);
-                double slopeValue = SlopeAnalyzer.ConvertRatioToUnit(slopeRatio, analysis.Unit);
-                Vector3d direction = GetTerrainSlopeDirection(normal, snapshot.ModelAbsoluteTolerance, analysis.FlipDirection);
-
-                stats.Add(slopeValue);
-                outputCount++;
-
-                if (analysis.IsEnabled)
-                {
-                    double distance = cumulativeDistance + (segmentLength * 0.5);
-                    build.AuxiliaryObjects.Add(CreateAnnotationObject(
-                        snapshot,
-                        analysis,
-                        outputCount,
-                        labelPoint,
-                        slopeValue,
-                        unitSuffix,
-                        distance,
-                        analysis.BlockDefinitionName,
-                        MarkerBlockTemplate.AnnotationSlope,
-                        layerRoles,
-                        direction));
-                }
-
+                visit(Midpoint(previous.Point, current.Point), cumulativeDistance + (segmentLength * 0.5));
                 cumulativeDistance += segmentLength;
             }
         }
 
-        return CreateSummary(analysis.Id, sourceCount, outputCount, stats);
+        return sourceCount;
     }
 
-    public static TerrainAnalysisSummary BuildCurveElevationSummary(
+    /// <summary>
+    /// Grid placement: nodes of a plan grid over the terrain's extent, kept inside any closed boundary,
+    /// projected onto the terrain. Returns the number of boundaries.
+    /// </summary>
+    private static int VisitGridNodes(
         TerrainBuildSnapshot snapshot,
         RhinoMesh mesh,
-        CurveElevationLabelAnnotationDefinition analysis,
-        TerrainBuildResult build,
+        SpotLabelAnnotationDefinition analysis,
         Func<bool>? shouldCancel,
-        LayerRoleTable? layerRoles = null)
+        Action<Point3d, int> visit)
     {
-        var objects = TerrainBuildSnapshotResolver.ResolveObjects(snapshot, analysis.Sources);
-        int sourceCount = 0;
-        int outputCount = 0;
-        var stats = new ValueStats();
-
-        for (int objectIndex = 0; objectIndex < objects.Count; objectIndex++)
-        {
-            ThrowIfCancellationRequested(shouldCancel);
-            if (objects[objectIndex].Geometry is not Curve curve)
-                continue;
-
-            sourceCount++;
-            var divisions = GetCurveDivisionSamples(curve, Math.Max(analysis.Interval, MinimumLength(snapshot)));
-            if (divisions.Count == 0)
-                continue;
-
-            double cumulativeDistance = 0.0;
-            for (int sampleIndex = 0; sampleIndex < divisions.Count; sampleIndex++)
-            {
-                if ((sampleIndex & 31) == 0)
-                    ThrowIfCancellationRequested(shouldCancel);
-
-                var current = divisions[sampleIndex];
-                if (TerrainMeshProjection.TryProjectPointAlongWorldZ(mesh, current.Point, snapshot.ModelAbsoluteTolerance, out Point3d worldPoint))
-                {
-                    stats.Add(worldPoint.Z);
-                    outputCount++;
-
-                    if (analysis.IsEnabled)
-                    {
-                        build.AuxiliaryObjects.Add(CreateAnnotationObject(
-                            snapshot,
-                            analysis,
-                            outputCount,
-                            worldPoint,
-                            worldPoint.Z,
-                            string.Empty,
-                            cumulativeDistance,
-                            analysis.BlockDefinitionName,
-                            MarkerBlockTemplate.AnnotationElevation,
-                            layerRoles));
-                    }
-                }
-
-                if (sampleIndex + 1 < divisions.Count)
-                    cumulativeDistance += Math.Max(0.0, curve.GetLength(new Interval(current.Parameter, divisions[sampleIndex + 1].Parameter)));
-            }
-        }
-
-        return CreateSummary(analysis.Id, sourceCount, outputCount, stats);
-    }
-
-    public static TerrainAnalysisSummary BuildProjectedElevationSummary(
-        TerrainBuildSnapshot snapshot,
-        RhinoMesh mesh,
-        ProjectedElevationLabelAnnotationDefinition analysis,
-        TerrainBuildResult build,
-        Func<bool>? shouldCancel,
-        LayerRoleTable? layerRoles = null)
-    {
-        var objects = TerrainBuildSnapshotResolver.ResolveObjects(snapshot, analysis.Sources);
-        int sourceCount = 0;
-        int outputCount = 0;
-        var stats = new ValueStats();
-
-        foreach (var obj in objects)
-        {
-            ThrowIfCancellationRequested(shouldCancel);
-            if (obj.Geometry is not Point && obj.Geometry is not Curve)
-                continue;
-
-            sourceCount++;
-            foreach (var samplePoint in ExtractElevationSamples(obj.Geometry, snapshot.ModelAbsoluteTolerance))
-            {
-                if (!TerrainMeshProjection.TryProjectPointAlongWorldZ(mesh, samplePoint, snapshot.ModelAbsoluteTolerance, out Point3d worldPoint))
-                    continue;
-
-                stats.Add(worldPoint.Z);
-                outputCount++;
-
-                if (!analysis.IsEnabled)
-                    continue;
-
-                build.AuxiliaryObjects.Add(CreateAnnotationObject(
-                    snapshot,
-                    analysis,
-                    outputCount,
-                    worldPoint,
-                    worldPoint.Z,
-                    string.Empty,
-                    null,
-                    analysis.BlockDefinitionName,
-                    MarkerBlockTemplate.AnnotationElevation,
-                    layerRoles));
-            }
-        }
-
-        return CreateSummary(analysis.Id, sourceCount, outputCount, stats);
-    }
-
-    public static TerrainAnalysisSummary BuildPointSlopeSummary(
-        TerrainBuildSnapshot snapshot,
-        RhinoMesh mesh,
-        PointSlopeLabelAnnotationDefinition analysis,
-        TerrainBuildResult build,
-        Func<bool>? shouldCancel,
-        LayerRoleTable? layerRoles = null)
-    {
-        mesh.FaceNormals.ComputeFaceNormals();
-        var objects = TerrainBuildSnapshotResolver.ResolveObjects(snapshot, analysis.Sources);
-        int sourceCount = 0;
-        int outputCount = 0;
-        var stats = new ValueStats();
-        string unitSuffix = GetSlopeUnitSuffix(analysis.Unit);
-
-        foreach (var obj in objects)
-        {
-            ThrowIfCancellationRequested(shouldCancel);
-            if (obj.Geometry is not Point && obj.Geometry is not Curve)
-                continue;
-
-            sourceCount++;
-            foreach (var samplePoint in ExtractElevationSamples(obj.Geometry, snapshot.ModelAbsoluteTolerance))
-            {
-                if (!TerrainMeshProjection.TryProjectPointAlongWorldZ(mesh, samplePoint, snapshot.ModelAbsoluteTolerance, out Point3d worldPoint, out int faceIndex) ||
-                    !TryGetTerrainSlopeNormal(mesh, faceIndex, out Vector3d normal))
-                    continue;
-
-                double slopeRadians = Math.Atan2(Math.Sqrt((normal.X * normal.X) + (normal.Y * normal.Y)), Math.Abs(normal.Z));
-                double slopeRatio = Math.Tan(slopeRadians);
-                double slopeValue = SlopeAnalyzer.ConvertRatioToUnit(slopeRatio, analysis.Unit);
-                Vector3d direction = GetTerrainSlopeDirection(normal, snapshot.ModelAbsoluteTolerance, analysis.FlipDirection);
-
-                stats.Add(slopeValue);
-                outputCount++;
-
-                if (!analysis.IsEnabled)
-                    continue;
-
-                build.AuxiliaryObjects.Add(CreateAnnotationObject(
-                    snapshot,
-                    analysis,
-                    outputCount,
-                    worldPoint,
-                    slopeValue,
-                    unitSuffix,
-                    null,
-                    analysis.BlockDefinitionName,
-                    MarkerBlockTemplate.AnnotationSlope,
-                    layerRoles,
-                    direction));
-            }
-        }
-
-        return CreateSummary(analysis.Id, sourceCount, outputCount, stats);
-    }
-
-    public static TerrainAnalysisSummary BuildSlopeArrowSummary(
-        TerrainBuildSnapshot snapshot,
-        RhinoMesh mesh,
-        SlopeArrowAnnotationDefinition analysis,
-        TerrainBuildResult build,
-        Func<bool>? shouldCancel,
-        LayerRoleTable? layerRoles = null)
-    {
-        mesh.FaceNormals.ComputeFaceNormals();
         double tolerance = snapshot.ModelAbsoluteTolerance;
-        var boundaries = TerrainBuildSnapshotResolver.ResolveCurves(snapshot, analysis.Sources);
+        var boundaries = TerrainBuildSnapshotResolver.ResolveCurves(snapshot, analysis.Boundaries);
         var bounds = mesh.GetBoundingBox(true);
-        int sourceCount = boundaries.Count;
-        int outputCount = 0;
-        var stats = new ValueStats();
-        string unitSuffix = GetSlopeUnitSuffix(analysis.Unit);
-
         if (!bounds.IsValid)
-            return CreateSummary(analysis.Id, sourceCount, outputCount, stats);
+            return boundaries.Count;
 
         double spacing = Math.Max(analysis.GridSpacing, tolerance * 10.0);
-
         for (double y = bounds.Min.Y; y <= bounds.Max.Y + (spacing * 0.5); y += spacing)
         {
             ThrowIfCancellationRequested(shouldCancel);
@@ -287,40 +262,12 @@ internal static partial class TerrainAnalysisAnnotationBuilder
                 if (boundaries.Count > 0 && !IsInsideAnyBoundary(sampleXy, boundaries, tolerance))
                     continue;
 
-                if (!TerrainMeshProjection.TryProjectPointAlongWorldZ(mesh, sampleXy, tolerance, out Point3d worldPoint, out int faceIndex) ||
-                    !TryGetTerrainSlopeNormal(mesh, faceIndex, out Vector3d normal))
-                    continue;
-
-                Vector3d direction = GetTerrainSlopeDirection(normal, tolerance, analysis.FlipDirection);
-                if (!direction.IsValid)
-                    continue; // flat node: no meaningful downhill aspect, so no arrow
-
-                double slopeRadians = Math.Atan2(Math.Sqrt((normal.X * normal.X) + (normal.Y * normal.Y)), Math.Abs(normal.Z));
-                double slopeRatio = Math.Tan(slopeRadians);
-                double slopeValue = SlopeAnalyzer.ConvertRatioToUnit(slopeRatio, analysis.Unit);
-
-                stats.Add(slopeValue);
-                outputCount++;
-
-                if (analysis.IsEnabled)
-                {
-                    build.AuxiliaryObjects.Add(CreateAnnotationObject(
-                        snapshot,
-                        analysis,
-                        outputCount,
-                        worldPoint,
-                        slopeValue,
-                        unitSuffix,
-                        null,
-                        analysis.BlockDefinitionName,
-                        MarkerBlockTemplate.AnnotationSlope,
-                        layerRoles,
-                        direction));
-                }
+                if (TerrainMeshProjection.TryProjectPointAlongWorldZ(mesh, sampleXy, tolerance, out Point3d worldPoint, out int faceIndex))
+                    visit(worldPoint, faceIndex);
             }
         }
 
-        return CreateSummary(analysis.Id, sourceCount, outputCount, stats);
+        return boundaries.Count;
     }
 
     public static TerrainAnalysisSummary BuildGradeCalloutSummary(

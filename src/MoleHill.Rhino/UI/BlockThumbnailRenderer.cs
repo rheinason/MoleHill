@@ -147,7 +147,7 @@ internal static class BlockThumbnailRenderer
 
             var light = new Vector3d(-0.4, -0.5, 0.9);
             light.Unitize();
-            var baseColor = Color.FromArgb(150, 170, 190);
+            var baseColor = UiTheme.ThumbnailFace;
 
             var bitmap = new Bitmap(size, size, PixelFormat.Format32bppRgba);
             using (var g = new Graphics(bitmap))
@@ -157,7 +157,7 @@ internal static class BlockThumbnailRenderer
 
                 // Painter's algorithm: draw far faces first (smaller x+y+z is farther from the +X+Y+Z eye).
                 triangles.Sort((t1, t2) => Depth(t1).CompareTo(Depth(t2)));
-                var edgePen = new Pen(Color.FromArgb(60, 70, 80), 1f);
+                var edgePen = new Pen(UiTheme.ThumbnailEdge, 1f);
                 foreach (var (a, b, c) in triangles)
                 {
                     var normal = Vector3d.CrossProduct(b - a, c - a);
@@ -174,7 +174,7 @@ internal static class BlockThumbnailRenderer
                     g.DrawPolygon(edgePen, poly);
                 }
 
-                var curvePen = new Pen(Color.FromArgb(40, 50, 60), 1.4f);
+                var curvePen = new Pen(UiTheme.ThumbnailCurve, 1.4f);
                 foreach (Point3d[] curve in curves)
                 {
                     if (curve.Length < 2)

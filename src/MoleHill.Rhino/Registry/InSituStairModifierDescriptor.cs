@@ -13,6 +13,9 @@ internal sealed class InSituStairModifierDescriptor : ModifierTypeDescriptor
     public override Type DefinitionType => typeof(InSituStairModifierDefinition);
     public override string DisplayName => "In-Situ Stair";
     public override string IconName => "ModGradePath";
+
+    public override int AccentArgb => unchecked((int)0xFF00796B);
+
     public override int SortOrder => 8;
     public override string Subtitle => "Stair solids on a support surface";
     public override ModifierDefinition Create(UnitSystem unitSystem) =>
@@ -24,8 +27,8 @@ internal sealed class InSituStairModifierDescriptor : ModifierTypeDescriptor
         var stair = (InSituStairModifierDefinition)modifier;
         int refs = CountSources(stair.ReferenceSurface);
         return !string.IsNullOrWhiteSpace(stair.ComputedTreadDepthSummary)
-            ? $"{stair.ComputedSurfaceCount ?? refs} surfaces | Tread Depth {stair.ComputedTreadDepthSummary}"
-            : $"{refs} reference surfaces | Riser Height {stair.RiserHeight:G4}";
+            ? $"{stair.ComputedSurfaceCount ?? refs} surfaces · Tread Depth {stair.ComputedTreadDepthSummary}"
+            : $"{refs} reference surfaces · Riser Height {stair.RiserHeight:G4}";
     }
 
     public override string? InertReason(ModifierDefinition modifier, TerrainBuildSnapshot snapshot) =>

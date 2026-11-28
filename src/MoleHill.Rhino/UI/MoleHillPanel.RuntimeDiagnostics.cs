@@ -37,7 +37,7 @@ public sealed partial class MoleHillPanel
         return new StackLayout
         {
             Orientation = Orientation.Horizontal,
-            Spacing = 8,
+            Spacing = UiMetrics.SpaceLarge,
             Items =
             {
                 showIssues,

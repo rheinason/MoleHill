@@ -59,13 +59,10 @@ public sealed partial class MoleHillPanel : Panel
         _resetTerrainDataButton = MakeInlineButton("Reset Terrain Data", OnResetTerrainData,
             "The stored terrain data in this document is unreadable and is being preserved untouched. Click to discard it.");
         _resetTerrainDataButton.Visible = false;
-        UiControls.Apply(_visibilityButton, UiButtonRole.Icon);
-        UiControls.Apply(_lockButton, UiButtonRole.Icon);
         UiControls.Apply(_untrackSelectedBakesButton, UiButtonRole.Inline);
         UiControls.Apply(_untrackAllBakesButton, UiButtonRole.Inline);
-        // Matches the icon buttons' now-uniform CompactControlHeight (UiButtonRole.Icon dropped its
-        // taller IconToolbar variant) — at the old ControlHeight these sat a few pixels taller than the
-        // icon buttons beside them in the same row, throwing off vertical alignment.
+        // Matches the icon buttons' CompactControlHeight; at ControlHeight these sat a few pixels taller
+        // than the icon buttons beside them in the same row, throwing off vertical alignment.
         _liveUpdate.Height = UiMetrics.CompactControlHeight;
 
         _terrainSelector.Height = UiMetrics.CompactControlHeight;
@@ -90,7 +87,8 @@ public sealed partial class MoleHillPanel : Panel
             UiMetrics.SpaceMedium,
             _newButton,
             _dupButton,
-            _deleteButton);
+            _deleteButton,
+            BuildTerrainMenuButton());
         var identityGroup = new DynamicLayout
         {
             BackgroundColor = UiTheme.ToolbarBackground,

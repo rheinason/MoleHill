@@ -436,7 +436,7 @@ internal sealed partial class TerrainController
             if (terrain == null)
                 continue;
 
-            terrain.LastBuildMessage = $"{latest.Mode} #{latest.Version:N0}: {latest.Progress.Format()}";
+            terrain.LastBuildMessage = FormattableString.Invariant($"{latest.Mode} #{latest.Version:N0}: {latest.Progress.Format()}");
             changed = true;
         }
 

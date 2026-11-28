@@ -1,5 +1,6 @@
 using Eto.Drawing;
 using Eto.Forms;
+using MoleHill.Core.Analysis;
 using MoleHill.Rhino.Model;
 using MoleHill.Rhino.Registry;
 using MoleHill.Rhino.Services;
@@ -40,164 +41,50 @@ public sealed partial class MoleHillPanel
 
     private Panel CreateObjectCard(TerrainDefinition terrain, TerrainObjectDefinition definition)
     {
-        bool collapsed = _collapsedObjects.Contains(definition.Id);
-        var collapseLabel = CreateCollapseChevron(collapsed);
+        Guid terrainId = terrain.TerrainId, id = definition.Id;
 
-        var enabledCheck = new CheckBox { Checked = definition.IsEnabled };
-        enabledCheck.CheckedChanged += (_, _) =>
-            MutateObjectDefinition(terrain.TerrainId, definition.Id, item => item.IsEnabled = enabledCheck.Checked == true);
-
-        var capturedDefinitionId = definition.Id;
-        var capturedTerrainId = terrain.TerrainId;
-        string kind = GetTerrainObjectKind(definition);
-        var nameBox = new TextBox { Text = definition.Name };
-        StyleTextBox(nameBox);
-        ApplyHelp(nameBox, "Object definition label. Press Enter or click away to rename.");
-        BindCommittedText(nameBox, () => definition.Name, text =>
-            MutateObjectDefinition(capturedTerrainId, capturedDefinitionId, item => item.Name = text, scheduleRebuild: false));
-
-        var handle = CreateDisabledReorderHandle("Object definition cards use the modifier card layout. Reordering is not enabled yet.");
-
-        var accent = TerrainObjectTypeColor(kind);
-        var iconPlate = CreateIconPlate(accent,
-            CreateCardIconControl(GetTerrainObjectIconName(definition), GetTerrainObjectIconLabel(definition)));
-
-        Control titleBlock = CreateCardTitleBlock(
-            collapsed,
-            definition.Name,
-            AppendRuntimeDiagnosticSummary(
+        return CreateCard(new CardSpec
+        {
+            Stack = _objectCards,
+            Id = id,
+            Name = definition.Name,
+            NameHelp = "Object definition label. Press Enter or click away to rename.",
+            Rename = text => MutateObjectDefinition(terrainId, id, item => item.Name = text, scheduleRebuild: false),
+            IsEnabled = definition.IsEnabled,
+            EnableHelp = "Enable or disable this object definition without deleting it.",
+            SetEnabled = value => MutateObjectDefinition(terrainId, id, item => item.IsEnabled = value),
+            TypeName = GetTerrainObjectTypeLabel(definition),
+            TypeIcon = CreateCardIconControl(GetTerrainObjectIconName(definition), GetTerrainObjectIconLabel(definition)),
+            Summary = () => AppendRuntimeDiagnosticSummary(
                 GetTerrainObjectCollapsedSummary(definition),
                 terrain,
-                new RuntimeOverlayOwner(RuntimeOverlayOwnerKind.Object, definition.Id)),
-            nameBox,
-            GetTerrainObjectSubtitle(definition));
-
-        var duplicateButton = MakeDuplicateIconButton(() =>
-        {
-            var doc = RhinoDoc.ActiveDoc;
-            if (doc != null)
-                _controller.DuplicateObjectDefinition(doc, capturedTerrainId, capturedDefinitionId);
-        }, "Duplicate this object definition.");
-        var deleteButton = MakeDeleteIconButton(() =>
-        {
-            var doc = RhinoDoc.ActiveDoc;
-            if (doc != null)
-                _controller.RemoveObjectDefinition(doc, capturedTerrainId, capturedDefinitionId);
-        }, "Delete this object definition and restore any currently placed objects.");
-
-        void ToggleCollapsed(bool ctrlHeld) => ToggleCardCollapsed(
-            _collapsedObjects,
-            capturedDefinitionId,
-            ctrlHeld,
-            t => t.Objects.Select(item => item.Id),
-            RebuildObjectsLayout);
-
-        return CreateSharedCardShell(new SharedCardShellOptions
-        {
-            Handle = handle,
-            CollapseControl = collapseLabel,
-            IconPlate = iconPlate,
-            EnabledControl = enabledCheck,
-            TitleBlock = titleBlock,
-            StatusControls = Array.Empty<Control>(),
-            ActionControls = new Control[]
+                new RuntimeOverlayOwner(RuntimeOverlayOwnerKind.Object, id)),
+            Description = GetTerrainObjectSubtitle(definition),
+            HandleHelp = "Object definition cards use the modifier card layout. Reordering is not enabled yet.",
+            Reorderable = false,
+            Duplicate = (() =>
             {
-                duplicateButton,
-                deleteButton
-            },
-            ToggleCollapsed = ToggleCollapsed,
-            Collapsed = collapsed,
-            Body = collapsed ? null : CreateObjectBody(terrain, definition)
+                if (RhinoDoc.ActiveDoc is { } doc)
+                    _controller.DuplicateObjectDefinition(doc, terrainId, id);
+            }, "Duplicate this object definition."),
+            Delete = (() =>
+            {
+                if (RhinoDoc.ActiveDoc is { } doc)
+                    _controller.RemoveObjectDefinition(doc, terrainId, id);
+            }, "Delete this object definition and restore any currently placed objects."),
+            Body = () => CreateObjectBody(terrain, definition)
         });
     }
 
     private Control CreateObjectBody(TerrainDefinition terrain, TerrainObjectDefinition definition)
     {
+        // Every object type declares its rows (ParameterSchemaGuardTests.EveryCardType_DeclaresItsRows).
         var layout = UiLayouts.CardBody();
-        if (TryBuildSchemaObjectBody(layout, terrain, definition))
-        {
-            Control? schemaDiagnosticsRow = CreateRuntimeDiagnosticsRow(
-                terrain,
-                new RuntimeOverlayOwner(RuntimeOverlayOwnerKind.Object, definition.Id),
-                definition is ScatterObjectDefinition ? "Show rejected samples" : null);
-            if (schemaDiagnosticsRow != null)
-                layout.AddRow(schemaDiagnosticsRow);
-            return layout;
-        }
-
-        layout.AddRow(CreateSourceEditor("Sources", definition.Sources,
-            apply => MutateObjectDefinition(terrain.TerrainId, definition.Id, item => apply(item.Sources)),
-            0,
-            doc => _controller.GetSelectedLayerPaths(doc)));
-        layout.AddRow(CreateSliderNumericEditor(
-            "Rotate Min",
-            definition.RandomRotationMinDegrees,
-            value => MutateObjectDefinition(terrain.TerrainId, definition.Id, item => item.RandomRotationMinDegrees = value,
-                deferDocumentSave: true, suppressImmediateUiRefresh: true),
-            softMin: 0.0,
-            softMax: 360.0,
-            decimalPlaces: 1,
-            hardMin: 0.0,
-            hardMax: 360.0,
-            help: "Minimum random rotation. Rotation is applied per object around its placement up axis and stays stable between rebuilds.",
-            unitSuffix: ResolveUnitSuffix(ParameterUnit.Degrees)));
-        layout.AddRow(CreateSliderNumericEditor(
-            "Rotate Max",
-            definition.RandomRotationMaxDegrees,
-            value => MutateObjectDefinition(terrain.TerrainId, definition.Id, item => item.RandomRotationMaxDegrees = value,
-                deferDocumentSave: true, suppressImmediateUiRefresh: true),
-            softMin: 0.0,
-            softMax: 360.0,
-            decimalPlaces: 1,
-            hardMin: 0.0,
-            hardMax: 360.0,
-            help: "Maximum random rotation. Set min and max equal to disable rotation variation.",
-            unitSuffix: ResolveUnitSuffix(ParameterUnit.Degrees)));
-        layout.AddRow(CreateSliderNumericEditor(
-            "Scale Min",
-            definition.RandomScaleMin,
-            value => MutateObjectDefinition(terrain.TerrainId, definition.Id, item => item.RandomScaleMin = value,
-                deferDocumentSave: true, suppressImmediateUiRefresh: true),
-            softMin: 0.25,
-            softMax: 2.0,
-            decimalPlaces: 3,
-            hardMin: 0.01,
-            help: "Minimum random uniform scale. Scaling happens around the placement anchor and stays stable between rebuilds."));
-        layout.AddRow(CreateSliderNumericEditor(
-            "Scale Max",
-            definition.RandomScaleMax,
-            value => MutateObjectDefinition(terrain.TerrainId, definition.Id, item => item.RandomScaleMax = value,
-                deferDocumentSave: true, suppressImmediateUiRefresh: true),
-            softMin: 0.25,
-            softMax: 2.0,
-            decimalPlaces: 3,
-            hardMin: 0.01,
-            help: "Maximum random uniform scale. Set min and max to 1.0 for no scale variation."));
-        layout.AddRow(CreateNumericEditor(
-            "Seed",
-            definition.RandomSeed,
-            value => MutateObjectDefinition(terrain.TerrainId, definition.Id, item => item.RandomSeed = (int)Math.Round(value),
-                deferDocumentSave: true, suppressImmediateUiRefresh: true),
-            decimalPlaces: 0,
-            help: "Stable random seed for this object card. Change it to reroll all matched objects.",
-            liveEdit: true));
-        layout.AddRow(CreateNumericEditor(
-            "Z Offset",
-            definition.ZOffset,
-            value => MutateObjectDefinition(terrain.TerrainId, definition.Id, item => item.ZOffset = value,
-                deferDocumentSave: true, suppressImmediateUiRefresh: true),
-            decimalPlaces: 3,
-            help: "Lift or sink placed objects. Project mode offsets in world Z; Surface mode offsets along the terrain normal.",
-            minValue: null,
-            liveEdit: true,
-            unitSuffix: ResolveUnitSuffix(ParameterUnit.ModelLength)));
-        layout.AddRow(CreateReadOnlyValueRow(
-            "Bindings",
-            $"{CountReferences(definition.Sources)} source refs",
-            "Explicit picks plus watched layers drive the objects in this definition. Objects keep their original Rhino layers."));
+        BuildSchemaObjectBody(layout, terrain, definition);
         Control? diagnosticsRow = CreateRuntimeDiagnosticsRow(
             terrain,
-            new RuntimeOverlayOwner(RuntimeOverlayOwnerKind.Object, definition.Id));
+            new RuntimeOverlayOwner(RuntimeOverlayOwnerKind.Object, definition.Id),
+            definition is ScatterObjectDefinition ? "Show rejected samples" : null);
         if (diagnosticsRow != null)
             layout.AddRow(diagnosticsRow);
         return layout;
@@ -220,16 +107,38 @@ public sealed partial class MoleHillPanel
             (_, _) => AddScatterBlocksFromSelector(terrain, scatter.Id)));
 
         var doc = RhinoDoc.ActiveDoc;
-        ScatterBuildSummary? result = doc == null ? null : _controller.GetScatterSummaries(doc, terrain.TerrainId)
+        ScatterBuildSummary? result = doc == null ? null : _controller.GetScatterSummaries(doc, terrain.TerrainId, shownOnCard: true)
             .FirstOrDefault(item => item.DefinitionId == scatter.Id);
         double totalWeight = scatter.Blocks.Where(entry => entry.IsEnabled).Sum(entry => Math.Max(0, entry.Weight) *
             (!string.IsNullOrWhiteSpace(entry.BlockDefinitionName) ? 1 : doc == null ? 0 :
                 RhinoSourceResolver.ResolveObjects(doc, entry.Source).OfType<global::Rhino.DocObjects.InstanceObject>().Count()));
+
+        // Along a curve in Sequence the mix is an ordered cycle (design review Step 61): rows show their place
+        // in it and drag to reorder; weight and share mean nothing there and are hidden.
+        bool sequence = scatter.CyclesInSequence && scatter.Blocks.Count > 1;
+        string dragKey = $"scatter-block:{scatter.Id}";
+        void MoveBlock(int from, int before) => Mutate(s => StackReorder.MoveToIndex(s.Blocks, from, before));
+        int position = 0;
+
         for (int blockIndex = 0; blockIndex < scatter.Blocks.Count; blockIndex++)
         {
             int index = blockIndex;
             ScatterBlockEntry entry = scatter.Blocks[index];
-            if (!string.IsNullOrWhiteSpace(entry.BlockDefinitionName))
+            int? place = entry.IsEnabled ? ++position : null;
+            if (sequence && !string.IsNullOrWhiteSpace(entry.BlockDefinitionName))
+            {
+                layout.AddRow(CreateScatterSequenceRow(
+                    entry.BlockDefinitionName!,
+                    place,
+                    index,
+                    dragKey,
+                    MoveBlock,
+                    () => Mutate(s => { if (index < s.Blocks.Count) s.Blocks.RemoveAt(index); }),
+                    entry.IsEnabled,
+                    enabled => Mutate(s => { if (index < s.Blocks.Count) s.Blocks[index].IsEnabled = enabled; }),
+                    result == null ? "count pending" : $"{(result.BlockCounts.TryGetValue(entry.BlockDefinitionName!, out int placed) ? placed : 0):N0} placed"));
+            }
+            else if (!string.IsNullOrWhiteSpace(entry.BlockDefinitionName))
             {
                 layout.AddRow(CreateScatterBlockRow(
                     entry.BlockDefinitionName!,
@@ -238,8 +147,7 @@ public sealed partial class MoleHillPanel
                     () => Mutate(s => { if (index < s.Blocks.Count) s.Blocks.RemoveAt(index); }),
                     entry.IsEnabled,
                     enabled => Mutate(s => { if (index < s.Blocks.Count) s.Blocks[index].IsEnabled = enabled; }),
-                    (scatter.SourceMode == MoleHill.Core.Scattering.ScatterSourceMode.Curve && scatter.BlockOrder == MoleHill.Core.Scattering.ScatterBlockOrder.Sequence
-                        ? "In sequence · " : $"{(entry.IsEnabled && totalWeight > 0 ? 100 * Math.Max(0, entry.Weight) / totalWeight : 0):0.#}% mix · ") +
+                    $"{(entry.IsEnabled && totalWeight > 0 ? 100 * Math.Max(0, entry.Weight) / totalWeight : 0):0.#}% mix · " +
                         (result == null ? "count pending" : $"{(result.BlockCounts.TryGetValue(entry.BlockDefinitionName!, out int count) ? count : 0):N0} placed")));
 
             }
@@ -259,9 +167,13 @@ public sealed partial class MoleHillPanel
                     sourceEditor,
                     entry.Weight,
                     value => Mutate(s => { if (index < s.Blocks.Count) s.Blocks[index].Weight = value; }, live: true),
-                    () => Mutate(s => { if (index < s.Blocks.Count) s.Blocks.RemoveAt(index); })));
+                    () => Mutate(s => { if (index < s.Blocks.Count) s.Blocks.RemoveAt(index); }),
+                    showWeight: !sequence));
             }
         }
+
+        if (sequence)
+            layout.AddRow(CreateScatterSequenceTail(scatter.Blocks.Count, dragKey, MoveBlock));
 
         if (scatter.Blocks.Count == 0)
             layout.AddRow(CreateScatterBlockEmptyState());
@@ -306,15 +218,122 @@ public sealed partial class MoleHillPanel
         return new StackLayout
         {
             Orientation = Orientation.Vertical,
-            Spacing = 3,
+            Spacing = UiMetrics.SpaceSmall,
             HorizontalContentAlignment = HorizontalAlignment.Stretch,
             Items =
             {
-                new StackLayout { Orientation = Orientation.Horizontal, Spacing = 5,
+                new StackLayout { Orientation = Orientation.Horizontal, Spacing = UiMetrics.SpaceMedium,
                     VerticalContentAlignment = VerticalAlignment.Center,
                     Items = { include, thumbnail, new StackLayoutItem(nameLabel, expand: true), removeButton } },
                 new Label { Text = quantities, TextColor = UiTheme.MutedText, Wrap = WrapMode.Word },
                 weightEditor
+            }
+        };
+    }
+
+    /// <summary>
+    /// A block's row in a sequence: drag grip, inclusion checkbox, its place in the cycle ("–" when left
+    /// out), thumbnail, name and remove, with its placed count below. Dropping another row on it puts that
+    /// block just before this one.
+    /// </summary>
+    private Control CreateScatterSequenceRow(
+        string blockName,
+        int? place,
+        int index,
+        string dragKey,
+        Action<int, int> move,
+        Action onRemove,
+        bool enabled,
+        Action<bool> onEnabledChanged,
+        string quantities)
+    {
+        var grip = CardStack.CreateGrip();
+        grip.ToolTip = "Drag to move this block in the sequence.";
+        grip.MouseDown += (_, e) =>
+        {
+            if (e.Buttons != MouseButtons.Primary)
+                return;
+            var data = new DataObject();
+            data.SetString(index.ToString(System.Globalization.CultureInfo.InvariantCulture), dragKey);
+            grip.DoDragDrop(data, DragEffects.Move);
+        };
+
+        var include = new CheckBox { Checked = enabled };
+        ApplyHelp(include, "Include this block in the sequence. Unticked, it keeps its place in the list but is skipped.");
+        include.CheckedChanged += (_, _) => onEnabledChanged(include.Checked == true);
+
+        var placeLabel = UiControls.Label(place?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "–", UiLabelRole.Meta);
+        placeLabel.Width = UiMetrics.Chs(2);
+        placeLabel.TextAlignment = TextAlignment.Right;
+        ApplyHelp(placeLabel, place == null ? "Left out of the sequence." : $"Block {place} of the repeating sequence.");
+
+        var nameLabel = new Label
+        {
+            Text = TruncateMiddle(blockName, 22),
+            TextColor = UiTheme.InputText,
+            VerticalAlignment = VerticalAlignment.Center,
+            Wrap = WrapMode.None
+        };
+        ApplyHelp(nameLabel, blockName);
+
+        var thumbnail = new ImageView { Size = new Size(28, 28) };
+        thumbnail.Shown += (_, _) =>
+        {
+            if (RhinoDoc.ActiveDoc is { } doc && doc.InstanceDefinitions.Find(blockName) is { } block)
+                thumbnail.Image = BlockThumbnailRenderer.Get(doc, block, 28);
+        };
+        var removeButton = MakeIconButton(PanelButtonIcon.Clear, (_, _) => onRemove(), "Remove this block from the scatter mix.");
+
+        var row = new Panel
+        {
+            AllowDrop = true,
+            Content = new StackLayout
+            {
+                Orientation = Orientation.Vertical,
+                Spacing = UiMetrics.SpaceXSmall,
+                HorizontalContentAlignment = HorizontalAlignment.Stretch,
+                Items =
+                {
+                    new StackLayout
+                    {
+                        Orientation = Orientation.Horizontal,
+                        Spacing = UiMetrics.SpaceMedium,
+                        VerticalContentAlignment = VerticalAlignment.Center,
+                        Items = { grip, include, placeLabel, thumbnail, new StackLayoutItem(nameLabel, expand: true), removeButton }
+                    },
+                    UiControls.Label(quantities, UiLabelRole.Meta)
+                }
+            }
+        };
+        WireSequenceDrop(row, index, dragKey, move);
+        return row;
+    }
+
+    /// <summary>The drop target after the last row, which moves a block to the end of the sequence.</summary>
+    private static Control CreateScatterSequenceTail(int count, string dragKey, Action<int, int> move)
+    {
+        var tail = new Panel { Height = UiMetrics.StackGap, AllowDrop = true, ToolTip = "Drop here to move a block to the end of the sequence." };
+        WireSequenceDrop(tail, count, dragKey, move);
+        return tail;
+    }
+
+    private static void WireSequenceDrop(Panel target, int before, string dragKey, Action<int, int> move)
+    {
+        target.DragEnter += (_, e) =>
+        {
+            if (!e.Data.Contains(dragKey))
+                return;
+            e.Effects = DragEffects.Move;
+            target.BackgroundColor = UiTheme.DragHighlight;
+        };
+        target.DragLeave += (_, _) => target.BackgroundColor = Colors.Transparent;
+        target.DragDrop += (_, e) =>
+        {
+            target.BackgroundColor = Colors.Transparent;
+            if (e.Data.Contains(dragKey) &&
+                int.TryParse(e.Data.GetString(dragKey), System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out int from))
+            {
+                move(from, before);
             }
         };
     }
@@ -339,8 +358,8 @@ public sealed partial class MoleHillPanel
         return new StackLayout
         {
             Orientation = Orientation.Horizontal,
-            Spacing = 6,
-            Padding = new Padding(0, 5, 0, 1),
+            Spacing = UiMetrics.SpaceMedium,
+            Padding = new Padding(0, UiMetrics.SpaceMedium, 0, UiMetrics.SpaceHairline),
             VerticalContentAlignment = VerticalAlignment.Center,
             HorizontalContentAlignment = HorizontalAlignment.Stretch,
             Items =
@@ -358,7 +377,7 @@ public sealed partial class MoleHillPanel
         return new Panel
         {
             BackgroundColor = UiTheme.InputBackground,
-            Padding = new Padding(8, 6),
+            Padding = new Padding(UiMetrics.SpaceLarge, UiMetrics.SpaceMedium),
             Content = new Label
             {
                 Text = "No blocks selected",
@@ -372,7 +391,8 @@ public sealed partial class MoleHillPanel
         Control sourceEditor,
         double weight,
         Action<double> onWeightChanged,
-        Action onRemove)
+        Action onRemove,
+        bool showWeight = true)
     {
         var weightEditor = CreateCompactScatterWeightEditor(
             weight,
@@ -383,12 +403,12 @@ public sealed partial class MoleHillPanel
         var controls = new StackLayout
         {
             Orientation = Orientation.Horizontal,
-            Spacing = 6,
+            Spacing = UiMetrics.SpaceMedium,
             VerticalContentAlignment = VerticalAlignment.Center,
             HorizontalContentAlignment = HorizontalAlignment.Stretch,
             Items =
             {
-                new StackLayoutItem(weightEditor, expand: true),
+                new StackLayoutItem(showWeight ? weightEditor : null, expand: true),
                 removeButton
             }
         };
@@ -396,8 +416,8 @@ public sealed partial class MoleHillPanel
         return new StackLayout
         {
             Orientation = Orientation.Vertical,
-            Spacing = 4,
-            Padding = new Padding(0, 3),
+            Spacing = UiMetrics.SpaceSmall,
+            Padding = new Padding(0, UiMetrics.SpaceSmall),
             HorizontalContentAlignment = HorizontalAlignment.Stretch,
             Items =
             {
@@ -499,7 +519,7 @@ public sealed partial class MoleHillPanel
             if (unloaded || timerDisposed)
                 return;
             double number = committedValue;
-            if (!cancel && (!TryParseUserNumber(valueText.Text, out number) || !double.IsFinite(number)))
+            if (!cancel && (!UserNumber.TryParseLeading(valueText.Text, out number) || !double.IsFinite(number)))
                 number = committedValue;
             textEditActive = false;
             Commit(number);
@@ -571,7 +591,7 @@ public sealed partial class MoleHillPanel
         return new StackLayout
         {
             Orientation = Orientation.Horizontal,
-            Spacing = 6,
+            Spacing = UiMetrics.SpaceMedium,
             VerticalContentAlignment = VerticalAlignment.Center,
             HorizontalContentAlignment = HorizontalAlignment.Stretch,
             Items =
@@ -627,11 +647,8 @@ public sealed partial class MoleHillPanel
     private static string GetTerrainObjectKind(TerrainObjectDefinition definition) =>
         ObjectTypeRegistry.ForType(definition.GetType())?.Kind ?? string.Empty;
 
-    private static Color TerrainObjectTypeColor(string kind)
-    {
-        int argb = ObjectTypeRegistry.ForKind(kind)?.AccentArgb ?? unchecked((int)0xFF787878);
-        return Color.FromArgb((argb >> 16) & 0xFF, (argb >> 8) & 0xFF, argb & 0xFF);
-    }
+    private static Color TerrainObjectTypeColor(string kind) =>
+        UiTheme.TypeAccent(ObjectTypeRegistry.ForKind(kind)?.AccentArgb);
 
     private static string GetTerrainObjectIconLabel(TerrainObjectDefinition definition) =>
         ObjectTypeRegistry.ForType(definition.GetType())?.IconLabel ?? "O";
@@ -646,8 +663,7 @@ public sealed partial class MoleHillPanel
     {
         var parts = new List<string>
         {
-            $"{CountReferences(definition.Sources)} refs",
-            GetTerrainObjectTypeLabel(definition)
+            SummaryText.Sources(definition.Sources)
         };
 
         if (definition.RandomRotationMinDegrees > 1e-6 ||
@@ -665,6 +681,6 @@ public sealed partial class MoleHillPanel
         if (Math.Abs(definition.ZOffset) > 1e-6)
             parts.Add($"Z {definition.ZOffset:G4}");
 
-        return string.Join(" | ", parts);
+        return string.Join(" · ", parts);
     }
 }

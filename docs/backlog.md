@@ -617,6 +617,12 @@ with a few meaningful controls and access to the underlying stack. Rebind docume
 when applying it in another file, preserve real-world sizes across document units, and identify any
 external dependencies. Inspiration: Blender asset libraries and reusable VFX setups.
 
+**Partly shipped 2026-11-23** (branch `ui-structure`): Import / Export Terrain Definition in the panel's
+terrain menu moves a whole terrain between files as a `.mhterrain` file. Assigned layer paths travel,
+picked objects and links to other terrains do not, lengths convert to the document's units, and an
+import preview lists the layers to reassign. Still open: named presets of a partial stack, a few exposed
+controls, and rebinding sources as part of applying one.
+
 ---
 
 ### B16 — Scatter presets using the user's own blocks
@@ -805,6 +811,37 @@ evaluator refuses); a contour that collapses becomes a spot point. Live-tested i
 curves and spot points that rebuild it within a stated tolerance: landform lines (B17) and extremum
 points first, then contours where the rebuilt surface deviates most, repeated until within tolerance, so
 the terrain stays editable afterwards. B6 inverted: the output is editable input, not a reduced mesh.
+
+### B31 — Spot Heights and Spot Slope as one card each — **shipped** (branch `ui-structure`)
+
+**Done 2026-11-23**, as the design review's Steps 34-36 (decision record in `docs/ui-backlog.md`). Five
+cards became two: **Spot Heights** and **Spot Slope**, each with a full-width **Points / Curves / Grid**
+placement, the placement's sources and spacing visible, and a closed **Label Settings** section. Flow
+Arrows is Spot Slope on a grid; Spot Heights on a grid is new. Each placement keeps its own sources.
+Schema 34 migrates saved cards in place - id, name, position, enabled state, sources, block and formatting
+kept - with a characterization test per old type (`SpotLabelMigrationTests`). Live-checked 2026-11-23: a
+.3dm saved by the 1.6.0 build with all five old cards opened with every card, setting and source intact.
+
+### B32 — Scatter Sequence view — **shipped** (branch `ui-structure`)
+
+**Done 2026-11-23**, as design review Step 61. Along a curve, Block Mix opens with a full-width **Random /
+Sequence** choice. In Sequence, rows show a drag grip, the inclusion checkbox and the block's place in
+the cycle, with no weight or share; dragging a row reorders the cycle. The compatibility question was
+settled by keeping weights in the model and hiding them: in a sequence weight plays no part, so the
+checkbox alone decides (`ScatterObjectDefinition.EffectiveWeight`), and schema 34 unticks any block a
+saved sequence left out with weight 0. Weights are kept for switching back to Random. Live-checked: a
+baked sequence read A B C …, then C A … after moving C to the top and unticking B. Repeat counts (one
+block twice in a row) were not part of Step 61 and are not built; a block listed twice still appears
+once per cycle.
+
+### B33 — Exact long-section profiles
+
+**Measured 2026-11-23, not scheduled.** Section Along Curve samples at a fixed spacing (Auto = Detail
+Size), so a knife-edge crest between two samples is cut off. Measured on a 0.1 m survey mesh with a sharp
+1.5 m ridge: the old 1 m default missed the crest by 1.36 m, Auto at 0.25 m by 0.38 m. Sampling also at
+every point where the curve crosses a mesh edge makes the profile exact for a piecewise-linear surface
+(the terrain is one), at a cost proportional to the edges crossed. `TerrainSectionSlicer.SampleAlongCurve`
+is the one place to change; `MeshSectionIndex` already indexes the edges.
 
 ### Smaller command follow-ups
 

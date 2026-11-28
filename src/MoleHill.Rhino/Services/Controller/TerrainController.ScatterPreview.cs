@@ -11,13 +11,23 @@ internal sealed partial class TerrainController
 {
     private readonly Dictionary<(uint Document, Guid Terrain), List<(Guid Id, string Block, Transform Pose)>> _scatterPreviewInstances = new();
 
-    public IReadOnlyList<ScatterBuildSummary> GetScatterSummaries(RhinoDoc doc, Guid terrainId)
+    /// <param name="shownOnCard">The caller draws the answer on a card, so an empty answer leaves "count pending"
+    /// on screen for the next finished build to replace.</param>
+    public IReadOnlyList<ScatterBuildSummary> GetScatterSummaries(RhinoDoc doc, Guid terrainId, bool shownOnCard = false)
     {
-        if (!_runtimeCaches.TryGetValue((doc.RuntimeSerialNumber, terrainId), out var cache) ||
-            cache.DisplayState is not { IsPreview: false, HasDeferredOutputs: false } display ||
+        if (!_runtimeCaches.TryGetValue((doc.RuntimeSerialNumber, terrainId), out var cache))
+            return Array.Empty<ScatterBuildSummary>();
+
+        if (cache.DisplayState is not { IsPreview: false, HasDeferredOutputs: false } display ||
             display.OutputsAreStale || HasPendingFinalBuild(doc.RuntimeSerialNumber, terrainId) ||
             _unbuiltEdits.Contains((doc.RuntimeSerialNumber, terrainId)))
+        {
+            // The caller is about to show "count pending"; the next finished build has to replace it.
+            if (shownOnCard)
+                cache.CardsShowPendingResults = true;
             return Array.Empty<ScatterBuildSummary>();
+        }
+
         return display.ScatterSummaries;
     }
 

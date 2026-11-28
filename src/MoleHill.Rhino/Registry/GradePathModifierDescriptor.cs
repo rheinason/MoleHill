@@ -13,6 +13,9 @@ internal sealed class GradePathModifierDescriptor : ModifierTypeDescriptor
     public override Type DefinitionType => typeof(GradePathModifierDefinition);
     public override string DisplayName => "Grade Path";
     public override string IconName => "ModGradePath";
+
+    public override int AccentArgb => unchecked((int)0xFF5D4037);
+
     public override int SortOrder => 6;
     public override string Subtitle => "Road corridor, batter to daylight";
     public override ModifierDefinition Create(UnitSystem unitSystem) =>
@@ -24,8 +27,8 @@ internal sealed class GradePathModifierDescriptor : ModifierTypeDescriptor
         var path = (GradePathModifierDefinition)modifier;
         int paths = CountSources(path.Paths);
         if (!path.UseVariableWidth)
-            return $"{paths} centerlines | Width {path.Width:G4}";
-        return $"{paths} centerlines | variable width, {Count(CountSources(path.WidthEdges), "width edge", "width edges")} | Width {path.Width:G4} fallback";
+            return $"{paths} centerlines · Width {path.Width:G4}";
+        return $"{paths} centerlines · variable width, {Count(CountSources(path.WidthEdges), "width edge", "width edges")} · Width {path.Width:G4} fallback";
     }
 
     public override string? InertReason(ModifierDefinition modifier, TerrainBuildSnapshot snapshot) =>
@@ -55,11 +58,13 @@ internal sealed class GradePathModifierDescriptor : ModifierTypeDescriptor
             RhinoObjectType.Curve,
             "Roughly parallel plan curves. Each curve is matched uniquely to a centerline side; its Z is ignored and remapped from the centerline.",
             visibleWhen: static m => ((GradePathModifierDefinition)m).UseVariableWidth),
-        ModifierParam.Number(
+        // Design review Step 44: blank (0, as saved before) reads Auto, the four-times-Width fallback.
+        ModifierParam.OptionalNumber(
             "MaxEdgeDistance", "Edge Match Distance",
             m => ((GradePathModifierDefinition)m).MaxEdgeDistance,
             (m, v) => ((GradePathModifierDefinition)m).MaxEdgeDistance = v,
-            "Maximum plan distance for matching a width edge to a centerline. A larger value helps match edges on wide sites; set to 0 to use the automatic four-times-Width fallback.",
+            _ => 0.0,
+            "Maximum plan distance for matching a width edge to a centerline. Auto (blank) uses four times Width, so a 2 m path matches edges within 8 m; enter a distance to match edges further out on wide sites.",
             unit: ParameterUnit.ModelLength,
             visibleWhen: static m => ((GradePathModifierDefinition)m).UseVariableWidth),
         ModifierParam.Slope(

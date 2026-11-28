@@ -812,7 +812,7 @@ internal sealed partial class TerrainController
                 totalTimingDetail,
                 TotalTimingDiagnosticThresholdMs);
             terrain.LastBuildMessage = FormatBuildMessage(
-                build.Diagnostics.Count == 0 ? new[] { "Build succeeded." } : build.Diagnostics,
+                build.Diagnostics,
                 result.SnapshotElapsed,
                 result.WorkerCacheCloneElapsed,
                 buildElapsed,
@@ -838,9 +838,7 @@ internal sealed partial class TerrainController
                 TotalTimingDiagnosticThresholdMs);
 
             terrain.LastBuildMessage = FormatBuildMessage(
-                build.Diagnostics.Count == 0
-                    ? new[] { "Preview updated; final rebuild queued." }
-                    : new[] { "Preview updated." }.Concat(build.Diagnostics),
+                new[] { "Final rebuild queued." }.Concat(build.Diagnostics),
                 result.SnapshotElapsed,
                 result.WorkerCacheCloneElapsed,
                 buildElapsed,
@@ -865,9 +863,13 @@ internal sealed partial class TerrainController
         string? cardResults = TryComputeCardResultSignature(doc, terrain);
         // A terrain other terrains compare against changes what *their* cards say (see
         // GetReferenceTerrainStatus), and the visible card may be one of those, so it always refreshes.
+        // A card that drew a placeholder while this build ran ("count pending") is stale whatever the
+        // results are: they may match the previous build's exactly (seen live after a Scatter reorder).
         bool cardsUnchanged = !firstFinal && cardResults != null && cardResults == runtimeCache.LastCardResultSignature
+            && !runtimeCache.CardsShowPendingResults
             && !IsComparedAgainst(GetState(doc), terrain.TerrainId);
         runtimeCache.LastCardResultSignature = cardResults;
+        runtimeCache.CardsShowPendingResults = false;
         if (cardsUnchanged)
             RaiseStatusChanged();
         else
@@ -895,7 +897,8 @@ internal sealed partial class TerrainController
                 GetZoneAnalysisResults(doc, terrain.TerrainId),
                 diagnostics,
                 warnings,
-                terrain.Modifiers.Select(modifier => (modifier.Id, GetModifierStageReport(doc, terrain.TerrainId, modifier.Id))));
+                terrain.Modifiers.Select(modifier => (modifier.Id, GetModifierStageReport(doc, terrain.TerrainId, modifier.Id))),
+                displayState?.ScatterSummaries);
         }
         catch (Exception)
         {
@@ -916,7 +919,11 @@ internal sealed partial class TerrainController
         IEnumerable<TerrainBuildTiming> timings,
         string totalStageName)
     {
-        var lines = new List<string>();
+        // The first line is the collapsed Status row (design review UI-R6): the outcome and how long it took.
+        var timingList = timings as IReadOnlyCollection<TerrainBuildTiming> ?? timings.ToList();
+        TimeSpan total = timingList.FirstOrDefault(t => t.Stage == totalStageName)?.Elapsed ?? buildElapsed;
+        bool preview = totalStageName.StartsWith("Preview", StringComparison.Ordinal);
+        var lines = new List<string> { $"{(preview ? "Preview updated" : "Built")} in {FormatElapsed(total)}" };
         lines.AddRange(diagnosticLines.Where(static line => !string.IsNullOrWhiteSpace(line)));
 
         lines.Add("summary:");
@@ -932,7 +939,7 @@ internal sealed partial class TerrainController
         lines.Add($"outputs: {DescribeDisplayState(displayState)}");
 
         lines.Add("stages:");
-        foreach (TerrainBuildTiming timing in timings.Where(t => t.Stage != totalStageName))
+        foreach (TerrainBuildTiming timing in timingList.Where(t => t.Stage != totalStageName))
         {
             string detail = timing.Detail ?? string.Empty;
             if (timing.IsCacheHit && !detail.Contains("cache hit", StringComparison.OrdinalIgnoreCase))

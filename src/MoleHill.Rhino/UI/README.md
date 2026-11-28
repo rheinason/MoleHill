@@ -56,10 +56,10 @@ Escape closes the popup from either the search box or the grid.
   selector, New/Copy/Delete, Rebuild/Live, Bake/visibility/lock), `.Settings.cs` (the Terrain Settings
   card), `.Tabs.cs` (tab strip, lazy rebuild of the visible tab, scroll restore, each tab's add
   toolbar); shared pieces: `.Controls.cs` (styling, button factories, help), `.Colors.cs` (optional
-  colour editor, ARGB/opacity packing), `.DragDrop.cs` (stack reordering), `.Mutations.cs` (the single
+  colour editor, ARGB/opacity packing), `.Mutations.cs` (the single
   path from a card edit to the controller);
   `.Actions.cs` (terrain-level create/copy/delete/convert/bake/rebuild/reset actions),
-  `.Cards.cs` (collapsible "stack card" framework), `.RuntimeDiagnostics.cs` (generic per-card issue
+  `.Cards.cs` (the stack card: every family fills a `CardSpec` and `CreateCard` builds the one fixed two-line header - grip, arrow, enable, bare type icon, name over "Type · summary", status, actions - with `TextLine` ellipsizing both lines and `DisclosureArrow` shared with section headers), `.RuntimeDiagnostics.cs` (generic per-card issue
   counts and redraw-only **Show Issues** binding), `.Editors.cs` (form-control vocabulary -
   `CreateSourceEditor`/`CreateNumericEditor`/`CreateDropDownEditor`/...), `.Schema.cs` (schema to
   card-row builder for registry-driven modifier, analysis and annotation cards), `.Status.cs` (the detailed live/final build log,
@@ -86,6 +86,9 @@ Escape closes the popup from either the search box or the grid.
   Simplify likewise uses ordinary schema rows: its Mode choice reveals Maximum Deviation, Target
   Vertices, or Retain Percentage, and its collapsed summary shows the active request. Measured
   reduction/error details stay in build diagnostics rather than document state.
+- `MoleHillPanel.Transfer.cs` - the terrain menu (the ⋯ beside New/Copy/Delete): Import and Export Terrain
+  Definition, and the import preview anchored below the terrain selector, which lists the assigned layers
+  this document has and those to reassign. What travels is `Services/Persistence/TerrainTransfer`'s rule.
 - `MoleHillPanel.CompareTerrain.cs` - the comparison rows shared by Cut/Fill, Earthworks and the section
   cards: the "Compare To Terrain" dropdown and a status row that says when the chosen terrain is
   building, unbuilt, empty, edited without a rebuild, or newer than this terrain's results, with a button
@@ -123,7 +126,7 @@ Escape closes the popup from either the search box or the grid.
   terrain state remain in one record for compound actions.
 - `MoleHillPanel.Cards.cs` also owns the two non-card grouping primitives, so the panel has one visual
   language for "a group of rows". `SectionHeader` is the collapsible one (Terrain Settings, Status,
-  Variable Width Matching): the card's own chevron glyph, the card's header fill and padding, and the
+  Variable Width Matching): the card's `DisclosureArrow`, the card's header fill and padding, and the
   whole strip is the hit target. `CreateSectionRule` is the static one (Peel Border, analysis summaries):
   a caption and a rule. Both replaced `GroupBox`, whose border boxed in content the surrounding card had
   already grouped, and a boxed icon-button chevron that was a different glyph at a different height from
@@ -221,10 +224,63 @@ margin on the scrollable, not the content: the pinning stopped the scan dialog's
   icons on one optical canvas for universal compact actions. Named workflow actions stay as text, while
   icon-only actions always use a standard hit box and tooltip. Card headers expose duplicate/delete as
   direct icon actions; `UiTheme.cs` owns semantic colours for custom surfaces and state.
+  `UiTokenGuardTests` holds both files to that: a colour literal or a literal padding/spacing anywhere
+  else in this folder fails the build. Card-family accents come from descriptors via
+  `UiTheme.TypeAccent`.
+- `IconButton.cs` - every icon-only action (toolbar and card headers): a drawn 22 x 22 control, bare glyph at
+  rest with hover/pressed fills and a focus ring, Enter/Space activate. Native WPF buttons always paint
+  their chrome (the old WinForms `FlatStyle` reflection was a no-op on WPF), and it marks its mouse
+  events handled so a click never also collapses the card behind it.
+- `CardSection.cs` - every collapsible group inside a card (Settings, Boundaries, Variation, Base): the shared
+  disclosure arrow, a bold heading, a rule and an optional summary of what is set. Schema rows declare them
+  with `ParameterDescriptor.Section` (rows after it belong to it) and `AddSchemaRows` draws them for every
+  family; hand-placed cards (Triangulate) construct one directly. Open/closed is a per-user preference per
+  card type (`Services/SectionExpansionPreference`, plug-in settings), never document state.
+- `SegmentedControl.cs` - fixed 2-3 mode choices (schema rule; document lists and longer lists stay
+  drop-downs, `PreferDropDown` opts out). Segments are sized to their labels, drop one font step before
+  ellipsizing, and show per-option help (`ChoiceOptionHelp`). A `FullRow` choice is a card's primary mode:
+  first, unlabelled, full width.
+- `NumberField.cs` - every number a user types, card rows and dialogs alike: a native text box with the
+  unit inside ("2.500 m") and drawn arrows, read by Core `UserNumber` ("3.5", "3,5", "2,5 m" on any
+  machine). It keeps the NumericStepper surface (Value, DecimalPlaces, Min/MaxValue, Increment,
+  ValueChanged on commit, never per keystroke); the stepper read "3,5" as 35, and a guard keeps it out of UI/.
+- `TextLine.cs` / `DisclosureArrow.cs` - the header's ellipsizing single line (height measured, not
+  `Font.LineHeight`, which under-reports on WPF) and the drawn disclosure triangle.
+- `UiDialogs.cs` - the one frame for every modal dialog: `Frame` (title, padding, Rhino styling),
+  `SetContent` (gives every text entry the panel's input look), `Actions` (secondary actions on the left,
+  then the primary action and Cancel on the right, in Rhino's order; Enter and Escape wired), `ButtonRow`,
+  `Intro`/`Note`/`Heading` text, `Field`/`FieldPair` rows on the shared label column, `Search`
+  ("Filter layers…"), and `PromptText` for a one-line name. The dialogs had each assembled these by hand
+  and drifted: primary-first in some and Cancel-first in others, two heading styles, colon labels, units
+  in a label beside the field, inputs without the input look. `DialogGuardTests` fails on a dialog not
+  framed by `Frame`, a Default/Abort button set outside `Actions`, and a label ending in a colon.
+- `CardStack.cs` - every tab's card stack (modifiers, objects, zones, analyses, annotations): toolbar
+  and notes, cards in their accent strips, and for a reorderable stack the drag grip, drop targets and
+  drag feedback. Stacks differ only in drag key and drop action; the list arithmetic is
+  `Services/Controller/StackReorder` (modifiers are drawn bottom to top).
 
 Use native Eto controls for ordinary buttons, inputs, lists, and selectors. Use `Drawable` only for
 interaction or visualization Eto cannot express cleanly, such as ramps, scrub fields, swatches, and drag
-handles. Dialogs and the floating sculpt toolbar have not yet been migrated to the panel design system.
+handles. Modal dialogs are built through `UiDialogs`. The floating windows (Sculpt toolbar, Relax Route,
+Curve Review, Terrain to Curves / Scan to Terrain) keep their own compact layouts and have not been through
+the design review.
+
+Conventions settled in the 2026-11 design review (`docs/ui-backlog.md` keeps the decision record):
+
+- **Card header:** two fixed lines at every width - grip, disclosure arrow, enable box, bare type icon and
+  the custom name on the first; "Type · summary" on the second. Both ellipsize, with the full text in the
+  tooltip; the header never wraps or grows a third line. Source cards summarise as "n objects · n layers".
+- **Card chrome:** keep the coloured accent strip and the existing borders. Duplicate and delete stay
+  visible as bare icon actions.
+- **Labels:** Title Case, no colon, full words, the modifier vocabulary. A source picker's heading carries
+  its count ("Sources — 3"), with the object/layer breakdown in the tooltip; there is no separate count row.
+- **Units** live inside the number field, never in the label. Numbers use a point decimal.
+- **Choices:** two or three fixed modes are a segmented control; a card's primary mode comes first and
+  spans the row unlabelled. Document lists and longer lists stay drop-downs.
+- **Grouping:** essential inputs stay visible; secondary settings go in a `CardSection`, closed by default,
+  remembered per user. Computed values go under one **Results** section.
+- **Order:** modifiers are drawn bottom to top at every width, Triangulate at the bottom.
+- **Tabs** stay on one row; labels show only when all five fit, with name and purpose in the tooltip.
 
 Tabs: Modifiers, Objects, Zones, Analysis, Annotation. There is no Markers tab: markers are still built
 from persisted definitions (`Services/Build/TerrainBuildService.Objects.cs`) so older documents keep rendering

@@ -144,33 +144,7 @@ internal sealed partial class TerrainController
     {
         foreach (TerrainDefinition terrain in state.Terrains)
         {
-            bool changed = false;
-            foreach (TerrainSectionAnnotationDefinitionBase section in terrain.Annotations.OfType<TerrainSectionAnnotationDefinitionBase>())
-            {
-                changed |= section.ComparisonTerrainIds.RemoveAll(id => id == removedTerrainId) > 0;
-                changed |= section.ProfileColorArgbs.Remove(removedTerrainId);
-                if (section.CutFillReferenceTerrainId == removedTerrainId)
-                {
-                    section.CutFillReferenceTerrainId = null;
-                    changed = true;
-                }
-            }
-
-            foreach (ReferenceComparisonAnalysisDefinition analysis in terrain.Analyses.OfType<ReferenceComparisonAnalysisDefinition>())
-            {
-                if (analysis.ReferenceTerrainId != removedTerrainId)
-                    continue;
-                analysis.ReferenceTerrainId = null;
-                changed = true;
-            }
-
-            foreach (ProjectToModifierDefinition modifier in terrain.Modifiers.OfType<ProjectToModifierDefinition>())
-            {
-                if (modifier.TargetTerrainId != removedTerrainId)
-                    continue;
-                modifier.TargetTerrainId = null;
-                changed = true;
-            }
+            bool changed = TerrainTransfer.ClearTerrainLinks(terrain, id => id == removedTerrainId) > 0;
 
             if (changed && terrain.LiveUpdateEnabled)
                 ScheduleRebuild(doc, terrain.TerrainId, notify: false);

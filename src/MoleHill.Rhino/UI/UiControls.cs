@@ -9,11 +9,6 @@ internal enum UiButtonRole
     Toolbar,
     Inline,
 
-    /// <summary>Icon-only action: compact, matching the card's inline controls. Used everywhere in the
-    /// panel — including the top toolbar, now that Rebuild/Reset Build/Bake are icons too — so every icon
-    /// button in MoleHill renders the same glyph in the same box.</summary>
-    Icon,
-
     Pill
 }
 
@@ -93,31 +88,6 @@ internal static class UiControls
         });
     }
 
-    /// <summary>
-    /// Drops an icon-only button's native raised/boxed chrome so it reads as a bare glyph — like Rhino's
-    /// own Layers panel toolbar — instead of a button with a visible border sitting around the icon.
-    /// Eto has no cross-platform "flat, no border" style, so reach into the native handler the same way
-    /// <see cref="DisableHorizontalScrolling"/> does.
-    /// </summary>
-    private static void MakeFlat(Button button)
-    {
-        void Apply()
-        {
-            object? native = button.ControlObject;
-            var type = native?.GetType();
-            var flatStyleProperty = type?.GetProperty("FlatStyle");
-            if (flatStyleProperty == null || !flatStyleProperty.CanWrite || !flatStyleProperty.PropertyType.IsEnum)
-                return;
-
-            flatStyleProperty.SetValue(native, Enum.Parse(flatStyleProperty.PropertyType, "Flat"));
-            var flatAppearance = type!.GetProperty("FlatAppearance")?.GetValue(native);
-            flatAppearance?.GetType().GetProperty("BorderSize")?.SetValue(flatAppearance, 0);
-        }
-
-        button.Shown += (_, _) => Apply();
-        Apply();
-    }
-
     public static Button Button(
         string text,
         EventHandler<EventArgs>? onClick,
@@ -132,17 +102,16 @@ internal static class UiControls
         return button;
     }
 
-    public static Button IconButton(
+    public static IconButton IconButton(
         PanelButtonIcon icon,
         EventHandler<EventArgs> onClick,
         string? toolTip = null,
-        bool muted = false,
-        UiButtonRole role = UiButtonRole.Icon)
+        bool muted = false)
     {
-        var button = new Button();
-        Apply(button, role);
+        var button = new IconButton();
         PanelButtonIcons.Apply(button, icon, muted);
-        ApplyHelp(button, toolTip);
+        if (!string.IsNullOrWhiteSpace(toolTip))
+            button.ToolTip = toolTip;
         button.Click += onClick;
         return button;
     }
@@ -160,16 +129,6 @@ internal static class UiControls
                 button.Height = UiMetrics.CompactControlHeight;
                 button.MinimumSize = new Size(0, UiMetrics.CompactControlHeight);
                 break;
-            case UiButtonRole.Icon:
-            {
-                // Pinned in both axes. A minimum width of zero let each button take whatever its glyph
-                // asked for, which is why a row of icon actions came out at several different widths.
-                button.Width = UiMetrics.IconButtonWidth;
-                button.Height = UiMetrics.CompactControlHeight;
-                button.MinimumSize = new Size(UiMetrics.IconButtonWidth, UiMetrics.CompactControlHeight);
-                MakeFlat(button);
-                break;
-            }
             case UiButtonRole.Pill:
                 button.Height = UiMetrics.CompactControlHeight;
                 button.MinimumSize = new Size(0, UiMetrics.CompactControlHeight);
@@ -236,6 +195,34 @@ internal static class UiControls
     {
         textBox.BackgroundColor = UiTheme.InputBackground;
         textBox.TextColor = UiTheme.InputText;
+    }
+
+    /// <summary>
+    /// Gives every text-entry control under <paramref name="root"/> the one input look (dark field, light
+    /// border). Cards run their whole tree through this as they enter a stack, so an input looks the same
+    /// whichever editor built it (number fields are text boxes inside, so they are covered too).
+    /// Drop-downs and buttons are choices, not entry, and keep their own look.
+    /// </summary>
+    public static void StyleInputs(Control root)
+    {
+        IEnumerable<Control> all = root is Container container
+            ? container.Children.Prepend(root)
+            : new[] { root };
+        foreach (var control in all)
+        {
+            switch (control)
+            {
+                case TextBox textBox:
+                    StyleInput(textBox);
+                    break;
+                case TextArea textArea:
+                    StyleInput(textArea);
+                    break;
+                case ComboBox comboBox:
+                    StyleInput(comboBox);
+                    break;
+            }
+        }
     }
 
     private static void ApplyHelp(Control control, string? toolTip)

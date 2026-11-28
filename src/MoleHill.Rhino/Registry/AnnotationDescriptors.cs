@@ -16,6 +16,42 @@ namespace MoleHill.Rhino.Registry;
 
 internal static class AnnotationParameterCatalog
 {
+    /// <summary>
+    /// Where a section card's laid-out drawing goes (design review Step 26). A picked point places it with
+    /// world X/Z axes; clearing hands placement back to the builder, beside the terrain.
+    /// </summary>
+    public static AnnotationParam SectionInsertionPoint() => AnnotationParam.InsertionPoint(
+        "InsertionPoint",
+        a =>
+        {
+            var section = (TerrainSectionAnnotationDefinitionBase)a;
+            return (section.HasInsertionPlane, section.InsertionOriginX, section.InsertionOriginY, section.InsertionOriginZ);
+        },
+        (a, point) =>
+        {
+            var section = (TerrainSectionAnnotationDefinitionBase)a;
+            section.HasInsertionPlane = point.HasValue;
+            if (point is not { } p)
+                return;
+
+            (section.InsertionOriginX, section.InsertionOriginY, section.InsertionOriginZ) = (p.X, p.Y, p.Z);
+            (section.InsertionXAxisX, section.InsertionXAxisY, section.InsertionXAxisZ) = (1.0, 0.0, 0.0);
+            (section.InsertionYAxisX, section.InsertionYAxisY, section.InsertionYAxisZ) = (0.0, 1.0, 0.0);
+        },
+        "Where the laid-out section is drawn. Pick a point, or leave it to sit beside the terrain.");
+
+    /// <summary>Key of the <see cref="TextSize"/> placeholder.</summary>
+    public const string TextSizeKey = "textSize";
+
+    /// <summary>
+    /// Where the card's Text Size readout goes: a placeholder the panel fills with the style-derived size
+    /// (it needs the document's annotation style, which a definition alone cannot read). A card that
+    /// declares it puts the readout with the settings it belongs to (labels, Appearance); one that does
+    /// not gets it after its rows.
+    /// </summary>
+    public static AnnotationParam TextSize(Func<AnnotationDefinition, bool>? visibleWhen = null) =>
+        AnnotationParam.ReadOnly(TextSizeKey, "Text Size", _ => string.Empty, visibleWhen: visibleWhen);
+
     public static readonly IReadOnlyList<(string Key, string Label)> SlopeUnitOptions = new[]
     {
         (AnalysisFormatting.GetSlopeUnitKey(SlopeAnalyzer.SlopeUnit.Percent), "Percent"),
@@ -32,7 +68,7 @@ internal static class AnnotationParameterCatalog
     /// </summary>
     public static AnnotationParam VerticalExaggeration() =>
         AnnotationParam.Number(
-            "VerticalExaggeration", "Vertical Exaggeration",
+            "VerticalExaggeration", "Vertical Scale",
             a => ((TerrainSectionAnnotationDefinitionBase)a).VerticalExaggeration,
             (a, v) => ((TerrainSectionAnnotationDefinitionBase)a).VerticalExaggeration = Math.Max(0.1, v),
             "Vertical scale relative to horizontal. 1 draws the section true to shape; 5 or 10 stretches " +
@@ -55,11 +91,12 @@ internal static class AnnotationParameterCatalog
             (a, v) => ((TerrainSectionAnnotationDefinitionBase)a).ShowSectionTitle = v,
             "Print a title beneath each section: its mark (A-A', B-B', ...) or, for cross-sections, its station."),
         AnnotationParam.Bool(
-            "ShowPlanLabels", "Plan Labels",
+            "ShowPlanLabels", "Section Marks",
             a => ((TerrainSectionAnnotationDefinitionBase)a).ShowPlanLabels,
             (a, v) => ((TerrainSectionAnnotationDefinitionBase)a).ShowPlanLabels = v,
             "Mark each section in plan: A and A' at the ends of the cut line, or the station beside each " +
-            "cross-section's cut."),
+            "cross-section's cut.",
+            labelFor: a => a is CrossSectionStationAnnotationDefinition ? "Station Labels" : "Section Marks"),
     };
 
     public static AnnotationParam SlopeUnitChoice(string help) =>
@@ -71,9 +108,7 @@ internal static class AnnotationParameterCatalog
 
     private static SlopeAnalyzer.SlopeUnit GetUnit(AnnotationDefinition a) => a switch
     {
-        CurveSlopeLabelAnnotationDefinition d => d.Unit,
-        PointSlopeLabelAnnotationDefinition d => d.Unit,
-        SlopeArrowAnnotationDefinition d => d.Unit,
+        SpotSlopeAnnotationDefinition d => d.Unit,
         ReportTableAnnotationDefinition d => d.Unit,
         _ => SlopeAnalyzer.SlopeUnit.Percent
     };
@@ -82,15 +117,13 @@ internal static class AnnotationParameterCatalog
     {
         switch (a)
         {
-            case CurveSlopeLabelAnnotationDefinition d: d.Unit = unit; break;
-            case PointSlopeLabelAnnotationDefinition d: d.Unit = unit; break;
-            case SlopeArrowAnnotationDefinition d: d.Unit = unit; break;
+            case SpotSlopeAnnotationDefinition d: d.Unit = unit; break;
             case ReportTableAnnotationDefinition d: d.Unit = unit; break;
         }
     }
 
-    /// <summary>The shared tail of every block-attribute analysis card: value format, prefix/suffix,
-    /// block scale, output layer, and color. Mirrors the former AddBlockAttributeAnalysisRows helper.</summary>
+    /// <summary>The shared tail of the spot label cards, all inside Label Settings: block, decimals,
+    /// prefix/suffix, block scale, colour and the style-derived text size.</summary>
     public static IEnumerable<AnnotationParam> BlockAttributeTail<TAnalysis>(MarkerBlockTemplate template, string formatHelp)
         where TAnalysis : BlockAttributeAnnotationDefinition
     {
@@ -133,12 +166,23 @@ internal static class AnnotationParameterCatalog
             fallbackColor: (terrain, _) => AnalysisFormatting.ResolveLayerColorArgb(
                 AnalysisFormatting.GetRoleLayerPath(terrain, LayerRole.Markers)),
             defaultText: (terrain, _) => AnalysisFormatting.GetRoleColorText(terrain, LayerRole.Markers));
+        // Declared here so it lands inside the card's Label Settings with the rest of the label's look;
+        // undeclared, the panel appends it after every section.
+        yield return TextSize();
     }
 }
 
 internal sealed class ContourAnnotationDescriptor : AnnotationTypeDescriptor
 {
     public override string Kind => "contour";
+
+    public override string Summarize(TerrainDefinition terrain, AnnotationDefinition definition, TerrainAnalysisSummary? summary, ResultFormatter format)
+    {
+        var contour = (ContourAnnotationDefinition)definition;
+        return summary != null
+            ? $"{summary.ContourCurveCount} curves · {contour.Interval:G4} @ {contour.StartZ:G4}"
+            : $"{contour.Interval:G4} every · start {contour.StartZ:G4}";
+    }
     public override Type DefinitionType => typeof(ContourAnnotationDefinition);
     public override string TypeLabel => "Contours";
     public override string MenuLabel => "Contours";
@@ -148,6 +192,9 @@ internal sealed class ContourAnnotationDescriptor : AnnotationTypeDescriptor
     public override string Subtitle => "Contour lines at fixed intervals";
     public override int SortOrder => 0;
     public override AnnotationDefinition Create() => new ContourAnnotationDefinition();
+
+    public override bool DrawsText(AnnotationDefinition annotation) =>
+        ((ContourAnnotationDefinition)annotation).ShowLabels;
 
     public override TerrainAnalysisSummary? Build(AnalysisBuildContext c, AnnotationDefinition annotation) =>
         TerrainBuildService.BuildContourSummary(c.Terrain, c.CurrentMesh, (ContourAnnotationDefinition)annotation, c.ElevationMinZ, c.ElevationMaxZ, c.Snapshot.ModelAbsoluteTolerance, c.Build, c.Snapshot.AnnotationStyle, c.Snapshot.LayerRoles);
@@ -181,32 +228,17 @@ internal sealed class ContourAnnotationDescriptor : AnnotationTypeDescriptor
             "Vertical spacing between generated contour levels.",
             min: 0.0, incrementalCommit: true),
         AnnotationParam.Number(
-            "StartZ", "Start Z",
+            "StartZ", "Base Elevation",
             a => ((ContourAnnotationDefinition)a).StartZ,
             (a, v) => ((ContourAnnotationDefinition)a).StartZ = v,
-            "Base elevation offset from which contour levels are stepped.",
+            "The reference elevation the contour levels are stepped from: a level falls on it and every Interval above and below. Not a lower cutoff; levels continue below it.",
             min: null, incrementalCommit: true),
         AnnotationParam.Number(
-            "MajorEveryNth", "Major Every Nth",
+            "MajorEveryNth", "Major Every",
             a => ((ContourAnnotationDefinition)a).MajorEveryNth,
             (a, v) => ((ContourAnnotationDefinition)a).MajorEveryNth = Math.Max(1, (int)Math.Round(v)),
-            "Every Nth level is a major (index) contour. 5 is the usual survey convention; 1 makes every contour major.",
+            "How often a level is major (index): 5 makes every fifth contour level major, the usual survey convention; 1 makes every contour major.",
             min: 1, decimalPlaces: 0, incrementalCommit: true),
-        AnnotationParam.Bool(
-            "SeparateMajorMinorLayers", "Split Major / Minor",
-            a => ((ContourAnnotationDefinition)a).SeparateMajorMinorLayers,
-            (a, v) => ((ContourAnnotationDefinition)a).SeparateMajorMinorLayers = v,
-            "Send major and minor contours to separate Contours::Major and Contours::Minor sublayers so print width and linetype are controlled per layer in Rhino.",
-            incrementalCommit: true),
-        AnnotationParam.Color(
-            "ColorArgb", "Color",
-            a => ((ContourAnnotationDefinition)a).ColorArgb,
-            (a, v) => ((ContourAnnotationDefinition)a).ColorArgb = v,
-            "Explicit display and bake color for generated contour curves. Clear to take the colour from the layer its role routes to.",
-            fallbackColor: (terrain, _) => AnalysisFormatting.ResolveLayerColorArgb(
-                AnalysisFormatting.GetRoleLayerPath(terrain, LayerRole.Contours)),
-            defaultText: (terrain, _) => AnalysisFormatting.GetRoleColorText(terrain, LayerRole.Contours),
-            incrementalCommit: true),
         AnnotationParam.Bool(
             "ShowLabels", "Label Contours",
             a => ((ContourAnnotationDefinition)a).ShowLabels,
@@ -217,306 +249,267 @@ internal sealed class ContourAnnotationDescriptor : AnnotationTypeDescriptor
             "LabelInterval", "Label Interval",
             a => ((ContourAnnotationDefinition)a).LabelInterval,
             (a, v) => ((ContourAnnotationDefinition)a).LabelInterval = Math.Max(0.0, v),
-            "Spacing between repeated labels along each contour. 0 places one label per contour curve.",
-            min: 0.0, incrementalCommit: true),
+            "Distance along each contour between repeated labels. 0 places one label per contour curve.",
+            min: 0.0, incrementalCommit: true,
+            visibleWhen: a => ((ContourAnnotationDefinition)a).ShowLabels),
         AnnotationParam.Number(
-            "LabelEveryNth", "Label Every Nth",
+            "LabelEveryNth", "Label Every",
             a => ((ContourAnnotationDefinition)a).LabelEveryNth,
             (a, v) => ((ContourAnnotationDefinition)a).LabelEveryNth = Math.Max(1, (int)Math.Round(v)),
-            "Label only every Nth contour level (index contours). 1 labels every level.",
-            min: 1, decimalPlaces: 0, incrementalCommit: true),
+            "How often a level is labelled: 5 labels every fifth contour level; 1 labels every level.",
+            min: 1, decimalPlaces: 0, incrementalCommit: true,
+            visibleWhen: a => ((ContourAnnotationDefinition)a).ShowLabels),
         AnnotationParam.Choice(
             "LabelFormat", "Label Decimals", null,
             a => ((ContourAnnotationDefinition)a).LabelFormat,
             (a, v) => ((ContourAnnotationDefinition)a).LabelFormat = v ?? "F2",
             "Number of decimal places shown in contour elevation labels.",
             incrementalCommit: true,
+            visibleWhen: a => ((ContourAnnotationDefinition)a).ShowLabels,
             optionsFor: a => AnalysisFormatting.GetValueFormatOptions(((ContourAnnotationDefinition)a).LabelFormat)),
+        AnnotationParameterCatalog.TextSize(a => ((ContourAnnotationDefinition)a).ShowLabels),
+        // Design review UI-R4: appearance is set once and then left, so it sits closed below the labels.
+        AnnotationParam.Section("appearance", "Appearance"),
+        AnnotationParam.Color(
+            "ColorArgb", "Color",
+            a => ((ContourAnnotationDefinition)a).ColorArgb,
+            (a, v) => ((ContourAnnotationDefinition)a).ColorArgb = v,
+            "Explicit display and bake color for generated contour curves. Clear to take the colour from the layer its role routes to.",
+            fallbackColor: (terrain, _) => AnalysisFormatting.ResolveLayerColorArgb(
+                AnalysisFormatting.GetRoleLayerPath(terrain, LayerRole.Contours)),
+            defaultText: (terrain, _) => AnalysisFormatting.GetRoleColorText(terrain, LayerRole.Contours),
+            incrementalCommit: true),
+        AnnotationParam.Bool(
+            "SeparateMajorMinorLayers", "Separate Layers",
+            a => ((ContourAnnotationDefinition)a).SeparateMajorMinorLayers,
+            (a, v) => ((ContourAnnotationDefinition)a).SeparateMajorMinorLayers = v,
+            "Send major and minor contours to separate Contours::Major and Contours::Minor sublayers so print width and linetype are controlled per layer in Rhino.",
+            incrementalCommit: true),
     };
 }
 
-internal sealed class CurveElevationLabelAnnotationDescriptor : AnnotationTypeDescriptor
+/// <summary>
+/// Rows and wording shared by Spot Heights and Spot Slope (design review Steps 34-36): one full-width
+/// Points / Curves / Grid choice, then the active placement's sources and spacing, then the label
+/// settings closed below them.
+/// </summary>
+internal static class SpotLabelCatalog
 {
-    public override string Kind => "curve-elevation-label";
-    public override Type DefinitionType => typeof(CurveElevationLabelAnnotationDefinition);
-    public override string TypeLabel => "Spot Heights (Curve)";
-    public override string MenuLabel => "Spot Heights (Curve)";
-    public override string IconLabel => "CE";
-    public override string? IconName => "AnCurveElevation";
-    public override int AccentArgb => unchecked((int)0xFF1565C0);
-    public override string Subtitle => "Elevation labels sampled along a curve";
-    public override int SortOrder => 1;
-    public override AnnotationDefinition Create() => new CurveElevationLabelAnnotationDefinition();
-
-    public override TerrainAnalysisSummary? Build(AnalysisBuildContext c, AnnotationDefinition annotation) =>
-        TerrainAnalysisAnnotationBuilder.BuildCurveElevationSummary(c.Snapshot, c.CurrentMesh, (CurveElevationLabelAnnotationDefinition)annotation, c.Build, c.ShouldCancel, c.Snapshot.LayerRoles);
-
-    public override IReadOnlyList<ResultRow> DescribeResult(AnnotationDefinition annotation, TerrainAnalysisSummary? summary, ResultFormatter format)
+    private static readonly IReadOnlyList<(string Key, string Label)> PlacementOptions = new[]
     {
-        if (summary == null)
-            return new[] { ResultRow.RebuildRequired("Rebuild the terrain to generate curve elevation annotation blocks.") };
+        ("points", "Points"),
+        ("curves", "Curves"),
+        ("grid", "Grid"),
+    };
 
-        var d = (CurveElevationLabelAnnotationDefinition)annotation;
-        return new[]
-        {
-            ResultRow.Of(
-                "Curves / Labels",
-                $"{summary.SampleSourceCount} curve(s) -> {summary.GeneratedOutputCount} label(s)",
-                "Curve sources resolved and elevation annotation blocks emitted by the last build."),
-            ResultRow.Of(
-                "Min / Max",
-                summary.GeneratedOutputCount > 0
-                    ? $"{AnalysisFormatting.FormatValue(summary.SampleMinValue, d.ValueFormat)} / {AnalysisFormatting.FormatValue(summary.SampleMaxValue, d.ValueFormat)}"
-                    : "No samples",
-                "Terrain elevations sampled along the source curves during the last build.")
-        };
-    }
+    private static SpotLabelAnnotationDefinition Spot(AnnotationDefinition a) => (SpotLabelAnnotationDefinition)a;
 
-    public override IReadOnlyList<AnnotationParam> Parameters { get; } = new[]
+    private static bool Is(AnnotationDefinition a, SpotPlacement placement) => Spot(a).Placement == placement;
+
+    public static AnnotationParam[] PlacementRows(string measured, string pointsHelp) => new[]
     {
+        AnnotationParam.Choice(
+            "Placement", "Placement", PlacementOptions,
+            a => PlacementOptions[(int)Spot(a).Placement].Key,
+            (a, v) => Spot(a).Placement = v switch
+            {
+                "curves" => SpotPlacement.Curves,
+                "grid" => SpotPlacement.Grid,
+                _ => SpotPlacement.Points,
+            },
+            $"Where the {measured} labels go. Each placement keeps its own sources, so switching back finds them again.",
+            optionHelp: new Dictionary<string, string>
+            {
+                ["points"] = "At picked points, and at the edit points of picked curves.",
+                ["curves"] = "At regular stations along picked curves.",
+                ["grid"] = "On a regular plan grid, inside closed boundaries or across the whole terrain.",
+            },
+            fullRow: true),
         AnnotationParam.Sources(
-            "Sources", "Sources",
-            a => ((CurveElevationLabelAnnotationDefinition)a).Sources,
+            "Sources", "Points",
+            a => Spot(a).Sources,
+            RhinoObjectType.Point | RhinoObjectType.Curve,
+            pointsHelp,
+            visibleWhen: a => Is(a, SpotPlacement.Points)),
+        AnnotationParam.Sources(
+            "CurveSources", "Curves",
+            a => Spot(a).CurveSources,
             RhinoObjectType.Curve,
-            "Curve objects or layers sampled along the terrain at regular stations for elevation labels."),
+            $"Curves sampled at regular stations for {measured} labels.",
+            visibleWhen: a => Is(a, SpotPlacement.Curves)),
         AnnotationParam.Number(
             "Interval", "Interval",
-            a => ((CurveElevationLabelAnnotationDefinition)a).Interval,
-            (a, v) => ((CurveElevationLabelAnnotationDefinition)a).Interval = Math.Max(double.Epsilon, v),
-            "Distance along each source curve between elevation sample stations.",
-            min: 0.0),
-    }.Concat(AnnotationParameterCatalog.BlockAttributeTail<CurveElevationLabelAnnotationDefinition>(
-        MarkerBlockTemplate.AnnotationElevation,
-        "Number of decimal places shown in curve elevation labels.")).ToArray();
-}
-
-internal sealed class CurveSlopeLabelAnnotationDescriptor : AnnotationTypeDescriptor
-{
-    public override string Kind => "curve-slope-label";
-    public override Type DefinitionType => typeof(CurveSlopeLabelAnnotationDefinition);
-    public override string TypeLabel => "Spot Slope (Curve)";
-    public override string MenuLabel => "Spot Slope (Curve)";
-    public override string IconLabel => "C%";
-    public override string? IconName => "AnCurveSlope";
-    public override int AccentArgb => unchecked((int)0xFF2E7D32);
-    public override string Subtitle => "Slope labels sampled along a curve";
-    public override int SortOrder => 2;
-    public override AnnotationDefinition Create() => new CurveSlopeLabelAnnotationDefinition();
-
-    public override TerrainAnalysisSummary? Build(AnalysisBuildContext c, AnnotationDefinition annotation) =>
-        TerrainAnalysisAnnotationBuilder.BuildCurveSlopeSummary(c.Snapshot, c.CurrentMesh, (CurveSlopeLabelAnnotationDefinition)annotation, c.Build, c.ShouldCancel, c.Snapshot.LayerRoles);
-
-    public override IReadOnlyList<ResultRow> DescribeResult(AnnotationDefinition annotation, TerrainAnalysisSummary? summary, ResultFormatter format)
-    {
-        if (summary == null)
-            return new[] { ResultRow.RebuildRequired("Rebuild the terrain to generate curve slope annotation blocks.") };
-
-        var d = (CurveSlopeLabelAnnotationDefinition)annotation;
-        return new[]
-        {
-            ResultRow.Of(
-                "Curves / Labels",
-                $"{summary.SampleSourceCount} curve(s) -> {summary.GeneratedOutputCount} label(s)",
-                "Curve sources resolved and annotation blocks emitted by the last build."),
-            ResultRow.Of(
-                "Min / Avg / Max",
-                summary.GeneratedOutputCount > 0
-                    ? $"{AnalysisFormatting.FormatSlopeValue(summary.SampleMinValue, d.Unit)} / {AnalysisFormatting.FormatSlopeValue(summary.SampleAverageValue, d.Unit)} / {AnalysisFormatting.FormatSlopeValue(summary.SampleMaxValue, d.Unit)}"
-                    : "No samples",
-                "Terrain-projected curve slope values from the last build.")
-        };
-    }
-
-    public override IReadOnlyList<AnnotationParam> Parameters { get; } = new[]
-    {
+            a => Spot(a).Interval,
+            (a, v) => Spot(a).Interval = Math.Max(double.Epsilon, v),
+            "Distance along each curve between stations.",
+            min: 0.0,
+            visibleWhen: a => Is(a, SpotPlacement.Curves)),
         AnnotationParam.Sources(
-            "Sources", "Sources",
-            a => ((CurveSlopeLabelAnnotationDefinition)a).Sources,
+            "Boundaries", "Boundaries",
+            a => Spot(a).Boundaries,
             RhinoObjectType.Curve,
-            "Curve objects or layers projected to the terrain before grade is sampled."),
-        AnnotationParam.Number(
-            "Interval", "Interval",
-            a => ((CurveSlopeLabelAnnotationDefinition)a).Interval,
-            (a, v) => ((CurveSlopeLabelAnnotationDefinition)a).Interval = Math.Max(double.Epsilon, v),
-            "Distance along each source curve between sampled slope spans.",
-            min: 0.0),
-        AnnotationParameterCatalog.SlopeUnitChoice(
-            "Show terrain-projected curve slope labels as percent, promille, ratio, or degrees."),
-        AnnotationParam.Bool(
-            "FlipDirection", "Flip Arrow",
-            a => ((CurveSlopeLabelAnnotationDefinition)a).FlipDirection,
-            (a, v) => ((CurveSlopeLabelAnnotationDefinition)a).FlipDirection = v,
-            "Rotate slope arrows 180 degrees to match alternate office conventions."),
-    }.Concat(AnnotationParameterCatalog.BlockAttributeTail<CurveSlopeLabelAnnotationDefinition>(
-        MarkerBlockTemplate.AnnotationSlope,
-        "Number of decimal places shown in curve slope labels.")).ToArray();
-}
-
-internal sealed class ProjectedElevationLabelAnnotationDescriptor : AnnotationTypeDescriptor
-{
-    public override string Kind => "projected-elevation-label";
-    public override Type DefinitionType => typeof(ProjectedElevationLabelAnnotationDefinition);
-    public override string TypeLabel => "Spot Heights (Points)";
-    public override string MenuLabel => "Spot Heights (Points)";
-    public override string IconLabel => "PZ";
-    public override string? IconName => "AnProjElevation";
-    public override int AccentArgb => unchecked((int)0xFF1565C0);
-    public override string Subtitle => "Elevation labels at picked points";
-    public override int SortOrder => 3;
-    public override AnnotationDefinition Create() => new ProjectedElevationLabelAnnotationDefinition();
-
-    public override TerrainAnalysisSummary? Build(AnalysisBuildContext c, AnnotationDefinition annotation) =>
-        TerrainAnalysisAnnotationBuilder.BuildProjectedElevationSummary(c.Snapshot, c.CurrentMesh, (ProjectedElevationLabelAnnotationDefinition)annotation, c.Build, c.ShouldCancel, c.Snapshot.LayerRoles);
-
-    public override IReadOnlyList<ResultRow> DescribeResult(AnnotationDefinition annotation, TerrainAnalysisSummary? summary, ResultFormatter format)
-    {
-        if (summary == null)
-            return new[] { ResultRow.RebuildRequired("Rebuild the terrain to generate projected elevation annotation blocks.") };
-
-        var d = (ProjectedElevationLabelAnnotationDefinition)annotation;
-        return new[]
-        {
-            ResultRow.Of(
-                "Sources / Labels",
-                $"{summary.SampleSourceCount} source(s) -> {summary.GeneratedOutputCount} label(s)",
-                "Point and curve sources resolved and annotation blocks emitted by the last build."),
-            ResultRow.Of(
-                "Min / Max",
-                summary.GeneratedOutputCount > 0
-                    ? $"{AnalysisFormatting.FormatValue(summary.SampleMinValue, d.ValueFormat)} / {AnalysisFormatting.FormatValue(summary.SampleMaxValue, d.ValueFormat)}"
-                    : "No samples",
-                "Projected terrain elevations from the last build.")
-        };
-    }
-
-    public override IReadOnlyList<AnnotationParam> Parameters { get; } = new[]
-    {
-        AnnotationParam.Sources(
-            "Sources", "Sources",
-            a => ((ProjectedElevationLabelAnnotationDefinition)a).Sources,
-            RhinoObjectType.Point | RhinoObjectType.Curve,
-            "Point objects and curve edit points projected to the terrain for elevation labels."),
-    }.Concat(AnnotationParameterCatalog.BlockAttributeTail<ProjectedElevationLabelAnnotationDefinition>(
-        MarkerBlockTemplate.AnnotationElevation,
-        "Number of decimal places shown in projected elevation labels.")).ToArray();
-}
-
-internal sealed class PointSlopeLabelAnnotationDescriptor : AnnotationTypeDescriptor
-{
-    public override string Kind => "point-slope-label";
-    public override Type DefinitionType => typeof(PointSlopeLabelAnnotationDefinition);
-    public override string TypeLabel => "Spot Slope (Points)";
-    public override string MenuLabel => "Spot Slope (Points)";
-    public override string IconLabel => "P%";
-    public override string? IconName => "AnPointSlope";
-    public override int AccentArgb => unchecked((int)0xFF0288D1);
-    public override string Subtitle => "Slope labels at picked points";
-    public override int SortOrder => 4;
-    public override AnnotationDefinition Create() => new PointSlopeLabelAnnotationDefinition();
-
-    public override TerrainAnalysisSummary? Build(AnalysisBuildContext c, AnnotationDefinition annotation) =>
-        TerrainAnalysisAnnotationBuilder.BuildPointSlopeSummary(c.Snapshot, c.CurrentMesh, (PointSlopeLabelAnnotationDefinition)annotation, c.Build, c.ShouldCancel, c.Snapshot.LayerRoles);
-
-    public override IReadOnlyList<ResultRow> DescribeResult(AnnotationDefinition annotation, TerrainAnalysisSummary? summary, ResultFormatter format)
-    {
-        if (summary == null)
-            return new[] { ResultRow.RebuildRequired("Rebuild the terrain to generate point slope annotation blocks.") };
-
-        var d = (PointSlopeLabelAnnotationDefinition)annotation;
-        return new[]
-        {
-            ResultRow.Of(
-                "Points / Labels",
-                $"{summary.SampleSourceCount} point(s) -> {summary.GeneratedOutputCount} label(s)",
-                "Point sources resolved and annotation blocks emitted by the last build."),
-            ResultRow.Of(
-                "Min / Avg / Max",
-                summary.GeneratedOutputCount > 0
-                    ? $"{AnalysisFormatting.FormatSlopeValue(summary.SampleMinValue, d.Unit)} / {AnalysisFormatting.FormatSlopeValue(summary.SampleAverageValue, d.Unit)} / {AnalysisFormatting.FormatSlopeValue(summary.SampleMaxValue, d.Unit)}"
-                    : "No samples",
-                "Local terrain slope values sampled at the projected points.")
-        };
-    }
-
-    public override IReadOnlyList<AnnotationParam> Parameters { get; } = new[]
-    {
-        AnnotationParam.Sources(
-            "Sources", "Sources",
-            a => ((PointSlopeLabelAnnotationDefinition)a).Sources,
-            RhinoObjectType.Point | RhinoObjectType.Curve,
-            "Point objects and curve edit points projected to the terrain before local slope is sampled."),
-        AnnotationParameterCatalog.SlopeUnitChoice(
-            "Show terrain slope labels as percent, promille, ratio, or degrees."),
-        AnnotationParam.Bool(
-            "FlipDirection", "Flip Arrow",
-            a => ((PointSlopeLabelAnnotationDefinition)a).FlipDirection,
-            (a, v) => ((PointSlopeLabelAnnotationDefinition)a).FlipDirection = v,
-            "Rotate slope arrows 180 degrees to match alternate office conventions."),
-    }.Concat(AnnotationParameterCatalog.BlockAttributeTail<PointSlopeLabelAnnotationDefinition>(
-        MarkerBlockTemplate.AnnotationSlope,
-        "Number of decimal places shown in point slope labels.")).ToArray();
-}
-
-internal sealed class SlopeArrowAnnotationDescriptor : AnnotationTypeDescriptor
-{
-    public override string Kind => "slope-arrows";
-    public override Type DefinitionType => typeof(SlopeArrowAnnotationDefinition);
-    public override string TypeLabel => "Flow Arrows";
-    public override string MenuLabel => "Flow Arrows";
-    public override string IconLabel => "FA";
-    public override string? IconName => "AnFlowArrows";
-    public override int AccentArgb => unchecked((int)0xFF0288D1);
-    public override string Subtitle => "Downhill arrows on a grid";
-    public override int SortOrder => 5;
-    public override AnnotationDefinition Create() => new SlopeArrowAnnotationDefinition();
-
-    public override TerrainAnalysisSummary? Build(AnalysisBuildContext c, AnnotationDefinition annotation) =>
-        TerrainAnalysisAnnotationBuilder.BuildSlopeArrowSummary(c.Snapshot, c.CurrentMesh, (SlopeArrowAnnotationDefinition)annotation, c.Build, c.ShouldCancel, c.Snapshot.LayerRoles);
-
-    public override IReadOnlyList<ResultRow> DescribeResult(AnnotationDefinition annotation, TerrainAnalysisSummary? summary, ResultFormatter format)
-    {
-        if (summary == null)
-            return new[] { ResultRow.RebuildRequired("Rebuild the terrain to generate flow arrows.") };
-
-        var d = (SlopeArrowAnnotationDefinition)annotation;
-        return new[]
-        {
-            ResultRow.Of(
-                "Arrows",
-                $"{summary.GeneratedOutputCount} arrow(s)",
-                "Flow arrows emitted across the terrain by the last build."),
-            ResultRow.Of(
-                "Min / Avg / Max",
-                summary.GeneratedOutputCount > 0
-                    ? $"{AnalysisFormatting.FormatSlopeValue(summary.SampleMinValue, d.Unit)} / {AnalysisFormatting.FormatSlopeValue(summary.SampleAverageValue, d.Unit)} / {AnalysisFormatting.FormatSlopeValue(summary.SampleMaxValue, d.Unit)}"
-                    : "No samples",
-                "Slope magnitudes sampled across the grid during the last build.")
-        };
-    }
-
-    public override IReadOnlyList<AnnotationParam> Parameters { get; } = new[]
-    {
-        AnnotationParam.Sources(
-            "Sources", "Sources",
-            a => ((SlopeArrowAnnotationDefinition)a).Sources,
-            RhinoObjectType.Curve,
-            "Optional closed boundary curves limiting where flow arrows are placed. Leave empty to cover the whole terrain."),
+            "Closed plan curves limiting the grid. Leave empty to cover the whole terrain.",
+            visibleWhen: a => Is(a, SpotPlacement.Grid)),
         AnnotationParam.Number(
             "GridSpacing", "Grid Spacing",
-            a => ((SlopeArrowAnnotationDefinition)a).GridSpacing,
-            (a, v) => ((SlopeArrowAnnotationDefinition)a).GridSpacing = Math.Max(double.Epsilon, v),
-            "Spacing of the sampling grid across the terrain. Smaller spacing = more arrows.",
-            min: 0.0),
-        AnnotationParameterCatalog.SlopeUnitChoice(
-            "Show flow-arrow slope labels as percent, promille, ratio, or degrees."),
-        AnnotationParam.Bool(
-            "FlipDirection", "Flip Arrow",
-            a => ((SlopeArrowAnnotationDefinition)a).FlipDirection,
-            (a, v) => ((SlopeArrowAnnotationDefinition)a).FlipDirection = v,
-            "Rotate arrows 180 degrees (point uphill instead of downhill)."),
-    }.Concat(AnnotationParameterCatalog.BlockAttributeTail<SlopeArrowAnnotationDefinition>(
-        MarkerBlockTemplate.AnnotationSlope,
-        "Number of decimal places shown on flow-arrow slope labels.")).ToArray();
+            a => Spot(a).GridSpacing,
+            (a, v) => Spot(a).GridSpacing = Math.Max(double.Epsilon, v),
+            "Distance between grid nodes. Smaller spacing gives more labels.",
+            min: 0.0,
+            visibleWhen: a => Is(a, SpotPlacement.Grid)),
+    };
+
+    /// <summary>The card's line before a build: what it reads, and how densely.</summary>
+    public static string Placed(SpotLabelAnnotationDefinition spot) => spot.Placement switch
+    {
+        SpotPlacement.Curves => SummaryText.Join(SummaryText.Sources(spot.CurveSources), $"every {spot.Interval:G4}"),
+        SpotPlacement.Grid => SummaryText.Join(
+            spot.Boundaries.HasReferences ? SummaryText.Sources(spot.Boundaries) : "whole terrain",
+            $"{spot.GridSpacing:G4} grid"),
+        _ => SummaryText.Sources(spot.Sources),
+    };
+
+    /// <summary>The first Results row: what resolved, and how many labels it made.</summary>
+    public static ResultRow SourcesRow(SpotLabelAnnotationDefinition spot, TerrainAnalysisSummary summary)
+    {
+        int sources = summary.SampleSourceCount;
+        int labels = summary.GeneratedOutputCount;
+        return spot.Placement switch
+        {
+            SpotPlacement.Curves => ResultRow.Of(
+                "Curves / Labels", $"{sources} curve(s) -> {labels} label(s)",
+                "Curves resolved and labels placed by the last build."),
+            SpotPlacement.Grid => ResultRow.Of(
+                "Grid / Labels",
+                sources > 0 ? $"{sources} boundary(ies) -> {labels} label(s)" : $"Whole terrain -> {labels} label(s)",
+                "Boundaries resolved and grid labels placed by the last build."),
+            _ => ResultRow.Of(
+                "Points / Labels", $"{sources} source(s) -> {labels} label(s)",
+                "Points and curves resolved and labels placed by the last build."),
+        };
+    }
+
+    public static AnnotationParam LabelSettings() => AnnotationParam.Section("labels", "Label Settings");
+}
+
+internal sealed class SpotHeightsAnnotationDescriptor : AnnotationTypeDescriptor
+{
+    public override string Kind => "spot-heights";
+    public override Type DefinitionType => typeof(SpotHeightsAnnotationDefinition);
+    public override string TypeLabel => "Spot Heights";
+    public override string MenuLabel => "Spot Heights";
+    public override string IconLabel => "Z";
+    public override string? IconName => "AnProjElevation";
+    public override int AccentArgb => unchecked((int)0xFF1565C0);
+    public override string Subtitle => "Elevation labels at points, along curves or on a grid";
+    public override int SortOrder => 1;
+    public override AnnotationDefinition Create() => new SpotHeightsAnnotationDefinition();
+
+    public override string Summarize(TerrainDefinition terrain, AnnotationDefinition definition, TerrainAnalysisSummary? summary, ResultFormatter format)
+    {
+        var spot = (SpotHeightsAnnotationDefinition)definition;
+        return summary == null
+            ? SpotLabelCatalog.Placed(spot)
+            : summary.GeneratedOutputCount > 0
+                ? $"{summary.GeneratedOutputCount} labels · {AnalysisFormatting.FormatValue(summary.SampleMinValue, spot.ValueFormat)} to {AnalysisFormatting.FormatValue(summary.SampleMaxValue, spot.ValueFormat)}"
+                : "0 labels";
+    }
+
+    public override TerrainAnalysisSummary? Build(AnalysisBuildContext c, AnnotationDefinition annotation) =>
+        TerrainAnalysisAnnotationBuilder.BuildSpotHeightsSummary(c.Snapshot, c.CurrentMesh, (SpotHeightsAnnotationDefinition)annotation, c.Build, c.ShouldCancel, c.Snapshot.LayerRoles);
+
+    public override IReadOnlyList<ResultRow> DescribeResult(AnnotationDefinition annotation, TerrainAnalysisSummary? summary, ResultFormatter format)
+    {
+        if (summary == null)
+            return new[] { ResultRow.RebuildRequired("Rebuild the terrain to place the spot height labels.") };
+
+        var spot = (SpotHeightsAnnotationDefinition)annotation;
+        return new[]
+        {
+            SpotLabelCatalog.SourcesRow(spot, summary),
+            ResultRow.Of(
+                "Min / Max",
+                summary.GeneratedOutputCount > 0
+                    ? $"{AnalysisFormatting.FormatValue(summary.SampleMinValue, spot.ValueFormat)} / {AnalysisFormatting.FormatValue(summary.SampleMaxValue, spot.ValueFormat)}"
+                    : "No samples",
+                "Terrain elevations at the labels from the last build.")
+        };
+    }
+
+    public override IReadOnlyList<AnnotationParam> Parameters { get; } =
+        SpotLabelCatalog.PlacementRows(
+                "elevation",
+                "Points, and curves whose edit points are labelled, projected onto the terrain.")
+            .Append(SpotLabelCatalog.LabelSettings())
+            .Concat(AnnotationParameterCatalog.BlockAttributeTail<SpotHeightsAnnotationDefinition>(
+                MarkerBlockTemplate.AnnotationElevation,
+                "Number of decimal places shown in spot height labels."))
+            .ToArray();
+}
+
+internal sealed class SpotSlopeAnnotationDescriptor : AnnotationTypeDescriptor
+{
+    public override string Kind => "spot-slope";
+    public override Type DefinitionType => typeof(SpotSlopeAnnotationDefinition);
+    public override string TypeLabel => "Spot Slope";
+    public override string MenuLabel => "Spot Slope";
+    public override string IconLabel => "%";
+    public override string? IconName => "AnPointSlope";
+    public override int AccentArgb => unchecked((int)0xFF0288D1);
+    public override string Subtitle => "Slope labels and downhill arrows at points, along curves or on a grid";
+    public override int SortOrder => 2;
+    public override AnnotationDefinition Create() => new SpotSlopeAnnotationDefinition();
+
+    public override string Summarize(TerrainDefinition terrain, AnnotationDefinition definition, TerrainAnalysisSummary? summary, ResultFormatter format)
+    {
+        var spot = (SpotSlopeAnnotationDefinition)definition;
+        return summary == null
+            ? SpotLabelCatalog.Placed(spot)
+            : summary.GeneratedOutputCount > 0
+                ? $"{summary.GeneratedOutputCount} labels · {AnalysisFormatting.FormatSlopeValue(summary.SampleAverageValue, spot.Unit)} avg"
+                : "0 labels";
+    }
+
+    public override TerrainAnalysisSummary? Build(AnalysisBuildContext c, AnnotationDefinition annotation) =>
+        TerrainAnalysisAnnotationBuilder.BuildSpotSlopeSummary(c.Snapshot, c.CurrentMesh, (SpotSlopeAnnotationDefinition)annotation, c.Build, c.ShouldCancel, c.Snapshot.LayerRoles);
+
+    public override IReadOnlyList<ResultRow> DescribeResult(AnnotationDefinition annotation, TerrainAnalysisSummary? summary, ResultFormatter format)
+    {
+        if (summary == null)
+            return new[] { ResultRow.RebuildRequired("Rebuild the terrain to place the spot slope labels.") };
+
+        var spot = (SpotSlopeAnnotationDefinition)annotation;
+        return new[]
+        {
+            SpotLabelCatalog.SourcesRow(spot, summary),
+            ResultRow.Of(
+                "Min / Avg / Max",
+                summary.GeneratedOutputCount > 0
+                    ? $"{AnalysisFormatting.FormatSlopeValue(summary.SampleMinValue, spot.Unit)} / {AnalysisFormatting.FormatSlopeValue(summary.SampleAverageValue, spot.Unit)} / {AnalysisFormatting.FormatSlopeValue(summary.SampleMaxValue, spot.Unit)}"
+                    : "No samples",
+                "Terrain slope at the labels from the last build.")
+        };
+    }
+
+    public override IReadOnlyList<AnnotationParam> Parameters { get; } =
+        SpotLabelCatalog.PlacementRows(
+                "slope",
+                "Points, and curves whose edit points are labelled, projected onto the terrain before slope is read.")
+            .Concat(new[]
+            {
+                AnnotationParameterCatalog.SlopeUnitChoice(
+                    "Show slope labels as percent, promille, ratio, or degrees."),
+                AnnotationParam.Bool(
+                    "FlipDirection", "Flip Arrow",
+                    a => ((SpotSlopeAnnotationDefinition)a).FlipDirection,
+                    (a, v) => ((SpotSlopeAnnotationDefinition)a).FlipDirection = v,
+                    "Turn the arrows 180 degrees, to point uphill, for offices that draw them that way."),
+                SpotLabelCatalog.LabelSettings(),
+            })
+            .Concat(AnnotationParameterCatalog.BlockAttributeTail<SpotSlopeAnnotationDefinition>(
+                MarkerBlockTemplate.AnnotationSlope,
+                "Number of decimal places shown in spot slope labels."))
+            .ToArray();
 }
 
 internal sealed class GradeBetweenPointsAnnotationDescriptor : AnnotationTypeDescriptor
@@ -559,10 +552,10 @@ internal sealed class GradeBetweenPointsAnnotationDescriptor : AnnotationTypeDes
     public override IReadOnlyList<AnnotationParam> Parameters { get; } = new[]
     {
         AnnotationParam.Sources(
-            "Sources", "Sources",
+            "Sources", "Curves",
             a => ((GradeBetweenPointsAnnotationDefinition)a).Sources,
             RhinoObjectType.Curve,
-            "Lines whose two endpoints define the grade. Each line emits one callout."),
+            "Curves whose two endpoints, projected onto the terrain, define the grade. Each curve gives one callout."),
         AnnotationParam.Choice(
             "ValueFormat", "Decimals", null,
             a => ((GradeBetweenPointsAnnotationDefinition)a).ValueFormat,
@@ -595,6 +588,14 @@ internal sealed class GradeBetweenPointsAnnotationDescriptor : AnnotationTypeDes
 internal sealed class TerrainSectionAnnotationDescriptor : AnnotationTypeDescriptor
 {
     public override string Kind => "terrain-section";
+
+    public override string Summarize(TerrainDefinition terrain, AnnotationDefinition definition, TerrainAnalysisSummary? summary, ResultFormatter format)
+    {
+        var section = (TerrainSectionAnnotationDefinition)definition;
+        return summary != null
+            ? $"{summary.GeneratedOutputCount} objects · {summary.SampleSourceCount} cuts"
+            : $"{SummaryText.Sources(section.Sources)} · profile";
+    }
     public override Type DefinitionType => typeof(TerrainSectionAnnotationDefinition);
     public override string TypeLabel => "Section Cut";
     public override string MenuLabel => "Section Cut";
@@ -622,43 +623,56 @@ internal sealed class TerrainSectionAnnotationDescriptor : AnnotationTypeDescrip
         };
     }
 
-    public override IReadOnlyList<AnnotationParam> Parameters { get; } = new AnnotationParam[]
+    public override IReadOnlyList<AnnotationParam> Parameters { get; } = ParameterSections.Arrange(new AnnotationParam[]
     {
+        AnnotationParam.Sources(
+            "Sources", "Section Line",
+            a => ((TerrainSectionAnnotationDefinitionBase)a).Sources,
+            RhinoObjectType.Curve,
+            "Curves the terrain is cut along. Each curve produces one section."),
+        AnnotationParameterCatalog.SectionInsertionPoint(),
         AnnotationParameterCatalog.VerticalExaggeration(),
         AnnotationParam.Number(
-            "StationTickInterval", "Station Tick Interval",
+            "StationTickInterval", "Tick Interval",
             a => ((TerrainSectionAnnotationDefinition)a).StationTickInterval,
             (a, v) => ((TerrainSectionAnnotationDefinition)a).StationTickInterval = Math.Max(0.0, v),
             "Spacing between station tick marks along the profile baseline. 0 disables ticks.",
             min: 0.0),
         AnnotationParam.Number(
-            "ElevationGridInterval", "Elevation Grid Interval",
+            "ElevationGridInterval", "Elevation Interval",
             a => ((TerrainSectionAnnotationDefinition)a).ElevationGridInterval,
             (a, v) => ((TerrainSectionAnnotationDefinition)a).ElevationGridInterval = Math.Max(0.0, v),
             "Vertical spacing of horizontal grid lines drawn on the section. 0 = auto.",
             min: 0.0),
         AnnotationParam.Bool(
-            "ShowStationTicks", "Show Station Ticks",
+            "ShowStationTicks", "Tick Marks",
             a => ((TerrainSectionAnnotationDefinition)a).ShowStationTicks,
             (a, v) => ((TerrainSectionAnnotationDefinition)a).ShowStationTicks = v,
             "Draw tick marks at each station along the profile baseline."),
         AnnotationParam.Bool(
-            "ShowElevationGrid", "Show Elevation Grid",
+            "ShowElevationGrid", "Grid Lines",
             a => ((TerrainSectionAnnotationDefinition)a).ShowElevationGrid,
             (a, v) => ((TerrainSectionAnnotationDefinition)a).ShowElevationGrid = v,
             "Draw horizontal grid lines at each elevation increment."),
         AnnotationParam.Bool(
-            "ShowStationLabels", "Show Station Labels",
+            "ShowStationLabels", "Distance Labels",
             a => ((TerrainSectionAnnotationDefinition)a).ShowStationLabels,
             (a, v) => ((TerrainSectionAnnotationDefinition)a).ShowStationLabels = v,
             "Print station distance text below each tick."),
-    }.Concat(AnnotationParameterCatalog.SectionLabelling()).ToArray();
+    }.Concat(AnnotationParameterCatalog.SectionLabelling()).Append(AnnotationParameterCatalog.TextSize()).Concat(ComparisonParameters.Sections()),
+        // Design review Steps 30-31: scale and Section Marks on the card, the drawing's labels closed below.
+        new ParameterGroup(null, "", new[] { "Sources", "InsertionPoint", "VerticalExaggeration", "ShowPlanLabels" }),
+        new ParameterGroup("sectionAnnotation", "Section Annotation", new[]
+        {
+            "ShowSectionTitle", "ShowStationLabels", "ShowStationTicks", "StationTickInterval",
+            "ShowElevationLabels", "ShowElevationGrid", "ElevationGridInterval", AnnotationParameterCatalog.TextSizeKey,
+        }));
 
     public override string? DescribeBlocker(TerrainDefinition terrain, AnnotationDefinition annotation)
     {
         var section = (TerrainSectionAnnotationDefinitionBase)annotation;
         if (!section.Sources.HasReferences)
-            return "Needs a curve to cut along — set “Sources” below.";
+            return "Needs a curve to cut along — set “Section Line” below.";
 
         // With no explicit reference a section shades against the terrain's initial triangulation, so the
         // only real gap is a terrain nothing has graded yet.
@@ -685,6 +699,14 @@ internal sealed class TerrainSectionAnnotationDescriptor : AnnotationTypeDescrip
 internal sealed class CrossSectionStationAnnotationDescriptor : AnnotationTypeDescriptor
 {
     public override string Kind => "cross-section-station";
+
+    public override string Summarize(TerrainDefinition terrain, AnnotationDefinition definition, TerrainAnalysisSummary? summary, ResultFormatter format)
+    {
+        var section = (CrossSectionStationAnnotationDefinition)definition;
+        return summary != null
+            ? $"{summary.GeneratedOutputCount} objects · {section.StationInterval:G4} every"
+            : $"{SummaryText.Sources(section.Sources)} · {section.StationInterval:G4} stations";
+    }
     public override Type DefinitionType => typeof(CrossSectionStationAnnotationDefinition);
     public override string TypeLabel => "Cross-Sections";
     public override string MenuLabel => "Cross-Sections";
@@ -712,8 +734,14 @@ internal sealed class CrossSectionStationAnnotationDescriptor : AnnotationTypeDe
         };
     }
 
-    public override IReadOnlyList<AnnotationParam> Parameters { get; } = new AnnotationParam[]
+    public override IReadOnlyList<AnnotationParam> Parameters { get; } = ParameterSections.Arrange(new AnnotationParam[]
     {
+        AnnotationParam.Sources(
+            "Sources", "Paths",
+            a => ((TerrainSectionAnnotationDefinitionBase)a).Sources,
+            RhinoObjectType.Curve,
+            "Curves cut across at every Station Interval; Section Width is the total width of each cut."),
+        AnnotationParameterCatalog.SectionInsertionPoint(),
         AnnotationParam.Number(
             "StationInterval", "Station Interval",
             a => ((CrossSectionStationAnnotationDefinition)a).StationInterval,
@@ -721,58 +749,68 @@ internal sealed class CrossSectionStationAnnotationDescriptor : AnnotationTypeDe
             "Distance between cross-section stations along the alignment.",
             min: 0.0),
         AnnotationParam.Number(
-            "CrossSectionWidth", "Cross-Section Width",
+            "CrossSectionWidth", "Section Width",
             a => ((CrossSectionStationAnnotationDefinition)a).CrossSectionWidth,
             (a, v) => ((CrossSectionStationAnnotationDefinition)a).CrossSectionWidth = Math.Max(double.Epsilon, v),
             "Total perpendicular width of each cross-section cut, centered on the alignment.",
             min: 0.0),
         AnnotationParameterCatalog.VerticalExaggeration(),
         AnnotationParam.Number(
-            "GridColumns", "Grid Columns",
+            "GridColumns", "Columns",
             a => ((CrossSectionStationAnnotationDefinition)a).GridColumns,
             (a, v) => ((CrossSectionStationAnnotationDefinition)a).GridColumns = Math.Max(1, (int)Math.Round(v)),
             "Number of columns in the unrolled cross-section grid layout.",
             min: 1, decimalPlaces: 0),
         AnnotationParam.Number(
-            "GridCellWidth", "Grid Cell Width",
+            "GridCellWidth", "Cell Width",
             a => ((CrossSectionStationAnnotationDefinition)a).GridCellWidth,
             (a, v) => ((CrossSectionStationAnnotationDefinition)a).GridCellWidth = Math.Max(0.0, v),
             "Override cell width for the grid layout. 0 = auto.",
             min: 0.0),
         AnnotationParam.Number(
-            "GridCellHeight", "Grid Cell Height",
+            "GridCellHeight", "Cell Height",
             a => ((CrossSectionStationAnnotationDefinition)a).GridCellHeight,
             (a, v) => ((CrossSectionStationAnnotationDefinition)a).GridCellHeight = Math.Max(0.0, v),
             "Override cell height for the grid layout. 0 = auto.",
             min: 0.0),
         AnnotationParam.Bool(
-            "ShowCutLinesOnTerrain", "Cut Lines on Terrain",
+            "ShowCutLinesOnTerrain", "Cut Lines",
             a => ((CrossSectionStationAnnotationDefinition)a).ShowCutLinesOnTerrain,
             (a, v) => ((CrossSectionStationAnnotationDefinition)a).ShowCutLinesOnTerrain = v,
             "Draw the perpendicular cut polylines on the terrain at each station."),
         AnnotationParam.Bool(
-            "LabelStations", "Label Stations",
+            "LabelStations", "Distance Labels",
             a => ((CrossSectionStationAnnotationDefinition)a).LabelStations,
             (a, v) => ((CrossSectionStationAnnotationDefinition)a).LabelStations = v,
             "Print station distance text on each unrolled cross-section."),
         AnnotationParam.Bool(
-            "ShowElevationGrid", "Show Elevation Grid",
+            "ShowElevationGrid", "Grid Lines",
             a => ((CrossSectionStationAnnotationDefinition)a).ShowElevationGrid,
             (a, v) => ((CrossSectionStationAnnotationDefinition)a).ShowElevationGrid = v,
             "Draw horizontal grid lines on each unrolled cross-section."),
         AnnotationParam.Number(
-            "ElevationGridInterval", "Elevation Grid Interval",
+            "ElevationGridInterval", "Elevation Interval",
             a => ((CrossSectionStationAnnotationDefinition)a).ElevationGridInterval,
             (a, v) => ((CrossSectionStationAnnotationDefinition)a).ElevationGridInterval = Math.Max(0.0, v),
             "Vertical spacing of grid lines on the unrolled cross-sections. 0 = auto.",
             min: 0.0),
-    }.Concat(AnnotationParameterCatalog.SectionLabelling()).ToArray();
+    }.Concat(AnnotationParameterCatalog.SectionLabelling()).Append(AnnotationParameterCatalog.TextSize()).Concat(ComparisonParameters.Sections()),
+        // Design review Steps 24-29: the cut on the card; what it marks in plan, what the drawing
+        // carries and how the drawings are laid out each sit closed below.
+        new ParameterGroup(null, "", new[] { "Sources", "InsertionPoint", "StationInterval", "CrossSectionWidth", "VerticalExaggeration" }),
+        new ParameterGroup("planAnnotation", "Plan Annotation", new[] { "ShowCutLinesOnTerrain", "ShowPlanLabels" }),
+        new ParameterGroup("sectionAnnotation", "Section Annotation", new[]
+        {
+            "ShowSectionTitle", "LabelStations", "ShowElevationLabels", "ShowElevationGrid", "ElevationGridInterval",
+            AnnotationParameterCatalog.TextSizeKey,
+        }),
+        new ParameterGroup("layoutOverrides", "Layout Overrides", new[] { "GridColumns", "GridCellWidth", "GridCellHeight" }));
 
     public override string? DescribeBlocker(TerrainDefinition terrain, AnnotationDefinition annotation)
     {
         var section = (TerrainSectionAnnotationDefinitionBase)annotation;
         if (!section.Sources.HasReferences)
-            return "Needs an alignment curve to sample — set “Sources” below.";
+            return "Needs a curve to cut across — set “Paths” below.";
 
         // With no explicit reference a section shades against the terrain's initial triangulation, so the
         // only real gap is a terrain nothing has graded yet.
@@ -799,6 +837,14 @@ internal sealed class CrossSectionStationAnnotationDescriptor : AnnotationTypeDe
 internal sealed class LongitudinalSectionAnnotationDescriptor : AnnotationTypeDescriptor
 {
     public override string Kind => "longitudinal-section";
+
+    public override string Summarize(TerrainDefinition terrain, AnnotationDefinition definition, TerrainAnalysisSummary? summary, ResultFormatter format)
+    {
+        var section = (LongitudinalSectionAnnotationDefinition)definition;
+        return summary != null
+            ? $"{summary.GeneratedOutputCount} objects · V exag {section.VerticalExaggeration:G3}"
+            : $"{SummaryText.Sources(section.Sources)} · sample {(section.SampleInterval > 0.0 ? section.SampleInterval.ToString("G4") : "Auto")}";
+    }
     public override Type DefinitionType => typeof(LongitudinalSectionAnnotationDefinition);
     public override string TypeLabel => "Section Along Curve";
     public override string MenuLabel => "Section Along Curve";
@@ -826,49 +872,83 @@ internal sealed class LongitudinalSectionAnnotationDescriptor : AnnotationTypeDe
         };
     }
 
-    public override IReadOnlyList<AnnotationParam> Parameters { get; } = new AnnotationParam[]
+    /// <summary>The spacing a blank Sample Interval samples at: the terrain's Detail Size, as the build reads it.</summary>
+    private static double AutoSampleInterval(TerrainDefinition terrain)
     {
-        AnnotationParam.Number(
+        if (global::Rhino.RhinoDoc.ActiveDoc is not { } doc)
+            return 0.0;
+
+        try
+        {
+            double tolerance = doc.ModelAbsoluteTolerance;
+            return Math.Max(
+                TerrainTolerancePolicy.Create(terrain.GlobalTolerance, tolerance, doc.ModelUnitSystem).DetailSize,
+                tolerance * 10.0);
+        }
+        catch (InvalidOperationException)
+        {
+            return 0.0;
+        }
+    }
+
+    public override IReadOnlyList<AnnotationParam> Parameters { get; } = ParameterSections.Arrange(new AnnotationParam[]
+    {
+        AnnotationParam.Sources(
+            "Sources", "Path",
+            a => ((TerrainSectionAnnotationDefinitionBase)a).Sources,
+            RhinoObjectType.Curve,
+            "Curves the terrain is sampled along. Elevation is read at every Sample Interval."),
+        AnnotationParameterCatalog.SectionInsertionPoint(),
+        AnnotationParam.OptionalNumber(
             "SampleInterval", "Sample Interval",
             a => ((LongitudinalSectionAnnotationDefinition)a).SampleInterval,
-            (a, v) => ((LongitudinalSectionAnnotationDefinition)a).SampleInterval = Math.Max(double.Epsilon, v),
-            "Distance between elevation samples along the curve.",
-            min: 0.0),
+            (a, v) => ((LongitudinalSectionAnnotationDefinition)a).SampleInterval = Math.Max(0.0, v),
+            _ => 0.0,
+            "Distance between elevation samples along the curve. Leave blank to follow the terrain's " +
+            "Detail Size (shown greyed), so the profile is as fine as the terrain; type a distance to fix it.",
+            inheritedValueFromTerrain: (terrain, _) => AutoSampleInterval(terrain)),
         AnnotationParameterCatalog.VerticalExaggeration(),
         AnnotationParam.Bool(
-            "ShowBaseline", "Show Baseline",
+            "ShowBaseline", "Baseline",
             a => ((LongitudinalSectionAnnotationDefinition)a).ShowBaseline,
             (a, v) => ((LongitudinalSectionAnnotationDefinition)a).ShowBaseline = v,
             "Draw the horizontal baseline (zero elevation reference) under the profile."),
         AnnotationParam.Bool(
-            "ShowElevationGrid", "Show Elevation Grid",
+            "ShowElevationGrid", "Grid Lines",
             a => ((LongitudinalSectionAnnotationDefinition)a).ShowElevationGrid,
             (a, v) => ((LongitudinalSectionAnnotationDefinition)a).ShowElevationGrid = v,
             "Draw horizontal grid lines at each elevation increment."),
         AnnotationParam.Number(
-            "ElevationGridInterval", "Elevation Grid Interval",
+            "ElevationGridInterval", "Elevation Interval",
             a => ((LongitudinalSectionAnnotationDefinition)a).ElevationGridInterval,
             (a, v) => ((LongitudinalSectionAnnotationDefinition)a).ElevationGridInterval = Math.Max(0.0, v),
             "Vertical spacing of horizontal grid lines. 0 = auto.",
             min: 0.0),
         AnnotationParam.Bool(
-            "ShowStationLabels", "Show Station Labels",
+            "ShowStationLabels", "Distance Labels",
             a => ((LongitudinalSectionAnnotationDefinition)a).ShowStationLabels,
             (a, v) => ((LongitudinalSectionAnnotationDefinition)a).ShowStationLabels = v,
             "Print station distance text along the baseline."),
         AnnotationParam.Number(
-            "StationLabelInterval", "Station Label Interval",
+            "StationLabelInterval", "Distance Interval",
             a => ((LongitudinalSectionAnnotationDefinition)a).StationLabelInterval,
             (a, v) => ((LongitudinalSectionAnnotationDefinition)a).StationLabelInterval = Math.Max(0.0, v),
             "Spacing between station labels. 0 = auto (~quarter of total length).",
             min: 0.0),
-    }.Concat(AnnotationParameterCatalog.SectionLabelling()).ToArray();
+    }.Concat(AnnotationParameterCatalog.SectionLabelling()).Append(AnnotationParameterCatalog.TextSize()).Concat(ComparisonParameters.Sections()),
+        // Design review Step 32: sampling, scale and Section Marks on the card, the drawing's labels closed below.
+        new ParameterGroup(null, "", new[] { "Sources", "InsertionPoint", "SampleInterval", "VerticalExaggeration", "ShowPlanLabels" }),
+        new ParameterGroup("sectionAnnotation", "Section Annotation", new[]
+        {
+            "ShowSectionTitle", "ShowBaseline", "ShowStationLabels", "StationLabelInterval",
+            "ShowElevationLabels", "ShowElevationGrid", "ElevationGridInterval", AnnotationParameterCatalog.TextSizeKey,
+        }));
 
     public override string? DescribeBlocker(TerrainDefinition terrain, AnnotationDefinition annotation)
     {
         var section = (TerrainSectionAnnotationDefinitionBase)annotation;
         if (!section.Sources.HasReferences)
-            return "Needs a curve to sample along — set “Sources” below.";
+            return "Needs a curve to sample along — set “Path” below.";
 
         // With no explicit reference a section shades against the terrain's initial triangulation, so the
         // only real gap is a terrain nothing has graded yet.
@@ -902,6 +982,13 @@ internal sealed class LongitudinalSectionAnnotationDescriptor : AnnotationTypeDe
 internal sealed class ReportTableAnnotationDescriptor : AnnotationTypeDescriptor
 {
     public override string Kind => "report-table";
+
+    public override string Summarize(TerrainDefinition terrain, AnnotationDefinition definition, TerrainAnalysisSummary? summary, ResultFormatter format)
+    {
+        return summary != null
+            ? $"{summary.ReportTableCount} tables · {summary.ReportRowCount} rows"
+            : "measured quantities";
+    }
     public override Type DefinitionType => typeof(ReportTableAnnotationDefinition);
     public override string TypeLabel => "Report Table";
     public override string MenuLabel => "Report Table";
@@ -928,7 +1015,7 @@ internal sealed class ReportTableAnnotationDescriptor : AnnotationTypeDescriptor
             ResultRow.Of(
                 "Drawn",
                 summary.ReportRowCount > 0
-                    ? $"{summary.ReportTableCount} table(s) | {summary.ReportRowCount} row(s)"
+                    ? $"{summary.ReportTableCount} table(s) · {summary.ReportRowCount} row(s)"
                     : "Nothing measured yet",
                 "Tables and data rows drawn by the last build. A section that measured nothing is not drawn.")
         };
@@ -936,6 +1023,19 @@ internal sealed class ReportTableAnnotationDescriptor : AnnotationTypeDescriptor
 
     public override IReadOnlyList<AnnotationParam> Parameters { get; } = new[]
     {
+        AnnotationParam.InsertionPoint(
+            "InsertionPoint",
+            a => (((ReportTableAnnotationDefinition)a).HasInsertionPlane, ((ReportTableAnnotationDefinition)a).InsertionOriginX,
+                ((ReportTableAnnotationDefinition)a).InsertionOriginY, ((ReportTableAnnotationDefinition)a).InsertionOriginZ),
+            (a, point) =>
+            {
+                var table = (ReportTableAnnotationDefinition)a;
+                table.HasInsertionPlane = point.HasValue;
+                if (point is { } p)
+                    (table.InsertionOriginX, table.InsertionOriginY, table.InsertionOriginZ) = (p.X, p.Y, p.Z);
+            },
+            "Top-left corner of the drawn table. Pick it, or leave it to place itself beside the terrain."),
+        AnnotationParam.Section("contents", "Contents", expanded: true),
         AnnotationParam.Bool(
             "IncludeOverview", "Terrain",
             a => ((ReportTableAnnotationDefinition)a).IncludeOverview,
@@ -945,39 +1045,47 @@ internal sealed class ReportTableAnnotationDescriptor : AnnotationTypeDescriptor
             "IncludeZones", "Zone Schedule",
             a => ((ReportTableAnnotationDefinition)a).IncludeZones,
             (a, v) => ((ReportTableAnnotationDefinition)a).IncludeZones = v,
-            "Area, levels, slope and earthwork per zone, with a totals row."),
+            "Area, levels, slope and earthwork per zone, with a totals row.",
+            appliesTo: t => t.Zones.Count > 0),
         AnnotationParam.Bool(
             "IncludeEarthworks", "Earthworks",
             a => ((ReportTableAnnotationDefinition)a).IncludeEarthworks,
             (a, v) => ((ReportTableAnnotationDefinition)a).IncludeEarthworks = v,
-            "Cut, fill and net volume from each Earthworks analysis on this terrain."),
+            "Cut, fill and net volume from each Earthworks analysis on this terrain.",
+            appliesTo: t => t.Analyses.OfType<EarthworkAnalysisDefinition>().Any()),
         AnnotationParam.Bool(
             "IncludePonding", "Ponding",
             a => ((ReportTableAnnotationDefinition)a).IncludePonding,
             (a, v) => ((ReportTableAnnotationDefinition)a).IncludePonding = v,
-            "Pond count, impounded volume, depth and water area from each Ponding analysis."),
+            "Pond count, impounded volume, depth and water area from each Ponding analysis.",
+            appliesTo: t => t.Analyses.OfType<PondingAnalysisDefinition>().Any()),
         AnnotationParam.Bool(
             "IncludeCatchments", "Catchments",
             a => ((ReportTableAnnotationDefinition)a).IncludeCatchments,
             (a, v) => ((ReportTableAnnotationDefinition)a).IncludeCatchments = v,
-            "Basin and closed-depression counts from each Catchments analysis."),
+            "Basin and closed-depression counts from each Catchments analysis.",
+            appliesTo: t => t.Analyses.OfType<CatchmentAnalysisDefinition>().Any()),
         AnnotationParam.Bool(
             "IncludeGradientCompliance", "Gradient Compliance",
             a => ((ReportTableAnnotationDefinition)a).IncludeGradientCompliance,
             (a, v) => ((ReportTableAnnotationDefinition)a).IncludeGradientCompliance = v,
             "Level area checked, the area over the limit and the steepest slope from each Gradient " +
-            "Compliance analysis, with the standard it was checked against."),
+            "Compliance analysis, with the standard it was checked against.",
+            appliesTo: t => t.Analyses.OfType<GradientComplianceAnalysisDefinition>().Any()),
         AnnotationParam.Bool(
             "IncludeLandforms", "Landforms",
             a => ((ReportTableAnnotationDefinition)a).IncludeLandforms,
             (a, v) => ((ReportTableAnnotationDefinition)a).IncludeLandforms = v,
             "Plan area and share of each landform (ridge, valley, shoulder and the rest) from each " +
-            "Curvature analysis, with the landform size it was measured at."),
+            "Curvature analysis, with the landform size it was measured at.",
+            appliesTo: t => t.Analyses.OfType<CurvatureAnalysisDefinition>().Any()),
         AnnotationParam.Bool(
             "IncludePlanting", "Planting",
             a => ((ReportTableAnnotationDefinition)a).IncludePlanting,
             (a, v) => ((ReportTableAnnotationDefinition)a).IncludePlanting = v,
-            "Placed block/species counts and actual percentages from each enabled Scatter card."),
+            "Placed block/species counts and actual percentages from each enabled Scatter card.",
+            appliesTo: t => t.Objects.OfType<ScatterObjectDefinition>().Any()),
+        AnnotationParam.Section("appearance", "Appearance"),
         AnnotationParameterCatalog.SlopeUnitChoice(
             "Unit the drawn slope columns are written in. This one belongs to the drawing, so it is " +
             "stored with the terrain — unlike the slope unit you type in, which is a per-user preference."),
@@ -1004,6 +1112,7 @@ internal sealed class ReportTableAnnotationDescriptor : AnnotationTypeDescriptor
             a => ((ReportTableAnnotationDefinition)a).ColorArgb,
             (a, v) => ((ReportTableAnnotationDefinition)a).ColorArgb = v,
             "Override colour for the table. Unset draws it in the Report Table layer's colour."),
+        AnnotationParameterCatalog.TextSize(),
     };
 
     public override string? DescribeBlocker(TerrainDefinition terrain, AnnotationDefinition annotation)
@@ -1013,7 +1122,8 @@ internal sealed class ReportTableAnnotationDescriptor : AnnotationTypeDescriptor
             table.IncludeEarthworks || table.IncludePonding || table.IncludeCatchments ||
             table.IncludeGradientCompliance || table.IncludeLandforms || table.IncludePlanting;
         if (!anythingSelected)
-            return "Nothing is selected to report — switch on at least one section below.";
+            return "Nothing is selected to report — switch on at least one section below. Sections appear " +
+                "as this terrain gains what they report (zones, analyses, scatter).";
 
         // A report draws what other cards measured. Saying which card is missing is more use than an
         // empty table, which reads as "this terrain has no quantities".
@@ -1044,6 +1154,14 @@ internal sealed class LegendAnnotationDescriptor : AnnotationTypeDescriptor
     };
 
     public override string Kind => "legend";
+
+    public override string Summarize(TerrainDefinition terrain, AnnotationDefinition definition, TerrainAnalysisSummary? summary, ResultFormatter format)
+    {
+        return TerrainAnalysisPreviewBuilder.FindColoringAnalysis(terrain) is { } coloring
+            && TerrainLegendBuilder.DescribeUnavailable(terrain) == null
+                ? $"keys {coloring.Label}"
+                : "nothing to key";
+    }
     public override Type DefinitionType => typeof(LegendAnnotationDefinition);
     public override string TypeLabel => "Legend";
     public override string MenuLabel => "Legend";
@@ -1056,12 +1174,24 @@ internal sealed class LegendAnnotationDescriptor : AnnotationTypeDescriptor
 
     public override IReadOnlyList<AnnotationParam> Parameters { get; } = new[]
     {
+        // Design review Step 39: which analysis the legend keys, as the preview colours it.
+        AnnotationParam.ReadOnly(
+            "Colouring", "Colouring",
+            null,
+            "The analysis currently colouring the terrain; the legend keys it. Turn on an analysis that " +
+            "colours the terrain, or move one above the others, to key a different one.",
+            getFromTerrain: (terrain, _) => TerrainAnalysisPreviewBuilder.FindColoringAnalysis(terrain)?.Label ?? "None"),
         AnnotationParam.Text(
             "Title", "Title",
             a => ((LegendAnnotationDefinition)a).Title,
             (a, v) => ((LegendAnnotationDefinition)a).Title = v ?? string.Empty,
-            "Heading drawn above the key. Leave empty to use the analysis's name and unit.",
-            refreshOnly: true),
+            "Heading drawn above the key. Leave empty to use the analysis's name and unit, shown greyed here.",
+            refreshOnly: true,
+            // Design review Step 39: the automatic title, as the builder would draw it.
+            placeholder: (terrain, _) =>
+                TerrainAnalysisPreviewBuilder.FindColoringAnalysis(terrain) is { } coloring
+                    ? TerrainLegendBuilder.DefaultTitle(coloring, global::Rhino.RhinoDoc.ActiveDoc?.ModelUnitSystem ?? global::Rhino.UnitSystem.Meters)
+                    : null),
         AnnotationParam.Choice(
             "Layout", "Layout", LayoutOptions,
             a => ((LegendAnnotationDefinition)a).Horizontal ? "horizontal" : "vertical",
@@ -1069,6 +1199,7 @@ internal sealed class LegendAnnotationDescriptor : AnnotationTypeDescriptor
             "Vertical stacks the key with the highest values at the top; horizontal runs it left to right, " +
             "for a key along the foot of a sheet.",
             refreshOnly: true),
+        AnnotationParam.Section("appearance", "Appearance"),
         AnnotationParam.Number(
             "SwatchSize", "Swatch Size",
             a => ((LegendAnnotationDefinition)a).SwatchSize,
@@ -1089,6 +1220,20 @@ internal sealed class LegendAnnotationDescriptor : AnnotationTypeDescriptor
             (a, v) => ((LegendAnnotationDefinition)a).ColorArgb = v,
             "Override colour for the text and outlines. Unset draws them in the Legend layer's colour; the " +
             "swatches always show the analysis's own colours.",
+            refreshOnly: true),
+        AnnotationParameterCatalog.TextSize(),
+        AnnotationParam.InsertionPoint(
+            "InsertionPoint",
+            a => (((LegendAnnotationDefinition)a).HasInsertionPlane, ((LegendAnnotationDefinition)a).InsertionOriginX,
+                ((LegendAnnotationDefinition)a).InsertionOriginY, ((LegendAnnotationDefinition)a).InsertionOriginZ),
+            (a, point) =>
+            {
+                var key = (LegendAnnotationDefinition)a;
+                key.HasInsertionPlane = point.HasValue;
+                if (point is { } p)
+                    (key.InsertionOriginX, key.InsertionOriginY, key.InsertionOriginZ) = (p.X, p.Y, p.Z);
+            },
+            "Top-left corner of the drawn key. Pick it, or leave it to place itself beside the terrain, level with its foot.",
             refreshOnly: true),
     };
 

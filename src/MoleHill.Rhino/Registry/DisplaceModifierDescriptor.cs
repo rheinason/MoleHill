@@ -20,6 +20,9 @@ internal sealed class DisplaceModifierDescriptor : ModifierTypeDescriptor
     public override Type DefinitionType => typeof(DisplaceModifierDefinition);
     public override string DisplayName => "Displace";
     public override string IconName => "ModDisplace";
+
+    public override int AccentArgb => unchecked((int)0xFF3949AB);
+
     public override int SortOrder => 4;
     public override string Subtitle => "Raise and lower the ground by noise or an image";
 
@@ -39,8 +42,8 @@ internal sealed class DisplaceModifierDescriptor : ModifierTypeDescriptor
         var d = (DisplaceModifierDefinition)modifier;
         string region = d.Boundaries.HasReferences ? Count(CountSources(d.Boundaries), "boundary", "boundaries") : "whole terrain";
         return DisplaceSources.IsImage(d)
-            ? $"Image {DescribeFileName(d.ImagePath)} | {(d.Mapping.HasReferences ? "Tile from rectangle" : $"Tile {d.TileSizeX:G4} x {d.TileSizeY:G4}")} | Height {d.Height:G4} | {region}"
-            : $"Noise | Size {d.NoiseSize:G4} | Height {d.Height:G4} | Seed {d.Seed} | {region}";
+            ? $"Image {DescribeFileName(d.ImagePath)} · {(d.Mapping.HasReferences ? "Tile from rectangle" : $"Tile {d.TileSizeX:G4} x {d.TileSizeY:G4}")} · Height {d.Height:G4} · {region}"
+            : $"Noise · Size {d.NoiseSize:G4} · Height {d.Height:G4} · Seed {d.Seed} · {region}";
     }
 
     public override string? InertReason(ModifierDefinition modifier, TerrainBuildSnapshot snapshot)
@@ -233,9 +236,30 @@ internal sealed class DisplaceModifierDescriptor : ModifierTypeDescriptor
     private static readonly IReadOnlyList<(string Key, string Label)> WrapOptions = new[]
     {
         (DisplaceSources.Repeat, "Repeat"),
-        (DisplaceSources.Clamp, "Clamp"),
-        (DisplaceSources.Once, "Once"),
+        (DisplaceSources.Clamp, "Extend"),
+        (DisplaceSources.Once, "No Effect"),
     };
+
+    // Design review Step 52: what each choice does beyond the image, on its segment.
+    private static readonly IReadOnlyDictionary<string, string> WrapHelp = new Dictionary<string, string>
+    {
+        [DisplaceSources.Repeat] = "Copies the image edge to edge in every direction.",
+        [DisplaceSources.Clamp] = "Lays the image once and carries its edge pixels outward.",
+        [DisplaceSources.Once] = "Lays the image once and leaves the surrounding terrain alone. Draw a boundary with a Feather to soften its edge.",
+    };
+
+    private static string PlacementTitle(ModifierDefinition m) => IsImage(m) ? "Image Placement" : "Placement";
+
+    private static string? PlacementSummary(ModifierDefinition m)
+    {
+        var d = (DisplaceModifierDefinition)m;
+        if (IsMapped(m))
+            return "From rectangle";
+        return IsImage(m) ? $"{d.TileSizeX:G4} × {d.TileSizeY:G4}" : null;
+    }
+
+    private static string? OutsideSummary(ModifierDefinition m) =>
+        WrapOptions.FirstOrDefault(option => option.Key == ((DisplaceModifierDefinition)m).Wrap).Label;
 
     private static bool IsNoise(ModifierDefinition m) => !DisplaceSources.IsImage((DisplaceModifierDefinition)m);
 
@@ -252,12 +276,21 @@ internal sealed class DisplaceModifierDescriptor : ModifierTypeDescriptor
             "Source", "Source", SourceOptions,
             m => ((DisplaceModifierDefinition)m).Source,
             (m, v) => ((DisplaceModifierDefinition)m).Source = v ?? DisplaceSources.Noise,
-            "Noise raises and lowers the ground in random bumps from a seed, the same on every machine. Image raises and lowers it by a greyscale image laid on the ground at a real-world size: white up, black down."),
+            "Noise raises and lowers the ground in random bumps from a seed, the same on every machine. Image raises and lowers it by a greyscale image laid on the ground at a real-world size: white up, black down.",
+            fullRow: true),
         ModifierParam.Sources(
             "Boundaries", "Boundaries",
             m => ((DisplaceModifierDefinition)m).Boundaries,
             RhinoObjectType.Curve,
             "Closed curves that limit the edit to the terrain inside them. Nothing outside moves; inside, the offset rises from zero at the drawn line to full strength at the Feather distance. Leave empty to displace the whole terrain."),
+        ModifierParam.Number(
+            "Height", "Height",
+            m => ((DisplaceModifierDefinition)m).Height,
+            (m, v) => ((DisplaceModifierDefinition)m).Height = v,
+            "The full range of the offset. Noise: from the lowest dip to the highest bump, so no point moves more than half of it; most bumps are smaller. Image: the difference between black and white. A negative Height turns the pattern upside down.",
+            min: null,
+            unit: ParameterUnit.ModelLength,
+            liveScrub: true),
         ModifierParam.Sources(
             "Protect", "Protect",
             m => ((DisplaceModifierDefinition)m).Protect,
@@ -275,14 +308,6 @@ internal sealed class DisplaceModifierDescriptor : ModifierTypeDescriptor
             m => ((DisplaceModifierDefinition)m).HoldBorder,
             (m, v) => ((DisplaceModifierDefinition)m).HoldBorder = v,
             "Keep the terrain's outer edge at its height, so it still meets whatever lies beyond it. Untick to displace right out to the edge."),
-        ModifierParam.Number(
-            "Height", "Height",
-            m => ((DisplaceModifierDefinition)m).Height,
-            (m, v) => ((DisplaceModifierDefinition)m).Height = v,
-            "The full range of the offset. Noise: from the lowest dip to the highest bump, so no point moves more than half of it; most bumps are smaller. Image: the difference between black and white. A negative Height turns the pattern upside down.",
-            min: null,
-            unit: ParameterUnit.ModelLength,
-            liveScrub: true),
         ModifierParam.Number(
             "NoiseSize", "Noise Size",
             m => ((DisplaceModifierDefinition)m).NoiseSize,
@@ -322,28 +347,6 @@ internal sealed class DisplaceModifierDescriptor : ModifierTypeDescriptor
             HeightmapImageLoader.Extensions,
             "A greyscale image file (PNG, JPEG, BMP, GIF or TIFF), read as brightness. The document keeps only its path: save over the image and the terrain rebuilds; move or delete it and the card stops until you point it at the file again.",
             visibleWhen: IsImage),
-        ModifierParam.Sources(
-            "Mapping", "Mapping",
-            m => ((DisplaceModifierDefinition)m).Mapping,
-            RhinoObjectType.Curve,
-            "Optional: one rectangle drawn in plan that places the image. Its start point is the image's bottom-left corner, and the image's bottom edge runs from there counter-clockwise around the rectangle, so the drawing direction never flips the image; start at another corner to turn it. Its sides are the tile's width and height. While set it replaces Origin, Tile Width, Tile Height and Rotation, and moving, turning or scaling it in Rhino moves the image.",
-            visibleWhen: IsImage),
-        ModifierParam.Number(
-            "TileSizeX", "Tile Width",
-            m => ((DisplaceModifierDefinition)m).TileSizeX,
-            (m, v) => ((DisplaceModifierDefinition)m).TileSizeX = v,
-            "How wide the whole image is on the ground, along its own X axis.",
-            min: 0.0,
-            unit: ParameterUnit.ModelLength,
-            visibleWhen: IsTypedImage),
-        ModifierParam.Number(
-            "TileSizeY", "Tile Height",
-            m => ((DisplaceModifierDefinition)m).TileSizeY,
-            (m, v) => ((DisplaceModifierDefinition)m).TileSizeY = v,
-            "How tall the whole image is on the ground, along its own Y axis (towards the image's top).",
-            min: 0.0,
-            unit: ParameterUnit.ModelLength,
-            visibleWhen: IsTypedImage),
         ModifierParam.Slider(
             "Neutral", "Neutral",
             m => ((DisplaceModifierDefinition)m).Neutral,
@@ -351,12 +354,35 @@ internal sealed class DisplaceModifierDescriptor : ModifierTypeDescriptor
             softMin: 0.0, softMax: 1.0, decimalPlaces: 2, hardMin: 0.0, hardMax: 1.0, liveScrub: true,
             help: "The brightness that leaves the ground where it is: 0.5 is mid grey (white raises, black lowers), 0 makes black neutral so the image only raises.",
             visibleWhen: IsImage),
-        ModifierParam.Choice(
-            "Wrap", "Wrap", WrapOptions,
-            m => ((DisplaceModifierDefinition)m).Wrap,
-            (m, v) => ((DisplaceModifierDefinition)m).Wrap = v ?? DisplaceSources.Repeat,
-            "Repeat lays the image edge to edge in every direction. Clamp lays it once and carries its edge pixels on outward. Once lays it once and leaves the ground alone beyond it; draw a boundary with a Feather to soften its edge.",
+        ModifierParam.Bool(
+            "ShowMapping", "Show Image Guides",
+            m => ((DisplaceModifierDefinition)m).ShowMapping,
+            (m, v) => ((DisplaceModifierDefinition)m).ShowMapping = v,
+            "Draw the image tiles over the terrain, with the origin and the image's top edge, while this card is on. Drawn only, never baked.",
             visibleWhen: IsImage),
+        ModifierParam.Section("placement", "Placement", summary: PlacementSummary, titleFor: PlacementTitle),
+        ModifierParam.Sources(
+            "Mapping", "Mapping",
+            m => ((DisplaceModifierDefinition)m).Mapping,
+            RhinoObjectType.Curve,
+            "Optional: one rectangle drawn in plan that places the image. Its start point is the image's bottom-left corner, and the image's bottom edge runs from there counter-clockwise around the rectangle, so the drawing direction never flips the image; start at another corner to turn it. Its sides are the tile's width and height. While set it replaces Origin, Tile Width, Tile Height and Rotation, and moving, turning or scaling it in Rhino moves the image.",
+            visibleWhen: IsImage),
+        ModifierParam.Number(
+            "TileSizeX", "Image Width",
+            m => ((DisplaceModifierDefinition)m).TileSizeX,
+            (m, v) => ((DisplaceModifierDefinition)m).TileSizeX = v,
+            "How wide the whole image is on the ground, along its own X axis.",
+            min: 0.0,
+            unit: ParameterUnit.ModelLength,
+            visibleWhen: IsTypedImage),
+        ModifierParam.Number(
+            "TileSizeY", "Image Height",
+            m => ((DisplaceModifierDefinition)m).TileSizeY,
+            (m, v) => ((DisplaceModifierDefinition)m).TileSizeY = v,
+            "How tall the whole image is on the ground, along its own Y axis (towards the image's top).",
+            min: 0.0,
+            unit: ParameterUnit.ModelLength,
+            visibleWhen: IsTypedImage),
         ModifierParam.Number(
             "Rotation", "Rotation",
             m => ((DisplaceModifierDefinition)m).Rotation,
@@ -367,27 +393,27 @@ internal sealed class DisplaceModifierDescriptor : ModifierTypeDescriptor
             decimalPlaces: 2,
             unit: ParameterUnit.Degrees,
             visibleWhen: m => !IsMapped(m)),
-        ModifierParam.Number(
-            "OriginX", "Origin X",
-            m => ((DisplaceModifierDefinition)m).OriginX,
-            (m, v) => ((DisplaceModifierDefinition)m).OriginX = v,
-            "World X of the pattern's origin: the image's lower-left corner, and the point the pattern turns about.",
-            min: null,
-            unit: ParameterUnit.ModelLength,
+        // Design review Step 53: one picked point for the origin, stored in OriginX/OriginY (Z ignored).
+        // A Mapping rectangle supplies the origin while it is set; the saved point returns when it is cleared.
+        ModifierParam.PlanPoint(
+            "Origin", "Origin",
+            m => (((DisplaceModifierDefinition)m).OriginX, ((DisplaceModifierDefinition)m).OriginY),
+            (m, x, y) =>
+            {
+                ((DisplaceModifierDefinition)m).OriginX = x;
+                ((DisplaceModifierDefinition)m).OriginY = y;
+            },
+            "The pattern's origin in plan: the image's lower-left corner, and the point the pattern turns " +
+            "about. Pick it in the viewport, or type coordinates at the prompt. Clearing returns it to world 0,0.",
             visibleWhen: m => !IsMapped(m)),
-        ModifierParam.Number(
-            "OriginY", "Origin Y",
-            m => ((DisplaceModifierDefinition)m).OriginY,
-            (m, v) => ((DisplaceModifierDefinition)m).OriginY = v,
-            "World Y of the pattern's origin: the image's lower-left corner, and the point the pattern turns about.",
-            min: null,
-            unit: ParameterUnit.ModelLength,
-            visibleWhen: m => !IsMapped(m)),
-        ModifierParam.Bool(
-            "ShowMapping", "Show Mapping",
-            m => ((DisplaceModifierDefinition)m).ShowMapping,
-            (m, v) => ((DisplaceModifierDefinition)m).ShowMapping = v,
-            "Draw the image tiles over the terrain, with the origin and the image's top edge, while this card is on. Drawn only, never baked.",
-            visibleWhen: IsImage),
+        ModifierParam.Section("outsideImage", "Outside Image", summary: OutsideSummary, visibleWhen: IsImage),
+        ModifierParam.Choice(
+            "Wrap", "Outside Image", WrapOptions,
+            m => ((DisplaceModifierDefinition)m).Wrap,
+            (m, v) => ((DisplaceModifierDefinition)m).Wrap = v ?? DisplaceSources.Repeat,
+            "What the terrain does beyond the image. Repeat copies it edge to edge, Extend carries its edge pixels outward, No Effect leaves the surrounding terrain alone (draw a boundary with a Feather to soften its edge).",
+            visibleWhen: IsImage,
+            optionHelp: WrapHelp,
+            fullRow: true),
     };
 }

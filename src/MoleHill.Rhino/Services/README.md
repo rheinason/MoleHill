@@ -16,7 +16,7 @@ file that needs Rhino's runtime must be added to that `Exclude` at its new path.
 | `Display/` | The display conduit, presentation/render meshes, colours, preview view, runtime overlay, scatter block preview, analysis preview builder, drainage preview cache, the route-suggestion review overlay |
 | `Output/` | Layer roles/templates/creation/routing, annotation styles, hatch patterns, generated-object model, block catalog and templates, `AnnotationBlockLibrary` (copy the built-in annotation block, field inspection and preview field resolution) and `AnnotationBlockEditor` (open a block in Rhino's block editor by name), per-terrain layer rename/cleanup, content visibility |
 | `Annotation/` | Annotation, legend, report and section builders, section layout/profile comparison, zone analysis and gradient-compliance evaluation |
-| `Persistence/` | Terrain JSON serializer, document store/identity/ownership, unit scaling, colour-ramp and field-code stores |
+| `Persistence/` | Terrain JSON serializer, document store/identity/ownership, unit scaling, colour-ramp and field-code stores, and `TerrainTransfer` (a terrain definition as a `.mhterrain` file: layer paths only; also the shared re-id and terrain-link clearing Duplicate and Delete use) |
 | `Objects/` | Object-owned transform-aware placement bases, geometry sampling/footprint fitting, and the temporary base-preview conduit |
 | `Import/` | GeoTIFF and raster georeferencing, DEM sampling, LandXML, survey import geometry/placement/naming, project-base plane, document north, Displace's heightmap image loader (`HeightmapImageLoader`: System.Drawing to 8-bit luminance, file stamp, small decode cache) |
 | `CurveReview/` | The curve-review conduit, form, rules, labeller and analysis |
@@ -82,7 +82,7 @@ out of the document; all accepted replacements form one command Undo, with rollb
   idle loop into the panel Status card. Rhino command history receives only concise started/finished,
   cancelled, or failed lines; detailed progress, diagnostics, and timings remain in Status.
 - Triangulate flattens each source curve once and reuses the packed stations for constraints and TIN
-  input. Its Contour Mode is `Auto` / `Constrained` / `Vertices only`; Auto treats contour sets at or
+  input. Its Contour Mode is `Auto` / `Exact` / `Vertices` (saved as `auto` / `constrained` / `vertices`); Auto treats contour sets at or
   above 250,000 source vertices as unconstrained samples while breaklines stay exact. Data Clip filters
   raw inputs exactly; Outer/Hide/Show are cached conforming trims after the modifier stack and before all
   surface-derived output. The same roles trim the captured base mesh for comparative analyses.

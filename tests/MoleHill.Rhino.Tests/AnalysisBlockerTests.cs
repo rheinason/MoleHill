@@ -81,7 +81,7 @@ public class AnalysisBlockerTests
         AddSource(analysis.Reference);
 
         Assert.Null(Blocker(analysis));
-        Assert.Equal(AnalysisPrerequisites.ReferenceBasis, Basis(analysis));
+        Assert.Null(Basis(analysis));
     }
 
     [Fact]
@@ -156,7 +156,7 @@ public class AnalysisBlockerTests
         string? blocker = Blocker(new TerrainSectionAnnotationDefinition());
 
         Assert.NotNull(blocker);
-        Assert.Contains("Sources", blocker);
+        Assert.Contains("Section Line", blocker);
     }
 
     [Fact]

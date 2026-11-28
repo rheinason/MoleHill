@@ -141,7 +141,8 @@ internal sealed class ColorRampBar : Drawable
         for (int i = 0; i < bars.Length; i++)
         {
             double normalized = Math.Clamp(bars[i], 0.0, 1.0);
-            float height = (float)(2.0 + (normalized * (HistogramHeight - 4)));
+            // Headroom above the tallest bar (design review): it never touches the heading or plot edge.
+            float height = (float)(2.0 + (normalized * (HistogramHeight - 2 - UiMetrics.SpaceSmall)));
             double centre = (i + 0.5) / bars.Length;
             var mapped = _mode == AnalysisColorMapper.Mode.Constant
                 ? AnalysisColorMapper.SampleConstant(centre, _ramp.Stops)
