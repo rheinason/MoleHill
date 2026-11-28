@@ -761,7 +761,7 @@ in the curve, so the drawn input still says what the pad will do (auto-balance a
 
 ### B24 — Long-section round trip (prototype) — **shipped as a prototype**
 
-**Redesigned 2026-11-22 as `mhEditProfile`**: the drawn round trip was fragile (the frame lived in user
+**Superseded 2026-11-28 by B34 (profile mode).** **Redesigned 2026-11-22 as `mhEditProfile`**: the drawn round trip was fragile (the frame lived in user
 text, so moving the drawing shifted every elevation; Rhino edits that made new objects broke the link) and
 not very useful (no elevation scale, no grade readout, slopes read wrong at exaggeration). It is now a live
 preview session beside the curve with dragged bends, typed grades, snaps and a session undo; see
@@ -842,6 +842,49 @@ Size), so a knife-edge crest between two samples is cut off. Measured on a 0.1 m
 every point where the curve crosses a mesh edge makes the profile exact for a piecewise-linear surface
 (the terrain is one), at a cost proportional to the edges crossed. `TerrainSectionSlicer.SampleAlongCurve`
 is the one place to change; `MeshSectionIndex` already indexes the edges.
+
+### B34 — Profile mode: edit a curve's long section with Rhino's own tools
+
+**Agreed 2026-11-28; next up.** Replaces `mhEditProfile` (never released) and supersedes B24's
+Extract/Apply. Seen live, Edit Profile's drag session worked but did not look or feel like Rhino, and a
+Rhino-styled redraw would still have been MoleHill re-inventing grips, snaps and undo. The owner's
+direction: MoleHill draws the section and its grid, the user edits a real curve with any Rhino tool, and
+accepts when happy.
+
+**The mode.**
+1. **Enter** on a plan curve. MoleHill draws its long section as a **real curve** in the document, behind
+   it a non-selectable overlay (grid, elevation and station scale, ground line). The overlay is the frame,
+   so it cannot be moved by accident: B24's bug (the frame lived in user text, so moving the drawing shifted
+   every elevation) cannot recur. Moving the curve against the fixed grid means what it shows: up raises.
+2. **Inspect Curve floats on top**, reading the section in true units (grades corrected for exaggeration,
+   the user's limit checks), with **Accept changes** and **Cancel**.
+3. **Edit with anything**: grips, gumball, Ortho, Rebuild, Fillet, **Trim, Split, Join**, drawing a new
+   piece and splicing it in (`mhReplaceCurveSection`, which already keeps the base curve's id), and
+   MoleHill's slope commands.
+4. **Accept** writes the section back to the plan curve as one ordinary Rhino undo step, then the section
+   and overlay disappear. **Cancel** removes them and leaves the plan curve as it was.
+
+**Rules.**
+- **The section is tracked through edits that replace it.** By id first. When a command deletes a tracked
+  curve and adds curves inside the section area (Trim, Split, Join), the added curves become the section.
+  If tracking is ever lost, Accept asks which curves are the section rather than failing.
+- **A trimmed or split section is allowed.** Accept reads every piece by station: stations a piece covers
+  take its heights, gaps keep the plan curve's own. A piece that doubles back in station is refused with
+  where it does so. Vertical steps are kept (a wall face).
+- **Only what changed moves** (Edit Profile's `ProfileEditor` behaviour, kept): an untouched stretch of the
+  plan curve keeps its own points exactly; a smooth curve stays smooth by default.
+- **Slope commands work in the section's frame.** `mhSlopeCurve`, `mhSlopeCurveSection` and
+  `mhSlopeControlPoints` recognise a section curve and take and report **true** grades: typing 2% gives a
+  true 2%, drawn 10% steep at 5x. This is what makes grading in the mode feel like Rhino.
+- **Persistent.** The mode survives save and reopen (the section is a document object, the frame and link
+  are document state); Accept and Cancel work after reopening.
+- **The inspector rule changes deliberately.** `mhInspectCurve` still never edits geometry itself; in the
+  mode it accepts edits the user made with Rhino tools, as one Rhino undo step. The old objection (a second
+  editing surface with its own preview and undo) does not apply.
+
+**Plan.** Restore B24's drawing from 1.7.0-beta, keep `ProfileEditor`'s touched-span logic, delete Edit
+Profile's session, snaps and conduit, then build the mode state, tracking, Accept/Cancel on the inspector,
+and frame-aware slope commands. Vertical curves at bends remain the step after.
 
 ### Smaller command follow-ups
 
