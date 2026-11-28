@@ -1,7 +1,8 @@
 # Local Penpot
 
-For login, current comparison pages, review instructions and implementation
-status, see the [UI design handoff](../../../docs/ui-design-handoff.md).
+For login, current comparison pages and review instructions, see the git-ignored UI design handoff,
+`ui-design-handoff.local.md` in this folder (machine paths and instance IDs). Implementation status is
+in the [Rhino UI design backlog](../../../docs/ui-backlog.md).
 
 The official Penpot Compose stack, pinned to **2.18.6**, runs as Docker project
 `molehill-penpot`. PostgreSQL and design assets use separate persistent named

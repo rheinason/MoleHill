@@ -1,7 +1,8 @@
 # MoleHill Penpot reference
 
-For project access, login, the design history and a review route, start with the
-[UI design handoff](../../docs/ui-design-handoff.md).
+For project access, login, the design history and a review route, start with the UI design handoff,
+`selfhost/ui-design-handoff.local.md`. It is git-ignored because it names this machine's paths and the
+local Penpot instance's IDs; the decision record that ships is the backlog below.
 
 For a local Docker installation, see [`selfhost/README.md`](selfhost/README.md).
 Approved design directions, unresolved polish and the next review decisions are

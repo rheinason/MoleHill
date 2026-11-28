@@ -215,7 +215,7 @@ When Triangle.NET inserts Steiner points, their Z must be interpolated. Check in
   (`StackGap`, `DialogPadding`, ...). Colours converted from data (layer, zone, ramp stop) are not
   literals. A card family's accent is its descriptor's `AccentArgb` (modifiers too), read through
   `UiTheme.TypeAccent`. `UiTokenGuardTests` fails on a literal anywhere else in `UI/`. Design-review
-  decisions (`docs/ui-design-handoff.md`) are implemented on the shared primitives (card shell, editors,
+  decisions (`docs/ui-backlog.md`) are implemented on the shared primitives (card shell, editors,
   schema rows), never per card: an off-scale number is snapped to the scale, not added to it.
 - **Rhino toolbar buttons** are a separate icon system, drawn entirely in code. Every button is a
   `$designs` entry in `generate-toolbar-icons.ps1`, in one flat, high-contrast language (ink `#231F20`,

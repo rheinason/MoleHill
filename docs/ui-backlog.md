@@ -1,7 +1,7 @@
 # Rhino UI design backlog
 
-For access, login, a review route and the complete comparison page index, see
-[ui-design-handoff.md](ui-design-handoff.md).
+Access, login, a review route and the complete comparison page index are in the local, git-ignored
+handoff `tools/penpot/selfhost/ui-design-handoff.local.md`.
 
 Updated 2026-11-23. The decision record of the Penpot design review (Steps 01–80) and where its
 implementation stands. Implementation shipped in 1.7.0-beta; each card was
