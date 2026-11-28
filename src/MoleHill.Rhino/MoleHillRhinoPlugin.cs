@@ -58,6 +58,7 @@ public sealed class MoleHillRhinoPlugin : PlugIn
         SectionExpansionPreference.Writer = (key, expanded) => Settings.SetBool(SectionSettingPrefix + key, expanded);
 
         TerrainController.Instance.Initialize();
+        ProfileModeService.Initialize();
 
         // Lets render engines that honour the RDK custom render mesh system draw terrain previews
         // without baking. Discovers every public RenderMeshProvider in this assembly — currently
@@ -71,6 +72,7 @@ public sealed class MoleHillRhinoPlugin : PlugIn
 
     protected override void OnShutdown()
     {
+        ProfileModeService.Shutdown();
         TerrainController.Instance.Shutdown();
         base.OnShutdown();
     }

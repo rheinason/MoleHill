@@ -15,10 +15,14 @@ using Rhino.UI;
 namespace MoleHill.Rhino.Services;
 
 /// <summary>
-/// The curve inspector reports; it never edits. Geometry is changed in Rhino, or through the terrain
-/// definition — a second editing surface with its own preview and undo stack is what turned this panel
-/// into two applications fighting for one column. The layout is therefore a reading order: what the
+/// The curve inspector reports; it never edits geometry itself. Geometry is changed in Rhino, or through the
+/// terrain definition — a second editing surface with its own preview and undo stack is what turned this
+/// panel into two applications fighting for one column. The layout is therefore a reading order: what the
 /// profile looks like, what passed, what it measures, what happened where.
+///
+/// <para>In profile mode (mhEditProfile) it reads the plan curve as it would be with the open long section
+/// applied, and offers Accept: the edit itself was made in Rhino, on the section curve, and Accept writes it
+/// back as one ordinary undo step.</para>
 /// </summary>
 internal sealed class CurveReviewForm : Form
 {
@@ -66,6 +70,20 @@ internal sealed class CurveReviewForm : Form
     private bool _labelling;
     private bool _refreshing;
     private bool _ruleRefreshPending;
+
+    // Profile mode: the form reads the plan curve as Accept would write it from the open long section.
+    private bool _profileMode;
+    private readonly Panel _modeBar = new() { Visible = false };
+    private readonly Label _modeStatus = UiControls.Label(string.Empty, UiLabelRole.Meta, WrapMode.Word);
+    private readonly CheckBox _keepSmooth = new()
+    {
+        Text = "Keep smooth",
+        Checked = true,
+        Visible = false,
+        ToolTip = "On: a smooth curve stays smooth, its edit points moved to the section. Off: it becomes an exact polyline through the section."
+    };
+    private Button? _pickButton;
+    private Button? _labelButton;
 
     public CurveReviewForm(RhinoDoc doc, Guid objectId)
     {
@@ -134,6 +152,35 @@ internal sealed class CurveReviewForm : Form
         RefreshReview(true);
     }
 
+    /// <summary>Reads the open long section's plan curve as Accept would write it, with Accept and Cancel.</summary>
+    public void SetProfileMode()
+    {
+        if (ProfileModeService.Session(_doc) is not { } session)
+            return;
+        _profileMode = true;
+        bool smooth = _doc.Objects.FindId(session.Link.PlanId)?.Geometry is Curve plan && !plan.TryGetPolyline(out _);
+        _keepSmooth.Visible = smooth;
+        ApplyModeLayout();
+        SetObject(session.Link.PlanId);
+    }
+
+    private void LeaveProfileMode()
+    {
+        _profileMode = false;
+        ApplyModeLayout();
+        SetObject(_objectId);
+    }
+
+    private void ApplyModeLayout()
+    {
+        _modeBar.Visible = _profileMode;
+        ApplyOverlayParts();
+        if (_pickButton != null)
+            _pickButton.Enabled = !_profileMode;
+        if (_labelButton != null)
+            _labelButton.Enabled = !_profileMode;
+    }
+
     // ── Layout ─────────────────────────────────────────────────────────────
 
     private Control BuildContent()
@@ -144,6 +191,7 @@ internal sealed class CurveReviewForm : Form
             DefaultSpacing = new Size(UiMetrics.SpaceSmall, UiMetrics.SpaceLarge)
         };
         scrollContent.Add(BuildHeader(), yscale: false);
+        scrollContent.Add(BuildModeBar(), yscale: false);
         scrollContent.Add(BuildSection("Elevation profile", _profile, BuildMetricPicker()), yscale: false);
         scrollContent.Add(BuildSection("Checks", BuildChecksBody(), null), yscale: false);
         scrollContent.Add(BuildSection("Measurements", _measurements, null), yscale: false);
@@ -173,6 +221,7 @@ internal sealed class CurveReviewForm : Form
     private Control BuildHeader()
     {
         var pick = UiControls.Button("Pick curve", (_, _) => ChangeObject(), "Inspect a different curve.", UiButtonRole.Inline);
+        _pickButton = pick;
         var close = UiControls.Button("Close", (_, _) => Close(), role: UiButtonRole.Inline);
         return new StackLayout
         {
@@ -181,6 +230,54 @@ internal sealed class CurveReviewForm : Form
             VerticalContentAlignment = VerticalAlignment.Center,
             Items = { pick, new StackLayoutItem(_objectLabel, true), _status, close }
         };
+    }
+
+    /// <summary>Profile mode's bar: what is being read, and Accept / Cancel for the open long section.</summary>
+    private Control BuildModeBar()
+    {
+        var accept = UiControls.Button("Accept changes", (_, _) => AcceptProfile(),
+            "Write the long section to the curve (one undo step) and remove the section.", UiButtonRole.Inline);
+        var cancel = UiControls.Button("Cancel", (_, _) => CancelProfile(),
+            "Remove the long section and leave the curve as it is.", UiButtonRole.Inline);
+        _keepSmooth.CheckedChanged += (_, _) =>
+        {
+            _fingerprint = string.Empty;
+            RefreshReview(true);
+        };
+
+        Label heading = UiControls.Label("EDITING THE LONG SECTION", UiLabelRole.Section);
+        _modeBar.Content = new StackLayout
+        {
+            Orientation = Orientation.Vertical,
+            Spacing = UiMetrics.SpaceSmall,
+            HorizontalContentAlignment = HorizontalAlignment.Stretch,
+            Items =
+            {
+                heading,
+                _modeStatus,
+                new AdaptiveControlGroup(UiMetrics.SpaceSmall, accept, cancel, _keepSmooth)
+            }
+        };
+        return _modeBar;
+    }
+
+    private void AcceptProfile()
+    {
+        if (!ProfileModeService.Accept(_doc, _keepSmooth.Checked == true, out Guid planId))
+        {
+            _fingerprint = string.Empty;
+            RefreshReview(true);
+            return;
+        }
+
+        _objectId = planId;
+        LeaveProfileMode();
+    }
+
+    private void CancelProfile()
+    {
+        ProfileModeService.Cancel(_doc);
+        LeaveProfileMode();
     }
 
     private Control BuildMetricPicker()
@@ -235,6 +332,7 @@ internal sealed class CurveReviewForm : Form
         _labelContent.SelectedIndex = 0;
         _labelContent.ToolTip = "What a placed label reads.";
         var labelButton = UiControls.Button("Label", (_, _) => LabelCurve(), "Place a text label at a picked point on the curve.", UiButtonRole.Inline);
+        _labelButton = labelButton;
 
         return new StackLayout
         {
@@ -510,6 +608,13 @@ internal sealed class CurveReviewForm : Form
     {
         if (_closing || _labelling)
             return;
+        if (_profileMode && ProfileModeService.Session(_doc) == null)
+        {
+            // The section is gone (deleted, or an Undo took it back): read the curve itself again.
+            LeaveProfileMode();
+            return;
+        }
+
         RhinoObject? obj = _doc.Objects.FindId(_objectId);
         if (obj == null)
         {
@@ -536,14 +641,30 @@ internal sealed class CurveReviewForm : Form
         {
             Mesh? terrain = CurveReviewService.PeekTerrainMesh(_doc);
             int terrainKey = terrain == null ? 0 : System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(terrain);
-            string fingerprint = $"{_objectId:N}|{_sourceSerial}|{terrainKey}";
+            string sections = _profileMode
+                ? string.Join(",", ProfileModeService.SectionObjects(_doc).Select(o => o.RuntimeSerialNumber))
+                : string.Empty;
+            string fingerprint = $"{_objectId:N}|{_sourceSerial}|{terrainKey}|{sections}";
             if (!force && fingerprint == _fingerprint)
                 return;
             _fingerprint = fingerprint;
 
-            var curve = _doc.Objects.FindId(_objectId)?.Geometry as Curve;
+            Curve? curve = _doc.Objects.FindId(_objectId)?.Geometry as Curve;
+            ProfileResult? applied = null;
+            if (_profileMode && ProfileModeService.Session(_doc) is { } session)
+            {
+                applied = ProfileModeService.BuildResult(_doc, session, _keepSmooth.Checked == true, out string? sectionError);
+                _modeStatus.Text = applied == null
+                    ? sectionError ?? "The section could not be read."
+                    : DescribeSection(applied);
+                _modeStatus.TextColor = applied == null ? UiTheme.WarningText : UiTheme.MutedText;
+                if (applied != null)
+                    curve = applied.Curve;
+            }
+
             string? error = null;
             _analysis = curve == null ? null : CurveReviewService.Evaluate(_doc, curve, _rules, out error);
+            applied?.Curve.Dispose();
             _profile.SetAnalysis(_analysis);
             _conduit.SetAnalysis(_analysis);
             if (_analysis == null)
@@ -559,7 +680,7 @@ internal sealed class CurveReviewForm : Form
                 return;
             }
 
-            _objectLabel.Text = $"Curve {_objectId.ToString("D")[..8]}";
+            _objectLabel.Text = (_profileMode ? "With the section applied: curve " : "Curve ") + _objectId.ToString("D")[..8];
             _status.Text = CurveReviewService.DescribeStatus(_analysis);
             _status.TextColor = _analysis.WarningCount > 0 ? UiTheme.WarningText : UiTheme.PrimaryText;
             RebuildChecks();
@@ -571,6 +692,19 @@ internal sealed class CurveReviewForm : Form
         {
             _refreshing = false;
         }
+    }
+
+    private static string DescribeSection(ProfileResult result)
+    {
+        if (!result.Edit.HasChanges)
+            return "Edit the section curve with any Rhino tool; this reads the curve as it would be.";
+        int stretches = result.Edit.ChangedRanges.Count;
+        string text = $"{stretches} stretch{(stretches == 1 ? string.Empty : "es")} changed; the rest keeps its own points.";
+        if (result.Edit.Uncovered().Count > 0)
+            text += " Where the section is trimmed away, the curve keeps its heights.";
+        if (result.KeptSmooth && result.Deviation > 0.0)
+            text += FormattableString.Invariant($" Kept smooth: strays up to {result.Deviation:0.###} between edit points.");
+        return text;
     }
 
     private void ChangeObject()
@@ -616,6 +750,10 @@ internal sealed class CurveReviewForm : Form
         if (_showLabels.Checked == true) parts |= CurveReviewOverlayParts.Labels;
         if (_showEvents.Checked == true) parts |= CurveReviewOverlayParts.Events;
         if (_showTerrain.Checked == true) parts |= CurveReviewOverlayParts.Terrain;
+        // In profile mode the long section carries the grades and breaks; labelling the plan curve as well
+        // stacked a second set of text right above it (found live). The ribbon stays.
+        if (_profileMode)
+            parts &= CurveReviewOverlayParts.Ribbon | CurveReviewOverlayParts.Terrain;
         _conduit.Parts = parts;
     }
 

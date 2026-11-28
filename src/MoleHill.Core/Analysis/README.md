@@ -121,15 +121,13 @@ Terrain analysis math. Pure, unit-tested.
   (`mhDrapeCurve`'s `Hit` option, the long-section ground line).
 - `LongSectionProfile.cs` — long-section helpers: `LongSectionFrame` (origin, datum, vertical
   exaggeration) maps station/elevation to drawing XY and back; `PlanStations`, `ElevationAt`, `SuggestDatum`.
-- `ProfileEditor.cs` (+ `ProfileBend.cs`) — the editable long section behind `mhEditProfile`: the curve's
-  profile simplified (vertical Douglas-Peucker, loosened to a bend limit) into bends that are moved,
-  inserted, deleted and given typed grades/elevations, with gesture-grouped undo/redo. `ApplyToPath`
-  re-elevates the plan path keeping XY, and **only in touched spans** (`TouchedRanges`: a span is untouched
-  when both ends are unmoved original bends that were neighbours), so the simplification never costs the
-  curve its own detail. Ends keep their stations; interior bends stay strictly between neighbours.
-- `ProfileSnap.cs` (+ `ProfileSnapKind.cs`) — the drag snaps: ground, a neighbour's level, a round grade
-  in the user's slope unit (`RoundGrade`) from either neighbour, a round elevation; reach is pixels
-  converted by the caller. `ProfileGroundLine.cs` — the ground under a section as station runs.
+- `SectionEdit.cs` - profile mode's write-back: one or more edited long-section pieces (trimmed, split,
+  spliced; either direction) read against the curve's own profile. Stations a piece covers take its heights,
+  uncovered ones keep the curve's; **only changed stretches are re-elevated** (a piece vertex off the original
+  profile, or an original vertex the piece no longer passes through), and `ApplyToPath` keeps every plan
+  point's XY plus each section vertex in a changed stretch (both points of a vertical step). A piece that
+  doubles back in station, or overlapping pieces that disagree, are refused with the station.
+  `ProfileGroundLine.cs` - the ground under a section as station runs.
 - `MeshRegularityAnalyzer.cs` — sampled density and minimum-angle checks used to identify coarse or
   skinny triangulations before vertex-based Smooth/Sculpt operations.
 - `WaterflowTracer.cs` — deterministic downhill path tracing from XY starts through adjacent 2.5D

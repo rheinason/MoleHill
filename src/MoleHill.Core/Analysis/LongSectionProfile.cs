@@ -17,7 +17,7 @@ public readonly record struct LongSectionFrame(double OriginX, double OriginY, d
 
 /// <summary>
 /// Station and elevation helpers for long sections: plan stations along a path, linear elevation at a
-/// station, and a round datum. <see cref="ProfileEditor"/> (mhEditProfile) and the curve commands build on them.
+/// station, and a round datum. <see cref="SectionEdit"/> (mhEditProfile's profile mode) and the curve commands build on them.
 /// </summary>
 public static class LongSectionProfile
 {

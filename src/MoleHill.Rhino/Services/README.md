@@ -467,19 +467,18 @@ the expected source revision; failed fits/conflicts leave geometry/history intac
   incoming breaklines as locks and hard constraints, its tolerance profile, its other pads held. Without a
   card it balances against the final terrain with `CutSlope`/`FillSlope` options. Esc stops it; each curve
   is translated to its balancing elevation in one undo record.
-- `Commands/ProfileEditCommandService.cs` / `ProfileEditSession.cs` / `ProfileCurveUsers.cs` +
-  `Display/ProfileEditConduit.cs` / `ProfileEditView.cs` - `mhEditProfile`: a curve's long section edited
-  live as a preview beside it (nothing is added to the document), over Core's `ProfileEditor`. A get loop
-  (`Get(true)`, one Get per gesture): press a bend to drag it (vertical by default, Shift flips `Move`,
-  Ctrl suspends snaps), press the line to add a bend; `Elevation`/`Grade`/`Delete` pick a bend or segment
-  (typed points resolve too, so it can be scripted); Ctrl+Z / `Undo` / `Redo` are the session's own undo,
-  which is the only Undo in play because Rhino blocks its accelerator inside a get. Enter replaces the
-  curve as one `Edit Profile` undo record; Esc changes nothing. `Ground=ActiveTerrain` is the mesh the
-  first card reading the curve received (`DuplicateIncomingModifierMesh`: the terrain before the road), else
-  the active terrain; segments over mhInspectCurve's maximum grade and bends over its vertical-break
-  threshold draw red. A smooth curve keeps its type through `TerrainInputCommandAlgorithms.ApplyProfileToEditPoints`
-  (only edit points in touched spans move) unless `Fit=Exact`. Replaced `mhExtractProfile`/`mhApplyProfile`,
-  whose drawn section carried its frame as user text and so read back wrong once the drawing was moved.
+- `ProfileMode/` - profile mode (`mhEditProfile`, backlog B34). `ProfileModeService` draws a curve's long
+  section as a real polyline tagged with a `ProfileSection` link (on its attributes: plan id, frame, plan
+  fingerprint), keeps a per-document registry of section curves (rescanned after add/delete/replace/attribute
+  events), re-tags curves a command adds in place of a deleted piece (applied after `EndCommand`, never from
+  inside the document's events), and builds the result through Core's `SectionEdit`: `BuildResult` is what
+  Inspect Curve reads and what `Accept` writes, as one `Accept Profile` undo record that also deletes the
+  section; `Cancel` deletes it. A smooth plan curve keeps its type via
+  `TerrainInputCommandAlgorithms.ApplyProfileToEditPoints` unless Keep smooth is off. Running the command with
+  a section open offers Inspect / Accept / Cancel. `ProfileModeConduit` draws the overlay (grid in the
+  user's grid colours, ground line, true grades with the Inspect Curve maximum in red), never handles.
+  `Commands/ProfileCurveUsers.cs` names the cards that read the curve and gives the ground (the incoming
+  mesh of the first such modifier).
 - `Commands/ScanToTerrainCommandService.cs` + `.Surfaces.cs` + `.Buildings.cs` — `mhScanToTerrain`
   opens `UI/TerrainCurveExtractionPanel` at once while the mesh and texture are read in the background, runs cancellable
   pure stages asynchronously on Run,

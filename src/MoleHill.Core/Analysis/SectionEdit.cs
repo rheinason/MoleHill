@@ -1,4 +1,6 @@
 // Profile mode's write-back: reads edited long-section pieces against the curve's own profile.
+using MoleHill.Core.Geometry;
+
 namespace MoleHill.Core.Analysis;
 
 /// <summary>
@@ -307,7 +309,7 @@ public sealed class SectionEdit
                     if (i + 1 < s.Length && s[i + 1] > 0.0)
                     {
                         cs.Add(0.0);
-                        cz.Add(Lerp(s[i], z[i], s[i + 1], z[i + 1], 0.0));
+                        cz.Add(HeightBetween(s[i], z[i], s[i + 1], z[i + 1], 0.0));
                     }
 
                     continue;
@@ -318,7 +320,7 @@ public sealed class SectionEdit
                     if (i > 0 && s[i - 1] < length)
                     {
                         cs.Add(length);
-                        cz.Add(Lerp(s[i - 1], z[i - 1], s[i], z[i], length));
+                        cz.Add(HeightBetween(s[i - 1], z[i - 1], s[i], z[i], length));
                     }
 
                     break;
@@ -339,7 +341,7 @@ public sealed class SectionEdit
             for (int i = 1; i < _s.Length; i++)
             {
                 if (station <= _s[i])
-                    return Lerp(_s[i - 1], _z[i - 1], _s[i], _z[i], station);
+                    return HeightBetween(_s[i - 1], _z[i - 1], _s[i], _z[i], station);
             }
 
             return _z[^1];
@@ -411,7 +413,7 @@ public sealed class SectionEdit
                 if (Math.Abs(s[i] - station) <= tol)
                     Take(z[i]);
                 if (i + 1 < s.Length && s[i] < station && s[i + 1] > station)
-                    Take(Lerp(s[i], z[i], s[i + 1], z[i + 1], station));
+                    Take(HeightBetween(s[i], z[i], s[i + 1], z[i + 1], station));
             }
 
             if (!double.IsFinite(low))
@@ -423,10 +425,11 @@ public sealed class SectionEdit
             return (low, high);
         }
 
-        private static double Lerp(double s0, double z0, double s1, double z1, double s)
+        /// <summary>The height at station <paramref name="s"/> on the segment (s0, z0)-(s1, z1).</summary>
+        private static double HeightBetween(double s0, double z0, double s1, double z1, double s)
         {
             double run = s1 - s0;
-            return run > 0.0 ? z0 + (z1 - z0) * ((s - s0) / run) : z0;
+            return run > 0.0 ? Geometry2D.Lerp(z0, z1, (s - s0) / run) : z0;
         }
     }
 }

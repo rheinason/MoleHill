@@ -53,6 +53,38 @@ internal static class CurveReviewService
         return Result.Success;
     }
 
+    /// <summary>Opens (or retargets) the inspector on the document's open long section, in profile mode.</summary>
+    public static void StartProfileMode(RhinoDoc doc)
+    {
+        if (ProfileModeService.Session(doc) is not { } session)
+            return;
+        if (OpenForms.TryGetValue(doc.RuntimeSerialNumber, out CurveReviewForm? existing))
+        {
+            existing.SetProfileMode();
+            existing.BringToFront();
+            return;
+        }
+
+        var form = new CurveReviewForm(doc, session.Link.PlanId);
+        OpenForms[doc.RuntimeSerialNumber] = form;
+        form.Closed += (_, _) => OpenForms.Remove(doc.RuntimeSerialNumber);
+        form.SetProfileMode();
+        Application.Instance.AsyncInvoke(() =>
+        {
+            try
+            {
+                form.Show();
+                form.PositionOverActiveView();
+            }
+            catch (Exception ex)
+            {
+                RhinoApp.WriteLine($"MoleHill could not open Inspect Curve: {ex.Message}");
+                OpenForms.Remove(doc.RuntimeSerialNumber);
+                form.Close();
+            }
+        });
+    }
+
     public static CurveReviewAnalysis? Evaluate(
         RhinoDoc doc,
         Curve curve,

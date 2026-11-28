@@ -5,21 +5,22 @@ beta prereleases. Earlier versions are recorded only in the git history.
 
 ## Unreleased
 
-- **Edit Profile** (`mhEditProfile`) replaces Extract Profile / Apply Profile. Pick a curve and its long
-  section appears beside it as a live preview, with an elevation grid, the ground under it, and every
-  segment's grade in your slope unit.
-  - Drag a bend up or down (Shift to slide it along too); press on the line to add a bend. Bends snap to
-    the ground, to a neighbour's level, to round grades and to round elevations; hold Ctrl to place freely.
-  - `Grade` types a segment's grade in any unit (`2%`, `1:50`, `1.2deg`); `Elevation` types a bend's
-    height; `Delete` removes a bend. Ctrl+Z steps back an edit.
-  - Enter applies the edit as one undo step, Esc leaves the curve untouched. Only the stretches you edit
-    change: the rest of the curve keeps its own points exactly.
-  - When the curve feeds a terrain card (a Grade Path, say), the ground shown is the terrain that card
-    grades, and the command says which cards the edit will update. Grades over the Inspect Curve limit
-    show in red.
-  - A smooth curve stays smooth (`Fit=EditPoints`), or becomes an exact polyline with `Fit=Exact`.
-  - Removed: `mhExtractProfile` and `mhApplyProfile`. Their drawn section lost its link to the curve when
-    moved or edited; for a drawing of a long section use the Section Along Curve annotation.
+- **Edit Profile** (`mhEditProfile`) replaces Extract Profile / Apply Profile. Pick a curve and MoleHill draws
+  its long section as an ordinary curve, behind it a grid with elevation and station scales, the ground
+  under the curve, and every segment's true grade in your slope unit (red over your Inspect Curve limit).
+  - Edit the section with any Rhino tool: drag grips, use the gumball, Rebuild, Trim, Split, Join, or draw a
+    new stretch and join it in.
+  - Inspect Curve opens beside it and reads the curve *as it will be*, with **Accept changes** and **Cancel**.
+    Each is one undo step, and an Undo of Accept brings the section back.
+  - Only what you change moves: stretches of the curve you did not edit keep their own points exactly, and
+    where you trim the section away the curve keeps its heights. A smooth curve stays smooth unless you untick
+    Keep smooth.
+  - When the curve feeds a terrain card (a Grade Path, say), the ground shown is the terrain that card grades,
+    and the command says which cards will update.
+  - The section is saved with the file, so you can finish later. Running Edit Profile again with a section
+    open offers Inspect, Accept or Cancel.
+  - Removed: `mhExtractProfile` and `mhApplyProfile`. Moving their drawn section changed its elevations; the
+    new grid stays put. For a drawing of a long section use the Section Along Curve annotation.
 - **Kerbs with shaped ends and crossings.** A Retaining Wall whose two curves come together at the end, in
   a point or a round nose, now builds; before, the pair was skipped as too narrow. The wall solid follows
   the drawn end. The terrain's top breakline stops a few millimetres short of the tip, because a terrain
