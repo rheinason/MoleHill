@@ -144,11 +144,24 @@ internal static partial class GeometryCommandService
             if (!indices.Contains(grip.Index)) indices.Add(grip.Index);
         }
 
+        // On a profile-mode section the slope is a true grade: everything is worked in true space (station,
+        // true elevation) and shown as drawn. A section and ordinary curves have no common "up", so not both.
+        SectionSpace?[] spaces = groups.Keys.Select(id => SectionSpace.For(doc.Objects.FindId(id))).ToArray();
+        SectionSpace? space = spaces.FirstOrDefault(s => s != null);
+        if (space != null && spaces.Any(s => s == null || s.Link.PlanId != space.Link.PlanId))
+        {
+            RhinoApp.WriteLine("Slope a long section's points on their own, not together with other curves.");
+            return Result.Failure;
+        }
+
         using var referencePick = new GetPoint();
         referencePick.SetCommandPrompt("Reference point (Point object snap for another control point)");
         if (referencePick.Get() != GetResult.Point)
             return referencePick.CommandResult();
-        Point3d reference = referencePick.Point();
+        Point3d drawnReference = referencePick.Point();
+        Point3d reference = space?.ToTrue(drawnReference) ?? drawnReference;
+        if (space != null)
+            anchors = anchors.Select(space.ToTrue).ToList();
         Point3d anchor = anchors.FirstOrDefault(point =>
             new Point2d(point.X, point.Y).DistanceTo(new Point2d(reference.X, reference.Y)) > doc.ModelAbsoluteTolerance,
             Point3d.Unset);
@@ -165,10 +178,10 @@ internal static partial class GeometryCommandService
         }
 
         var sources = groups.Select(group => (Id: group.Key,
-            Curve: ((Curve)doc.Objects.FindId(group.Key).Geometry).DuplicateCurve(),
+            Curve: space?.ToTrue((Curve)doc.Objects.FindId(group.Key).Geometry) ?? ((Curve)doc.Objects.FindId(group.Key).Geometry).DuplicateCurve(),
             Indices: group.Value,
             Segments: sections.TryGetValue(group.Key, out List<int>? segments) ? segments : new List<int>())).ToArray();
-        using var preview = new ControlPointSlopePreview(doc.RuntimeSerialNumber, reference);
+        using var preview = new ControlPointSlopePreview(doc.RuntimeSerialNumber, drawnReference);
         var slope = new SlopeCommandOption("MoleHill.SlopeControlPoints.Slope", 0.02);
         double pickedRatio = slope.Ratio;
         // Like Offset: the mouse sets the slope until one is typed; then the mouse only chooses whether it
@@ -204,7 +217,16 @@ internal static partial class GeometryCommandService
                     foreach (int segment in source.Segments)
                         points.AddRange(ControlPointSlopeEdit.GetSegmentLocations(curve!, segment)!);
                 }
-                preview.Update(curves, points, SlopeInput.FormatWithUnit(ratio, SlopeUnitPreference.Current));
+                // Shown and kept as drawn; the dots read true elevations.
+                List<double> heights = points.Select(point => point.Z).ToList();
+                if (space != null)
+                {
+                    List<Curve> drawn = curves.Select(space.ToDrawing).ToList();
+                    foreach (Curve created in curves) created.Dispose();
+                    curves = drawn;
+                    points = points.Select(space.ToDrawing).ToList();
+                }
+                preview.Update(curves, points, heights, SlopeInput.FormatWithUnit(ratio, SlopeUnitPreference.Current));
                 return true;
             }
 
@@ -219,12 +241,14 @@ internal static partial class GeometryCommandService
                     ? $"Move above the reference to rise or below it to fall at {SlopeInput.FormatWithUnit(Math.Abs(slope.Ratio), SlopeUnitPreference.Current)}; click or Enter applies {current}"
                     : $"Move vertically to set the slope, or type Slope; click or Enter applies {current}");
                 pick.AcceptNothing(true);
-                pick.Constrain(new Line(anchor, anchor + Vector3d.ZAxis));
+                // Up is +Z, or +Y in a long section's drawing.
+                Point3d drawnAnchor = space?.ToDrawing(anchor) ?? anchor;
+                pick.Constrain(new Line(drawnAnchor, drawnAnchor + (space != null ? Vector3d.YAxis : Vector3d.ZAxis)));
                 slope.AddTo(pick);
                 int throughOption = typed ? pick.AddOption("Through") : -1;
                 pick.DynamicDraw += (_, e) =>
                 {
-                    pickedRatio = RatioAt(e.CurrentPoint.Z);
+                    pickedRatio = RatioAt((space?.ToTrue(e.CurrentPoint) ?? e.CurrentPoint).Z);
                     Update(pickedRatio);
                 };
                 GetResult result = pick.Get();
@@ -248,7 +272,7 @@ internal static partial class GeometryCommandService
                     continue;
                 }
                 if (result == GetResult.Point)
-                    pickedRatio = RatioAt(pick.Point().Z);
+                    pickedRatio = RatioAt((space?.ToTrue(pick.Point()) ?? pick.Point()).Z);
                 else if (result != GetResult.Nothing)
                     return pick.CommandResult();
                 if (!Update(pickedRatio)) return Result.Failure;
@@ -261,7 +285,7 @@ internal static partial class GeometryCommandService
                 if (doc.Objects.Replace(sources[index].Id, preview.Curves[index])) continue;
                 // Restore any earlier replacements if a later owner could not be changed.
                 for (int restore = 0; restore < index; restore++)
-                    doc.Objects.Replace(sources[restore].Id, sources[restore].Curve);
+                    doc.Objects.Replace(sources[restore].Id, space?.ToDrawing(sources[restore].Curve) ?? sources[restore].Curve);
                 RhinoApp.WriteLine("Rhino could not replace the curve; the edit was cancelled.");
                 return Result.Failure;
             }
@@ -295,13 +319,16 @@ internal static partial class GeometryCommandService
         private static readonly System.Drawing.Color PreviewColor = System.Drawing.Color.FromArgb(20, 125, 75);
         public List<Curve> Curves { get; private set; } = new();
         private List<Point3d> _points = new();
+        private List<double> _heights = new();
         private string _label = string.Empty;
 
-        public void Update(List<Curve> curves, List<Point3d> points, string label)
+        /// <summary><paramref name="heights"/> are what the dots read: the true elevation, also for a section.</summary>
+        public void Update(List<Curve> curves, List<Point3d> points, List<double> heights, string label)
         {
             foreach (Curve curve in Curves) curve.Dispose();
             Curves = curves;
             _points = points;
+            _heights = heights;
             _label = label;
         }
 
@@ -325,8 +352,8 @@ internal static partial class GeometryCommandService
                 e.Display.DrawPoint(point, PreviewColor);
             }
             e.Display.DrawPoint(reference, PreviewColor);
-            foreach (Point3d point in _points)
-                e.Display.DrawDot(point, $"{_label} / Z {point.Z:F3}", PreviewColor, System.Drawing.Color.White);
+            for (int i = 0; i < _points.Count; i++)
+                e.Display.DrawDot(_points[i], $"{_label} / Z {_heights[i].ToString("F3", System.Globalization.CultureInfo.InvariantCulture)}", PreviewColor, System.Drawing.Color.White);
         }
 
         public void Dispose()

@@ -10,6 +10,9 @@ beta prereleases. Earlier versions are recorded only in the git history.
   under the curve, and every segment's true grade in your slope unit (red over your Inspect Curve limit).
   - Edit the section with any Rhino tool: drag grips, use the gumball, Rebuild, Trim, Split, Join, or draw a
     new stretch and join it in.
+  - `mhSlopeCurve`, `mhSlopeCurveSection` and `mhSlopeControlPoints` work on the section in **true** grades:
+    2% typed is a true 2% (drawn 10% steep at 5x), and Slope Curve Section's BlendToTerrain blends to the
+    section's ground line.
   - Inspect Curve opens beside it and reads the curve *as it will be*, with **Accept changes** and **Cancel**.
     Each is one undo step, and an Undo of Accept brings the section back.
   - Only what you change moves: stretches of the curve you did not edit keep their own points exactly, and
@@ -21,6 +24,8 @@ beta prereleases. Earlier versions are recorded only in the git history.
     open offers Inspect, Accept or Cancel.
   - Removed: `mhExtractProfile` and `mhApplyProfile`. Moving their drawn section changed its elevations; the
     new grid stays put. For a drawing of a long section use the Section Along Curve annotation.
+- Slope Curve Section and the other slope commands print lengths and elevations with a decimal point on
+  every machine (a comma locale printed 24,000 for 24 m).
 - **Kerbs with shaped ends and crossings.** A Retaining Wall whose two curves come together at the end, in
   a point or a round nose, now builds; before, the pair was skipped as too narrow. The wall solid follows
   the drawn end. The terrain's top breakline stops a few millimetres short of the tip, because a terrain

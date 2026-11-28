@@ -478,7 +478,11 @@ the expected source revision; failed fits/conflicts leave geometry/history intac
   a section open offers Inspect / Accept / Cancel. `ProfileModeConduit` draws the overlay (grid in the
   user's grid colours, ground line, true grades with the Inspect Curve maximum in red), never handles.
   `Commands/ProfileCurveUsers.cs` names the cards that read the curve and gives the ground (the incoming
-  mesh of the first such modifier).
+  mesh of the first such modifier). `SectionSpace` is the affine map between a section's drawing and true
+  space (X = station, Z = true elevation): `mhSlopeCurve`, `mhSlopeCurveSection` and `mhSlopeControlPoints`
+  compute on the true-space curve and show and keep the result as drawn, so their grades are true; picks stay
+  on the drawn curve because an affine map keeps a curve's parameters. Under a section, "the terrain"
+  (BlendToTerrain) is `GroundStrip`, the ground line as a thin true-space mesh.
 - `Commands/ScanToTerrainCommandService.cs` + `.Surfaces.cs` + `.Buildings.cs` — `mhScanToTerrain`
   opens `UI/TerrainCurveExtractionPanel` at once while the mesh and texture are read in the background, runs cancellable
   pure stages asynchronously on Run,

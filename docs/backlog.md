@@ -845,7 +845,7 @@ is the one place to change; `MeshSectionIndex` already indexes the edges.
 
 ### B34 — Profile mode: edit a curve's long section with Rhino's own tools
 
-**Agreed 2026-11-28; next up.** Replaces `mhEditProfile` (never released) and supersedes B24's
+**Built 2026-11-28** (unreleased; live-verified: grips, Split, Join, trim and splice, Accept, Undo, save and reopen, Cancel, and the three slope commands in true grades). Replaces `mhEditProfile` (never released) and supersedes B24's
 Extract/Apply. Seen live, Edit Profile's drag session worked but did not look or feel like Rhino, and a
 Rhino-styled redraw would still have been MoleHill re-inventing grips, snaps and undo. The owner's
 direction: MoleHill draws the section and its grid, the user edits a real curve with any Rhino tool, and

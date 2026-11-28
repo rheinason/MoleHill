@@ -131,9 +131,13 @@ internal static partial class GeometryCommandService
             return getObject.CommandResult();
 
         ObjRef objRef = getObject.Object(0);
-        Curve? sourceCurve = objRef.Curve();
-        if (sourceCurve == null)
+        Curve? drawnCurve = objRef.Curve();
+        if (drawnCurve == null)
             return Result.Failure;
+
+        // A profile-mode section is graded in true grades: computed in true space, shown and kept as drawn.
+        SectionSpace? section = SectionSpace.For(objRef.Object());
+        Curve sourceCurve = section?.ToTrue(drawnCurve) ?? drawnCurve;
 
         bool usePercentage = GeometryCommandAlgorithms.ShouldUseSlopePercentageInput(
             sourceCurve.PointAtStart.Z,
@@ -176,7 +180,8 @@ internal static partial class GeometryCommandService
                 if (!previewSucceeded || previewCurve == null)
                     return;
 
-                e.Display.DrawCurve(previewCurve, TrackingColor, 2);
+                using Curve shown = section?.ToDrawing(previewCurve) ?? previewCurve.DuplicateCurve();
+                e.Display.DrawCurve(shown, TrackingColor, 2);
                 previewCurve.Dispose();
             };
 
@@ -225,6 +230,13 @@ internal static partial class GeometryCommandService
             doc.ModelAbsoluteTolerance,
             "curve");
 
+        if (section != null)
+        {
+            Curve drawnResult = section.ToDrawing(resultCurve);
+            resultCurve.Dispose();
+            resultCurve = drawnResult;
+        }
+
         if (replaceInput)
         {
             bool replaced = doc.Objects.Replace(objRef.ObjectId, resultCurve);
@@ -258,13 +270,18 @@ internal static partial class GeometryCommandService
             return getObject.CommandResult();
 
         ObjRef reference = getObject.Object(0);
-        Curve? source = reference.Curve();
-        if (source == null)
+        Curve? drawn = reference.Curve();
+        if (drawn == null)
             return Result.Failure;
+
+        // On a profile-mode section the edit runs in true grades (true space) while the picks stay on the
+        // curve as drawn: the map is affine, so a picked parameter is the same on both.
+        SectionSpace? section = SectionSpace.For(reference.Object());
+        Curve source = section?.ToTrue(drawn) ?? drawn;
 
         var firstPick = new GetPoint();
         firstPick.SetCommandPrompt("Pick first point on curve");
-        firstPick.Constrain(source, false);
+        firstPick.Constrain(drawn, false);
         if (firstPick.Get() != GetResult.Point)
             return firstPick.CommandResult();
 
@@ -272,15 +289,15 @@ internal static partial class GeometryCommandService
 
         var secondPick = new GetPoint();
         secondPick.SetCommandPrompt("Pick second point on curve (the grade runs towards it)");
-        secondPick.Constrain(source, false);
+        secondPick.Constrain(drawn, false);
         secondPick.DynamicDraw += (_, e) => e.Display.DrawPoint(firstPoint, TrackingColor);
         if (secondPick.Get() != GetResult.Point)
             return secondPick.CommandResult();
 
         Point3d secondPoint = secondPick.Point();
 
-        if (!source.ClosestPoint(firstPoint, out double firstParameter) ||
-            !source.ClosestPoint(secondPoint, out double secondParameter))
+        if (!drawn.ClosestPoint(firstPoint, out double firstParameter) ||
+            !drawn.ClosestPoint(secondPoint, out double secondParameter))
             return Result.Failure;
 
         // The picked section's own slope is a better opening value than one remembered from whatever
@@ -313,6 +330,15 @@ internal static partial class GeometryCommandService
                 return activeTerrain;
 
             terrainResolved = true;
+            if (section != null)
+            {
+                // Under a section the ground is its ground line.
+                activeTerrain = section.GroundStrip(ProfileModeService.Ground(doc, section.Link), doc.ModelAbsoluteTolerance);
+                if (activeTerrain == null)
+                    terrainError = "This section has no ground line: build the terrain under its curve first.";
+                return activeTerrain;
+            }
+
             TerrainDefinition? terrain = TerrainController.Instance.GetSelectedTerrain(doc);
             if (terrain == null)
             {
@@ -425,7 +451,8 @@ internal static partial class GeometryCommandService
                             measureDeviation: false) || previewCurve == null)
                         return;
 
-                    e.Display.DrawCurve(previewCurve, TrackingColor, 2);
+                    using Curve shown = section?.ToDrawing(previewCurve) ?? previewCurve.DuplicateCurve();
+                    e.Display.DrawCurve(shown, TrackingColor, 2);
                     previewCurve.Dispose();
                 };
 
@@ -468,6 +495,13 @@ internal static partial class GeometryCommandService
                 return Result.Failure;
             }
 
+            if (section != null)
+            {
+                Curve drawnResult = section.ToDrawing(resultCurve);
+                resultCurve.Dispose();
+                resultCurve = drawnResult;
+            }
+
             uint undoRecord = doc.BeginUndoRecord("Slope Curve Section");
             try
             {
@@ -489,8 +523,8 @@ internal static partial class GeometryCommandService
             // ends, so the achieved grade is the only number worth reporting.
             RhinoApp.WriteLine(
                 $"Section graded at {SlopeInput.FormatWithUnit(report.SlopeRatio, SlopeUnitPreference.Current)} " +
-                $"over {report.PlanLength:F3} " +
-                $"({report.FirstElevation:F3} to {report.SecondElevation:F3}).");
+                $"over {report.PlanLength.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)} " +
+                $"({report.FirstElevation.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)} to {report.SecondElevation.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)}).");
             ReportSlopeDeviation(report.Deviation, doc.ModelAbsoluteTolerance, "section");
 
             doc.Views.Redraw();
@@ -523,12 +557,12 @@ internal static partial class GeometryCommandService
 
         candidate.Dispose();
         string summary = $"grade {SlopeInput.FormatWithUnit(report.SlopeRatio, SlopeUnitPreference.Current)}, " +
-                         $"ends {report.FirstElevation:F3} to {report.SecondElevation:F3}";
+                         $"ends {report.FirstElevation.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)} to {report.SecondElevation.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)}";
 
         // Only worth saying when it is worth acting on; an exact polyline edit would otherwise carry a
         // permanent "deviation 0.000" that trains the eye to skip the whole line.
         return report.Deviation.ExceedsTolerance(tolerance)
-            ? summary + $", off by {report.Deviation.MaxDeviation:F3}"
+            ? summary + $", off by {report.Deviation.MaxDeviation.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)}"
             : summary;
     }
 
@@ -547,8 +581,8 @@ internal static partial class GeometryCommandService
             return;
 
         RhinoApp.WriteLine(
-            $"The {subject} deviates up to {deviation.MaxDeviation:F3} from the prescribed slope, " +
-            $"at station {deviation.Station:F3}. Control points were moved to keep the curve editable; " +
+            $"The {subject} deviates up to {deviation.MaxDeviation.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)} from the prescribed slope, " +
+            $"at station {deviation.Station.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)}. Control points were moved to keep the curve editable; " +
             "rebuild it with more points if that is too coarse.");
     }
 
@@ -767,7 +801,7 @@ internal static partial class GeometryCommandService
                 string side = signedDistance <= 0.0 ? "Left" : "Right";
                 e.Display.DrawDot(
                     e.CurrentPoint,
-                    $"{distanceOption.CurrentValue:F3} {side}  dZ {previewVerticalDelta:F3}",
+                    $"{distanceOption.CurrentValue.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)} {side}  dZ {previewVerticalDelta.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)}",
                     TrackingColor,
                     FeedbackColor);
             };
